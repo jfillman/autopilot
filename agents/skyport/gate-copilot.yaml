@@ -1,0 +1,18 @@
+# SESSION agent. A gate agent opens a chat in Tower; the agent answers questions and drafts
+# announcements. It never acts on its own: anything consequential goes through human.request.
+name: gate-copilot
+kind: session
+identity: { type: delegated }
+profile:
+  tierCeiling: T0
+  tools: [app.api.get, catalog.read, chat.recv, chat.send, human.request]
+  apis: { allow: [flight-api, boarding-api, baggage-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 60, toolCalls: 300, githubCalls: 0, openPrs: 0, modelTokens: 400000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/skyport-gate-copilot@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: langgraph
+  sandbox: standard
+triggers: [ { type: manual } ]

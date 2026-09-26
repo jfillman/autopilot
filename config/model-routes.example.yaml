@@ -1,0 +1,14 @@
+# Durable (git). Alias -> backend. A run names an alias; it never holds a key or a URL.
+# Provider API keys live only in the model proxy, delivered by External Secrets from Infisical.
+routes:
+  - alias: claude-sonnet-5
+    backend: anthropic
+    upstream: https://api.anthropic.com
+    upstreamModel: claude-sonnet-5
+  # Self-hosted, behind a Modelplane InferenceGateway running in "behind another gateway" mode:
+  # the model proxy authenticates the run (TokenReview) and sets x-modelplane-caller to the
+  # session id, and the inference gateway is reachable ONLY from the proxy.
+  - alias: qwen3-8b
+    backend: modelplane
+    upstream: http://gateway.inference.example.internal
+    upstreamModel: default/qwen3-8b          # <namespace>/<ModelService>

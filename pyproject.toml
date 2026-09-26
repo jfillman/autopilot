@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clearance"
+version = "0.1.0.dev0"
+description = "Policy, audit and session gateway for AI agent workloads on Hangar"
+requires-python = ">=3.11"
+dependencies = ["cel-python>=0.5", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clearance"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "airframe-drafts/functions/function-agentrun/tests"]
+pythonpath = ["src", "airframe-drafts/functions/function-agentrun"]

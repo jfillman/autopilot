@@ -1,0 +1,133 @@
+# DRAFT - not applied anywhere. Lives here until it is moved into airframe/xrds/ through a
+# worktree (see ../README.md).
+#
+# AgentRun is the EPHEMERAL half of an agent workload: one bounded, disposable run of an
+# agent definition. It is created imperatively by Clearance (a claim, not a git commit),
+# dev clusters only, in the reserved namespace autopilot-runs. The durable half, the agent
+# definition, is reviewed YAML in git (clearance/agents/*.yaml, schema
+# schemas/agent-definition.schema.json).
+#
+# Why a namespaced XR that composes Objects: Crossplane v2 rejects composing a cluster-scoped
+# resource (the run's Namespace) from a namespaced XR, so, as SecretStore already does for
+# ClusterSecretStore, everything is wrapped in provider-kubernetes Objects. Clearance's RBAC
+# is then a namespaced Role on this one kind in this one namespace, not a cluster grant.
+#
+# Every field here is something a run may only NARROW relative to its definition; Clearance
+# enforces that (limits.narrow) and the composition enforces the cluster's own caps.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: agentruns.catalog.idp.io
+  annotations:
+    # High-churn ephemeral objects: keep them out of the Backstage catalog and the scaffolder.
+    terasky.backstage.io/add-to-catalog: "false"
+spec:
+  group: catalog.idp.io
+  names:
+    kind: AgentRun
+    plural: agentruns
+    singular: agentrun
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [agent, image, expiresAt, taskId, sessionId, compute, sandbox, network, limits]
+              properties:
+                agent:
+                  type: string
+                  pattern: "^[a-z][a-z0-9-]{1,40}$"
+                  description: Name of the durable agent definition this run instantiates.
+                image:
+                  type: string
+                  pattern: '^[^\s@]+@sha256:[a-f0-9]{64}$'
+                  description: >-
+                    Image, pinned by digest. A tag is rejected, because what runs must be what was signed.
+                framework:
+                  type: string
+                  enum: [claude-agent-sdk, langgraph, generic]
+                  default: generic
+                sandbox:
+                  type: string
+                  enum: [standard, hardened]
+                  description: >-
+                    hardened requires a runtime class (gVisor or Kata) on the cluster. If the cluster
+                    has none, the run is rejected. It is never silently downgraded to standard.
+                compute:
+                  type: string
+                  enum: [small, medium, large, gpu]
+                network:
+                  type: object
+                  required: [mode]
+                  properties:
+                    mode:
+                      type: string
+                      enum: [none, clearance, clearance+model, allowlist]
+                    allowCidrs:
+                      type: array
+                      maxItems: 8
+                      items:
+                        type: string
+                        pattern: '^[0-9]{1,3}(\.[0-9]{1,3}){3}/([1-9]|[12][0-9]|3[0-2])$'
+                      description: Only with mode allowlist. A /0 is not accepted.
+                expiresAt:
+                  type: string
+                  format: date-time
+                  description: >-
+                    Hard deadline. Past this instant the composition renders nothing and Crossplane
+                    garbage-collects the namespace. Needs no Clearance to be alive.
+                taskId:
+                  type: string
+                  pattern: "^t-[a-f0-9]{6,32}$"
+                sessionId:
+                  type: string
+                  pattern: "^s-[a-f0-9]{6,32}$"
+                parentSessionId:
+                  type: string
+                  pattern: "^s-[a-f0-9]{6,32}$"
+                limits:
+                  type: object
+                  required: [toolCalls, githubCalls, modelTokens]
+                  description: Passed to the run as environment, for its own information. Clearance is what enforces them.
+                  properties:
+                    toolCalls: {type: integer, minimum: 0}
+                    githubCalls: {type: integer, minimum: 0}
+                    modelTokens: {type: integer, minimum: 0}
+                sidecars:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: object
+                    required: [name, image]
+                    properties:
+                      name: {type: string, pattern: "^[a-z][a-z0-9-]{1,30}$"}
+                      image: {type: string, pattern: '^[^\s@]+@sha256:[a-f0-9]{64}$'}
+                input:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Small structured input (under 4 KiB). Pass a reference for anything larger.
+                frozen:
+                  type: boolean
+                  default: false
+                  description: Set by Clearance when the session breaker trips. Cuts all egress and holds the run for forensics.
+                freezeHoldMinutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 240
+                  default: 15
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Provisioning, Running, Succeeded, Failed, Frozen, Expired, Drained, Rejected]
+                reason: {type: string}
+                namespace: {type: string}
+                expiresAt: {type: string}
+                frozenAt: {type: string}

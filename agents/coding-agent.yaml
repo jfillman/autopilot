@@ -1,0 +1,16 @@
+name: coding-agent
+kind: task
+identity: { type: delegated }
+profile:
+  tierCeiling: T1
+  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.pr.open, xr.request, argo.sync.lower, pipeline.rerun, run.spawn, run.close, human.request, repo.pr.open_upper]
+  repos: { allow: ["jfillman/*"] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 30, toolCalls: 200, githubCalls: 300, openPrs: 3, modelTokens: 500000, children: 2 }
+runtime:
+  image: ghcr.io/jfillman/agent-coding@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: claude-agent-sdk
+  sandbox: standard
+triggers: [ { type: manual } ]

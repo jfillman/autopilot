@@ -1,0 +1,14 @@
+id: auto-ready-no-ready-condition
+title: Composite never goes Ready
+rootCause: function-auto-ready waits on a Ready condition the composed resource does not have; the composition must set the ready annotation itself
+verifiers:
+  - xr-ready
+  - composition-sets-ready-annotation
+  - no-manual-apply-in-audit
+allowedPaths:
+  - "compositions/**"
+  - "xrds/**"
+minPathsTouched: 1
+maxDenials: 2
+maxRetries: 3
+tokenBudget: 200000

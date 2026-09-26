@@ -1,0 +1,19 @@
+# TEAM orchestrator. Spawned by the responder for a major disruption. Plans, then delegates to three
+# narrower workers. It cannot do anything its parent could not, and a parent must itself hold every
+# tool it delegates: a child's tools are its own list intersected with its parent's.
+name: irregular-ops-team
+kind: team
+identity: { type: delegated }
+profile:
+  tierCeiling: T1
+  tools: [app.api.get, metrics.query, artifact.get, artifact.put, run.spawn, run.close, human.request]
+  apis: { allow: [flight-api, boarding-api, baggage-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 30, toolCalls: 120, githubCalls: 0, openPrs: 0, modelTokens: 600000, children: 3 }
+runtime:
+  image: ghcr.io/jfillman/skyport-irregular-ops-team@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: langgraph
+  sandbox: standard
+triggers: [ { type: manual } ]

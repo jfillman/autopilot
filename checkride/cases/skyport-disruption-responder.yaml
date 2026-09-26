@@ -1,0 +1,13 @@
+id: skyport-disruption-responder
+title: Delayed-flight events start exactly one draft each
+rootCause: the fixture stream has 5 delayed events, one delivered twice, one malformed, one for a flight that is not delayed
+verifiers:
+  - one-run-per-unique-event
+  - duplicate-delivery-did-not-start-a-second-run
+  - malformed-event-rejected-and-audited
+  - drafts-stayed-drafts
+allowedPaths: []
+minPathsTouched: 0
+maxDenials: 2
+maxRetries: 1
+tokenBudget: 400000

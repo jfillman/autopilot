@@ -1,0 +1,16 @@
+name: triage-agent
+kind: event
+identity: { type: workload, serviceAccount: holmesgpt/holmes }
+profile:
+  tierCeiling: T1
+  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.pr.open, human.request]
+  repos: { allow: ["jfillman/*"] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 15, toolCalls: 80, githubCalls: 60, openPrs: 1, modelTokens: 200000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/agent-triage@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: generic
+triggers:
+  - { type: alert, match: { alertname: RolloutDegraded } }

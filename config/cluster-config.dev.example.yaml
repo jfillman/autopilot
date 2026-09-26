@@ -1,0 +1,16 @@
+# function-agentrun input for a dev cluster. The apron component renders this from
+# cluster.yaml, so a new cluster is a small parameter set, not a hand-edited file.
+max_ttl_minutes: 240
+clearance_namespace: autopilot-system
+clearance_port: 8080
+model_proxy_port: 8081
+completion_grace_minutes: 5
+workspace_size: 1Gi
+# Empty on kind and Apple `container` clusters: no gVisor or Kata there, so a `hardened`
+# request is REJECTED rather than downgraded. Set on a production cluster that has one.
+runtime_classes: {}
+compute:
+  small:  { requests: { cpu: 250m, memory: 512Mi }, limits: { cpu: "1", memory: 1Gi } }
+  medium: { requests: { cpu: 500m, memory: 1Gi },  limits: { cpu: "2", memory: 4Gi } }
+  large:  { requests: { cpu: "2", memory: 4Gi },   limits: { cpu: "4", memory: 16Gi } }
+  # gpu: declared only on clusters that have GPUs, with the node selector and toleration for them.

@@ -1,0 +1,17 @@
+# TEAM worker. Checks every fact in a draft against the APIs.
+name: ops-checker
+kind: task
+identity: { type: delegated }
+profile:
+  tierCeiling: T0
+  tools: [app.api.get, artifact.get]
+  apis: { allow: [flight-api, boarding-api, baggage-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 15, toolCalls: 30, githubCalls: 0, openPrs: 0, modelTokens: 100000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/skyport-ops-checker@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: generic
+  sandbox: standard
+triggers: [ { type: manual } ]

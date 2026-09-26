@@ -1,0 +1,20 @@
+# EVENT agent. A flight is delayed on the broker; a trigger bridge (an ordinary Airframe app with a
+# RabbitMQ attach) starts one run per unique message. It drafts notices and never sends them. For a
+# major disruption it hands off to the irregular-ops team.
+name: disruption-responder
+kind: event
+identity: { type: workload, serviceAccount: autopilot-runs/disruption-responder }
+profile:
+  tierCeiling: T1
+  tools: [app.api.get, metrics.query, artifact.get, artifact.put, run.spawn, run.close, human.request]
+  apis: { allow: [flight-api, boarding-api, baggage-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 20, toolCalls: 80, githubCalls: 0, openPrs: 0, modelTokens: 400000, children: 1 }
+runtime:
+  image: ghcr.io/jfillman/skyport-disruption-responder@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: generic
+  sandbox: standard
+triggers:
+  - { type: event, source: rabbitmq, brokerRef: skyport-broker, exchange: flights.events, bindingKey: "flight.*.delayed", maxPerHour: 12 }

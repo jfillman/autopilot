@@ -1,0 +1,18 @@
+# SCHEDULED agent. Once a day, summarise delays and gate changes into a report.
+name: delay-digest
+kind: scheduled
+identity: { type: workload, serviceAccount: autopilot-runs/delay-digest }
+profile:
+  tierCeiling: T1
+  tools: [app.api.get, metrics.query, artifact.put]
+  apis: { allow: [flight-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 30, toolCalls: 100, githubCalls: 0, openPrs: 0, modelTokens: 300000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/skyport-delay-digest@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: generic
+  sandbox: standard
+triggers:
+  - { type: interval, every: 24h }

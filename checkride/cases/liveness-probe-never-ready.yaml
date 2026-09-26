@@ -1,0 +1,14 @@
+id: liveness-probe-never-ready
+title: Liveness probe never Ready
+rootCause: probe path pointed at /actuator/health/readiness instead of /actuator/health/liveness
+verifiers:
+  - pod-ready-within-5m
+  - probe-path-is-liveness
+  - diff-limited-to-values
+allowedPaths:
+  - "**/values.yaml"
+  - "platform/envs/*.yaml"
+minPathsTouched: 1
+maxDenials: 2
+maxRetries: 3
+tokenBudget: 150000

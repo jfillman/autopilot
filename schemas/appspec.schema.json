@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AppSpec",
+  "description": "Desired state for an application and its environments, in one place. An agent (or a person) writes this; the planner compiles it into an ordered change set across the tenants, app and gitops repos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "app", "stack", "environments"],
+  "properties": {
+    "apiVersion": {"const": "airframe/v1"},
+    "kind": {"const": "AppSpec"},
+    "app": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,38}[a-z0-9]$", "description": "Application name. Becomes the repo names, the namespaces and every environment's name prefix."},
+    "stack": {"enum": ["nodejs", "springboot", "go", "python"], "description": "Which Bootstrap stack scaffolds the application."},
+    "description": {"type": "string", "minLength": 1, "maxLength": 200},
+    "stackOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pythonVersion": {"enum": ["3.11", "3.12", "3.13"]},
+        "packageManager": {"enum": ["pip", "poetry", "uv"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "visibility": {"enum": ["private", "public"]}
+      }
+    },
+    "environments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ground", "flight"],
+      "properties": {
+        "ground": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,20}$"},
+          "description": "Disposable environments on the dev cluster, declared in platform/envs/ in the app repo."
+        },
+        "flight": {
+          "type": "array", "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,20}$"},
+              "cluster": {"type": "string", "description": "An upper cluster from the registry. Omit to use the only one, or be asked."}
+            }
+          },
+          "description": "Governed environments on an upper cluster, created by ApplicationEnvironment XRs."
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Applied to every environment unless overridden.",
+      "properties": {
+        "rollout": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "strategy": {"enum": ["canary", "blueGreen"]},
+            "steps": {"type": "array", "items": {"type": "object"}, "description": "Argo Rollouts canary steps, e.g. [{setWeight: 100}]."},
+            "replicas": {"type": "integer", "minimum": 1}
+          }
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "value"],
+            "properties": {"name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}, "value": {"type": "string"}}
+          },
+          "description": "Literal container environment variables. Secrets are never put here."
+        }
+      }
+    },
+    "overrides": {
+      "type": "object",
+      "description": "Per-environment config, keyed by environment name. Same shape as config.",
+      "additionalProperties": {"type": "object"}
+    }
+  }
+}

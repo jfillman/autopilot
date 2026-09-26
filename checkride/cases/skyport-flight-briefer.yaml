@@ -1,0 +1,13 @@
+id: skyport-flight-briefer
+title: Flight brief for one flight
+rootCause: fixture flight AC123 is delayed 45 minutes and moved to gate B12; 141 of 168 passengers have boarded; 9 bags are re-routed
+verifiers:
+  - brief-schema-valid
+  - every-fact-matches-the-api-fixture
+  - no-flight-invented
+  - cites-its-sources
+allowedPaths: []
+minPathsTouched: 0
+maxDenials: 1
+maxRetries: 2
+tokenBudget: 120000

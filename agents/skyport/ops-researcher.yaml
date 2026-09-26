@@ -1,0 +1,17 @@
+# TEAM worker. Finds which flights, gates and bags a disruption touches.
+name: ops-researcher
+kind: task
+identity: { type: delegated }
+profile:
+  tierCeiling: T1
+  tools: [app.api.get, metrics.query, artifact.put]
+  apis: { allow: [flight-api, boarding-api, baggage-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 15, toolCalls: 50, githubCalls: 0, openPrs: 0, modelTokens: 150000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/skyport-ops-researcher@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: generic
+  sandbox: standard
+triggers: [ { type: manual } ]

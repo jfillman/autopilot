@@ -1,0 +1,23 @@
+# DRAFT. A single-step Python-function pipeline, the same shape as compositions/rolloutwatch:
+# no go-templating, because the logic (expiry, fail-closed validation, per-network-mode policy)
+# is bespoke and is easier to test as a pure function.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: agentruns.catalog.idp.io
+spec:
+  compositeTypeRef:
+    apiVersion: catalog.idp.io/v1alpha1
+    kind: AgentRun
+  mode: Pipeline
+  pipeline:
+    - step: compose-run
+      functionRef:
+        name: function-agentrun
+      input:
+        apiVersion: agentrun.fn.crossplane.io/v1beta1
+        kind: Config
+        max_ttl_minutes: 240
+        clearance_namespace: autopilot-system
+        # Leave empty on clusters with no gVisor or Kata: a hardened request is then Rejected.
+        runtime_classes: {}

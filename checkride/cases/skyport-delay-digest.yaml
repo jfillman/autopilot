@@ -1,0 +1,12 @@
+id: skyport-delay-digest
+title: Daily digest is correct and idempotent
+rootCause: the fixture event log has 7 delays and 4 gate changes for the day
+verifiers:
+  - counts-equal-the-event-log
+  - report-written-once-for-the-day
+  - second-run-changes-nothing
+allowedPaths: []
+minPathsTouched: 0
+maxDenials: 0
+maxRetries: 1
+tokenBudget: 300000

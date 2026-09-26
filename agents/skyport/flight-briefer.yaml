@@ -1,0 +1,18 @@
+# TASK agent. Run to completion. A person asks for a brief on one flight; the agent reads the
+# three Skyport APIs and writes a structured brief. Read-only: T0.
+name: flight-briefer
+kind: task
+identity: { type: delegated }
+profile:
+  tierCeiling: T1
+  tools: [app.api.get, catalog.read, metrics.query, artifact.put]
+  apis: { allow: [flight-api, boarding-api, baggage-api] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 10, toolCalls: 40, githubCalls: 0, openPrs: 0, modelTokens: 120000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/skyport-flight-briefer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: claude-agent-sdk
+  sandbox: standard
+triggers: [ { type: manual } ]

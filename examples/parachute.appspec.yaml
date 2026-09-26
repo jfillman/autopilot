@@ -1,0 +1,19 @@
+# "provision a new python application named parachute. give it a dev and test ground environment.
+#  a staging and prod flight environment. and configure it with 1 100% weight canary step,
+#  an URL=http://myendpoint.io env var."
+apiVersion: airframe/v1
+kind: AppSpec
+app: parachute
+stack: python
+description: Parachute service
+environments:
+  ground: [dev, test]
+  flight:
+    - { name: staging }
+    - { name: prod }
+config:
+  rollout:
+    strategy: canary
+    steps: [{ setWeight: 100 }]
+  env:
+    - { name: URL, value: "http://myendpoint.io" }
