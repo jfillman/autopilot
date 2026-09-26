@@ -1,0 +1,19 @@
+# DRAFT. Not applied. Proven on kiac-dev (2026-09-26, U8) as a scratch role, then removed.
+#
+# What function-agentrun's six rendered objects need from provider-kubernetes: create, observe, update and delete
+# a Namespace, ResourceQuota, ServiceAccount, two NetworkPolicies and a Job. Without this every Object reports
+# `observe failed: ... is forbidden`.
+#
+# Review before shipping. It is a real privilege grant:
+#  - namespaces create/delete is cluster-wide (RBAC cannot scope it by label). The composition, not the caller,
+#    decides the name (agent-<run>) and labels, and a test asserts the PR-sweep label is never set.
+#  - no secrets, pods/exec, roles or rolebindings are granted. Keep it that way.
+#  - the service account name below changes when the provider package revision changes; bind it through a
+#    DeploymentRuntimeConfig with a stable serviceAccountName rather than the hashed name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: hangar-agentrun-objects}
+rules:
+- {apiGroups: [""], resources: [namespaces, resourcequotas, serviceaccounts], verbs: [get, list, watch, create, update, patch, delete]}
+- {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, list, watch, create, update, patch, delete]}
+- {apiGroups: [batch], resources: [jobs], verbs: [get, list, watch, create, update, patch, delete]}
