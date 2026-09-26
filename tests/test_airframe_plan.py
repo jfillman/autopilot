@@ -66,10 +66,10 @@ def xrd_schema(name):
 # ---- the sentence ----------------------------------------------------------------------
 def test_the_sentence_becomes_an_ordered_change_set():
     cs = ap.plan(PARACHUTE, REG)
-    assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "tekton-resync", "gitops", "ground-rollout", "verify"]
+    assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "tekton-resync", "gitops", "verify"]
     assert [(s.id, s.gate, s.risk) for s in cs.steps if s.gate != "wait"] == [
         ("tenants", "human-merge", "T2"), ("app-repo", "auto-merge", "T1"), ("tekton-resync", "auto-merge", "T1"),
-        ("gitops", "human-merge", "T2"), ("ground-rollout", "auto-merge", "T1"), ("verify", "verify", "T0")]
+        ("gitops", "human-merge", "T2"), ("verify", "verify", "T0")]
 
 
 def test_dependencies_form_a_dag_that_respects_the_async_gates():
@@ -97,15 +97,15 @@ def test_dev_cluster_is_the_registry_value_never_a_guess():
     assert x["spec"]["devCluster"] == "kind-dev"
 
 
-def test_ground_environments_hold_config_only_after_the_first_image_on_todays_chart():
+def test_ground_environments_carry_rollout_config_from_the_start():
+    """Airframe v0.3.91 renders no workload until an image exists, so config no longer waits for a deploy."""
     cs = ap.plan(PARACHUTE, REG)
-    for f in cs.step("app-repo").files:
-        if f.path.startswith("platform/envs/"):
-            assert f.content["rollout"] is None and f.content["env"] == [{"name": "URL", "value": "http://myendpoint.io"}]
-    later = cs.step("ground-rollout")
-    assert {f.path for f in later.files} == {"platform/envs/dev.yaml", "platform/envs/test.yaml"}
-    assert all(f.content["rollout"]["steps"] == [{"setWeight": 100}] for f in later.files)
-    assert later.depends_on == ["tekton-resync"]
+    envs = [f for f in cs.step("app-repo").files if f.path.startswith("platform/envs/")]
+    assert {f.path for f in envs} == {"platform/envs/dev.yaml", "platform/envs/test.yaml"}
+    for f in envs:
+        assert f.content["rollout"]["steps"] == [{"setWeight": 100}]
+        assert f.content["env"] == [{"name": "URL", "value": "http://myendpoint.io"}]
+    assert "ground-rollout" not in [s.id for s in cs.steps]
 
 
 def test_flight_config_is_a_patch_on_each_bootstrapped_values_file():
@@ -120,7 +120,7 @@ def test_assumptions_and_warnings_are_surfaced_not_silent():
     assert any("only upper cluster is kind-prod" in a for a in cs.assumptions)
     assert any("same name as a pipeline stage" in w and "'test'" in w for w in cs.warnings)
     assert any("single 100% step" in w for w in cs.warnings)
-    assert any("no empty-image guard" in w for w in cs.warnings)
+    assert not any("no empty-image guard" in w for w in cs.warnings)
 
 
 def test_verify_lists_a_check_for_every_claim():
@@ -252,10 +252,3 @@ def test_the_planners_ground_workaround_renders_no_rollout_before_the_first_imag
     assert code == 0 and "kind: Rollout\n" not in out and "image: ':'" not in out
 
 
-@pytest.mark.skipif(not helm_ok, reason="helm or the airframe chart is not available")
-def test_CANARY_the_chart_bug_the_workaround_exists_for():
-    """Configuring rollout before an image exists renders `image: ':'`. When the chart guard lands this
-    test fails on purpose: delete the workaround, flip Features.rollout_guard to True, delete this test."""
-    code, out = render({**BOOT, "cluster": "kind-dev", "envName": "dev",
-                        "rollout": {"steps": [{"setWeight": 100}]}, "env": [{"name": "URL", "value": "x"}]})
-    assert code == 0 and "image: ':'" in out, "the chart now guards empty images: retire the planner workaround"

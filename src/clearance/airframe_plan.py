@@ -46,8 +46,8 @@ class Registry:
 
 @dataclass(frozen=True)
 class Features:
-    """What the current Airframe can do. False = today. True = after the A+ program."""
-    rollout_guard: bool = False           # chart renders no Rollout until an image exists
+    """What the current Airframe can do. False = not yet. True = shipped (rollout_guard: Airframe v0.3.91)."""
+    rollout_guard: bool = True            # chart renders no Rollout until an image exists (v0.3.91)
     base_layer: bool = False              # a shared base values file under the per-env files
     release_split: bool = False           # machine-owned values live in their own file
 
@@ -212,11 +212,8 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
         else:
             if "env" in c:
                 d["env"] = c["env"]
-            if features.rollout_guard:
-                if c.get("rollout"):
-                    d["rollout"] = c["rollout"]
-            else:
-                d["rollout"] = None   # explicit: omitting it renders an empty-image rollout today
+            if c.get("rollout"):
+                d["rollout"] = c["rollout"]
         return d
 
     app_files = []
@@ -251,17 +248,7 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
                            wait_for="each environment's values.yaml exists (the composition bootstraps it)",
                            effects=["changes what runs in staging and prod after the next release"]))
 
-    # 4. what the guard-less chart forces: rollout config only after an image exists
-    if not features.rollout_guard and (cfg.get("rollout") or any((spec.get("overrides", {}).get(g) or {}).get("rollout") for g in ground)):
-        gpatch = [FileChange(f"platform/envs/{g}.yaml", "merge-patch", {"rollout": env_config(spec, g).get("rollout")})
-                  for g in ground if env_config(spec, g).get("rollout")]
-        cs.append(Step("ground-rollout", "Set rollout config once the first image is deployed", f"{owner}/{app}", "auto-merge", "T1",
-                       depends_on=["tekton-resync"], files=gpatch,
-                       wait_for="the deploy stage has committed rollout.image into each ground environment",
-                       effects=["needed only because the chart renders an empty-image Rollout if rollout config exists before an image"]))
-        warnings.append("Airframe's chart has no empty-image guard, so ground rollout config is applied after the first deploy")
-
-    # 5. verify
+    # 4. verify
     checks = [f"{STACK_KIND[spec['stack']]}/{app} Ready and CicdOnboarded",
               *[f"ApplicationEnvironment {app}-{e['cluster']}-{e['name']} Ready" for e in flight],
               *[f"namespace app-{app}-{g} exists and its Application is Synced" for g in ground]]
