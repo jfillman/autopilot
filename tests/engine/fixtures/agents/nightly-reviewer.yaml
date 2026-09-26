@@ -1,0 +1,15 @@
+name: nightly-reviewer
+kind: scheduled
+identity: { type: workload, serviceAccount: autopilot-runs/nightly-reviewer }
+profile:
+  tierCeiling: T0
+  tools: [catalog.read, argo.app.get, metrics.query]
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 30, toolCalls: 100, githubCalls: 0, openPrs: 0, modelTokens: 300000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/agent-reviewer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: generic
+triggers:
+  - { type: interval, every: 24h }

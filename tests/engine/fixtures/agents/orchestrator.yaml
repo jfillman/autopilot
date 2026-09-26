@@ -1,0 +1,13 @@
+name: orchestrator
+kind: team
+identity: { type: delegated }
+profile:
+  tierCeiling: T1
+  tools: [catalog.read, argo.app.get, run.spawn, run.close, human.request]
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 60, toolCalls: 300, githubCalls: 300, openPrs: 3, modelTokens: 900000, children: 3 }
+runtime:
+  image: ghcr.io/jfillman/agent-orchestrator@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  framework: langgraph

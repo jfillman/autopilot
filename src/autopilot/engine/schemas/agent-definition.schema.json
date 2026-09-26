@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AgentDefinition",
+  "description": "Durable definition of an agent workload. Lives in git and is reviewed like any other change. Raising authority means a commit; a run can only narrow what is here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "kind",
+    "identity",
+    "profile"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,40}$"
+    },
+    "kind": {
+      "enum": [
+        "task",
+        "session",
+        "service",
+        "scheduled",
+        "event",
+        "team"
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "delegated",
+            "workload"
+          ]
+        },
+        "serviceAccount": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+/[a-z0-9-]+$"
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "workload"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "type",
+          "serviceAccount"
+        ]
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tierCeiling",
+        "tools",
+        "limits"
+      ],
+      "properties": {
+        "tierCeiling": {
+          "enum": [
+            "T0",
+            "T1",
+            "T2"
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "repos": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.*-]+/[A-Za-z0-9_.*-]+$"
+              }
+            },
+            "denyPaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "network": {
+          "enum": [
+            "none",
+            "clearance",
+            "clearance+model",
+            "allowlist"
+          ]
+        },
+        "compute": {
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            "gpu"
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ttlMinutes",
+            "toolCalls",
+            "githubCalls",
+            "openPrs",
+            "modelTokens",
+            "children"
+          ],
+          "properties": {
+            "ttlMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440
+            },
+            "toolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "githubCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "openPrs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modelTokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "children": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            }
+          }
+        },
+        "apis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{1,40}$"
+              },
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+        },
+        "framework": {
+          "enum": [
+            "claude-agent-sdk",
+            "langgraph",
+            "generic"
+          ]
+        },
+        "sandbox": {
+          "enum": [
+            "standard",
+            "hardened"
+          ]
+        },
+        "sidecars": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "image"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{1,30}$"
+              },
+              "image": {
+                "type": "string",
+                "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "manual"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "every"
+            ],
+            "properties": {
+              "type": {
+                "const": "interval"
+              },
+              "every": {
+                "type": "string",
+                "pattern": "^[0-9]+[mh]$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "match"
+            ],
+            "properties": {
+              "type": {
+                "const": "alert"
+              },
+              "match": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "source",
+              "exchange",
+              "bindingKey"
+            ],
+            "properties": {
+              "type": {
+                "const": "event"
+              },
+              "source": {
+                "const": "rabbitmq"
+              },
+              "brokerRef": {
+                "type": "string"
+              },
+              "exchange": {
+                "type": "string",
+                "minLength": 1
+              },
+              "bindingKey": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxPerHour": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
