@@ -1,4 +1,4 @@
-"""Checkride: score an agent run against a case with a known cause and a known-good fix.
+"""Preflight: score an agent run against a case with a known cause and a known-good fix.
 
 No judge model. A case names deterministic verifiers, a path scope the fix must stay inside,
 and a denial budget. Scoring is a pure function of a RunRecord.

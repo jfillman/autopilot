@@ -20,10 +20,10 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 | Gateway core | `dispatch.py` | authenticate, decide, audit, spend, call, audit |
 | Model access | `modelproxy.py` | model allowlist, network mode, token budget; the decision core only |
 | Triggers | `triggers.py` | interval and alert triggers for scheduled and event agents |
-| Checkride | `checkride.py`, `checkride/cases/` | deterministic scoring, self-check that a case can fail |
+| Preflight | `preflight.py`, `preflight/cases/` | deterministic scoring, self-check that a case can fail |
 | MCP surface | `server.py` | three tools on the mcp SDK v2 |
 | AppSpec and the planner | `airframe_plan.py`, `schemas/appspec.schema.json` | the parachute test: one statement of intent to an ordered change set; validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` |
-| Skyport agents | `agents/skyport/`, `checkride/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
+| Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | `airframe-drafts/functions/function-agentrun/` | pure `compose()`; expiry, fail-closed validation, per-network-mode policy |
 
 ## What is NOT built

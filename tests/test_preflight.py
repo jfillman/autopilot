@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from clearance import checkride as cr
+from clearance import preflight as cr
 
-CASES = cr.load_cases(Path(__file__).resolve().parents[1] / "checkride" / "cases")
+CASES = cr.load_cases(Path(__file__).resolve().parents[1] / "preflight" / "cases")
 
 
 def good(case_id, **kw):
