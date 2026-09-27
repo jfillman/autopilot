@@ -1,8 +1,0 @@
-apiVersion: catalog.idp.io/v1alpha1
-kind: Redis
-metadata: {name: u1-scratch, namespace: app-boarding-api-dev}
-spec:
-  environmentRef: {name: boarding-api-kind-dev-dev}
-  size: small
-  persistance: true
-  bogusField: 1
