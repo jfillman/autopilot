@@ -6,7 +6,7 @@ For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
 - **Clearance**, a standalone deployment with one Kubernetes permission: a namespaced Role on `agentruns` in
   `autopilot-runs`. It never holds a cluster-wide grant.
 - **provider-kubernetes RBAC** for the objects an `AgentRun` renders (Namespace, ResourceQuota, ServiceAccount,
-  two NetworkPolicies, Job). Proven on kiac-dev with a scratch role and drafted in
+  two NetworkPolicies, Job). Proven on the dev cluster with a scratch role and drafted in
   `airframe-drafts/rbac/provider-kubernetes-agentrun.yaml`; review it as a privilege grant before applying.
 - **Expiry** cannot come from Crossplane re-invocation: on Crossplane 2.3 a function's response TTL is only honoured
   with the beta realtime-compositions flag, and the poll floor is one minute. Use the Sandbox `shutdownTime`
