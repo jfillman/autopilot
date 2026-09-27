@@ -1,0 +1,14 @@
+site_name: 'Autopilot'
+site_description: 'Hangar''s runtime for AI agent workloads'
+
+nav:
+  - Home: index.md
+  - User guide:
+      - Overview: user/README.md
+  - Admin guide:
+      - Overview: admin/README.md
+  - Brand:
+      - Marks and files: brand/README.md
+
+plugins:
+  - techdocs-core

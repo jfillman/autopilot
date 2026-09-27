@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: autopilot
+  description: >-
+    Runs any AI agent workload on Hangar with bounded authority and every action on the record.
+    Clearance (policy, audit, session gateway), agent definitions, Preflight cases, the AppSpec planner.
+    Design lives in hangar/docs/autopilot.
+  annotations:
+    github.com/project-slug: jfillman/autopilot
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  owner: crossfader@gmail.com
+  lifecycle: experimental
+  system: hangar

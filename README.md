@@ -1,4 +1,15 @@
-# Clearance
+<div align="center">
+  <img src="docs/brand/autopilot-tile.svg" width="88" height="88" alt="Autopilot mark" />
+  <h1>Autopilot</h1>
+  <p><i>Any AI agent workload, bounded and audited.</i></p>
+</div>
+
+Autopilot is the sixth [Hangar](https://github.com/jfillman/hangar) product: it runs AI agent workloads with authority
+that is bounded and every action on the record. This repo holds **Clearance**, the policy, audit and session gateway,
+plus agent definitions, the Preflight evaluation cases, the AppSpec planner and drafts of the `AgentRun` composition.
+Docs: [docs/](docs/index.md). Mark and brand files: [docs/brand/](docs/brand/README.md).
+
+## Clearance
 
 Policy, audit and session gateway for running AI agent workloads on Hangar. **v0.1, pre-release.**
 
@@ -6,7 +17,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 255 tests, no cluster needed.
+`./.venv/bin/python -m pytest -q` runs 254 tests, no cluster needed.
 
 | Piece | Where | What it does |
 |---|---|---|

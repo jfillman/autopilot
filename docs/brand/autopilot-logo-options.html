@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autopilot Mark Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #F1F3F5; --panel: #FFFFFF; --panel-alt: #E8ECEF; --line: #D5DBE0; --line-soft: #E3E7EA;
+  --hi: #171B1F; --lo: #5B6570; --faint: #88919A;
+  --amber: #B9791F; --amber-ink: #7A5115; --amber-soft: #F4E6C9; --amber-line: #E0BE84;
+  --sky: #2E7BA6; --sky-soft: #DCEDF6; --sky-line: #B7D7E6;
+  --good: #2E8B57; --good-soft: #DCF0E4;
+  --font-display: 'IBM Plex Sans Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0B0D10; --panel: #12161B; --panel-alt: #1A1F26; --line: #262C33; --line-soft: #1D232A;
+    --hi: #E9ECEF; --lo: #96A2AC; --faint: #66717B;
+    --amber: #E8A33D; --amber-ink: #F4C67D; --amber-soft: #3A2C15; --amber-line: #5C4520;
+    --sky: #6FB2D9; --sky-soft: #152530; --sky-line: #2C4756;
+    --good: #5FAE84; --good-soft: #16281F;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0B0D10; --panel: #12161B; --panel-alt: #1A1F26; --line: #262C33; --line-soft: #1D232A;
+  --hi: #E9ECEF; --lo: #96A2AC; --faint: #66717B;
+  --amber: #E8A33D; --amber-ink: #F4C67D; --amber-soft: #3A2C15; --amber-line: #5C4520;
+  --sky: #6FB2D9; --sky-soft: #152530; --sky-line: #2C4756;
+  --good: #5FAE84; --good-soft: #16281F;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--hi); font: 15px/1.55 var(--font-body); padding-inline: 20px; padding-block: 28px 64px; }
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: .01em; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.05; }
+h2 { font-size: 22px; }
+h3 { font-size: 20px; }
+p { margin: 0; }
+.eyebrow { font: 500 11px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.lede { max-width: 66ch; color: var(--lo); font-size: 16px; }
+header { display: flex; flex-direction: column; gap: 14px; }
+.decided { background: var(--amber-soft); border: 1px solid var(--amber-line); color: var(--hi); border-radius: 8px; padding: 12px 14px; font-size: 14px; max-width: 78ch; }
+.decided b { color: var(--amber-ink); }
+.rule { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.rule div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--lo); }
+.rule b { color: var(--hi); font-weight: 600; display: block; margin-bottom: 2px; }
+.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: baseline; }
+
+/* option cards */
+.options { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.opt { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0; display: flex; flex-direction: column; text-align: left; font: inherit; color: inherit; cursor: pointer; overflow: hidden; }
+.opt:hover { border-color: var(--faint); }
+.opt:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+.opt[aria-pressed="true"] { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
+.opt .art { background: #0B0D10; display: flex; align-items: center; justify-content: center; padding: 22px 0 18px; gap: 26px; }
+.opt .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+.opt .tag { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.opt .name { font: 600 22px/1.1 var(--font-display); }
+.pill { font: 500 10.5px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; padding: 4px 7px; border-radius: 4px; background: var(--panel-alt); color: var(--lo); white-space: nowrap; }
+.pill.pick { background: var(--good-soft); color: var(--good); }
+.opt .says { color: var(--lo); font-size: 14px; }
+.opt dl { margin: 0; display: grid; grid-template-columns: 4.6em 1fr; gap: 3px 10px; font-size: 13px; }
+.opt dt { color: var(--faint); font: 500 10.5px/1.9 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.opt dd { margin: 0; color: var(--lo); }
+
+/* context */
+.ctx-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button { font: 500 12px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; padding: 9px 12px; background: none; border: 0; color: var(--lo); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--panel-alt); color: var(--hi); }
+.seg button:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.c12 { grid-column: span 12; } .c7 { grid-column: span 7; } .c5 { grid-column: span 5; } .c4 { grid-column: span 4; } .c8 { grid-column: span 8; }
+@media (max-width: 820px) { .c7, .c5, .c4, .c8 { grid-column: span 12; } }
+.lineup { display: flex; flex-wrap: wrap; gap: 18px 22px; align-items: flex-end; }
+.lineup figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.lineup figcaption { font: 500 10.5px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--lo); }
+.lineup figure.sel figcaption { color: var(--amber); }
+.readme { background: #0D1014; border-radius: 8px; padding: 28px 16px; text-align: center; color: #E9ECEF; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.readme h4 { margin: 4px 0 0; font: 600 30px/1.1 var(--font-display); }
+.readme i { color: #96A2AC; font-size: 14px; }
+.rail { background: #0B0D10; border: 1px solid #262C33; border-radius: 8px; padding: 10px; width: 132px; display: flex; flex-direction: column; gap: 4px; align-self: flex-start; }
+.rail .row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 6px; color: #96A2AC; font: 500 13px/1 var(--font-display); letter-spacing: .02em; }
+.rail .row.on { background: #1A1F26; color: #E9ECEF; box-shadow: inset 2px 0 0 var(--rail-accent, #E8A33D); }
+.social { background: #0B0D10; border-radius: 8px; aspect-ratio: 2 / 1; max-width: 100%; padding: 6% 6%; display: flex; flex-direction: column; justify-content: space-between; color: #E9ECEF; position: relative; overflow: hidden; }
+.social .eyebrow { color: #66717B; }
+.social .brandrow { display: flex; align-items: center; gap: clamp(10px, 2.4vw, 22px); }
+.social .wm { font: 600 clamp(28px, 6vw, 56px)/1 var(--font-display); letter-spacing: .01em; }
+.social .tl { color: #96A2AC; font-size: clamp(11px, 1.7vw, 16px); max-width: 44ch; }
+.social .accent { height: 3px; width: 64px; background: var(--rail-accent, #E8A33D); border-radius: 2px; }
+.scale { display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap; }
+.scale figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.scale figcaption { font: 500 10.5px/1 var(--font-mono); color: var(--faint); letter-spacing: .06em; }
+.scale .light { background: #fff; padding: 10px; border-radius: 8px; }
+.note { font-size: 13px; color: var(--lo); max-width: 70ch; }
+.next { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.next ul { margin: 0; padding-left: 1.1em; color: var(--lo); display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+code { font-family: var(--font-mono); font-size: 12.5px; background: var(--panel-alt); padding: 1px 5px; border-radius: 4px; }
+@media (prefers-reduced-motion: no-preference) { .opt { transition: border-color .15s, box-shadow .15s; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Hangar platform · brand</div>
+    <h1>Autopilot mark options</h1>
+    <p class="lede">Five marks for Autopilot, the sixth Hangar product: it runs any AI agent workload, bounded and audited. Each one follows the locked Instrument Dial: the ring, eight ticks and the heading bug stay, and only the centre glyph and its colour change. Pick one; the panel below shows it in the places it will live.</p>
+    <p class="decided"><b>Decided 2026-09-26: Option A, Hold, in amber.</b> The other four stay here as the record of what was considered. The shipped files are <code>autopilot-tile.svg</code> and <code>autopilot-inline.svg</code> in <code>hangar/brand/marks/</code>.</p>
+    <div class="rule">
+      <div><b>Same dial, new glyph</b>Ring, 8 ticks and heading bug at 12 o'clock are shared by all six products.</div>
+      <div><b>Colour is a role</b><span class="swatch" style="background:var(--amber)"></span>amber needs attention (Hangar, Tower) · <span class="swatch" style="background:var(--sky)"></span>sky informs (Glidepath, Airframe) · gray is ground (Apron).</div>
+      <div><b>No new colours or fonts</b>Everything here is drawn from the Hangar Brand System tokens.</div>
+    </div>
+  </header>
+
+  <section style="display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px">
+      <h2>Choose a direction</h2>
+      <span class="eyebrow">Select a card to preview it below</span>
+    </div>
+    <div class="options" id="options"></div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px">
+    <div class="ctx-head">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="eyebrow">Selected</div>
+        <h2 id="ctx-title">Option A · Hold</h2>
+      </div>
+      <div class="seg" role="group" aria-label="Mark colour">
+        <button type="button" id="col-amber" aria-pressed="true">Amber</button>
+        <button type="button" id="col-sky" aria-pressed="false">Sky</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card c12">
+        <div class="eyebrow">The family with Autopilot</div>
+        <div class="lineup" id="lineup"></div>
+      </div>
+
+      <div class="card c7">
+        <div class="eyebrow">Repo header (README)</div>
+        <div class="readme" id="readme"></div>
+        <div class="eyebrow" style="margin-top:4px">Social preview (2:1)</div>
+        <div class="social" id="social"></div>
+      </div>
+
+      <div class="card c5">
+        <div class="eyebrow">Tower nav rail</div>
+        <div class="rail" id="rail"></div>
+        <div class="eyebrow" style="margin-top:4px">Scale proof</div>
+        <div class="scale" id="scale"></div>
+        <p class="note">Rendered live from the same drawing at 96, 48, 32, 24 and 16 px, on the fixed black tile and on white. If the glyph turns to mush at 16 px, that is a real finding.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="next">
+    <h2>What was done with the choice</h2>
+    <ul>
+      <li>Export <code>autopilot-tile.svg</code> and <code>autopilot-inline.svg</code> to <code>hangar/brand/marks/</code> and <code>tower/brand/marks/</code>, next to the other five.</li>
+      <li>Add the mark to the <code>autopilot</code> repo: README header block, <code>docs/brand/autopilot-tile.svg</code> and a 2560×1280 <code>autopilot-social-preview.png</code> (uploaded by hand: GitHub has no API for it).</li>
+      <li>Give the repo the same docs shell as its siblings: <code>docs/index.md</code>, <code>mkdocs.yml</code>, <code>catalog-info.yaml</code>, user and admin guides.</li>
+      <li>Update the Hangar brand README family table and the Tower nav rail glyph list. Clearance, Preflight and Flight recorder stay features of Autopilot and get no mark of their own.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+(function () {
+  var AMBER = '#E8A33D', SKY = '#6FB2D9', RING = '#262C33', TICK = '#66717B', BLACK = '#0B0D10';
+  var state = { opt: 'A', color: 'amber' };
+  try { var saved = JSON.parse(localStorage.getItem('ap-mark') || 'null'); if (saved && saved.opt) state = saved; } catch (e) {}
+
+  function arrow(cx, cy, deg, dir, c) {
+    // small filled triangle at a point on the loop circle, pointing along the tangent (dir = +1 clockwise, -1 counter)
+    var a = deg * Math.PI / 180, tx = -Math.sin(a) * dir, ty = Math.cos(a) * dir, nx = -ty, ny = tx;
+    var tip = [cx + tx * 4.2, cy + ty * 4.2], b1 = [cx - tx * 1.6 + nx * 3.4, cy - ty * 1.6 + ny * 3.4], b2 = [cx - tx * 1.6 - nx * 3.4, cy - ty * 1.6 - ny * 3.4];
+    return '<polygon points="' + [tip, b1, b2].map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '" fill="' + c + '"/>';
+  }
+  function pt(deg, r) { var a = deg * Math.PI / 180; return [48 + r * Math.cos(a), 48 + r * Math.sin(a)]; }
+
+  var GLYPHS = {
+    A: function (c) {
+      return '<path d="M33,34 H28 V62 H33 M63,34 H68 V62 H63" fill="none" stroke="' + c + '" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+             '<polygon points="48,33 57.5,59 48,53.5 38.5,59" fill="' + c + '" stroke="' + c + '" stroke-width="1.5" stroke-linejoin="round"/>';
+    },
+    B: function (c) {
+      return '<line x1="28" y1="45" x2="68" y2="45" stroke="' + RING + '" stroke-width="2"/>' +
+             '<line x1="39" y1="38" x2="57" y2="38" stroke="' + c + '" stroke-width="2.5" stroke-linecap="round" opacity=".65"/>' +
+             '<path d="M29,55 H41 L48,62 L55,55 H67" fill="none" stroke="' + c + '" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>';
+    },
+    C: function (c) {
+      return '<rect x="29" y="37" width="38" height="22" rx="4.5" fill="none" stroke="' + c + '" stroke-width="2.5"/>' +
+             '<path d="M48,37 H62.5 A4.5,4.5 0 0 1 67,41.5 V54.5 A4.5,4.5 0 0 1 62.5,59 H48 Z" fill="' + c + '"/>' +
+             '<circle cx="38.5" cy="48" r="3" fill="none" stroke="' + c + '" stroke-width="2"/>' +
+             '<line x1="30" y1="67" x2="66" y2="67" stroke="' + RING + '" stroke-width="2"/>';
+    },
+    D: function (c) {
+      return '<path d="M32,67 L42,32 M64,67 L54,32" fill="none" stroke="' + c + '" stroke-width="3" stroke-linecap="round" opacity=".7"/>' +
+             '<line x1="48" y1="66" x2="48" y2="47" stroke="' + c + '" stroke-width="2.5" stroke-dasharray="3.5 4" stroke-linecap="butt"/>' +
+             '<circle cx="48" cy="40" r="4.6" fill="' + c + '"/>';
+    },
+    E: function (c) {
+      var s1 = pt(198, 13), e1 = pt(332, 13), s2 = pt(18, 13), e2 = pt(152, 13), f = function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); };
+      return '<path d="M' + f(s1) + ' A13,13 0 0 1 ' + f(e1) + '" fill="none" stroke="' + c + '" stroke-width="3.2" stroke-linecap="round"/>' +
+             '<path d="M' + f(s2) + ' A13,13 0 0 1 ' + f(e2) + '" fill="none" stroke="' + c + '" stroke-width="3.2" stroke-linecap="round"/>' +
+             arrow(e1[0], e1[1], 332, 1, c) + arrow(e2[0], e2[1], 152, 1, c) +
+             '<circle cx="48" cy="48" r="3.4" fill="' + c + '"/>';
+    }
+  };
+
+  var OPTS = [
+    { id: 'A', name: 'Hold', says: 'Heading hold: the agent flies the course you set. Bracketed nose echoes the heading bug at 12 o\'clock.', role: 'Amber suggests supervise-me; sky suggests it is just structure.',
+      good: 'Reads as autopilot at a glance. Chunky shapes survive 16 px. Rhymes with the dial\'s own bug.', watch: 'Closest to a generic "cursor" chevron; the brackets carry the meaning.', pick: true, color: 'amber' },
+    { id: 'B', name: 'Flight director', says: 'The command bar and aircraft symbol of an attitude indicator: the plan to follow, and where the agent is.', role: 'Sky reads as guidance.',
+      good: 'Most aviation-literate. Says "guidance and correction", which is what Clearance does.', watch: 'Fine detail; the command bar is the first thing lost when small.', color: 'sky' },
+    { id: 'C', name: 'Annunciator', says: 'The A/P ENGAGED lamp on the glare-shield: one cell lit, one dark. Automation is on, and you can see it.', role: 'Amber is the real cockpit colour for a caution lamp.',
+      good: 'Instantly says "on or off", which suits a product built around bounded, revocable authority.', watch: 'Shape is abstract; needs the wordmark next to it for first-time viewers.', color: 'amber' },
+    { id: 'D', name: 'Corridor', says: 'A track with guardrails: the agent moves along a path and cannot leave the corridor. The product\'s boundary idea, drawn.', role: 'Sky: structure and limits.',
+      good: 'The most distinctive: nothing else in the family uses paired lines. Directly expresses bounded.', watch: 'Two diagonals plus a dot sits close to Glidepath at small sizes.', color: 'sky' },
+    { id: 'E', name: 'Loop', says: 'A closed feedback loop around a hold point: observe, act, verify, repeat. The audit trail as a shape.', role: 'Amber: something is running.',
+      good: 'Says "continuous" and "verified" in one gesture. Reads well as a busy indicator too.', watch: 'Can look like a refresh or sync icon; the risk is genericness.', color: 'amber' }
+  ];
+
+  function colorOf(name) { return name === 'sky' ? SKY : AMBER; }
+  function dial() {
+    var t = '<circle cx="48" cy="48" r="40" fill="none" stroke="' + RING + '" stroke-width="2"/><g stroke="' + TICK + '" stroke-width="2">';
+    for (var i = 0; i < 8; i++) t += '<line x1="48" y1="8" x2="48" y2="15" transform="rotate(' + (i * 45) + ' 48 48)"/>';
+    return t + '</g>';
+  }
+  // glyph fn: (colorHex) -> svg string. `mark` builds a full tile (fixed black rounded square, same as the other five).
+  function mark(glyph, c, size, label, tile) {
+    var body = dial() + '<polygon points="44,2 52,2 48,9" fill="' + c + '"/>' + glyph(c);
+    var inner = tile ? '<rect x="8" y="8" width="80" height="80" rx="22" fill="' + BLACK + '"/><g transform="translate(48 48) scale(0.82) translate(-48 -48)">' + body + '</g>' : body;
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="' + size + '" height="' + size + '" role="img" aria-label="' + label + '">' + inner + '</svg>';
+  }
+  // existing family glyphs, copied from hangar/brand/marks
+  var FAMILY = [
+    { n: 'Hangar', c: AMBER, g: function (c) { return '<path d="M32,64 V48 A16,16 0 0 1 64,48 V64" fill="none" stroke="' + c + '" stroke-width="4" stroke-linecap="round"/><line x1="26" y1="68" x2="70" y2="68" stroke="' + RING + '" stroke-width="2"/>'; } },
+    { n: 'Airframe', c: SKY, g: function (c) { return '<line x1="28" y1="48" x2="68" y2="48" stroke="' + c + '" stroke-width="4" stroke-linecap="round"/><g stroke="' + c + '" stroke-width="2"><line x1="36" y1="44" x2="36" y2="52"/><line x1="44" y1="44" x2="44" y2="52"/><line x1="52" y1="44" x2="52" y2="52"/><line x1="60" y1="44" x2="60" y2="52"/></g>'; } },
+    { n: 'Glidepath', c: SKY, g: function (c) { return '<line x1="32" y1="36" x2="60" y2="60" stroke="' + c + '" stroke-width="4" stroke-linecap="round"/><circle cx="60" cy="60" r="4" fill="' + c + '"/><line x1="28" y1="66" x2="68" y2="66" stroke="' + RING + '" stroke-width="2"/>'; } },
+    { n: 'Tower', c: AMBER, g: function (c) { return '<line x1="48" y1="34" x2="48" y2="64" stroke="' + c + '" stroke-width="4" stroke-linecap="round"/><rect x="42" y="64" width="12" height="5" rx="1" fill="' + c + '"/><path d="M40,34 A8,8 0 0 1 56,34" fill="none" stroke="' + c + '" stroke-width="2"/><path d="M34,34 A14,14 0 0 1 62,34" fill="none" stroke="' + c + '" stroke-width="2" opacity=".5"/>'; } },
+    { n: 'Apron', c: '#96A2AC', g: function (c) { var r = ''; [[34, 34], [52, 34], [34, 52], [52, 52]].forEach(function (p) { r += '<rect x="' + p[0] + '" y="' + p[1] + '" width="10" height="10" rx="2" fill="none" stroke="' + c + '" stroke-width="2"/>'; }); return r; } }
+  ];
+
+  function renderOptions() {
+    var el = document.getElementById('options'); var h = '';
+    OPTS.forEach(function (o) {
+      var c = colorOf(o.color);
+      h += '<button type="button" class="opt" data-id="' + o.id + '" aria-pressed="' + (state.opt === o.id) + '">' +
+        '<div class="art">' + mark(GLYPHS[o.id], c, 132, 'Option ' + o.id + ' ' + o.name, true) + mark(GLYPHS[o.id], c, 40, '', false) + '</div>' +
+        '<div class="body"><div class="tag"><span class="name">' + o.id + ' · ' + o.name + '</span>' + (o.pick ? '<span class="pill pick">Chosen</span>' : '<span class="pill">' + (o.color === 'sky' ? 'Sky' : 'Amber') + '</span>') + '</div>' +
+        '<p class="says">' + o.says + '</p><dl><dt>Colour</dt><dd>' + o.role + '</dd><dt>Strong</dt><dd>' + o.good + '</dd><dt>Watch</dt><dd>' + o.watch + '</dd></dl></div></button>';
+    });
+    el.innerHTML = h;
+    el.querySelectorAll('.opt').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var o = OPTS.filter(function (x) { return x.id === b.getAttribute('data-id'); })[0];
+        state.opt = o.id; state.color = o.color; save(); renderContext();
+      });
+    });
+  }
+  function save() { try { localStorage.setItem('ap-mark', JSON.stringify(state)); } catch (e) {} }
+
+  function renderContext() {
+    var o = OPTS.filter(function (x) { return x.id === state.opt; })[0], c = colorOf(state.color), g = GLYPHS[o.id];
+    document.getElementById('ctx-title').textContent = 'Option ' + o.id + ' · ' + o.name;
+    document.getElementById('col-amber').setAttribute('aria-pressed', state.color === 'amber');
+    document.getElementById('col-sky').setAttribute('aria-pressed', state.color === 'sky');
+    document.getElementById('options').querySelectorAll('.opt').forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-id') === state.opt); });
+
+    var lu = '';
+    var order = [FAMILY[0], FAMILY[1], FAMILY[2], FAMILY[3], FAMILY[4]];
+    order.forEach(function (f) { lu += '<figure>' + mark(f.g, f.c, 76, f.n + ' mark', true) + '<figcaption>' + f.n + '</figcaption></figure>'; });
+    lu += '<figure class="sel">' + mark(g, c, 76, 'Autopilot mark', true) + '<figcaption>Autopilot</figcaption></figure>';
+    document.getElementById('lineup').innerHTML = lu;
+
+    document.getElementById('readme').innerHTML = mark(g, c, 88, 'Autopilot mark', true) + '<h4>Autopilot</h4><i>Any agent workload, bounded and audited.</i>';
+    var soc = document.getElementById('social'); soc.style.setProperty('--rail-accent', c);
+    soc.innerHTML = '<div class="brandrow">' + mark(g, c, 96, 'Autopilot mark', true).replace('width="96" height="96"', 'width="100%" height="100%" style="width:clamp(56px,13vw,120px);height:clamp(56px,13vw,120px);flex:none"') +
+      '<div style="display:flex;flex-direction:column;gap:8px"><span class="wm">Autopilot</span><span class="tl">Run any AI agent workload on Hangar, with authority that is bounded and every action on the record.</span></div></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center"><span class="accent"></span><span class="eyebrow">Hangar platform</span></div>';
+
+    var rail = document.getElementById('rail'); rail.style.setProperty('--rail-accent', c);
+    var rows = [['Hangar', FAMILY[0]], ['Glidepath', FAMILY[2]], ['Tower', FAMILY[3]], ['Airframe', FAMILY[1]], ['Apron', FAMILY[4]]], rh = '';
+    rows.forEach(function (r) { rh += '<div class="row">' + mark(r[1].g, r[1].c, 22, '', true) + r[0] + '</div>'; });
+    rh += '<div class="row on">' + mark(g, c, 22, '', true) + 'Autopilot</div>';
+    rail.innerHTML = rh;
+
+    var sc = '';
+    [96, 48, 32, 24, 16].forEach(function (s) { sc += '<figure>' + mark(g, c, s, '', true) + '<figcaption>' + s + '</figcaption></figure>'; });
+    sc += '<figure><div class="light">' + mark(g, c, 32, '', true) + '</div><figcaption>on white</figcaption></figure>';
+    document.getElementById('scale').innerHTML = sc;
+  }
+  function renderAll() { renderOptions(); renderContext(); }
+
+  document.getElementById('col-amber').addEventListener('click', function () { state.color = 'amber'; save(); renderContext(); });
+  document.getElementById('col-sky').addEventListener('click', function () { state.color = 'sky'; save(); renderContext(); });
+  renderAll();
+})();
+</script>
+
+</body>
+</html>
