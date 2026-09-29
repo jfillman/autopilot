@@ -21,6 +21,9 @@ BASELINE_DENY_PATHS: tuple[str, ...] = (
     ".tekton/**", "**/.tekton/**", "cicd.yaml", "**/cicd.yaml",
     "CODEOWNERS", "**/CODEOWNERS", ".github/**",
     "**/appproject*.yaml", "**/AppProject*.yaml",
+    # D9/AF-5 release files (release.image, releaseTracking): machine-owned, written only by
+    # Glidepath's deploy/release stages - see hangar/docs/autopilot/release-file-split.md.
+    "release.yaml", "**/release.yaml", "*.release.yaml", "**/*.release.yaml",
 )
 
 

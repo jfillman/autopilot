@@ -32,6 +32,17 @@ def test_baseline_deny_paths_always_present_and_cannot_be_removed():
     assert ".tekton/**" in out.deny_paths and "cicd.yaml" in out.deny_paths and "extra/**" in out.deny_paths
 
 
+def test_baseline_deny_paths_cover_release_files():
+    """AF-5b: an agent can never write a machine-owned release file (release.image,
+    releaseTracking), even if a definition's own denyPaths omits it - D9/AF-5."""
+    d = doc()
+    d["profile"]["repos"] = {"allow": ["jfillman/*"]}
+    out = profile.parse(d)
+    assert "release.yaml" in out.deny_paths
+    assert "**/release.yaml" in out.deny_paths
+    assert "**/*.release.yaml" in out.deny_paths
+
+
 @pytest.mark.parametrize("mutate", [
     lambda d: d.update(bogus=1),
     lambda d: d["profile"].update(tierCeiling="T3"),
