@@ -12,8 +12,10 @@ from typing import Any
 
 import celpy
 
+import yaml
+
 from .limits import Limits
-from .scope import path_violations, repo_allowed
+from .scope import diff_pointers, field_outside_allow, field_violations, path_violations, repo_allowed
 from .session import Session
 from .tiers import TOOLS, TRIPWIRES, Tier, ToolSpec
 
@@ -76,6 +78,9 @@ RULES: tuple[Rule, ...] = (
          "the artifact is larger than 1 MiB", "Store a smaller summary; artifacts are outputs, not datasets."),
     Rule("R018", "chat-outside-session", "ctx.is_chat && !ctx.session_kind",
          "chat tools exist only for session agents", "Only an interactive session agent has a human on the other end."),
+    Rule("R020", "field-not-allowed", "ctx.field_violations > 0",
+         "the change touches a field this agent may not set",
+         "Remove that field from the change and let a human or the release pipeline set it instead."),
 )
 
 _ENV = celpy.Environment()
@@ -115,9 +120,39 @@ def env_tier_of(spec: ToolSpec, args: dict[str, Any]) -> str:
     return spec.target
 
 
+def _file_field_violations(files: list[dict[str, Any]], field_deny: list[str],
+                            field_allow: list[str]) -> int:
+    """AF-9a: for each file carrying both `before` (its prior content) and `content` (the
+    proposed new content), parse both as YAML and diff them into JSON pointers, then count how
+    many touch a denied field or (with an allowlist set) fall outside every allowed field. Only
+    applies to files that parse as YAML/JSON mappings or lists - a file Clearance can't structure
+    isn't one AF-9a's field scope reasons about, and the whole-file path scope (R015) still
+    covers it. A file with no `before` (a new file) has nothing to diff against, so it's exempt -
+    the agent is authoring it whole, within whatever path scope already allows."""
+    if not field_deny and not field_allow:
+        return 0
+    total = 0
+    for f in files:
+        if not isinstance(f, dict):
+            continue
+        before, content = f.get("before"), f.get("content")
+        if not isinstance(before, str) or not isinstance(content, str):
+            continue
+        try:
+            before_data, after_data = yaml.safe_load(before), yaml.safe_load(content)
+        except yaml.YAMLError:
+            continue
+        if not isinstance(before_data, (dict, list)) or not isinstance(after_data, (dict, list)):
+            continue
+        pointers = diff_pointers(before_data, after_data)
+        total += len(field_violations(pointers, field_deny)) + len(field_outside_allow(pointers, field_allow))
+    return total
+
+
 def build_context(session: Session, principal_id: str, principal_tier: Tier, tool: str,
                   args: dict[str, Any], deny_globs: list[str], repo_allow: list[str],
-                  now, api_allow: list[str] | None = None, agent_kind: str = "task") -> dict[str, Any]:
+                  now, api_allow: list[str] | None = None, agent_kind: str = "task",
+                  field_deny: list[str] | None = None, field_allow: list[str] | None = None) -> dict[str, Any]:
     spec = TOOLS.get(tool)
     known = spec is not None
     files = args.get("files") if isinstance(args.get("files"), list) else []
@@ -154,6 +189,7 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
             "has_repo": repo is not None and bool(spec and spec.writes_files),
             "repo_ok": repo_allowed(repo, repo_allow) if repo else True,
             "path_violations": len(path_violations(paths, deny_globs)) if paths else 0,
+            "field_violations": _file_field_violations(files, field_deny or [], field_allow or []) if files else 0,
             "has_service": tool == "app.api.get" and service is not None,
             "service_ok": service in (api_allow or []) if service else True,
             "is_chat": tool in ("chat.recv", "chat.send"),
