@@ -26,6 +26,16 @@ BASELINE_DENY_PATHS: tuple[str, ...] = (
     "release.yaml", "**/release.yaml", "*.release.yaml", "**/*.release.yaml",
 )
 
+# AF-9a: field-level equivalent of BASELINE_DENY_PATHS - these JSON pointers (and anything
+# under them) can never be the field an agent's diff touches, even inside an otherwise-writable
+# file, and even if a definition's own fieldDeny omits them. Same risky fields AGENTS.md already
+# names by convention (extraManifests, networkPolicy, httpRoute need a human's approval) plus the
+# release-owned keys, for a file that hasn't done the AF-5 split yet.
+BASELINE_DENY_FIELDS: tuple[str, ...] = (
+    "/extraManifests", "/networkPolicy", "/httpRoute",
+    "/release", "/releaseTracking", "/rollout/image",
+)
+
 
 class DefinitionError(ValueError):
     pass
@@ -41,6 +51,8 @@ class AgentDefinition:
     repos_allow: tuple[str, ...]
     api_allow: tuple[str, ...]
     deny_paths: tuple[str, ...]
+    field_allow: tuple[str, ...]
+    field_deny: tuple[str, ...]
     image: str | None
     framework: str
     sandbox: str
@@ -70,6 +82,7 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
     )
     repos = p.get("repos", {})
     extra_deny = tuple(repos.get("denyPaths", []))
+    extra_field_deny = tuple(repos.get("fieldDeny", []))
     rt = doc.get("runtime", {})
     return AgentDefinition(
         name=doc["name"], kind=doc["kind"], identity_type=doc["identity"]["type"],
@@ -77,6 +90,8 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         repos_allow=tuple(repos.get("allow", [])),
         api_allow=tuple(p.get("apis", {}).get("allow", [])),
         deny_paths=tuple(dict.fromkeys(BASELINE_DENY_PATHS + extra_deny)),
+        field_allow=tuple(repos.get("fieldAllow", [])),
+        field_deny=tuple(dict.fromkeys(BASELINE_DENY_FIELDS + extra_field_deny)),
         image=rt.get("image"), framework=rt.get("framework", "generic"),
         sandbox=rt.get("sandbox", "standard"), sidecars=tuple(rt.get("sidecars", [])),
         triggers=tuple(doc.get("triggers", [{"type": "manual"}])),

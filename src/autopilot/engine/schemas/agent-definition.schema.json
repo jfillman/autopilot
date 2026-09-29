@@ -96,6 +96,22 @@
               "items": {
                 "type": "string"
               }
+            },
+            "fieldAllow": {
+              "type": "array",
+              "description": "AF-9a: JSON-pointer glob patterns (e.g. /env, /components/*/spec). If non-empty, a changed field outside this file-content-relative diff must match one of these or it's a violation - narrows what an agent may touch inside an otherwise-writable file, on top of denyPaths' whole-file scope.",
+              "items": {
+                "type": "string",
+                "pattern": "^/"
+              }
+            },
+            "fieldDeny": {
+              "type": "array",
+              "description": "AF-9a: JSON-pointer glob patterns always denied on top of BASELINE_DENY_FIELDS, regardless of fieldAllow.",
+              "items": {
+                "type": "string",
+                "pattern": "^/"
+              }
             }
           }
         },
