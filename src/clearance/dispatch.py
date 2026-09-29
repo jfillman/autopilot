@@ -166,7 +166,8 @@ class Gateway:
         now = self.now()
         ctx = policy.build_context(s, principal.id, principal.tier_ceiling, tool, args,
                                    list(d.deny_paths), list(d.repos_allow), now,
-                                   api_allow=list(d.api_allow), agent_kind=d.kind)
+                                   api_allow=list(d.api_allow), agent_kind=d.kind,
+                                   field_deny=list(d.field_deny), field_allow=list(d.field_allow))
         decision = policy.evaluate(ctx)
         if not decision.allow:
             s.record_denial()

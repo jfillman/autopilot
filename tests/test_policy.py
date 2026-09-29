@@ -112,3 +112,53 @@ def test_rules_have_unique_ids_and_hints():
     ids = [r.id for r in policy.RULES]
     assert len(ids) == len(set(ids))
     assert all(r.hint and r.message for r in policy.RULES)
+
+
+# AF-9a: field-level scope (R020).
+
+BEFORE_ENV = "envName: dev\nrollout:\n  replicas: 1\n"
+
+
+def _field_decision(gw, before, content, field_deny=(), field_allow=()):
+    r = gw.open_session("alice", "coding-agent", None)
+    assert r.ok, r
+    s = gw.store.get(r.data["session"])
+    p = gw.auth.authenticate("alice")
+    args = {**PR_ARGS, "files": [{"path": "platform/envs/dev.yaml", "before": before, "content": content}]}
+    c = policy.build_context(s, p.id, p.tier_ceiling, "repo.pr.open", args, DENY, ALLOW, T0,
+                             field_deny=list(field_deny), field_allow=list(field_allow))
+    return policy.evaluate(c)
+
+
+def test_field_deny_blocks_a_denied_key_even_inside_an_allowed_path(gw):
+    d = _field_decision(gw, before=BEFORE_ENV,
+                         content="envName: dev\nrollout:\n  replicas: 1\nreleaseTracking: {x: 1}\n",
+                         field_deny=["/releaseTracking"])
+    assert not d.allow and d.rule == "R020"
+
+
+def test_field_deny_allows_an_unrelated_change(gw):
+    d = _field_decision(gw, before=BEFORE_ENV,
+                         content="envName: dev\nrollout:\n  replicas: 2\n",
+                         field_deny=["/releaseTracking"])
+    assert d.allow
+
+
+def test_field_allow_restricts_to_the_listed_fields(gw):
+    d = _field_decision(gw, before=BEFORE_ENV,
+                         content="envName: dev\nrollout:\n  replicas: 1\ncomponents: [{type: redis}]\n",
+                         field_allow=["/rollout/*"])
+    assert not d.allow and d.rule == "R020"
+
+
+def test_field_allow_permits_a_listed_field(gw):
+    d = _field_decision(gw, before=BEFORE_ENV,
+                         content="envName: dev\nrollout:\n  replicas: 3\n",
+                         field_allow=["/rollout/*"])
+    assert d.allow
+
+
+def test_field_scope_skips_files_with_no_before(gw):
+    d = _field_decision(gw, before=None, content="envName: dev\nreleaseTracking: {x: 1}\n",
+                         field_deny=["/releaseTracking"])
+    assert d.allow
