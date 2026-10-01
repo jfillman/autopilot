@@ -10,7 +10,7 @@ from function import fn
 def request(expires_in_minutes: int, name="r-1a2b3c") -> fnv1.RunFunctionRequest:
     now = datetime.now(timezone.utc)
     xr = {
-        "apiVersion": "catalog.idp.io/v1alpha1", "kind": "AgentRun",
+        "apiVersion": "catalog.hangar.io/v1alpha1", "kind": "AgentRun",
         "metadata": {"name": name, "namespace": "autopilot-runs",
                      "creationTimestamp": (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")},
         "spec": {"agent": "coding-agent", "image": "ghcr.io/x/y@sha256:" + "0" * 64, "sandbox": "standard",

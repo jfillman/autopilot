@@ -17,12 +17,12 @@
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: agentruns.catalog.idp.io
+  name: agentruns.catalog.hangar.io
   annotations:
     # High-churn ephemeral objects: keep them out of the Backstage catalog and the scaffolder.
     terasky.backstage.io/add-to-catalog: "false"
 spec:
-  group: catalog.idp.io
+  group: catalog.hangar.io
   names:
     kind: AgentRun
     plural: agentruns

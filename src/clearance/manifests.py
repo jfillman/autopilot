@@ -9,7 +9,7 @@ from .profile import AgentDefinition
 from .session import Session
 
 RUN_NAMESPACE = "autopilot-runs"
-API_VERSION = "catalog.idp.io/v1alpha1"
+API_VERSION = "catalog.hangar.io/v1alpha1"
 
 
 def iso(dt: datetime) -> str:

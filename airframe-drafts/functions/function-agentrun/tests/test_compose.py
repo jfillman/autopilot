@@ -18,7 +18,7 @@ def xr(**spec):
         "limits": {"toolCalls": 100, "githubCalls": 50, "modelTokens": 1000},
     }
     base.update(spec)
-    return {"apiVersion": "catalog.idp.io/v1alpha1", "kind": "AgentRun",
+    return {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": "AgentRun",
             "metadata": {"name": "r-1a2b3c", "namespace": "autopilot-runs", "creationTimestamp": iso(T0)},
             "spec": base}
 

@@ -119,7 +119,7 @@ def app_xr(spec: dict, reg: Registry) -> tuple[str, dict]:
     else:
         body["port"] = opts.get("port", 8080)
     fn = f"{app}.yaml"
-    return fn, {"apiVersion": "catalog.idp.io/v1alpha1", "kind": kind,
+    return fn, {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": kind,
                 "metadata": {"annotations": xr_annotations(app, fn, reg.owner), "name": app, "namespace": f"app-{app}-cicd"},
                 "spec": body}
 
@@ -127,7 +127,7 @@ def app_xr(spec: dict, reg: Registry) -> tuple[str, dict]:
 def env_xr(app: str, cluster: str, env: str, owner: str) -> tuple[str, dict]:
     name = f"{app}-{cluster}-{env}"
     fn = f"{name}.yaml"
-    return fn, {"apiVersion": "catalog.idp.io/v1alpha1", "kind": "ApplicationEnvironment",
+    return fn, {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": "ApplicationEnvironment",
                 "metadata": {"annotations": xr_annotations(app, fn, owner), "name": name, "namespace": f"app-{app}-cicd"},
                 "spec": {"appName": app, "cluster": cluster, "configMapGenerator": False, "env": env}}
 
