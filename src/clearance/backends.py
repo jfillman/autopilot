@@ -1,7 +1,7 @@
 """Backend interfaces Clearance delegates to, plus in-memory fakes for tests.
 
 None of the real adapters (GitHub via the token-review-interceptor, the ArgoCD API, the
-Kubernetes API for AgentRun claims, Backstage MCP) are implemented yet. The interfaces are
+Kubernetes API for AgentRun XRs, Backstage MCP) are implemented yet. The interfaces are
 deliberately small so they can be built and verified one at a time.
 """
 from __future__ import annotations

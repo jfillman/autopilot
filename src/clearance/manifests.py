@@ -1,4 +1,4 @@
-"""Build the AgentRun claim for a session. A pure function, so it can be checked against the
+"""Build the AgentRun XR for a session. A pure function, so it can be checked against the
 XRD's own schema in tests (see tests/test_manifests.py)."""
 from __future__ import annotations
 

@@ -14,6 +14,6 @@ For people who **define and run agents**. The runtime is not deployed yet (see t
   their configuration, without touching a repo.
 
 ## Coming (roadmap M2 to M4)
-Running a definition as an `AgentRun` claim, sessions with parent and child budgets, and the Tower Agent tab.
+Running a definition as an `AgentRun` XR, sessions with parent and child budgets, and the Tower Agent tab.
 
 Run the tests: `./.venv/bin/python -m pytest -q` (no cluster needed).

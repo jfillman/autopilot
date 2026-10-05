@@ -2,7 +2,7 @@
 
 Deliberately thin: three tools, all delegating to Gateway, which owns every decision.
   tools_list    what this deployment offers, with tiers and required arguments
-  session_open  open a session for an agent definition, optionally narrowing it with a claim
+  session_open  open a session for an agent definition, optionally narrowing it with requested limits
   call          call one tool inside a session
 
 Authentication is a token provider, not something this module knows about. In stdio
@@ -32,9 +32,9 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
                  "required_args": list(t.required_args), "propose_only": t.propose_only}
                 for t in TOOLS.values()]
 
-    @mcp.tool(description="Open a session for an agent definition. `claim` may only narrow its limits.")
-    def session_open(agent: str, claim: dict[str, Any] | None = None) -> dict[str, Any]:
-        return gateway.open_session(token(), agent, claim).as_dict()
+    @mcp.tool(description="Open a session for an agent definition. `limits` may only narrow the definition's limits.")
+    def session_open(agent: str, limits: dict[str, Any] | None = None) -> dict[str, Any]:
+        return gateway.open_session(token(), agent, limits).as_dict()
 
     @mcp.tool(description="Call a tool inside a session. Returns ok, the decision (rule and hint on a denial), and data.")
     def call(session: str, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -2,7 +2,7 @@
 # worktree (see ../README.md).
 #
 # AgentRun is the EPHEMERAL half of an agent workload: one bounded, disposable run of an
-# agent definition. It is created imperatively by Clearance (a claim, not a git commit),
+# agent definition. It is created directly by Clearance through the Kubernetes API (not a git commit),
 # dev clusters only, in the reserved namespace autopilot-runs. The durable half, the agent
 # definition, is reviewed YAML in git (clearance/agents/*.yaml, schema
 # schemas/agent-definition.schema.json).

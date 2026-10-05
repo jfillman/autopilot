@@ -151,7 +151,7 @@ def test_chat_exists_only_for_session_agents(sgw):
 def test_the_public_service_agent_cannot_reach_write_tools_or_other_apis(sgw):
     gw, b, _ = sgw
     sid = gw.open_session("assistant", "passenger-assistant").data["session"]
-    assert gw.call("assistant", sid, "run.spawn", {"agent": "ops-checker", "claim": {}}).decision["rule"] == "R006"
+    assert gw.call("assistant", sid, "run.spawn", {"agent": "ops-checker", "limits": {}}).decision["rule"] == "R006"
     assert gw.call("assistant", sid, "app.api.get", {"service": "baggage-api", "path": "/bags"}).decision["rule"] == "R017"
     assert gw.call("assistant", sid, "k8s.exec", {}).decision["rule"] == "R002"
     assert gw.call("assistant", sid, "app.api.get", {"service": "flight-api", "path": "/x"}).decision["rule"] == "R005", \
@@ -163,11 +163,11 @@ def test_the_hand_off_chain_narrows_at_every_step(sgw):
     gw, b, _ = sgw
     root = gw.open_triggered("disruption-responder", "amqp", task_id="t-abc123abc123")
     rid = root.data["session"]
-    team = gw.call("responder", rid, "run.spawn", {"agent": "irregular-ops-team", "claim": {"tool_calls": 60, "model_tokens": 200000}})
+    team = gw.call("responder", rid, "run.spawn", {"agent": "irregular-ops-team", "limits": {"tool_calls": 60, "model_tokens": 200000}})
     assert team.ok, team.as_dict()
     tid = team.data["session"]
     assert gw.store.get(tid).limits.tool_calls == 60 and gw.store.get(tid).task_id == "t-abc123abc123"
-    worker = gw.call("responder", tid, "run.spawn", {"agent": "ops-researcher", "claim": {"tool_calls": 20}})
+    worker = gw.call("responder", tid, "run.spawn", {"agent": "ops-researcher", "limits": {"tool_calls": 20}})
     # the team session is owned by the responder principal because the parent's principal is inherited
     assert worker.ok, worker.as_dict()
     w = gw.store.get(worker.data["session"])
@@ -180,8 +180,8 @@ def test_the_hand_off_chain_narrows_at_every_step(sgw):
 def test_a_worker_cannot_be_told_to_exceed_its_parent(sgw):
     gw, b, _ = sgw
     root = gw.open_triggered("disruption-responder", "amqp", task_id="t-abc123abc124")
-    team = gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "claim": {"tool_calls": 60}})
-    over = gw.call("responder", team.data["session"], "run.spawn", {"agent": "ops-researcher", "claim": {"tool_calls": 200}})
+    team = gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "limits": {"tool_calls": 60}})
+    over = gw.call("responder", team.data["session"], "run.spawn", {"agent": "ops-researcher", "limits": {"tool_calls": 200}})
     assert not over.ok and over.decision["rule"] == "R007"
     assert len(b.runs.manifests) == 1, "only the team was created; the over-broad worker never existed"
 
@@ -189,8 +189,8 @@ def test_a_worker_cannot_be_told_to_exceed_its_parent(sgw):
 def test_the_responder_can_start_only_one_team(sgw):
     gw, b, _ = sgw
     root = gw.open_triggered("disruption-responder", "amqp", task_id="t-abc123abc125")
-    assert gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "claim": {"tool_calls": 40}}).ok
-    second = gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "claim": {"tool_calls": 40}})
+    assert gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "limits": {"tool_calls": 40}}).ok
+    second = gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "limits": {"tool_calls": 40}})
     assert not second.ok and second.decision["rule"] == "R016"
 
 
@@ -213,13 +213,13 @@ def test_the_digest_is_due_daily_and_only_the_digest():
     assert triggers.due(SKY, {"delay-digest": T0 - timedelta(hours=23)}, T0) == []
 
 
-# ---- outputs leave the sandbox through Clearance, and triggered runs get a claim ------------------
+# ---- outputs leave the sandbox through Clearance, and triggered runs get an AgentRun XR ------------------
 def test_a_run_stores_its_output_under_its_own_task_and_its_team_can_read_it(sgw):
     gw, b, _ = sgw
     root = gw.open_triggered("disruption-responder", "amqp", task_id="t-aaaaaaaaaaaa")
     rid = root.data["session"]
     assert gw.call("responder", rid, "artifact.put", {"name": "draft.md", "content": "hello"}).ok
-    team = gw.call("responder", rid, "run.spawn", {"agent": "irregular-ops-team", "claim": {"tool_calls": 40}})
+    team = gw.call("responder", rid, "run.spawn", {"agent": "irregular-ops-team", "limits": {"tool_calls": 40}})
     got = gw.call("responder", team.data["session"], "artifact.get", {"name": "draft.md"})
     assert got.ok and got.data == "hello", "one task id spans the tree, so the team reads the parent's artifact"
     assert gw.call("responder", rid, "artifact.get", {"name": "nope"}).data is None
@@ -234,7 +234,7 @@ def test_an_oversized_artifact_is_denied_and_never_stored(sgw):
     assert not big.ok and big.decision["rule"] == "R019" and b.artifacts.store == {}
 
 
-def test_a_triggered_top_level_run_gets_an_agentrun_claim_that_satisfies_the_xrd(sgw):
+def test_a_triggered_top_level_run_gets_an_agentrun_xr_that_satisfies_the_xrd(sgw):
     import jsonschema, yaml
     gw, b, _ = sgw
     sid = gw.open_triggered("delay-digest", "cron").data["session"]
@@ -257,7 +257,7 @@ def test_a_parent_must_hold_every_tool_it_delegates(sgw):
     """A child's tools are its own list intersected with its parent's, so delegating cannot smuggle a tool in."""
     gw, b, _ = sgw
     root = gw.open_triggered("disruption-responder", "amqp", task_id="t-bbbbbbbbbbbb")
-    team = gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "claim": {"tool_calls": 40, "tools": ["app.api.get", "run.spawn"]}})
+    team = gw.call("responder", root.data["session"], "run.spawn", {"agent": "irregular-ops-team", "limits": {"tool_calls": 40, "tools": ["app.api.get", "run.spawn"]}})
     assert team.ok
-    kid = gw.call("responder", team.data["session"], "run.spawn", {"agent": "ops-researcher", "claim": {"tool_calls": 10}})
+    kid = gw.call("responder", team.data["session"], "run.spawn", {"agent": "ops-researcher", "limits": {"tool_calls": 10}})
     assert gw.store.get(kid.data["session"]).limits.tools == {"app.api.get"}, "the team narrowed itself, so its worker lost metrics and artifacts too"
