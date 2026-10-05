@@ -1,6 +1,6 @@
 import pytest
 
-from clearance.limits import Claim, Network
+from clearance.limits import LimitRequest, Network
 from clearance.modelproxy import ModelProxy, ModelRoute
 
 ROUTES = {"claude-sonnet-5": ModelRoute("claude-sonnet-5", "anthropic", "https://api.anthropic.com", "claude-sonnet-5"),
@@ -12,8 +12,8 @@ def mp(gw, clock):
     return ModelProxy(ROUTES, gw.store, gw.audit, clock)
 
 
-def sess(gw, claim=None, agent="coding-agent"):
-    return gw.open_session("alice", agent, claim).data["session"]
+def sess(gw, req=None, agent="coding-agent"):
+    return gw.open_session("alice", agent, req).data["session"]
 
 
 def test_allowed_call_names_the_route_and_carries_the_session_as_caller(gw, mp):
