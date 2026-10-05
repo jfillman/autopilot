@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
 
-from .limits import BUDGET_FIELDS, Claim, Limits, narrow
+from .limits import BUDGET_FIELDS, LimitRequest, Limits, narrow
 from .tiers import Tier
 
 MAX_DEPTH = 3
@@ -81,7 +81,7 @@ class SessionStore:
     def get(self, sid: str) -> Session | None:
         return self._s.get(sid)
 
-    def open(self, principal: str, agent: str, base: Limits, claim: Claim | None, now: datetime,
+    def open(self, principal: str, agent: str, base: Limits, request: LimitRequest | None, now: datetime,
              parent_id: str | None = None, task_id: str | None = None) -> Session:
         parent = self._s.get(parent_id) if parent_id else None
         if parent_id and parent is None:
@@ -103,7 +103,7 @@ class SessionStore:
                 network=min(base.network, parent.limits.network),
                 compute=min(base.compute, parent.limits.compute),
             )
-        limits = narrow(base, claim or Claim())
+        limits = narrow(base, request or LimitRequest())
         if limits.ttl_minutes < 1:
             raise SessionError("ttl", "no time left to run")
         expires = now + timedelta(minutes=limits.ttl_minutes)

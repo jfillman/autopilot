@@ -6,8 +6,8 @@ PR = {"repo": "jfillman/flight-api", "branch": "agent/t-1", "title": "fix probe"
       "files": [{"path": "charts/values.yaml", "content": "x"}]}
 
 
-def open_(gw, token="alice", agent="coding-agent", claim=None):
-    r = gw.open_session(token, agent, claim)
+def open_(gw, token="alice", agent="coding-agent", req=None):
+    r = gw.open_session(token, agent, req)
     assert r.ok, r.as_dict()
     return r.data["session"]
 
@@ -90,7 +90,7 @@ def test_workload_identity_must_match_the_definition(gw):
     assert not gw.open_session("alice", "no-such-agent").ok
 
 
-def test_open_session_claim_cannot_widen(gw):
+def test_open_session_limits_cannot_widen(gw):
     r = gw.open_session("alice", "coding-agent", {"tier_ceiling": "T2"})
     assert not r.ok and r.decision["rule"] == "R007"
     r = gw.open_session("alice", "coding-agent", {"ttl_minutes": 31})
@@ -108,9 +108,9 @@ def test_every_call_leaves_exactly_one_audit_record_and_the_chain_holds(gw):
 
 
 # ---- teams: run.spawn / run.close --------------------------------------------------
-def test_spawn_creates_a_narrower_child_and_an_agentrun_claim(gw, backends):
+def test_spawn_creates_a_narrower_child_and_an_agentrun_xr(gw, backends):
     sid = open_(gw, agent="orchestrator")
-    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "claim": {"tool_calls": 30}})
+    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 30}})
     assert r.ok, r.as_dict()
     child = gw.store.get(r.data["session"])
     assert child.limits.tool_calls == 30 and child.parent_id == sid and child.task_id == gw.store.get(sid).task_id
@@ -121,28 +121,28 @@ def test_spawn_creates_a_narrower_child_and_an_agentrun_claim(gw, backends):
 
 def test_spawn_that_widens_is_denied_with_r007_and_creates_nothing(gw, backends):
     sid = open_(gw, agent="orchestrator")
-    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "claim": {"tier_ceiling": "T1"}})
+    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tier_ceiling": "T1"}})
     assert not r.ok and r.decision["rule"] == "R007"
     assert backends.runs.manifests == {}
 
 
 def test_spawn_child_cannot_exceed_what_the_parent_has_left(gw):
-    sid = open_(gw, agent="orchestrator", claim={"tool_calls": 50})
-    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "claim": {"tool_calls": 90}})
+    sid = open_(gw, agent="orchestrator", req={"tool_calls": 50})
+    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 90}})
     assert not r.ok and r.decision["rule"] == "R007"
 
 
 def test_spawn_limit_is_enforced(gw):
     sid = open_(gw, agent="orchestrator")          # children: 3
     for _ in range(3):
-        assert gw.call("alice", sid, "run.spawn", {"agent": "researcher", "claim": {"tool_calls": 10}}).ok
-    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "claim": {"tool_calls": 10}})
+        assert gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 10}}).ok
+    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 10}})
     assert not r.ok and r.decision["rule"] == "R016"
 
 
 def test_close_deletes_the_run_and_only_my_own(gw, backends):
     sid = open_(gw, agent="orchestrator")
-    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "claim": {"tool_calls": 10}})
+    r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 10}})
     other = open_(gw, token="bob", agent="orchestrator")
     assert not gw.call("bob", other, "run.close", {"run_id": r.data["session"]}).ok
     c = gw.call("alice", sid, "run.close", {"run_id": r.data["session"]})
