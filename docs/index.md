@@ -3,7 +3,7 @@
 Any AI agent workload, bounded and audited.
 
 Autopilot runs agents on [Hangar](https://github.com/jfillman/hangar) the way Hangar runs services: durable changes
-are commits that people review, and ephemeral runs are claims to Crossplane. An agent is one more author of git
+are commits that people review, and ephemeral runs are direct requests to Crossplane. An agent is one more author of git
 commits, held to a tier of tools, a path scope and a budget that can only narrow at runtime.
 
 - **Defining or running an agent?** Start with the [user guide](user/README.md).

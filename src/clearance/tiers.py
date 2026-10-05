@@ -53,7 +53,7 @@ _TOOLS = [
              target="lower"),
     ToolSpec("artifact.put", Tier.T1, "Store an output artifact under this task (bounded, expiring)", ("name", "content")),
     ToolSpec("artifact.get", Tier.T0, "Read an artifact stored under this task tree", ("name",)),
-    ToolSpec("run.spawn", Tier.T1, "Start a child agent run, narrower than this one", ("agent", "claim")),
+    ToolSpec("run.spawn", Tier.T1, "Start a child agent run, narrower than this one", ("agent", "limits")),
     ToolSpec("run.close", Tier.T1, "Close one of this session's own runs", ("run_id",)),
     ToolSpec("human.request", Tier.T1, "Ask a human to decide something", ("question",)),
     ToolSpec("repo.pr.open_upper", Tier.T2, "Open a PR against an upper environment (a human merges)",

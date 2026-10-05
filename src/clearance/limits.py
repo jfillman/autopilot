@@ -1,6 +1,6 @@
 """Limits, and the narrow-only rule.
 
-A claim (a run's request for itself) or a child run may only *narrow* the limits it
+A run's requested limits (a LimitRequest) or a child run may only *narrow* the limits it
 inherits. It can never widen them. This is the ephemeral-plane invariant: the durable
 plane (git) sets the ceiling, and everything at runtime can only stay under it.
 """
@@ -75,12 +75,12 @@ class Limits:
 class WideningError(ValueError):
     def __init__(self, fields: list[str]):
         self.fields = fields
-        super().__init__("claim widens: " + ", ".join(fields))
+        super().__init__("requested limits widen: " + ", ".join(fields))
 
 
 @dataclass(frozen=True)
-class Claim:
-    """What a run asks for. Every field is optional; missing means inherit."""
+class LimitRequest:
+    """What a session or run asks for (its requested limits). Every field is optional; missing means inherit."""
     tier_ceiling: Tier | None = None
     ttl_minutes: int | None = None
     tool_calls: int | None = None
@@ -94,13 +94,13 @@ class Claim:
     compute: ComputeClass | None = None
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any] | None) -> "Claim":
+    def from_dict(cls, d: dict[str, Any] | None) -> "LimitRequest":
         d = d or {}
         known = {"tier_ceiling", "ttl_minutes", "tool_calls", "github_calls", "open_prs",
                  "model_tokens", "children", "tools", "models", "network", "compute"}
         unknown = set(d) - known
         if unknown:
-            raise ValueError(f"unknown claim fields: {sorted(unknown)}")
+            raise ValueError(f"unknown limit fields: {sorted(unknown)}")
         return cls(
             tier_ceiling=Tier[d["tier_ceiling"]] if d.get("tier_ceiling") else None,
             ttl_minutes=d.get("ttl_minutes"), tool_calls=d.get("tool_calls"),
@@ -113,8 +113,8 @@ class Claim:
         )
 
 
-def narrow(parent: Limits, claim: Claim) -> Limits:
-    """Apply a claim to inherited limits. Raises WideningError listing every field that
+def narrow(parent: Limits, request: LimitRequest) -> Limits:
+    """Apply requested limits to inherited limits. Raises WideningError listing every field that
     tried to go above what was inherited."""
     widened: list[str] = []
     out = parent
@@ -128,36 +128,36 @@ def narrow(parent: Limits, claim: Claim) -> Limits:
         else:
             out = replace(out, **{name: requested})
 
-    if claim.tier_ceiling is not None:
-        if claim.tier_ceiling > parent.tier_ceiling:
+    if request.tier_ceiling is not None:
+        if request.tier_ceiling > parent.tier_ceiling:
             widened.append("tier_ceiling")
         else:
-            out = replace(out, tier_ceiling=claim.tier_ceiling)
-    cap("ttl_minutes", claim.ttl_minutes, parent.ttl_minutes)
+            out = replace(out, tier_ceiling=request.tier_ceiling)
+    cap("ttl_minutes", request.ttl_minutes, parent.ttl_minutes)
     for f in BUDGET_FIELDS:
-        cap(f, getattr(claim, f), getattr(parent, f))
-    if claim.tools is not None:
-        extra = claim.tools - parent.tools
+        cap(f, getattr(request, f), getattr(parent, f))
+    if request.tools is not None:
+        extra = request.tools - parent.tools
         if extra:
             widened.append("tools:" + ",".join(sorted(extra)))
         else:
-            out = replace(out, tools=claim.tools)
-    if claim.models is not None:
-        extra = claim.models - parent.models
+            out = replace(out, tools=request.tools)
+    if request.models is not None:
+        extra = request.models - parent.models
         if extra:
             widened.append("models:" + ",".join(sorted(extra)))
         else:
-            out = replace(out, models=claim.models)
-    if claim.network is not None:
-        if claim.network > parent.network:
+            out = replace(out, models=request.models)
+    if request.network is not None:
+        if request.network > parent.network:
             widened.append("network")
         else:
-            out = replace(out, network=claim.network)
-    if claim.compute is not None:
-        if claim.compute > parent.compute:
+            out = replace(out, network=request.network)
+    if request.compute is not None:
+        if request.compute > parent.compute:
             widened.append("compute")
         else:
-            out = replace(out, compute=claim.compute)
+            out = replace(out, compute=request.compute)
     if widened:
         raise WideningError(widened)
     return out

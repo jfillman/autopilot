@@ -23,7 +23,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 |---|---|---|
 | Tool tiers and tripwires | `tiers.py` | T0 to T2 tools; T3 names are tripwires |
 | Path and repo scope | `scope.py` | one implementation, shared with the CI `agent-scope` gate; traversal-safe |
-| Narrow-only limits | `limits.py` | a claim or child can only narrow what it inherits |
+| Narrow-only limits | `limits.py` | requested limits or a child can only narrow what they inherit |
 | Agent definitions | `profile.py`, `schemas/` | durable, schema-validated; baseline deny paths cannot be removed |
 | Sessions and run tree | `session.py` | budgets, expiry, breaker, parent-reserved child budgets |
 | Policy | `policy.py` | 15 CEL deny rules with ids and fix hints; fails closed |
@@ -40,7 +40,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 ## What is NOT built
 
 * Real backends: GitHub through the token-review-interceptor, the ArgoCD API, the Kubernetes API
-  for `AgentRun` claims, Backstage MCP federation. `backends.py` defines the interfaces and fakes.
+  for `AgentRun` XRs, Backstage MCP federation. `backends.py` defines the interfaces and fakes.
 * Authentication adapters: Tower/OAuth introspection for delegated agents, TokenReview for workloads.
 * The HTTP transport for MCP, and the model proxy's HTTP forwarder.
 * The interceptor's `/agent-installation-token` route, the `agent-scope` and `agent-identity` CI gates.

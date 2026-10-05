@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 
-from clearance.limits import BUDGET_FIELDS, Claim, ComputeClass, Limits, Network, WideningError
+from clearance.limits import BUDGET_FIELDS, ComputeClass, LimitRequest, Limits, Network, WideningError
 from clearance.session import DENIAL_TRIP, MAX_DEPTH, SessionError, SessionStore
 from clearance.tiers import Tier
 
@@ -26,7 +26,7 @@ def test_budgets_spend_and_exhaust():
 
 
 def test_expiry_and_ttl():
-    s = store().open("u", "a", BASE, Claim(ttl_minutes=10), T0)
+    s = store().open("u", "a", BASE, LimitRequest(ttl_minutes=10), T0)
     assert not s.expired(T0 + timedelta(minutes=9, seconds=59))
     assert s.expired(T0 + timedelta(minutes=10))
     assert s.minutes_left(T0 + timedelta(minutes=4)) == 6
@@ -35,7 +35,7 @@ def test_expiry_and_ttl():
 def test_child_is_narrower_and_reserves_from_parent():
     st = store()
     p = st.open("u", "orch", BASE, None, T0)
-    c = st.open("u", "res", BASE, Claim(tool_calls=40, model_tokens=300), T0, parent_id=p.id)
+    c = st.open("u", "res", BASE, LimitRequest(tool_calls=40, model_tokens=300), T0, parent_id=p.id)
     assert c.limits.tool_calls == 40 and c.parent_id == p.id and c.task_id == p.task_id
     assert p.remaining("tool_calls") == 60 and p.remaining("model_tokens") == 700
     assert p.remaining("children") == 2
@@ -44,7 +44,7 @@ def test_child_is_narrower_and_reserves_from_parent():
 def test_children_cannot_collectively_exceed_the_parent():
     st = store()
     p = st.open("u", "orch", BASE, None, T0)
-    st.open("u", "x", BASE, Claim(tool_calls=70), T0, parent_id=p.id)
+    st.open("u", "x", BASE, LimitRequest(tool_calls=70), T0, parent_id=p.id)
     # Second child asks for 70 but only 30 remain: it is clamped to what is left, never above.
     c2 = st.open("u", "x", BASE, None, T0, parent_id=p.id)
     assert c2.limits.tool_calls == 30 and p.remaining("tool_calls") == 0
@@ -52,28 +52,28 @@ def test_children_cannot_collectively_exceed_the_parent():
 
 def test_child_cannot_widen_beyond_parent_remaining():
     st = store()
-    p = st.open("u", "orch", BASE, Claim(tool_calls=50), T0)
+    p = st.open("u", "orch", BASE, LimitRequest(tool_calls=50), T0)
     with pytest.raises(WideningError):
-        st.open("u", "x", BASE, Claim(tool_calls=60), T0, parent_id=p.id)
+        st.open("u", "x", BASE, LimitRequest(tool_calls=60), T0, parent_id=p.id)
 
 
 def test_child_ttl_never_outlives_parent():
     st = store()
-    p = st.open("u", "orch", BASE, Claim(ttl_minutes=20), T0)
+    p = st.open("u", "orch", BASE, LimitRequest(ttl_minutes=20), T0)
     c = st.open("u", "x", BASE, None, T0 + timedelta(minutes=5), parent_id=p.id)
     assert c.expires_at == p.expires_at
 
 
 def test_child_inherits_narrower_tier_tools_network():
     st = store()
-    p = st.open("u", "orch", BASE, Claim(tier_ceiling=Tier.T0, tools=frozenset({"a"}), network=Network.CLEARANCE), T0)
+    p = st.open("u", "orch", BASE, LimitRequest(tier_ceiling=Tier.T0, tools=frozenset({"a"}), network=Network.CLEARANCE), T0)
     c = st.open("u", "x", BASE, None, T0, parent_id=p.id)
     assert c.limits.tier_ceiling == Tier.T0 and c.limits.tools == {"a"} and c.limits.network == Network.CLEARANCE
 
 
 def test_children_budget_and_depth_are_bounded():
     st = store()
-    p = st.open("u", "orch", BASE, Claim(children=1), T0)
+    p = st.open("u", "orch", BASE, LimitRequest(children=1), T0)
     st.open("u", "x", BASE, None, T0, parent_id=p.id)
     with pytest.raises(SessionError):
         st.open("u", "x", BASE, None, T0, parent_id=p.id)
@@ -87,7 +87,7 @@ def test_children_budget_and_depth_are_bounded():
 def test_closing_a_child_returns_unspent_budget_and_charges_spent():
     st = store()
     p = st.open("u", "orch", BASE, None, T0)
-    c = st.open("u", "x", BASE, Claim(tool_calls=40), T0, parent_id=p.id)
+    c = st.open("u", "x", BASE, LimitRequest(tool_calls=40), T0, parent_id=p.id)
     c.spend("tool_calls", 10)
     st.close(c.id)
     assert p.remaining("tool_calls") == 90 and p.used["tool_calls"] == 10
@@ -123,8 +123,8 @@ def test_repeated_denials_trip_the_breaker():
 
 def test_sweep_closes_expired_sessions():
     st = store()
-    a = st.open("u", "a", BASE, Claim(ttl_minutes=5), T0)
-    b = st.open("u", "b", BASE, Claim(ttl_minutes=50), T0)
+    a = st.open("u", "a", BASE, LimitRequest(ttl_minutes=5), T0)
+    b = st.open("u", "b", BASE, LimitRequest(ttl_minutes=50), T0)
     assert st.sweep(T0 + timedelta(minutes=6)) == [a.id]
     assert a.closed and not b.closed
 
@@ -141,8 +141,8 @@ def test_budget_conservation_under_random_operations():
             s = rnd.choice(live)
             try:
                 if act == "spawn" and not s.closed:
-                    claim = Claim(tool_calls=rnd.randint(1, 60), model_tokens=rnd.randint(1, 600))
-                    live.append(st.open("u", "x", BASE, claim, T0, parent_id=s.id))
+                    req = LimitRequest(tool_calls=rnd.randint(1, 60), model_tokens=rnd.randint(1, 600))
+                    live.append(st.open("u", "x", BASE, req, T0, parent_id=s.id))
                 elif act == "spend" and not s.closed:
                     s.spend("tool_calls", rnd.randint(1, 10))
                 elif act == "close":

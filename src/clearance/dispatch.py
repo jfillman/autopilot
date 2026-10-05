@@ -13,7 +13,7 @@ from typing import Any, Callable, Protocol
 from . import manifests, policy
 from .audit import AuditLog, args_digest
 from .backends import Backends
-from .limits import Claim, WideningError
+from .limits import LimitRequest, WideningError
 from .profile import AgentDefinition
 from .session import Session, SessionError, SessionStore
 from .tiers import TOOLS, Tier
@@ -81,7 +81,7 @@ class Gateway:
         }
 
     # -- sessions --------------------------------------------------------
-    def open_session(self, token: str, agent: str, claim: dict | None = None,
+    def open_session(self, token: str, agent: str, limits: dict | None = None,
                      task_id: str | None = None) -> Result:
         principal = self.auth.authenticate(token)
         d = self.defs.get(agent)
@@ -92,12 +92,12 @@ class Gateway:
         if d.identity_type == "delegated" and principal.kind != "user":
             return self._deny_open(principal, agent, "R001", "definition is for a delegated agent")
         try:
-            s = self.store.open(principal.id, agent, d.limits, Claim.from_dict(claim), self.now(), task_id=task_id)
+            s = self.store.open(principal.id, agent, d.limits, LimitRequest.from_dict(limits), self.now(), task_id=task_id)
         except WideningError as e:
             return self._deny_open(principal, agent, "R007", str(e))
         except (SessionError, ValueError) as e:
             return self._deny_open(principal, agent, "R008", str(e))
-        rec = self._audit(s, principal, "session.open", None, "allow", None, {"claim": claim or {}}, "opened")
+        rec = self._audit(s, principal, "session.open", None, "allow", None, {"limits": limits or {}}, "opened")
         return Result(True, {"allow": True}, {"session": s.id, "task_id": s.task_id,
                                               "expires_at": manifests.iso(s.expires_at),
                                               "limits": s.limits.as_dict()}, audit_seq=rec["seq"], session=s.id)
@@ -135,7 +135,7 @@ class Gateway:
                       audit_seq=rec["seq"], session=s.id)
 
     def launch(self, session_id: str, run_input: dict | None = None) -> Result:
-        """Create the AgentRun claim for a top-level session (a triggered or delegated in-cluster run).
+        """Create the AgentRun XR for a top-level session (a triggered or delegated in-cluster run).
         Children are created by run.spawn; service agents are deployed as applications and have no run."""
         s = self.store.get(session_id)
         if s is None or s.closed:
@@ -200,14 +200,14 @@ class Gateway:
         if d is None:
             raise Denied("R003", "unknown agent definition", "Spawn an agent that exists in the catalog.")
         try:
-            child = self.store.open(parent.principal, d.name, d.limits, Claim.from_dict(a.get("claim")),
+            child = self.store.open(parent.principal, d.name, d.limits, LimitRequest.from_dict(a.get("limits")),
                                     self.now(), parent_id=parent.id)
         except WideningError as e:
             raise Denied("R007", str(e), "A child run may only narrow what its parent has left.") from e
         except SessionError as e:
             raise Denied("R016", str(e), "Spawn fewer or smaller child runs, or finish the ones running.") from e
         except ValueError as e:
-            raise Denied("R008", str(e), "Fix the claim; see the tool schema.") from e
+            raise Denied("R008", str(e), "Fix the requested limits; see the tool schema.") from e
         try:
             manifest = manifests.agentrun_manifest(child, d, run_input=a.get("input"))
             self.b.runs.create(manifest)

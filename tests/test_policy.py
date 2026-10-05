@@ -1,7 +1,7 @@
 import pytest
 
 from clearance import policy
-from clearance.limits import Claim
+from clearance.limits import LimitRequest
 from clearance.tiers import Tier
 
 from conftest import T0
@@ -12,8 +12,8 @@ PR_ARGS = {"repo": "jfillman/flight-api", "branch": "agent/t-1", "title": "fix p
            "files": [{"path": "charts/values.yaml", "content": "x"}]}
 
 
-def ctx(gw, tool, args, agent="coding-agent", token="alice", claim=None):
-    r = gw.open_session(token, agent, claim)
+def ctx(gw, tool, args, agent="coding-agent", token="alice", req=None):
+    r = gw.open_session(token, agent, req)
     assert r.ok, r
     s = gw.store.get(r.data["session"])
     p = gw.auth.authenticate(token)

@@ -15,8 +15,8 @@ def validate(m):
     jsonschema.validate(m, SCHEMA)
 
 
-def make(gw, defs, agent="coding-agent", claim=None):
-    sid = gw.open_session("alice", agent, claim).data["session"]
+def make(gw, defs, agent="coding-agent", req=None):
+    sid = gw.open_session("alice", agent, req).data["session"]
     return gw.store.get(sid), defs[agent]
 
 
@@ -29,7 +29,7 @@ def test_manifest_satisfies_the_xrd_schema(gw, defs, agent):
 
 
 def test_manifest_carries_the_narrowed_limits_not_the_definitions(gw, defs):
-    s, d = make(gw, defs, claim={"tool_calls": 7, "network": "clearance", "compute": "small"})
+    s, d = make(gw, defs, req={"tool_calls": 7, "network": "clearance", "compute": "small"})
     spec = manifests.agentrun_manifest(s, d)["spec"]
     assert spec["limits"]["toolCalls"] == 7 and spec["network"]["mode"] == "clearance"
     assert spec["expiresAt"].endswith("Z")
