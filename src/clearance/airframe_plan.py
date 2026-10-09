@@ -23,7 +23,9 @@ SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "schemas" / "appspec.
 STACK_KIND = {"nodejs": "NodeJSApplication", "springboot": "SpringBootApplication",
               "go": "GoApplication", "python": "PythonApplication"}
 PIPELINE_STAGES = {"build", "test", "deploy", "release"}
-TENANTS_REPO = "gitops-cluster-dev-tenants"
+ENVS_DIR = "glidepath/envs"               # Glidepath ADR-0018/0019: one file per Ground environment in the app repo
+BASE_FILE = "glidepath/base.yaml"         # optional values shared by every Ground environment (chart contract)
+LEGACY_DEPLOY_KEYS = ("lowerEnvironments", "upperEnvironments", "promotionOrder")   # removed from the schema 2026-10-07
 
 
 class NeedsInput(Exception):
@@ -39,9 +41,28 @@ class SpecError(ValueError):
 
 @dataclass(frozen=True)
 class Registry:
+    """What the planner knows about the fleet. Built from the platform's cluster registry (the fleet
+    clusters.yaml that airframe's cluster-registry chart renders into the per-cluster ConfigMaps), never
+    typed in: the dev cluster's canonical name, the upper clusters a flight environment may land on, and
+    the tenants repo the dev cluster watches for XR requests."""
     dev_cluster: str                      # the value to put in devCluster (kind-dev, even on kiac-dev)
     upper_clusters: tuple[str, ...]
+    tenants_repo: str                     # the dev cluster's tenantsRepo: where the XR requests are committed
     owner: str = "jfillman"
+
+    @classmethod
+    def from_fleet(cls, fleet: dict, owner: str = "jfillman") -> "Registry":
+        """From the fleet record shape (`clusters:` list; name, zone, roles, tenantsRepo, aliases). The dev
+        cluster is the one that runs the control plane; every other cluster in the upper zone takes flight
+        environments. Aliases (kiac-dev for kind-dev) are not clusters, so they never appear here."""
+        clusters = fleet.get("clusters") or []
+        dev = [c for c in clusters if "control-plane" in (c.get("roles") or [])]
+        if len(dev) != 1:
+            raise SpecError(f"the cluster registry must name exactly one control-plane cluster, found {len(dev)}")
+        if not dev[0].get("tenantsRepo"):
+            raise SpecError(f"cluster {dev[0].get('name')!r} runs the control plane but declares no tenantsRepo")
+        upper = tuple(c["name"] for c in clusters if c is not dev[0] and (c.get("zone") or "upper") == "upper")
+        return cls(dev[0]["name"], upper, dev[0]["tenantsRepo"], owner)
 
 
 @dataclass(frozen=True)
@@ -96,15 +117,16 @@ def env_config(spec: dict, env: str) -> dict:
     return merge(spec.get("config", {}), spec.get("overrides", {}).get(env, {}))
 
 
-def xr_annotations(app: str, filename: str, owner: str) -> dict:
-    src = {"pushToGit": True, "gitBranch": "main", "gitRepo": f"github.com?owner={owner}&repo={TENANTS_REPO}",
+def xr_annotations(app: str, filename: str, reg: Registry) -> dict:
+    owner = reg.owner
+    src = {"pushToGit": True, "gitBranch": "main", "gitRepo": f"github.com?owner={owner}&repo={reg.tenants_repo}",
            "gitLayout": "custom", "basePath": ""}
     return {
         "terasky.backstage.io/source-info": json.dumps(src, separators=(",", ":")),
         "terasky.backstage.io/add-to-catalog": "true",
         "terasky.backstage.io/owner": f"group:default/{owner}",
         "terasky.backstage.io/system": f"app-{app}-cicd",
-        "terasky.backstage.io/source-file-url": f"https://github.com/{owner}/{TENANTS_REPO}/blob/main/tenants/{app}/xr-requests/{filename}",
+        "terasky.backstage.io/source-file-url": f"https://github.com/{owner}/{reg.tenants_repo}/blob/main/tenants/{app}/xr-requests/{filename}",
     }
 
 
@@ -120,15 +142,15 @@ def app_xr(spec: dict, reg: Registry) -> tuple[str, dict]:
         body["port"] = opts.get("port", 8080)
     fn = f"{app}.yaml"
     return fn, {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": kind,
-                "metadata": {"annotations": xr_annotations(app, fn, reg.owner), "name": app, "namespace": f"app-{app}-cicd"},
+                "metadata": {"annotations": xr_annotations(app, fn, reg), "name": app, "namespace": f"app-{app}-cicd"},
                 "spec": body}
 
 
-def env_xr(app: str, cluster: str, env: str, owner: str) -> tuple[str, dict]:
+def env_xr(app: str, cluster: str, env: str, reg: Registry) -> tuple[str, dict]:
     name = f"{app}-{cluster}-{env}"
     fn = f"{name}.yaml"
     return fn, {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": "ApplicationEnvironment",
-                "metadata": {"annotations": xr_annotations(app, fn, owner), "name": name, "namespace": f"app-{app}-cicd"},
+                "metadata": {"annotations": xr_annotations(app, fn, reg), "name": name, "namespace": f"app-{app}-cicd"},
                 "spec": {"appName": app, "cluster": cluster, "configMapGenerator": False, "env": env}}
 
 
@@ -151,13 +173,19 @@ def resolve_flight(spec: dict, reg: Registry) -> tuple[list[dict], list[str]]:
 
 
 def patch_cicd(base: dict, spec: dict, flight: list[dict]) -> dict:
-    """Apply the environment declaration to a scaffolded cicd.yaml. The rest of the file is left alone."""
+    """Apply the environment declaration to a scaffolded cicd.yaml. The rest of the file is left alone.
+
+    Glidepath ADR-0019: one `deploy.environments` list, in promotion order, each entry a Ground
+    environment (deployed on every push) or a Flight environment (deployed through a release). A
+    flight entry names its cluster because a flight environment never runs on the app's own dev
+    cluster. The pre-ADR keys are dropped if the scaffold still carries them: the schema rejects them."""
     ground = spec["environments"]["ground"]
     out = copy.deepcopy(base)
     dep = out.setdefault("deploy", {})
-    dep["lowerEnvironments"] = list(ground)
-    dep["upperEnvironments"] = [dict(e) for e in flight]
-    dep["promotionOrder"] = list(ground) + [e["name"] for e in flight]
+    for k in LEGACY_DEPLOY_KEYS:
+        dep.pop(k, None)
+    dep["environments"] = [{"name": g, "tier": "ground"} for g in ground] \
+        + [{"name": e["name"], "tier": "flight", "cluster": e["cluster"]} for e in flight]
     steps = [{"stage": "build"}] + [{"stage": "deploy", "env": g} for g in ground]
     if flight:
         steps.append({"stage": "release", "env": flight[0]["name"]})
@@ -194,13 +222,13 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
     fn, xr = app_xr(spec, reg)
     files.append(FileChange(f"tenants/{app}/xr-requests/{fn}", "create", xr))
     for e in flight:
-        fn2, xr2 = env_xr(app, e["cluster"], e["name"], owner)
+        fn2, xr2 = env_xr(app, e["cluster"], e["name"], reg)
         files.append(FileChange(f"tenants/{app}/xr-requests/{fn2}", "create", xr2))
-    cs.append(Step("tenants", f"Create {app} and its flight environments", TENANTS_REPO, "human-merge", "T2", files=files,
+    cs.append(Step("tenants", f"Create {app} and its flight environments", reg.tenants_repo, "human-merge", "T2", files=files,
                    effects=[f"creates the source repo {owner}/{app} and the deploy repo {owner}/gitops-{app}",
                             "onboards the CI/CD pipeline", "commits per-app SecretStore XRs (the compositions do this themselves)"]
                    + [f"creates flight environment {e['name']} on {e['cluster']}" for e in flight]))
-    cs.append(Step("repos-ready", "Wait for the repos and onboarding", TENANTS_REPO, "wait", "T0", depends_on=["tenants"],
+    cs.append(Step("repos-ready", "Wait for the repos and onboarding", reg.tenants_repo, "wait", "T0", depends_on=["tenants"],
                    wait_for=f"{STACK_KIND[spec['stack']]}/{app} CicdOnboarded=True and repos {app}, gitops-{app} exist"))
 
     # 2. app repo: cicd.yaml + ground environments
@@ -220,9 +248,9 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
     cicd_patch = patch_cicd(base_cicd or {}, spec, flight)
     app_files.append(FileChange("cicd.yaml", "merge-patch", {"deploy": cicd_patch["deploy"], "pipelines": cicd_patch["pipelines"]}))
     if features.base_layer:
-        app_files.append(FileChange("platform/base.yaml", "create", {k: v for k, v in cfg.items()}))
+        app_files.append(FileChange(BASE_FILE, "create", {k: v for k, v in cfg.items()}))
     for g in ground:
-        app_files.append(FileChange(f"platform/envs/{g}.yaml", "create", ground_file(g)))
+        app_files.append(FileChange(f"{ENVS_DIR}/{g}.yaml", "create", ground_file(g)))
     cs.append(Step("app-repo", f"Declare ground environments {', '.join(ground)}", f"{owner}/{app}", "auto-merge", "T1",
                    depends_on=["repos-ready"], files=app_files,
                    effects=[f"creates namespace app-{app}-{g} for each ground environment" for g in ground]

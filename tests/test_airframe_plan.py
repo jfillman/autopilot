@@ -21,7 +21,10 @@ TECH = Path("/Users/jerf/tech")
 XRDS = TECH / "airframe" / "xrds"
 CHART = TECH / "airframe" / "charts" / "airframe-application"
 CICD_SCHEMA = TECH / "glidepath" / "schemas" / "cicd.schema.json"
-REG = ap.Registry("kind-dev", ("kind-prod",))
+TENANTS = "gitops-cluster-dev-tenants"
+REG = ap.Registry("kind-dev", ("kind-prod",), TENANTS)
+FLEET_EXAMPLE = TECH / "airframe" / "charts" / "cluster-registry" / "tests" / "clusters.example.yaml"
+FLEET_LIVE = TECH / "gitops-cluster-dev" / "clusters.yaml"
 
 PARACHUTE = yaml.safe_load("""
 apiVersion: airframe/v1
@@ -46,8 +49,19 @@ pipelines:
     trigger: {source: git, event: push, branch: main}
     steps: [{stage: build}, {stage: deploy, env: dev}]
 deploy:
+  environments: [{name: dev, tier: ground}]
+  strategy: rollout
+""")
+
+# what an app scaffolded before ADR-0019 (2026-10-07) still carries
+LEGACY_SCAFFOLD_CICD = yaml.safe_load("""
+apiVersion: platform/v1
+kind: PipelineConfig
+build: {agent: python-3.12, unitTest: {enabled: false}}
+deploy:
   lowerEnvironments: [dev]
   upperEnvironments: []
+  promotionOrder: [dev]
   strategy: rollout
 """)
 
@@ -93,15 +107,15 @@ def test_one_tenants_pr_carries_the_app_and_both_flight_environments():
 
 
 def test_dev_cluster_is_the_registry_value_never_a_guess():
-    x = ap.plan(PARACHUTE, ap.Registry("kind-dev", ("kind-prod",))).step("tenants").files[0].content
+    x = ap.plan(PARACHUTE, ap.Registry("kind-dev", ("kind-prod",), TENANTS)).step("tenants").files[0].content
     assert x["spec"]["devCluster"] == "kind-dev"
 
 
 def test_ground_environments_carry_rollout_config_from_the_start():
     """Airframe v0.3.91 renders no workload until an image exists, so config no longer waits for a deploy."""
     cs = ap.plan(PARACHUTE, REG)
-    envs = [f for f in cs.step("app-repo").files if f.path.startswith("platform/envs/")]
-    assert {f.path for f in envs} == {"platform/envs/dev.yaml", "platform/envs/test.yaml"}
+    envs = [f for f in cs.step("app-repo").files if f.path.startswith("glidepath/envs/")]
+    assert {f.path for f in envs} == {"glidepath/envs/dev.yaml", "glidepath/envs/test.yaml"}
     for f in envs:
         assert f.content["rollout"]["steps"] == [{"setWeight": 100}]
         assert f.content["env"] == [{"name": "URL", "value": "http://myendpoint.io"}]
@@ -136,13 +150,13 @@ def test_verify_lists_a_check_for_every_claim():
 # ---- ambiguity ----------------------------------------------------------------------------
 def test_two_upper_clusters_and_no_choice_is_a_question_not_a_guess():
     with pytest.raises(ap.NeedsInput) as e:
-        ap.plan(PARACHUTE, ap.Registry("kind-dev", ("kind-prod", "kind-prod-2")))
+        ap.plan(PARACHUTE, ap.Registry("kind-dev", ("kind-prod", "kind-prod-2"), TENANTS))
     assert e.value.options == ["kind-prod", "kind-prod-2"] and "staging" in e.value.question
 
 
 def test_an_explicit_cluster_needs_no_question():
     s = spec(environments={"ground": ["dev"], "flight": [{"name": "staging", "cluster": "kind-prod-2"}]})
-    cs = ap.plan(s, ap.Registry("kind-dev", ("kind-prod", "kind-prod-2")))
+    cs = ap.plan(s, ap.Registry("kind-dev", ("kind-prod", "kind-prod-2"), TENANTS))
     assert cs.step("tenants").files[1].path.endswith("parachute-kind-prod-2-staging.yaml")
 
 
@@ -168,7 +182,7 @@ def test_unknown_cluster_and_duplicate_environment_names_are_rejected():
     with pytest.raises(ap.SpecError):
         ap.plan(spec(environments={"ground": ["dev", "staging"], "flight": [{"name": "staging"}]}), REG)
     with pytest.raises(ap.SpecError):
-        ap.plan(PARACHUTE, ap.Registry("kind-dev", ()))
+        ap.plan(PARACHUTE, ap.Registry("kind-dev", (), TENANTS))
 
 
 # ---- purity and determinism ---------------------------------------------------------------
@@ -192,14 +206,14 @@ def test_per_environment_overrides_win_over_config():
 def test_with_the_a_plus_features_the_workaround_and_the_duplication_disappear():
     cs = ap.plan(PARACHUTE, REG, ap.Features(rollout_guard=True, base_layer=True, release_split=True))
     assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "tekton-resync", "gitops", "verify"]
-    assert "platform/base.yaml" in [f.path for f in cs.step("app-repo").files]
+    assert "glidepath/base.yaml" in [f.path for f in cs.step("app-repo").files]
     assert [f.path for f in cs.step("gitops").files] == ["base/values.yaml"], "config is written once"
     assert not any("no empty-image guard" in w for w in cs.warnings)
 
 
 def test_with_only_the_chart_guard_ground_config_lands_immediately():
     cs = ap.plan(PARACHUTE, REG, ap.Features(rollout_guard=True))
-    dev = next(f for f in cs.step("app-repo").files if f.path == "platform/envs/dev.yaml").content
+    dev = next(f for f in cs.step("app-repo").files if f.path == "glidepath/envs/dev.yaml").content
     assert dev["rollout"]["steps"] == [{"setWeight": 100}] and "ground-rollout" not in [s.id for s in cs.steps]
 
 
@@ -216,11 +230,51 @@ def test_the_patched_cicd_yaml_validates_against_glidepaths_schema():
     cs = ap.plan(PARACHUTE, REG, base_cicd=SCAFFOLD_CICD)
     patched = ap.patch_cicd(SCAFFOLD_CICD, PARACHUTE, [{"name": "staging", "cluster": "kind-prod"}, {"name": "prod", "cluster": "kind-prod"}])
     jsonschema.validate(patched, json.loads(CICD_SCHEMA.read_text()))
-    assert patched["deploy"]["promotionOrder"] == ["dev", "test", "staging", "prod"]
+    assert patched["deploy"]["environments"] == [
+        {"name": "dev", "tier": "ground"}, {"name": "test", "tier": "ground"},
+        {"name": "staging", "tier": "flight", "cluster": "kind-prod"}, {"name": "prod", "tier": "flight", "cluster": "kind-prod"}]
+    assert patched["deploy"]["strategy"] == "rollout", "keys the planner does not own are left alone"
     assert patched["pipelines"]["ci"]["steps"] == [
         {"stage": "build"}, {"stage": "deploy", "env": "dev"}, {"stage": "deploy", "env": "test"}, {"stage": "release", "env": "staging"}]
     assert patched["build"] == SCAFFOLD_CICD["build"], "everything the planner does not own is left alone"
-    assert cs.step("app-repo").files[0].content["deploy"]["lowerEnvironments"] == ["dev", "test"]
+    envs = cs.step("app-repo").files[0].content["deploy"]["environments"]
+    assert [e["name"] for e in envs] == ["dev", "test", "staging", "prod"]
+
+
+@pytest.mark.skipif(not CICD_SCHEMA.exists(), reason="glidepath checkout not present")
+def test_a_pre_adr_0019_scaffold_is_brought_onto_the_current_schema():
+    patched = ap.patch_cicd(LEGACY_SCAFFOLD_CICD, PARACHUTE, [{"name": "staging", "cluster": "kind-prod"}])
+    assert not set(ap.LEGACY_DEPLOY_KEYS) & set(patched["deploy"]), "lowerEnvironments/upperEnvironments/promotionOrder are gone"
+    jsonschema.validate(patched, json.loads(CICD_SCHEMA.read_text()))
+
+
+# ---- the registry is read, never typed -----------------------------------------------------------
+def test_tenants_repo_comes_from_the_registry_and_reaches_every_place_it_is_named():
+    reg = ap.Registry("kind-dev", ("kind-prod",), "gitops-cluster-other-tenants", owner="someone")
+    cs = ap.plan(PARACHUTE, reg)
+    assert cs.step("tenants").repo == "gitops-cluster-other-tenants" and cs.step("repos-ready").repo == "gitops-cluster-other-tenants"
+    ann = cs.step("tenants").files[0].content["metadata"]["annotations"]
+    assert ann["terasky.backstage.io/source-file-url"].startswith("https://github.com/someone/gitops-cluster-other-tenants/blob/main/tenants/parachute/")
+    assert "repo=gitops-cluster-other-tenants" in ann["terasky.backstage.io/source-info"]
+    assert "gitops-cluster-dev-tenants" not in json.dumps(cs, default=lambda o: o.__dict__)
+
+
+@pytest.mark.skipif(not FLEET_EXAMPLE.exists(), reason="airframe checkout not present")
+def test_the_registry_is_derived_from_the_fleet_file_the_cluster_registry_chart_reads():
+    reg = ap.Registry.from_fleet(yaml.safe_load(FLEET_EXAMPLE.read_text()))
+    assert reg == ap.Registry("kind-dev", ("kind-prod",), "gitops-cluster-dev-tenants"), "aliases (kiac-dev) are not clusters"
+
+
+@pytest.mark.skipif(not FLEET_LIVE.exists(), reason="gitops-cluster-dev checkout not present")
+def test_the_live_fleet_file_yields_the_registry_the_tests_assume():
+    assert ap.Registry.from_fleet(yaml.safe_load(FLEET_LIVE.read_text())) == REG
+
+
+def test_a_fleet_without_exactly_one_control_plane_cluster_or_without_a_tenants_repo_is_rejected():
+    with pytest.raises(ap.SpecError):
+        ap.Registry.from_fleet({"clusters": [{"name": "a", "zone": "upper", "roles": ["workloads"]}]})
+    with pytest.raises(ap.SpecError):
+        ap.Registry.from_fleet({"clusters": [{"name": "d", "zone": "lower", "roles": ["control-plane"]}]})
 
 
 helm_ok = shutil.which("helm") and CHART.exists()
@@ -247,7 +301,7 @@ def test_the_flight_patch_renders_the_step_and_the_env_var_on_the_real_chart():
 
 @pytest.mark.skipif(not helm_ok, reason="helm or the airframe chart is not available")
 def test_the_planners_ground_workaround_renders_no_rollout_before_the_first_image():
-    dev = next(f for f in ap.plan(PARACHUTE, REG).step("app-repo").files if f.path == "platform/envs/dev.yaml").content
+    dev = next(f for f in ap.plan(PARACHUTE, REG).step("app-repo").files if f.path == "glidepath/envs/dev.yaml").content
     code, out = render({**BOOT, "cluster": "kind-dev", "envName": "dev", **dev})
     assert code == 0 and "kind: Rollout\n" not in out and "image: ':'" not in out
 

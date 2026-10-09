@@ -124,7 +124,7 @@ def _field_decision(gw, before, content, field_deny=(), field_allow=()):
     assert r.ok, r
     s = gw.store.get(r.data["session"])
     p = gw.auth.authenticate("alice")
-    args = {**PR_ARGS, "files": [{"path": "platform/envs/dev.yaml", "before": before, "content": content}]}
+    args = {**PR_ARGS, "files": [{"path": "glidepath/envs/dev.yaml", "before": before, "content": content}]}
     c = policy.build_context(s, p.id, p.tier_ceiling, "repo.pr.open", args, DENY, ALLOW, T0,
                              field_deny=list(field_deny), field_allow=list(field_allow))
     return policy.evaluate(c)
