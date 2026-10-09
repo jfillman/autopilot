@@ -7,7 +7,7 @@ verifiers:
   - diff-limited-to-values
 allowedPaths:
   - "**/values.yaml"
-  - "platform/envs/*.yaml"
+  - "glidepath/envs/*.yaml"
 minPathsTouched: 1
 maxDenials: 2
 maxRetries: 3

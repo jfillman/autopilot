@@ -29,7 +29,7 @@
         "ground": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,20}$"},
-          "description": "Disposable environments on the dev cluster, declared in platform/envs/ in the app repo."
+          "description": "Disposable environments on the dev cluster: tier ground entries in cicd.yaml deploy.environments, one glidepath/envs/<env>.yaml each in the app repo."
         },
         "flight": {
           "type": "array", "uniqueItems": true,
