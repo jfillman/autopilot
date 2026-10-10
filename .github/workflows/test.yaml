@@ -5,8 +5,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # airframe's contract (AppSpec, XRDs) for the tests tied to the real contracts
+      - uses: actions/checkout@v4
+        with:
+          repository: jfillman/airframe
+          path: tech/airframe
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - run: pip install -e ".[test]"
       - run: pytest -q
+        env:
+          HANGAR_TECH: ${{ github.workspace }}/tech
