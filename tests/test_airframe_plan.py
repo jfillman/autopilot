@@ -6,6 +6,7 @@
 """
 import copy
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -17,7 +18,8 @@ import yaml
 
 from clearance import airframe_plan as ap
 
-TECH = Path("/Users/jerf/tech")
+# Sibling checkouts. CI clones airframe under HANGAR_TECH; locally it is ~/tech.
+TECH = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech"))
 XRDS = TECH / "airframe" / "xrds"
 CHART = TECH / "airframe" / "charts" / "airframe-application"
 CICD_SCHEMA = TECH / "glidepath" / "schemas" / "cicd.schema.json"
@@ -218,6 +220,17 @@ def test_with_only_the_chart_guard_ground_config_lands_immediately():
 
 
 # ---- tied to the real contracts ---------------------------------------------------------------
+AIRFRAME_APPSPEC = TECH / "airframe" / "contract" / "appspec.schema.json"
+
+
+@pytest.mark.skipif(not AIRFRAME_APPSPEC.exists(), reason="airframe checkout (with contract/appspec.schema.json) not present")
+def test_vendored_appspec_schema_matches_airframes_contract():
+    # Airframe owns AppSpec (apiVersion airframe/v1); schemas/appspec.schema.json is a vendored copy.
+    vendored = Path(__file__).resolve().parents[1] / "schemas" / "appspec.schema.json"
+    assert vendored.read_bytes() == AIRFRAME_APPSPEC.read_bytes(), (
+        "schemas/appspec.schema.json drifted from airframe's contract/appspec.schema.json - copy it over")
+
+
 @pytest.mark.skipif(not (XRDS / "pythonapplication.yaml").exists(), reason="airframe checkout not present")
 def test_generated_xrs_satisfy_the_real_xrd_schemas():
     files = {f.content["kind"]: f.content for f in ap.plan(PARACHUTE, REG).step("tenants").files}
