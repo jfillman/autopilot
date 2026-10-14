@@ -1,43 +1,111 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Hand-authored, except $defs.chartValues and $defs.chart.*: tools/gen_appspec_schema.py generates those from charts/airframe-application/values.schema.json (CI runs it with --check).",
   "title": "AppSpec",
   "description": "Desired state for an application and its environments, in one place. An agent (or a person) writes this; the planner compiles it into an ordered change set across the tenants, app and gitops repos.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "app", "stack", "environments"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "app",
+    "stack",
+    "environments"
+  ],
   "properties": {
-    "apiVersion": {"const": "airframe/v1"},
-    "kind": {"const": "AppSpec"},
-    "app": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,38}[a-z0-9]$", "description": "Application name. Becomes the repo names, the namespaces and every environment's name prefix."},
-    "stack": {"enum": ["nodejs", "springboot", "go", "python"], "description": "Which Bootstrap stack scaffolds the application."},
-    "description": {"type": "string", "minLength": 1, "maxLength": 200},
+    "apiVersion": {
+      "const": "airframe/v1"
+    },
+    "kind": {
+      "const": "AppSpec"
+    },
+    "app": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,38}[a-z0-9]$",
+      "description": "Application name. Becomes the repo names, the namespaces and every environment's name prefix."
+    },
+    "stack": {
+      "enum": [
+        "nodejs",
+        "springboot",
+        "go",
+        "python"
+      ],
+      "description": "Which Bootstrap stack scaffolds the application."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
     "stackOptions": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "pythonVersion": {"enum": ["3.11", "3.12", "3.13"]},
-        "packageManager": {"enum": ["pip", "poetry", "uv"]},
-        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
-        "visibility": {"enum": ["private", "public"]}
+        "pythonVersion": {
+          "enum": [
+            "3.11",
+            "3.12",
+            "3.13"
+          ]
+        },
+        "packageManager": {
+          "enum": [
+            "pip",
+            "poetry",
+            "uv"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port the scaffolded server listens on. The planner also sets the chart's rollout.ports to [{name: http, containerPort: <port>}] unless config sets rollout.ports itself (they must agree)."
+        },
+        "visibility": {
+          "enum": [
+            "private",
+            "public"
+          ]
+        }
       }
     },
     "environments": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ground", "flight"],
+      "required": [
+        "ground",
+        "flight"
+      ],
       "properties": {
         "ground": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,20}$"},
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,20}$"
+          },
           "description": "Disposable environments on the dev cluster: tier ground entries in cicd.yaml deploy.environments, one glidepath/envs/<env>.yaml each in the app repo."
         },
         "flight": {
-          "type": "array", "uniqueItems": true,
+          "type": "array",
+          "uniqueItems": true,
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["name"],
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
             "properties": {
-              "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,20}$"},
-              "cluster": {"type": "string", "description": "An upper cluster from the registry. Omit to use the only one, or be asked."}
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,20}$"
+              },
+              "cluster": {
+                "type": "string",
+                "description": "An upper cluster from the registry. Omit to use the only one, or be asked."
+              }
             }
           },
           "description": "Governed environments on an upper cluster, created by ApplicationEnvironment XRs."
@@ -45,32 +113,3211 @@
       }
     },
     "config": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Applied to every environment unless overridden.",
-      "properties": {
-        "rollout": {
-          "type": "object", "additionalProperties": false,
-          "properties": {
-            "strategy": {"enum": ["canary", "blueGreen"]},
-            "steps": {"type": "array", "items": {"type": "object"}, "description": "Argo Rollouts canary steps, e.g. [{setWeight: 100}]."},
-            "replicas": {"type": "integer", "minimum": 1}
-          }
-        },
-        "env": {
-          "type": "array",
-          "items": {
-            "type": "object", "additionalProperties": false, "required": ["name", "value"],
-            "properties": {"name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}, "value": {"type": "string"}}
-          },
-          "description": "Literal container environment variables. Secrets are never put here."
-        }
-      }
+      "$ref": "#/$defs/chartValues",
+      "description": "Chart values applied to every environment unless an override replaces them: anything a person may set in an environment's values file (rollout, env, autoscaling, podDisruptionBudget, httpRoute, components, ...). Per-environment things such as route hostnames belong in overrides. Secrets are references (secrets[], env[].valueFrom), never values."
     },
     "overrides": {
       "type": "object",
-      "description": "Per-environment config, keyed by environment name. Same shape as config.",
-      "additionalProperties": {"type": "object"}
+      "description": "Per-environment chart values, keyed by environment name, deep-merged over config (lists replace). Every key must name an environment declared above.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,20}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/chartValues"
+      }
+    }
+  },
+  "$defs": {
+    "chartValues": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The airframe-application chart's values that a person may set, generated from charts/airframe-application/values.schema.json (every top-level key with x-hangar-owner: human). Platform- and release-owned keys are not settable here.",
+      "properties": {
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {
+            "create": true,
+            "name": "",
+            "annotations": {},
+            "imagePullSecrets": []
+          },
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether this chart creates the object."
+            },
+            "name": {
+              "type": "string",
+              "description": "Defaults to appName when empty.",
+              "default": ""
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "An annotation value (annotation key -> value).",
+                "type": "string"
+              },
+              "description": "Escape hatch, e.g. a cloud workload-identity annotation.",
+              "default": {}
+            },
+            "imagePullSecrets": {
+              "type": "array",
+              "description": "Merged with the always-on registry-credentials Secret every namespace already gets via a ClusterExternalSecret.",
+              "default": [],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Name."
+                  }
+                },
+                "description": "One existing image-pull Secret."
+              }
+            }
+          },
+          "description": "Kubernetes ServiceAccount for every workload this chart renders.",
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "rollout": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "description": "The Argo Rollout workload. Set to null for an infra-type release with no custom workload (a standalone component-only env).",
+          "properties": {
+            "enabled": {
+              "description": "Whether this environment runs a long-running service at all. false means only Jobs, CronJobs and components: no Rollout, Service, HPA or PDB, and Glidepath refuses to release an image to it. The rest of rollout: is kept, so turning it back on restores the same settings. Whether anything is deployed yet is not this field: that is release.image (the release file). rollout: null still means false, for older files.",
+              "type": "boolean",
+              "default": true
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 2,
+              "description": "Desired pod count."
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": false,
+              "default": {},
+              "properties": {
+                "requests": {
+                  "$ref": "#/$defs/chart.resourceList",
+                  "description": "Minimum CPU/memory guaranteed to the container."
+                },
+                "limits": {
+                  "$ref": "#/$defs/chart.resourceList",
+                  "description": "Maximum CPU/memory the container may use."
+                }
+              },
+              "description": "Container resources for the main workload."
+            },
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "canary",
+                "blueGreen"
+              ],
+              "description": "Platform default steps used unless rollout.steps is set.",
+              "default": "canary"
+            },
+            "steps": {
+              "description": "Raw passthrough escape hatch - a real Argo Rollouts canary/blueGreen step list (setWeight/pause/analysis/experiment). Tower's Config tab offers a structured builder for the common shapes but falls back to raw YAML for anything else, matching this schema's own looseness here. Empty uses the platform default steps.",
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "object",
+                "description": "One raw Argo Rollouts step."
+              }
+            },
+            "canaryAnalysis": {
+              "description": "Raw passthrough - spec.strategy.canary.analysis. Typical shape: {templates: [{templateName}], args: [...], startingStep}. Rendered only when strategy is canary and this is non-empty.",
+              "type": "object",
+              "default": {}
+            },
+            "blueGreen": {
+              "description": "Raw passthrough for the blueGreen strategy block, minus activeService/previewService (chart-owned). Rendered only when strategy is blueGreen.",
+              "type": "object",
+              "default": {}
+            },
+            "rollbackWindow": {
+              "description": "spec.rollbackWindow: a change back to one of the Rollout's last `revisions` revisions skips the canary steps and analysis and goes straight to 100% (Argo Rollouts' fast-track rollback). That revision already ran here; a Glidepath rollback (ADR-0021 phase 4) is exactly that case. null turns it off (an empty object does not: Helm merges it with this default).",
+              "type": [
+                "object",
+                "null"
+              ],
+              "default": {
+                "revisions": 3
+              },
+              "additionalProperties": false,
+              "properties": {
+                "revisions": {
+                  "description": "How many earlier revisions count as a rollback target. Needs at least that many old ReplicaSets kept (Argo Rollouts keeps 10 by default).",
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "One argv element."
+              },
+              "default": [],
+              "description": "Overrides the container's entrypoint."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "One argument."
+              },
+              "default": [],
+              "description": "Overrides the container's command args."
+            },
+            "ports": {
+              "type": "array",
+              "default": [
+                {
+                  "name": "http",
+                  "containerPort": 8080
+                }
+              ],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "containerPort"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Name."
+                  },
+                  "containerPort": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "description": "The port the container listens on."
+                  },
+                  "protocol": {
+                    "type": "string",
+                    "enum": [
+                      "TCP",
+                      "UDP",
+                      "SCTP"
+                    ],
+                    "description": "Transport protocol."
+                  }
+                },
+                "description": "Ports this rule applies to; omit for all ports."
+              },
+              "description": "Container ports to expose on the main workload."
+            },
+            "livenessProbe": {
+              "$ref": "#/$defs/chart.probe",
+              "description": "Liveness probe for the main container."
+            },
+            "readinessProbe": {
+              "$ref": "#/$defs/chart.probe",
+              "description": "Readiness probe for the main container."
+            },
+            "podSecurityContext": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "Raw passthrough - Kubernetes PodSecurityContext, not modeled field-by-field here. Defaults to non-root UID/GID 65532, the same IDs as Tower's break-glass debug container, so its process access can read the app's files through /proc/1/root. Keys you set merge onto this default (Helm merges maps); null drops it entirely, e.g. for an image that must run as root.",
+              "default": {
+                "runAsNonRoot": true,
+                "runAsUser": 65532,
+                "runAsGroup": 65532,
+                "fsGroup": 65532,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            },
+            "containerSecurityContext": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "description": "Raw passthrough - Kubernetes SecurityContext for the main container, not modeled field-by-field here. Keys you set merge onto this default; null drops it.",
+              "default": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                }
+              }
+            },
+            "extraContainers": {
+              "type": "array",
+              "description": "Raw passthrough - additional container specs, appended as-is.",
+              "default": [],
+              "items": {
+                "type": "object",
+                "description": "One raw additional container spec."
+              }
+            },
+            "podSpec": {
+              "description": "Raw passthrough map, deep-merged last onto .spec.template.spec. NOT for containers[0] (use the curated fields above) or additional containers (use extraContainers).",
+              "type": "object",
+              "default": {}
+            },
+            "labels": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "A label value (label key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra labels on the Rollout object itself. Must not set a label the chart owns (app.kubernetes.io/*, hangar.io/*, helm.sh/chart): the render fails with the key named."
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "An annotation value (annotation key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra annotations on the Rollout object itself."
+            },
+            "podLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "A label value (label key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra labels on the pod template (so on every pod). Must not set a label the chart owns; the selector labels in particular can never change."
+            },
+            "podAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "An annotation value (annotation key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra annotations on the pod template (so on every pod), for example Prometheus scrape hints, Vault or Reloader settings. Changing one rolls the pods, like any pod template change. checksum/configmaps and checksum/secrets are chart-owned."
+            },
+            "serviceLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "A label value (label key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra labels on the Service (and the -preview Service for blueGreen). Must not set a label the chart owns."
+            },
+            "serviceAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "An annotation value (annotation key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra annotations on the Service (and the -preview Service for blueGreen)."
+            }
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "high"
+        },
+        "analysisTemplates": {
+          "description": "App-specific custom Argo Rollouts AnalysisTemplates, referenced by name from rollout.steps or rollout.canaryAnalysis. Not rendered as a Rollout - referenced only.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "args": {
+                "type": "array",
+                "default": [],
+                "description": "Required whenever a metric's query references {{args.<name>}} - just the arg NAME, the value comes from whichever Rollout step or canaryAnalysis references this template.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Name."
+                    }
+                  },
+                  "description": "One argument name the template's metrics reference."
+                }
+              },
+              "metrics": {
+                "type": "array",
+                "description": "Raw passthrough - the AnalysisTemplate's own metrics list.",
+                "default": [],
+                "items": {
+                  "type": "object",
+                  "description": "One raw AnalysisTemplate metric."
+                }
+              }
+            },
+            "description": "One custom Argo Rollouts AnalysisTemplate."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "env": {
+          "description": "Container environment variables for the main workload.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "description": "Name."
+              },
+              "value": {
+                "type": "string",
+                "description": "A literal env var value. Mutually exclusive with valueFrom."
+              },
+              "valueFrom": {
+                "description": "Pass-through of a container env valueFrom. Use secretKeyRef to read a Secret already in this namespace, e.g. the <name>-app Secret a PostgreSQL component creates.",
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "secretKeyRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "key"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Name."
+                      },
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The key to read."
+                      },
+                      "optional": {
+                        "type": "boolean",
+                        "description": "If true, a missing key/name is not an error."
+                      }
+                    },
+                    "description": "Read the value from a Secret key."
+                  },
+                  "configMapKeyRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "key"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Name."
+                      },
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The key to read."
+                      },
+                      "optional": {
+                        "type": "boolean",
+                        "description": "If true, a missing key/name is not an error."
+                      }
+                    },
+                    "description": "Read the value from a ConfigMap key."
+                  },
+                  "fieldRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "fieldPath"
+                    ],
+                    "properties": {
+                      "fieldPath": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A Kubernetes downward-API field path, e.g. status.hostIP."
+                      }
+                    },
+                    "description": "Read the value from this pod's own downward-API field."
+                  }
+                }
+              },
+              "fromComponent": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "output"
+                ],
+                "description": "AF-3: resolve this env var from a components[] entry's own declared output (see that component's xrds/<type>.meta.yaml), instead of a hand-written valueFrom. Mutually exclusive with value/valueFrom.",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The components[] entry's own name to read from."
+                  },
+                  "output": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The output name that component's type declares, e.g. host, port, password."
+                  }
+                }
+              }
+            },
+            "oneOf": [
+              {
+                "description": "Branch 1 of 4: a bare name with no value source, which renders the variable empty.",
+                "not": {
+                  "description": "None of value, valueFrom or fromComponent is set.",
+                  "anyOf": [
+                    {
+                      "description": "value is set.",
+                      "required": [
+                        "value"
+                      ]
+                    },
+                    {
+                      "description": "valueFrom is set.",
+                      "required": [
+                        "valueFrom"
+                      ]
+                    },
+                    {
+                      "description": "fromComponent is set.",
+                      "required": [
+                        "fromComponent"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "description": "Branch 2 of 4: a literal value.",
+                "required": [
+                  "value"
+                ]
+              },
+              {
+                "description": "Branch 3 of 4: a Kubernetes valueFrom (secretKeyRef, configMapKeyRef, fieldRef).",
+                "required": [
+                  "valueFrom"
+                ]
+              },
+              {
+                "description": "Branch 4 of 4: fromComponent, resolved against the component's output contract (xrds/<type>.meta.yaml).",
+                "required": [
+                  "fromComponent"
+                ]
+              }
+            ],
+            "description": "One container environment variable. At most one of value/valueFrom/fromComponent."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "low"
+        },
+        "configMaps": {
+          "description": "ConfigMaps mounted or projected as env vars into the main workload.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "as": {
+                "type": "string",
+                "enum": [
+                  "env",
+                  "volume",
+                  "both"
+                ],
+                "description": "env renders envFrom (every data key becomes an env var verbatim). Defaults to volume.",
+                "default": "volume"
+              },
+              "mountPath": {
+                "type": "string",
+                "description": "Only used when as includes volume. Defaults to /config/<name>."
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": {
+                  "description": "One file's content, keyed by file name.",
+                  "type": "string"
+                },
+                "description": "Chart-owned ConfigMap content. Mutually exclusive with existingConfigMap."
+              },
+              "existingConfigMap": {
+                "type": "string",
+                "description": "Reference a ConfigMap already created outside this chart (e.g. a Kustomize configMapGenerator with a fixed name). Mutually exclusive with data."
+              }
+            },
+            "not": {
+              "description": "data and existingConfigMap are mutually exclusive.",
+              "required": [
+                "data",
+                "existingConfigMap"
+              ]
+            },
+            "anyOf": [
+              {
+                "description": "Inline content: the chart renders the ConfigMap from data.",
+                "required": [
+                  "data"
+                ]
+              },
+              {
+                "description": "An existing ConfigMap by name, mounted as-is.",
+                "required": [
+                  "existingConfigMap"
+                ]
+              }
+            ],
+            "description": "One ConfigMap."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "low"
+        },
+        "secrets": {
+          "description": "Secrets, aggregated into one app-secrets Secret via ExternalSecret/ClusterSecretStore, consumed by the main container.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "secretKey in the rendered Secret AND the Infisical property name read from the store."
+              },
+              "as": {
+                "type": "string",
+                "enum": [
+                  "env",
+                  "volume",
+                  "both"
+                ],
+                "description": "volume mode shares one app-secrets Secret volume, each entry mounted via subPath.",
+                "default": "env"
+              },
+              "key": {
+                "type": "string",
+                "description": "Env var name (only used when as includes env). Defaults to name, uppercased."
+              },
+              "mountPath": {
+                "type": "string",
+                "description": "Only used when as includes volume - the exact file path (not a directory). Defaults to /secrets/<name>."
+              },
+              "shared": {
+                "type": "boolean",
+                "description": "false (default, on upper clusters) reads this env's own isolated Infisical environment. true reads the wide shared one instead. On kind-dev both read the one shared store, separated by a path prefix.",
+                "default": false
+              }
+            },
+            "description": "One secret reference."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "notifications": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "AI-triage diagnosis notifications, threaded into the RolloutWatch XR this chart renders unconditionally.",
+          "properties": {
+            "slack": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Turns this feature on."
+                },
+                "channel": {
+                  "type": "string",
+                  "description": "e.g. #your-channel. Optional; the webhook's own configured default is used otherwise.",
+                  "default": ""
+                }
+              },
+              "description": "Slack notification settings for AI-triage diagnosis."
+            }
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "low"
+        },
+        "volumes": {
+          "description": "PVC-backed volumes for the main workload.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "size",
+              "mountPath"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|k)?$",
+                "description": "A Kubernetes storage quantity, e.g. 10Gi."
+              },
+              "storageClassName": {
+                "type": "string",
+                "description": "Omit for the cluster default."
+              },
+              "accessModes": {
+                "type": "array",
+                "default": [
+                  "ReadWriteOnce"
+                ],
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "ReadWriteOnce",
+                    "ReadOnlyMany",
+                    "ReadWriteMany",
+                    "ReadWriteOncePod"
+                  ],
+                  "description": "One access mode."
+                },
+                "description": "Volume access modes."
+              },
+              "mountPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Filesystem path to mount at."
+              }
+            },
+            "description": "One PVC-backed volume."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "cronJobs": {
+          "description": "Scheduled batch tasks (nightly cleanup, report generation, ...). Share env/secrets/configMaps/volumes with the main container automatically.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "schedule"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "schedule": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A cron schedule expression."
+              },
+              "image": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Optional; defaults to rollout.image. Fails if omitted and rollout is not set.",
+                "properties": {
+                  "repository": {
+                    "type": "string",
+                    "description": "Image repository without a tag."
+                  },
+                  "tag": {
+                    "type": "string",
+                    "description": "Image tag."
+                  }
+                }
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "One argv element."
+                },
+                "default": [],
+                "description": "Overrides the container's entrypoint."
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "One argument."
+                },
+                "default": [],
+                "description": "Overrides the container's command args."
+              },
+              "resources": {
+                "type": "object",
+                "additionalProperties": false,
+                "default": {},
+                "properties": {
+                  "requests": {
+                    "$ref": "#/$defs/chart.resourceList",
+                    "description": "Minimum CPU/memory guaranteed to the container."
+                  },
+                  "limits": {
+                    "$ref": "#/$defs/chart.resourceList",
+                    "description": "Maximum CPU/memory the container may use."
+                  }
+                },
+                "description": "CPU/memory requests and limits."
+              },
+              "containerSecurityContext": {
+                "type": "object",
+                "description": "Raw passthrough.",
+                "default": {}
+              },
+              "concurrencyPolicy": {
+                "type": "string",
+                "enum": [
+                  "Forbid",
+                  "Allow",
+                  "Replace"
+                ],
+                "default": "Forbid",
+                "description": "What happens if the previous run is still going when the next is due."
+              },
+              "suspend": {
+                "type": "boolean",
+                "default": false,
+                "description": "Pause future scheduled runs without deleting the CronJob."
+              },
+              "successfulJobsHistoryLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 3,
+                "description": "How many completed run records to keep."
+              },
+              "failedJobsHistoryLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 1,
+                "description": "How many failed run records to keep."
+              },
+              "backoffLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 3,
+                "description": "Retries before the job is marked failed."
+              }
+            },
+            "description": "One scheduled batch task."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "jobs": {
+          "description": "One-off batch tasks - the common 'run a DB migration before the new Rollout comes up' pattern. Same image/env/secrets/configMaps/volumes defaulting as cronJobs.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "image": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Optional; defaults to rollout.image.",
+                "properties": {
+                  "repository": {
+                    "type": "string",
+                    "description": "Image repository without a tag."
+                  },
+                  "tag": {
+                    "type": "string",
+                    "description": "Image tag."
+                  }
+                }
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "One argv element."
+                },
+                "default": [],
+                "description": "Overrides the container's entrypoint."
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "One argument."
+                },
+                "default": [],
+                "description": "Overrides the container's command args."
+              },
+              "resources": {
+                "type": "object",
+                "additionalProperties": false,
+                "default": {},
+                "properties": {
+                  "requests": {
+                    "$ref": "#/$defs/chart.resourceList",
+                    "description": "Minimum CPU/memory guaranteed to the container."
+                  },
+                  "limits": {
+                    "$ref": "#/$defs/chart.resourceList",
+                    "description": "Maximum CPU/memory the container may use."
+                  }
+                },
+                "description": "CPU/memory requests and limits."
+              },
+              "containerSecurityContext": {
+                "type": "object",
+                "description": "Raw passthrough.",
+                "default": {}
+              },
+              "backoffLimit": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 3,
+                "description": "Retries before the job is marked failed."
+              },
+              "hook": {
+                "type": "boolean",
+                "description": "true (default): a real Helm pre-install/pre-upgrade hook, always re-run without a name change. false: a plain persistent Job - rerunning it is on the developer.",
+                "default": true
+              }
+            },
+            "description": "One one-off batch task."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {
+            "enabled": false,
+            "min": 2,
+            "max": 10,
+            "targetCPUPercent": 70
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Turns this feature on."
+            },
+            "min": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 2,
+              "description": "Lower bound."
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 10,
+              "description": "Upper bound."
+            },
+            "targetCPUPercent": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 70,
+              "description": "Target average CPU utilization percent that triggers scaling."
+            }
+          },
+          "description": "HorizontalPodAutoscaler settings for the main workload.",
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "medium"
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Set at most one of minAvailable/maxUnavailable.",
+          "default": {
+            "enabled": false,
+            "minAvailable": 1,
+            "maxUnavailable": null
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Turns this feature on."
+            },
+            "minAvailable": {
+              "type": [
+                "string",
+                "integer",
+                "null"
+              ],
+              "default": 1,
+              "description": "Minimum pods that must stay available during a voluntary disruption."
+            },
+            "maxUnavailable": {
+              "type": [
+                "string",
+                "integer",
+                "null"
+              ],
+              "default": null,
+              "description": "Maximum pods that may be unavailable during a voluntary disruption."
+            }
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "low"
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Classic Ingress. Gateway API (httpRoute below) is the mechanism most new callers actually want on this fleet's real clusters.",
+          "default": {
+            "enabled": false,
+            "host": "",
+            "path": "/",
+            "pathType": "Prefix",
+            "annotations": {},
+            "tls": false,
+            "tlsSecretName": ""
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Turns this feature on."
+            },
+            "host": {
+              "type": "string",
+              "default": "",
+              "description": "The hostname this rule matches."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "default": "/",
+              "description": "URL/mount path."
+            },
+            "pathType": {
+              "type": "string",
+              "enum": [
+                "Prefix",
+                "Exact",
+                "ImplementationSpecific"
+              ],
+              "default": "Prefix",
+              "description": "How path is matched."
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "An annotation value (annotation key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra annotations, merged in as-is."
+            },
+            "tls": {
+              "type": "boolean",
+              "description": "Requests a cert-manager-issued TLS cert for host.",
+              "default": false
+            },
+            "tlsSecretName": {
+              "type": "string",
+              "description": "Defaults to <release-name>-tls when tls is true and this is empty.",
+              "default": ""
+            }
+          },
+          "if": {
+            "description": "When ingress is enabled ...",
+            "properties": {
+              "enabled": {
+                "description": "ingress.enabled is true.",
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "description": "... a host is required.",
+            "properties": {
+              "host": {
+                "description": "Non-empty hostname.",
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "host"
+            ]
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "high"
+        },
+        "httpRoute": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Gateway API HTTPRoute, first-class alongside classic ingress. This platform's convention: <app>.<cluster-or-env-qualifier>.kiac.local.",
+          "default": {
+            "enabled": false,
+            "hostnames": [],
+            "parentRefs": [],
+            "path": "/",
+            "pathType": "PathPrefix",
+            "annotations": {}
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Turns this feature on."
+            },
+            "hostnames": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One hostname."
+              },
+              "default": [],
+              "description": "Hostnames this route matches."
+            },
+            "parentRefs": {
+              "type": "array",
+              "default": [],
+              "description": "The platform Gateway(s) this route attaches to.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Name."
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "description": "Optional - defaults to this HTTPRoute's own namespace."
+                  },
+                  "sectionName": {
+                    "type": "string",
+                    "description": "Optional - target one specific listener by name."
+                  }
+                },
+                "description": "One Gateway this route attaches to."
+              }
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "default": "/",
+              "description": "URL/mount path."
+            },
+            "pathType": {
+              "type": "string",
+              "enum": [
+                "PathPrefix",
+                "Exact",
+                "RegularExpression"
+              ],
+              "default": "PathPrefix",
+              "description": "How path is matched."
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "An annotation value (annotation key -> value).",
+                "type": "string"
+              },
+              "default": {},
+              "description": "Extra annotations, merged in as-is."
+            }
+          },
+          "if": {
+            "description": "When httpRoute is enabled ...",
+            "properties": {
+              "enabled": {
+                "description": "httpRoute.enabled is true.",
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "description": "... at least one hostname and one parentRef are required.",
+            "properties": {
+              "hostnames": {
+                "description": "At least one hostname.",
+                "type": "array",
+                "minItems": 1
+              },
+              "parentRefs": {
+                "description": "At least one Gateway parentRef.",
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "hostnames",
+              "parentRefs"
+            ]
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "high"
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Prometheus scraping of the main workload's first rollout.ports entry, via kube-prometheus-stack.",
+          "default": {
+            "enabled": true,
+            "path": "/metrics",
+            "port": "",
+            "interval": "30s",
+            "additionalLabels": {}
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Turns this feature on."
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "default": "/metrics",
+              "description": "URL/mount path."
+            },
+            "port": {
+              "type": "string",
+              "description": "Defaults to the first rollout.ports entry's name.",
+              "default": ""
+            },
+            "interval": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$",
+              "default": "30s",
+              "description": "Scrape interval."
+            },
+            "additionalLabels": {
+              "type": "object",
+              "additionalProperties": {
+                "description": "A label value (label key -> value).",
+                "type": "string"
+              },
+              "description": "Some kube-prometheus-stack installs require a label (e.g. release: <helm-release-name>) for their Prometheus CR to pick this up.",
+              "default": {}
+            }
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "low"
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {
+            "enabled": true,
+            "allowIngressFromIngressController": true,
+            "ingressControllerNamespaceSelector": {
+              "matchLabels": {
+                "kubernetes.io/metadata.name": "kiac-gateway"
+              }
+            },
+            "allowIngressFrom": [],
+            "allowEgressTo": [],
+            "extraIngressRules": [],
+            "extraEgressRules": []
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Turns this feature on."
+            },
+            "allowIngressFromIngressController": {
+              "type": "boolean",
+              "description": "Gates the allow-rule for both ingress and httpRoute (same selector, same data-plane namespace either way).",
+              "default": true
+            },
+            "ingressControllerNamespaceSelector": {
+              "type": "object",
+              "default": {
+                "matchLabels": {
+                  "kubernetes.io/metadata.name": "kiac-gateway"
+                }
+              },
+              "description": "Namespace selector identifying the ingress controller/gateway."
+            },
+            "allowIngressFrom": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/chart.networkPolicyPeer",
+                "description": "One allowed ingress peer."
+              },
+              "description": "Extra allowed ingress peers, each its own rule."
+            },
+            "allowEgressTo": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/chart.networkPolicyPeer",
+                "description": "One allowed egress peer."
+              },
+              "description": "Extra allowed egress peers, each its own rule."
+            },
+            "extraIngressRules": {
+              "type": "array",
+              "description": "Raw passthrough - real Kubernetes NetworkPolicy ingress rule objects, for shapes allowIngressFrom's flat form can't express (UDP/SCTP, multiple ORed peers in one rule).",
+              "default": [],
+              "items": {
+                "type": "object",
+                "description": "One raw NetworkPolicy ingress rule."
+              }
+            },
+            "extraEgressRules": {
+              "type": "array",
+              "description": "Raw passthrough, same shape as extraIngressRules.",
+              "default": [],
+              "items": {
+                "type": "object",
+                "description": "One raw NetworkPolicy egress rule."
+              }
+            }
+          },
+          "description": "Traffic policy for the main workload's namespace.",
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "high"
+        },
+        "components": {
+          "description": "Attached-tier component instances (Redis, PostgreSQL, RabbitMQ, ...). Each entry's spec is validated against that component's own XRD schema by the compiled schema (airframe_schema.compiled_schema()), not by this file directly - see tools/airframe-validate.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "name"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One of componentKinds' keys (redis, postgresql, rabbitmq today)."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "spec": {
+                "type": "object",
+                "description": "Component-specific. See that component's XRD in xrds/ for its real shape."
+              }
+            },
+            "description": "One attached component instance.",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "applicationenvironment"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the ApplicationEnvironment. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "self.appName.size() + self.env.size() <= 58",
+                          "message": "appName and env together are at most 58 characters: the environment's namespace is app-<appName>-<env>, a 63-character name"
+                        }
+                      ],
+                      "required": [
+                        "appName",
+                        "env",
+                        "cluster"
+                      ],
+                      "properties": {
+                        "appName": {
+                          "type": "string",
+                          "description": "Names the owning app XR this env belongs to - a NodeJSApplication, SpringBootApplication, PythonApplication, GoApplication or InfraService in this same namespace. Resolved live on every reconcile (a Crossplane extra-resources lookup, one per kind, in compositions/applicationenvironment/templates/ render-github-resources/00-app-kind-gate.yaml) and reported as the AppResolved condition: True once it names a real app, False/AppNotFound when it does not (a typo, or an env requested before its app exists - retried every reconcile, no edit needed once the app appears). It also drives a real protection.crossplane.io Usage this env's own Composition composes (spec.of = the resolved app, spec.by = this env) - blocks that app's deletion while this env still exists, closing the AppProject/Application deletion-ordering bug (idp/docs/service-catalog-design.md \u00a70). The Usage is rendered only once the name resolves (there is nothing to protect before), and kept as observed through a transient empty lookup so protection never flaps off. Unlike spec.cluster, an unresolved appName does not block the RepositoryFile writes: they target the app's gitops-<appName> repo and fail loudly on their own (visible via kubectl describe) if that repo doesn't exist either.",
+                          "minLength": 1
+                        },
+                        "cluster": {
+                          "type": "string",
+                          "description": "Which upper-env cluster to deploy this env onto - e.g. \"kind-prod\". Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: upper and crossplaneReady: \"true\", or the Composition creates nothing and reports ClusterReady: False rather than partially succeeding. A dev cluster is a structural rejection, not just an unlikely input - see this XRD's own header comment.",
+                          "minLength": 1
+                        },
+                        "env": {
+                          "type": "string",
+                          "description": "Which environment this is within the target cluster - \"staging\"/\"prod\", or any team-chosen name (e.g. \"qa\", \"perf\", \"demo-2\"). Previously a closed enum of exactly dev/staging/prod (2026-08-13); opened up 2026-08-15 once tracing every real consumer - this Composition's own template, the tenant-onboarding ApplicationSet, and the AppProject's own destinations wildcard (app-<appName>-*) - confirmed nothing branches on the specific value, it was always pure path/name interpolation, not encoded business logic. Constrained by pattern (not free-form) instead, since this value becomes a literal Kubernetes namespace-name segment (app-<appName>-<env>) and a git path segment (<cluster>/<env>/values.yaml, tenants/<appName>/<env>/identity.yaml) - a value Kubernetes' own namespace-name rule (DNS-1123 label) would reject should fail here, at XR admission with a clear message, not downstream as an ArgoCD sync failure or a malformed path. maxLength: 20 is a conservative budget so app-<appName>-<env> has room to stay under Kubernetes' 63-char namespace limit - does not by itself bound appName, though (NodeJSApplication's own XRD has no length limit on its name today - a pre-existing gap, not introduced here).",
+                          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                          "minLength": 1,
+                          "maxLength": 20
+                        },
+                        "appType": {
+                          "type": "string",
+                          "enum": [
+                            "app",
+                            "infra"
+                          ],
+                          "default": "app",
+                          "description": "`app` (the default) for an env of a NodeJS/SpringBoot/Go/Python application, whose deploy repo is gitops-<appName>. `infra` for an env of an InfraService (a shared component such as a broker), whose deploy repo is gitops-infra-<appName>. Without it an infra service's values.yaml is written to gitops-<appName>, which doesn't exist."
+                        },
+                        "chart": {
+                          "type": "object",
+                          "description": "The chart this environment renders, when it is not the cluster's default (glidepath ADR-0023): written into tenants/<appName>/<env>/identity.yaml's chart block, which the tenant-onboarding ApplicationSet reads, falling back to cluster-defaults.yaml for each field left out. Set by Glidepath's flight-chart-sync PR on this request file, from the app's cicd.yaml. Lives here, not as a direct edit of identity.yaml, because this Composition owns that file and its reconcile reverted the direct edit (2026-10-08, gate-api staging).",
+                          "properties": {
+                            "repoURL": {
+                              "type": "string",
+                              "description": "Git or Helm repository of the chart. A different repo inherits no other field from the cluster default."
+                            },
+                            "path": {
+                              "type": "string",
+                              "description": "Chart directory in a Git repository (replaces the default's chart)."
+                            },
+                            "chart": {
+                              "type": "string",
+                              "description": "Chart name in a Helm repository (replaces the default's path)."
+                            },
+                            "targetRevision": {
+                              "type": "string",
+                              "description": "Git ref or chart version to render."
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "configMapGenerator": {
+                          "type": "boolean",
+                          "default": false,
+                          "description": "Opts this env into the tenant-onboarding ApplicationSet's optional 3rd Kustomize source (a configMapGenerator for apps with many config files - see that ApplicationSet's own templatePatch comment for the full mechanism). Plumbed through to tenants/<appName>/<env>/identity.yaml's configMapGenerator: field so it survives this Composition's own continuous RepositoryFile reconciliation - added 2026-08-22 after a manual, out-of-band edit to that identity.yaml (done to live-test the mechanism 2026-08-18) was silently reverted by the next reconcile, since this field didn't exist yet for the Composition to read and re-render. Caught live on kind-prod: the ApplicationSet stopped rendering the 3rd source once the flag reverted, orphaning the checkout-api-app-config ConfigMap it had generated - ArgoCD flagged it requiresPruning without ever actually deleting it (no prune: true on this Application's syncPolicy)."
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "awsecstarget"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the AwsEcsTarget. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "appName": {
+                          "type": "string",
+                          "description": "The app this target serves. Defaults to this XR's own name. Names everything: the ECS cluster (<appName>), the service and task-definition family (<appName>-<env>, Glidepath's own default family name) and the container (<appName>, the deploy.ecs.containerName the app's cicd.yaml must carry).",
+                          "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                        },
+                        "env": {
+                          "type": "string",
+                          "description": "The environment this target is for - \"dev\" for the smoke apps. Part of the service and family names (<appName>-<env>); must equal the `env` of the deploy step in the app's cicd.yaml, because deploy-ecs derives the family from it.",
+                          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                          "maxLength": 20,
+                          "default": "dev"
+                        },
+                        "region": {
+                          "type": "string",
+                          "description": "AWS region for every resource here. Must equal deploy.ecs.region in the app's cicd.yaml.",
+                          "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
+                          "default": "us-east-1"
+                        },
+                        "architecture": {
+                          "type": "string",
+                          "description": "Fargate runtime platform: arm64 (Graviton) or x86_64. The app's build.platforms must include it, because the image Glidepath deploys is built per platform.",
+                          "enum": [
+                            "arm64",
+                            "x86_64"
+                          ],
+                          "default": "arm64"
+                        },
+                        "cpu": {
+                          "type": "string",
+                          "description": "Fargate task CPU units, as a string. Paired with memory per Fargate's allowed combinations.",
+                          "enum": [
+                            "256",
+                            "512",
+                            "1024",
+                            "2048"
+                          ],
+                          "default": "256"
+                        },
+                        "memory": {
+                          "type": "string",
+                          "description": "Fargate task memory in MiB, as a string. 256 CPU allows 512 to 2048; 512 allows 1024 to 4096.",
+                          "enum": [
+                            "512",
+                            "1024",
+                            "2048",
+                            "4096"
+                          ],
+                          "default": "512"
+                        },
+                        "containerPort": {
+                          "type": "integer",
+                          "description": "The port the app listens on. Mapped on the container, opened on the security group, and passed to the container as the PORT environment variable (the scaffolded apps read it).",
+                          "minimum": 1,
+                          "maximum": 65535,
+                          "default": 8080
+                        },
+                        "desiredCount": {
+                          "type": "integer",
+                          "description": "Number of tasks the service keeps running. 0 parks the target without deleting it.",
+                          "minimum": 0,
+                          "maximum": 3,
+                          "default": 1
+                        },
+                        "bootstrapImage": {
+                          "type": "string",
+                          "description": "The placeholder image the first task-definition revision runs until Glidepath's first deploy replaces it. Must exist for the chosen architecture and start without arguments; deploy-ecs keeps every other field of the container definition, so no command or entrypoint is set here.",
+                          "minLength": 1,
+                          "default": "public.ecr.aws/nginx/nginx:stable-alpine"
+                        },
+                        "network": {
+                          "type": "object",
+                          "description": "Where the Fargate task runs.",
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "description": "create (default): this XR composes a dedicated VPC with one public subnet, an internet gateway, a route and a security group opening containerPort to the internet. existing: use the subnets and security groups listed below and compose no network resources at all (then provider-aws-ec2 is not needed).",
+                              "enum": [
+                                "create",
+                                "existing"
+                              ],
+                              "default": "create"
+                            },
+                            "vpcCidr": {
+                              "type": "string",
+                              "description": "(create) The VPC's /16; the single subnet is its first /24.",
+                              "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/16$",
+                              "default": "10.42.0.0/16"
+                            },
+                            "availabilityZone": {
+                              "type": "string",
+                              "description": "(create) Availability zone of the subnet. Defaults to \"<region>a\".",
+                              "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9][a-z]$"
+                            },
+                            "subnetIds": {
+                              "type": "array",
+                              "description": "(existing) Subnets the task runs in; they need a route to the internet and public IPs on launch.",
+                              "items": {
+                                "type": "string",
+                                "description": "A subnet id, e.g. subnet-0123456789abcdef0."
+                              }
+                            },
+                            "securityGroupIds": {
+                              "type": "array",
+                              "description": "(existing) Security groups for the task; one must allow inbound TCP on containerPort.",
+                              "items": {
+                                "type": "string",
+                                "description": "A security group id, e.g. sg-0123456789abcdef0."
+                              }
+                            }
+                          },
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self.mode != 'existing' || (has(self.subnetIds) && self.subnetIds.size() > 0)",
+                              "message": "network.subnetIds is required when network.mode == existing"
+                            },
+                            {
+                              "rule": "self.mode != 'existing' || (has(self.securityGroupIds) && self.securityGroupIds.size() > 0)",
+                              "message": "network.securityGroupIds is required when network.mode == existing"
+                            }
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "awslambdatarget"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the AwsLambdaTarget. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "functionName": {
+                          "type": "string",
+                          "description": "Name of the Lambda function to create, and of its ECR repository. Defaults to this XR's own name. This is the value the app's cicd.yaml must carry in deploy.lambda.functionName (the XR's status repeats the whole deploy block to paste). Lambda names are unique per account and region.",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"
+                        },
+                        "region": {
+                          "type": "string",
+                          "description": "AWS region for every resource here. Must equal deploy.lambda.region in the app's cicd.yaml.",
+                          "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
+                          "default": "us-east-1"
+                        },
+                        "architecture": {
+                          "type": "string",
+                          "description": "CPU architecture of the function: arm64 or x86_64. Must match the LambdaFunction app's own spec.architecture (Glidepath builds only that platform and deploy-lambda refuses a function it has no image for). The bootstrap image is copied for this platform only, since Lambda does not accept multi-architecture image indexes.",
+                          "enum": [
+                            "arm64",
+                            "x86_64"
+                          ],
+                          "default": "arm64"
+                        },
+                        "runtime": {
+                          "type": "string",
+                          "description": "Which public AWS Lambda base image seeds the repository before the first real deploy - nodejs22 (public.ecr.aws/lambda/nodejs:22), python3.13 (lambda/python:3.13) or go (lambda/provided:al2023). Only the placeholder; the app's own Containerfile decides what actually runs after the first deploy. Match the LambdaFunction app's spec.runtime.",
+                          "enum": [
+                            "nodejs22",
+                            "python3.13",
+                            "go"
+                          ],
+                          "default": "nodejs22"
+                        },
+                        "memorySize": {
+                          "type": "integer",
+                          "description": "Function memory in MB (Lambda allows 128 to 10240).",
+                          "minimum": 128,
+                          "maximum": 10240,
+                          "default": 256
+                        },
+                        "timeout": {
+                          "type": "integer",
+                          "description": "Function timeout in seconds (Lambda allows 1 to 900).",
+                          "minimum": 1,
+                          "maximum": 900,
+                          "default": 10
+                        },
+                        "functionUrl": {
+                          "type": "boolean",
+                          "description": "Create a public Lambda Function URL (auth type NONE, plus the resource policy that allows anonymous invocation) so the deployed function can be reached with curl. The URL is published in status.functionUrl. Set false for a function that is only ever invoked by another AWS service.",
+                          "default": true
+                        },
+                        "credentialsSecret": {
+                          "type": "string",
+                          "description": "Name of a Secret in this XR's namespace holding the AWS credentials the bootstrap Job uses to push the placeholder image into ECR, under the keys aws-access-key-id and aws-secret-access-key - the same keys Glidepath's own deploy-lambda step reads from app-secrets. Defaults to app-secrets, which exists in every app-<app>-cicd namespace whose cicd.yaml lists those two secrets. These credentials are only used by that Job; the Crossplane-managed resources use the provider's own ClusterProviderConfig.",
+                          "minLength": 1,
+                          "default": "app-secrets"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "azurecontainerapptarget"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the AzureContainerAppTarget. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "appName": {
+                          "type": "string",
+                          "description": "Name of the Container App to create. Defaults to this XR's own name. This is the value the app's cicd.yaml must carry in deploy.azureContainerApps.appName. Azure allows 2 to 32 lowercase alphanumerics and hyphens, starting with a letter.",
+                          "pattern": "^[a-z][a-z0-9-]{1,31}$"
+                        },
+                        "resourceGroup": {
+                          "type": "string",
+                          "description": "Name of the resource group this XR CREATES and owns (deploy.azureContainerApps.resourceGroup). Defaults to \"<appName>-rg\". Everything else lands inside it, so deleting the XR deletes it all. Do not name an existing group: the composed ResourceGroup would try to adopt it and, on deletion, remove it.",
+                          "pattern": "^[a-zA-Z0-9._()-]{1,90}$"
+                        },
+                        "location": {
+                          "type": "string",
+                          "description": "Azure region for the resource group, the environment and the app, e.g. eastus.",
+                          "pattern": "^[a-z0-9]+$",
+                          "default": "eastus"
+                        },
+                        "containerPort": {
+                          "type": "integer",
+                          "description": "The port the image listens on; the ingress target port. 80 for the Azure Functions base images (the AzureFunction stack), whatever the app's Containerfile exposes otherwise.",
+                          "minimum": 1,
+                          "maximum": 65535,
+                          "default": 80
+                        },
+                        "bootstrapImage": {
+                          "type": "string",
+                          "description": "The placeholder image the app runs until Glidepath's first deploy replaces it. Must be linux/amd64 (Container Apps is amd64-only) and start without arguments. The default is the Azure Functions Node base image, which serves its own landing page on port 80.",
+                          "minLength": 1,
+                          "default": "mcr.microsoft.com/azure-functions/node:4-node20"
+                        },
+                        "size": {
+                          "type": "string",
+                          "description": "CPU and memory per replica, from Container Apps' allowed pairs - small 0.25 vCPU / 0.5Gi, medium 0.5 / 1Gi, large 1 / 2Gi.",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "default": "small"
+                        },
+                        "minReplicas": {
+                          "type": "integer",
+                          "description": "Minimum replicas. 1 keeps the app warm for a smoke test; 0 lets it scale to zero between calls.",
+                          "minimum": 0,
+                          "maximum": 3,
+                          "default": 1
+                        },
+                        "maxReplicas": {
+                          "type": "integer",
+                          "description": "Maximum replicas.",
+                          "minimum": 1,
+                          "maximum": 3,
+                          "default": 1
+                        },
+                        "registry": {
+                          "type": "object",
+                          "description": "Credentials for a private image registry (the ghcr.io package Glidepath pushes to, when it is private). Leave unset for a public package.",
+                          "properties": {
+                            "server": {
+                              "type": "string",
+                              "description": "Registry host, e.g. ghcr.io.",
+                              "minLength": 1,
+                              "default": "ghcr.io"
+                            },
+                            "username": {
+                              "type": "string",
+                              "description": "Registry username (for ghcr.io, the GitHub user or org the token belongs to).",
+                              "minLength": 1
+                            },
+                            "passwordSecretRef": {
+                              "type": "object",
+                              "description": "A Secret in this XR's namespace holding the registry token/password.",
+                              "required": [
+                                "name",
+                                "key"
+                              ],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "description": "The Secret's name.",
+                                  "minLength": 1
+                                },
+                                "key": {
+                                  "type": "string",
+                                  "description": "The key inside the Secret that holds the token.",
+                                  "minLength": 1
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "has(self.username) == has(self.passwordSecretRef)",
+                              "message": "registry.username and registry.passwordSecretRef must be set together"
+                            }
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "azurefunction"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the AzureFunction. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - the src repo's GitHub description and the generated README. Optional.",
+                          "minLength": 1
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for the src repo.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        },
+                        "runtime": {
+                          "type": "string",
+                          "description": "Language and Microsoft Functions base image: nodejs20 (mcr.microsoft.com/azure-functions/node:4-node20, programming model v4) or python3.12 (azure-functions/python:4-python3.12, model v2).",
+                          "enum": [
+                            "nodejs20",
+                            "python3.12"
+                          ],
+                          "default": "nodejs20"
+                        },
+                        "resourceGroup": {
+                          "type": "string",
+                          "description": "Resource group of the existing Container App. Required, since the app already exists.",
+                          "minLength": 1
+                        },
+                        "appName": {
+                          "type": "string",
+                          "description": "Name of the existing Container App hosting the function app. Defaults to the XR's own name.",
+                          "minLength": 1,
+                          "maxLength": 32
+                        },
+                        "target": {
+                          "type": "object",
+                          "description": "Opt-in (2026-10-08): let this app own the Azure infrastructure it deploys into. With enabled: true the Composition composes an AzureContainerAppTarget child named <name>-target (xrds/azurecontainerapptarget.yaml) from this spec's own appName, resourceGroup and runtime - the same values the scaffolded cicd.yaml carries, so they can never drift - and proxies its TargetReady condition onto this XR. Note what that means for resourceGroup: the child CREATES and owns that resource group (and deletes it with this app), so it must not name a group that already exists for something else. Leave it off (the default) to stand a target up and down independently, as its own AzureContainerAppTarget XR in this app's xr-requests. Both need the Azure provider installed.",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean",
+                              "description": "Compose the AzureContainerAppTarget child.",
+                              "default": false
+                            },
+                            "location": {
+                              "type": "string",
+                              "description": "Azure region for the child's resource group, environment and app.",
+                              "pattern": "^[a-z0-9]+$",
+                              "default": "eastus"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "devCluster",
+                        "resourceGroup"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "dex"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the Dex. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [
+                        "mode"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "description": "`server` runs the shared Dex OIDC provider; `attach` registers an app as a machine-to-machine OAuth2 client on an existing one. See the header.",
+                          "enum": [
+                            "server",
+                            "attach"
+                          ]
+                        },
+                        "size": {
+                          "type": "string",
+                          "description": "(server) CPU/memory for the Dex pod.",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "default": "small"
+                        },
+                        "storageSize": {
+                          "type": "string",
+                          "description": "(server) Size of the sqlite storage volume (a Kubernetes quantity).",
+                          "pattern": "^[0-9]+(\\.[0-9]+)?(Mi|Gi|Ti)$",
+                          "default": "1Gi"
+                        },
+                        "allowedNamespaces": {
+                          "type": "array",
+                          "description": "(server) Namespaces whose apps may reach the token/JWKS HTTP endpoint (5556). The gRPC Admin port (5557) is separately restricted to crossplane-system only (only function-dex calls it) regardless of this list.",
+                          "items": {
+                            "type": "string",
+                            "description": "A namespace name, e.g. app-flight-api-dev."
+                          }
+                        },
+                        "serverRef": {
+                          "type": "object",
+                          "description": "(attach) The Dex server XR's Deployment/Service - its name and namespace.",
+                          "required": [
+                            "name",
+                            "namespace"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": "The server Dex XR's own name (mode server)."
+                            },
+                            "namespace": {
+                              "type": "string",
+                              "description": "The namespace the server XR was created in - not necessarily this app's own namespace, since the server is shared."
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "clientId": {
+                          "type": "string",
+                          "description": "(attach) The OAuth2 client_id to register. Defaults to this XR's own name if unset (set explicitly only if two attach XRs would otherwise collide).",
+                          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                        },
+                        "scopes": {
+                          "type": "array",
+                          "description": "(attach) Informational only today - Dex's client_credentials grant does not scope-gate per client; recorded here so a future policy layer has it.",
+                          "items": {
+                            "type": "string",
+                            "description": "One OAuth scope the client may request."
+                          }
+                        }
+                      },
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "self.mode != 'attach' || has(self.serverRef)",
+                          "message": "serverRef is required when mode == attach"
+                        }
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "goapplication"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the GoApplication. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - used as the src repo's GitHub description and in the generated boilerplate README. Optional; omitted sections render a generic placeholder instead.",
+                          "minLength": 1
+                        },
+                        "goVersion": {
+                          "type": "string",
+                          "description": "Go minor version - drives the Containerfile's build-stage FROM line and go.mod's own go directive. One of this platform's currently-supported lines, not a free-form string, so a typo fails XR admission instead of producing a Containerfile that pulls a nonexistent image tag.",
+                          "enum": [
+                            "1.22",
+                            "1.23",
+                            "1.24"
+                          ],
+                          "default": "1.23"
+                        },
+                        "port": {
+                          "type": "integer",
+                          "description": "Port the boilerplate HTTP server listens on (also the Containerfile's EXPOSE). Matches airframe-application's own rollout.ports default convention.",
+                          "minimum": 1,
+                          "maximum": 65535,
+                          "default": 8080
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for both the src and gitops repos.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "infraservice"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the InfraService. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this standalone service is onboarded onto - same meaning, same live cluster-registry gate, as NodeJSApplication's own spec.devCluster. An InfraService is pinned to exactly one, same as any app.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - used as the gitops-infra-<name> repo's GitHub description. Optional; omitted renders a generic placeholder instead.",
+                          "minLength": 1
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for the gitops-infra-<name> repo.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "lambdafunction"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the LambdaFunction. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - the src repo's GitHub description and the generated README. Optional.",
+                          "minLength": 1
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for the src repo.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        },
+                        "runtime": {
+                          "type": "string",
+                          "description": "Handler language and AWS Lambda base image: nodejs22 (public.ecr.aws/lambda/nodejs:22), python3.13 (lambda/python:3.13) or go (lambda/provided:al2023, a static binary). Drives the boilerplate, the Containerfile's FROM and build.agent.",
+                          "enum": [
+                            "nodejs22",
+                            "python3.13",
+                            "go"
+                          ],
+                          "default": "nodejs22"
+                        },
+                        "architecture": {
+                          "type": "string",
+                          "description": "CPU architecture of the existing Lambda function: arm64 or x86_64. Must match the function. The pipeline builds only this architecture (deploy-lambda copies the matching single-platform image and refuses a function it has no image for), which also avoids the amd64 build that runs under emulation on the arm64 build node.",
+                          "enum": [
+                            "arm64",
+                            "x86_64"
+                          ],
+                          "default": "arm64"
+                        },
+                        "region": {
+                          "type": "string",
+                          "description": "AWS region of the function and its ECR repository.",
+                          "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
+                          "default": "us-east-1"
+                        },
+                        "functionName": {
+                          "type": "string",
+                          "description": "Name of the existing Lambda function Glidepath deploys to. Defaults to the XR's own name. Lambda names are unique per account and region, so set this if that name is taken.",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "target": {
+                          "type": "object",
+                          "description": "Opt-in (2026-10-08): let this app own the AWS infrastructure it deploys into. With enabled: true the Composition composes an AwsLambdaTarget child named <name>-target (xrds/awslambdatarget.yaml) from this spec's own functionName, region, architecture and runtime - the same values the scaffolded cicd.yaml carries, so they can never drift - and proxies its TargetReady condition onto this XR. The infrastructure then lives exactly as long as this app does. Leave it off (the default) to stand a target up and down independently, as its own AwsLambdaTarget XR in this app's xr-requests, which is the shape for a smoke app you only want to pay for while testing. Both need the AWS provider installed and the app's aws-access-key-id/aws-secret-access-key secrets in place (the child's bootstrap Job waits for them).",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean",
+                              "description": "Compose the AwsLambdaTarget child.",
+                              "default": false
+                            },
+                            "functionUrl": {
+                              "type": "boolean",
+                              "description": "Passed to the child's spec.functionUrl - a public Function URL for smoke tests.",
+                              "default": true
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "mongodb"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the MongoDB. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [],
+                      "properties": {
+                        "members": {
+                          "type": "integer",
+                          "description": "1 is a single member with no failover. 3 is a real replica set with automatic failover, for real environments. MongoDB elections need an odd count, same constraint RabbitMQ's broker mode documents.",
+                          "enum": [
+                            1,
+                            3
+                          ],
+                          "default": 1
+                        },
+                        "storageSize": {
+                          "type": "string",
+                          "description": "Size of each member's volume (a Kubernetes quantity, e.g. 5Gi).",
+                          "pattern": "^[0-9]+(\\.[0-9]+)?(Mi|Gi|Ti)$",
+                          "default": "5Gi"
+                        },
+                        "mongoVersion": {
+                          "type": "string",
+                          "description": "mongod version, resolved by the operator to the matching mongodb-community-server:<version>-ubi8 image (must exist for amd64 and arm64). Pin 7.0.x on hosts running Linux kernel 6.19 through 7.0.13, where MongoDB 8.0's bundled tcmalloc crashes at startup (SERVER-121912).",
+                          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                          "default": "8.0.32"
+                        },
+                        "databaseName": {
+                          "type": "string",
+                          "description": "Name of the database AND of the user that owns it (dbOwner role, scoped to this one database - same \"one database, one owning identity\" shape PostgreSQL already uses here). Defaults to the XR's own name with hyphens turned into underscores. Lowercase letters, digits and underscores only.",
+                          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "nodejsapplication"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the NodeJSApplication. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - used as the src repo's GitHub description and in the generated boilerplate README. Optional; omitted sections render a generic placeholder instead.",
+                          "minLength": 1
+                        },
+                        "nodeVersion": {
+                          "type": "string",
+                          "description": "Node.js major version - drives the Containerfile's FROM line and the boilerplate package.json's engines field. One of this platform's currently-supported LTS lines, not a free-form string, so a typo fails XR admission instead of producing a Containerfile that pulls a nonexistent image tag.",
+                          "enum": [
+                            "18",
+                            "20",
+                            "22"
+                          ],
+                          "default": "20"
+                        },
+                        "packageManager": {
+                          "type": "string",
+                          "description": "Which package manager's lockfile/install instructions the boilerplate README and Containerfile reference.",
+                          "enum": [
+                            "npm",
+                            "pnpm",
+                            "yarn"
+                          ],
+                          "default": "npm"
+                        },
+                        "port": {
+                          "type": "integer",
+                          "description": "Port the boilerplate HTTP server listens on (also exposed as package.json's start script and Containerfile's EXPOSE). Matches airframe-application's own rollout.ports default convention.",
+                          "minimum": 1,
+                          "maximum": 65535,
+                          "default": 8080
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for both the src and gitops repos.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        },
+                        "extraGitopsRepos": {
+                          "type": "array",
+                          "description": "Passed straight through to the composed TektonCICD child's own spec.extraGitopsRepos - see xrds/tektoncicd.yaml for what this grants and why. Only needed by an app whose deploy target isn't its own gitops-<appName> repo (e.g. Backstage, hand-deployed to a shared gitops-cluster-* repo) - most apps never set this.",
+                          "items": {
+                            "type": "string",
+                            "description": "A full gitops repo URL, e.g. https://github.com/jfillman/gitops-cluster-dev."
+                          },
+                          "default": []
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "postgresql"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the PostgreSQL. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [],
+                      "properties": {
+                        "size": {
+                          "type": "string",
+                          "description": "CPU/memory requests and limits for each instance.",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "default": "small"
+                        },
+                        "instances": {
+                          "type": "integer",
+                          "description": "1 is a single instance with no failover. 2-3 give a primary plus streaming replicas with automatic failover, for real environments. Each instance gets its own volume.",
+                          "enum": [
+                            1,
+                            2,
+                            3
+                          ],
+                          "default": 1
+                        },
+                        "storageSize": {
+                          "type": "string",
+                          "description": "Size of each instance's volume (a Kubernetes quantity, e.g. 1Gi).",
+                          "pattern": "^[0-9]+(\\.[0-9]+)?(Mi|Gi|Ti)$",
+                          "default": "1Gi"
+                        },
+                        "databaseName": {
+                          "type": "string",
+                          "description": "Name of the database AND of the role that owns it (they must match, see above). Defaults to the XR's own name with hyphens turned into underscores. Lowercase letters, digits and underscores only.",
+                          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "pythonapplication"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the PythonApplication. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - used as the src repo's GitHub description and in the generated boilerplate README. Optional; omitted sections render a generic placeholder instead.",
+                          "minLength": 1
+                        },
+                        "pythonVersion": {
+                          "type": "string",
+                          "description": "Python minor version - drives the Containerfile's FROM line. One of this platform's currently-supported lines, not a free-form string, so a typo fails XR admission instead of producing a Containerfile that pulls a nonexistent image tag.",
+                          "enum": [
+                            "3.11",
+                            "3.12",
+                            "3.13"
+                          ],
+                          "default": "3.12"
+                        },
+                        "packageManager": {
+                          "type": "string",
+                          "description": "Which dependency-management convention this app scaffolds with - pip (requirements.txt), or poetry/uv (both pyproject.toml, with the matching install command in the Containerfile).",
+                          "enum": [
+                            "pip",
+                            "poetry",
+                            "uv"
+                          ],
+                          "default": "pip"
+                        },
+                        "port": {
+                          "type": "integer",
+                          "description": "Port the boilerplate HTTP server listens on (also the Containerfile's EXPOSE). Matches airframe-application's own rollout.ports default convention.",
+                          "minimum": 1,
+                          "maximum": 65535,
+                          "default": 8080
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for both the src and gitops repos.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "rabbitmq"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the RabbitMQ. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [
+                        "mode"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "description": "`broker` runs the shared RabbitMQ cluster; `attach` gets an app a user on an existing one. See the header.",
+                          "enum": [
+                            "broker",
+                            "attach"
+                          ]
+                        },
+                        "size": {
+                          "type": "string",
+                          "description": "(broker) CPU/memory for each node.",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "default": "small"
+                        },
+                        "instances": {
+                          "type": "integer",
+                          "description": "(broker) 1 is a single node with no failover. 3 is a quorum-replicated cluster for real environments (RabbitMQ needs an odd count).",
+                          "enum": [
+                            1,
+                            3
+                          ],
+                          "default": 1
+                        },
+                        "storageSize": {
+                          "type": "string",
+                          "description": "(broker) Size of each node's volume (a Kubernetes quantity).",
+                          "pattern": "^[0-9]+(\\.[0-9]+)?(Mi|Gi|Ti)$",
+                          "default": "1Gi"
+                        },
+                        "vhosts": {
+                          "type": "array",
+                          "description": "(broker) Virtual hosts to create. One per domain (e.g. `flights`): every app that exchanges messages must share one.",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                            "description": "One vhost name, e.g. flights."
+                          }
+                        },
+                        "allowedNamespaces": {
+                          "type": "array",
+                          "description": "(broker) Namespaces whose apps may attach (create a user here) and reach the AMQP port. Everything else is refused/blocked.",
+                          "items": {
+                            "type": "string",
+                            "description": "A namespace name, e.g. app-baggage-api-dev."
+                          }
+                        },
+                        "brokerRef": {
+                          "type": "object",
+                          "description": "(attach) The broker XR's RabbitmqCluster - its name and namespace.",
+                          "required": [
+                            "name",
+                            "namespace"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "description": "The broker RabbitMQ XR's own name (mode broker)."
+                            },
+                            "namespace": {
+                              "type": "string",
+                              "description": "The namespace the broker XR was created in - not necessarily this app's own namespace, since the broker is shared."
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "vhost": {
+                          "type": "string",
+                          "description": "(attach) The vhost this app works in.",
+                          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                        },
+                        "queuePrefix": {
+                          "type": "string",
+                          "description": "(attach) The app may create, bind and consume queues named `<queuePrefix>.*`, and no others.",
+                          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                        },
+                        "publish": {
+                          "type": "array",
+                          "description": "(attach) Exchanges the app may declare and publish to.",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._-]+$",
+                            "description": "An exchange name, e.g. flights.events."
+                          }
+                        },
+                        "consume": {
+                          "type": "array",
+                          "description": "(attach) Exchanges the app may bind its queues to (read). It cannot publish to them.",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._-]+$",
+                            "description": "An exchange name, e.g. flights.events."
+                          }
+                        }
+                      },
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "self.mode != 'attach' || has(self.brokerRef)",
+                          "message": "brokerRef is required when mode == attach"
+                        },
+                        {
+                          "rule": "self.mode != 'attach' || has(self.vhost)",
+                          "message": "vhost is required when mode == attach"
+                        }
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "redis"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the Redis. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [],
+                      "properties": {
+                        "size": {
+                          "type": "string",
+                          "description": "Maps directly onto the wrapped Bitnami redis chart's own `master.resourcesPreset`/`replica.resourcesPreset` fields (compositions/redis's own values mapping) - reusing Bitnami's own vetted cpu/memory presets rather than this catalog inventing its own numbers. `large` is the biggest exposed here deliberately (bigger presets exist upstream - xlarge/2xlarge - but nothing in this catalog's real usage has asked for them yet; widen the enum, don't bypass it, if that changes).",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "default": "small"
+                        },
+                        "persistence": {
+                          "type": "boolean",
+                          "description": "Whether Redis data survives a pod restart (a real PVC) vs. pure in-memory cache semantics (emptyDir-equivalent, `persistence.enabled: false` on the wrapped chart - data is lost on every restart/reschedule). Default true matches the wrapped chart's own upstream default, not a platform override.",
+                          "default": true
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "rolloutwatch"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the RolloutWatch. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [
+                        "appName",
+                        "cluster",
+                        "env"
+                      ],
+                      "properties": {
+                        "appName": {
+                          "type": "string",
+                          "description": "The app this watches - also airframe-application's own release name, the Rollout's metadata.name in this XR's own namespace (extra- resources match_name), and the GitHub repo name (gitops-<appName> / <appName>) the Composition derives GitOps/source coordinates from. Always equal to this XR's own metadata.name in practice (airframe-application's chart sets both identically) but declared explicitly rather than re-derived from metadata.name, so the Composition never has to assume that invariant holds.",
+                          "minLength": 1
+                        },
+                        "cluster": {
+                          "type": "string",
+                          "description": "Which cluster this app is deployed to - e.g. \"kind-prod\". Used, together with env, to derive the GitOps manifest path (<cluster>/<env>/values.yaml) a dispatched diagnosis Job opens its fix PR against.",
+                          "minLength": 1
+                        },
+                        "env": {
+                          "type": "string",
+                          "description": "Which environment within that cluster - e.g. \"prod\"/\"staging\". Same DNS-1123-pattern convention as ApplicationEnvironment's own spec.env (not repeated here as a literal pattern - this field is only ever chart-templated from airframe-application's own .Values.envName, which ApplicationEnvironment's XRD already validates upstream).",
+                          "minLength": 1
+                        },
+                        "notifications": {
+                          "type": "object",
+                          "description": "Where a completed diagnosis gets reported, beyond the XR's own status/events (function-rollout-watcher's own README) and whatever HolmesGPT did on its own (GitHub PR, if it opened one). Optional and omitted entirely by airframe-application's chart unless a developer set notifications.slack.enabled: true in their values.yaml - same shape/opt-in convention as platform-cicd's own cicd.yaml notifications.slack.{enabled,channel}, deliberately not a new one. See that chart's own notify-external-secret.yaml for where the actual webhook URL comes from (never a plain spec field - it's a credential).",
+                          "properties": {
+                            "slack": {
+                              "type": "object",
+                              "description": "Slack-specific notification settings - the only channel this XRD supports today, mirroring platform-cicd's own cicd.yaml notifications.slack shape rather than a new convention.",
+                              "required": [
+                                "enabled"
+                              ],
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                  "description": "Whether a completed diagnosis posts to Slack. The webhook URL itself is never a spec field (it's a credential) - see notify-external-secret.yaml for where it actually comes from."
+                                },
+                                "channel": {
+                                  "type": "string",
+                                  "description": "Optional Slack channel override (e.g. \"#your-channel\") - only takes effect if the workspace's webhook app allows overriding its own configured default channel."
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "secretstore"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the SecretStore. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [
+                        "appRef",
+                        "cluster"
+                      ],
+                      "properties": {
+                        "appRef": {
+                          "type": "object",
+                          "description": "Names the owning NodeJSApplication/SpringBootApplication XR this store belongs to. Labeling/audit only - not a live lookup, same convention as every other Attached-tier XRD's environmentRef in this catalog. Deliberately NOT named environmentRef like every other Attached-tier resource - this store explicitly must not pin to one env, item 8's whole point.",
+                          "required": [
+                            "name"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The owning application's XR name (NodeJSApplication/SpringBootApplication), not an ApplicationEnvironment - this store is app-scoped, not env-scoped."
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "cluster": {
+                          "type": "string",
+                          "description": "Which cluster's ESO this store targets. No hard registry gate on this value itself (unlike ApplicationEnvironment/NodeJSApplication - an unregistered or mistyped name still renders a store, just with Universal Auth against the shared Infisical instance, not a refusal) - this XRD's Composition makes no cross-cluster call, only local ones (this cluster's own ESO + a call out to whichever cluster hosts Infisical). It DOES do one live cluster-registry read now (2026-08-18): whether Infisical itself is reachable in-cluster from here (registry field infisicalHost) decides Kubernetes Auth vs. Universal Auth - see compositions/secretstore/ templates/00-infisical-host-gate.yaml.",
+                          "minLength": 1
+                        },
+                        "environmentSlug": {
+                          "type": "string",
+                          "default": "shared",
+                          "description": "\"shared\" (the default): this XR creates the project/identity/ ClusterSecretStore for this (app, cluster) pair, with one Infisical environment named \"shared\", wide-open across every env namespace. Any OTHER value: this XR does NOT create a project - it adds one more Infisical environment (this value) to the ALREADY-existing project from the \"shared\" XR, plus a second ClusterSecretStore narrowed to exactly one k8s namespace (app-<appRef.name>-<environmentSlug>). Real per-env isolation - see xrds/secretstore.yaml's own header for the full mechanism."
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "slo"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the SLO. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "required": [
+                        "service",
+                        "objective",
+                        "indicator"
+                      ],
+                      "properties": {
+                        "service": {
+                          "type": "string",
+                          "description": "Value every generated PromQL query matches against the `service` label, and Sloth's own `spec.service` grouping field. Required (not derived from the XR name) so a query is never accidentally left unscoped. Also used literally in the generated PrometheusServiceLevel/dashboard, so it's pattern-constrained to a safe PromQL/JSON charset.",
+                          "minLength": 1,
+                          "pattern": "^[a-zA-Z0-9_.-]+$"
+                        },
+                        "objective": {
+                          "type": "number",
+                          "description": "Target SLO percentage, e.g. 99.9 for 99.9%.",
+                          "maximum": 100,
+                          "exclusiveMinimum": 0
+                        },
+                        "indicator": {
+                          "type": "object",
+                          "description": "Flat schema (K8s structural schemas don't support a real oneOf with different properties per branch) with CEL rules enforcing the per-type required field, same pattern as cert-manager's Issuer/ExternalDNS-style discriminated configs. errorFilter is required when type=availability; latencyThreshold is required when type=latency. The Composition's template also `fail`s on a missing type-required field as a backstop, in case CEL validation isn't enforced on the installed Crossplane version.",
+                          "required": [
+                            "type",
+                            "metric",
+                            "totalFilter"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "availability",
+                                "latency"
+                              ],
+                              "description": "Which SLI shape this is - picks which sibling field below is required (errorFilter for availability, latencyThreshold for latency) and how the Composition computes the burn-rate query."
+                            },
+                            "metric": {
+                              "type": "string",
+                              "description": "Base metric name. For availability, a counter (e.g. http_requests_total). For latency, the histogram's base name without the _bucket/_count/_sum suffix.",
+                              "minLength": 1
+                            },
+                            "totalFilter": {
+                              "type": "string",
+                              "description": "PromQL label-matcher fragment selecting all eligible events.",
+                              "minLength": 1
+                            },
+                            "errorFilter": {
+                              "type": "string",
+                              "description": "PromQL label-matcher fragment selecting bad/error events. Required when type == availability.",
+                              "minLength": 1
+                            },
+                            "latencyThreshold": {
+                              "type": "string",
+                              "description": "Latency threshold in seconds, as a string, e.g. \"0.3\". Must exactly match one of the target histogram's configured `le` bucket boundaries as Prometheus renders it - a mismatch produces a query matching zero series (empty result, not zero/NaN), which then never alerts and never errors. Can't be validated at the XRD level since bucket boundaries are an external fact about the instrumented service. Required when type == latency.",
+                              "minLength": 1
+                            }
+                          },
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self.type != 'availability' || has(self.errorFilter)",
+                              "message": "errorFilter is required when indicator.type == availability"
+                            },
+                            {
+                              "rule": "self.type != 'latency' || has(self.latencyThreshold)",
+                              "message": "latencyThreshold is required when indicator.type == latency"
+                            }
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "springbootapplication"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the SpringBootApplication. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - used as the src repo's GitHub description and in the generated boilerplate README. Optional; omitted sections render a generic placeholder instead.",
+                          "minLength": 1
+                        },
+                        "javaVersion": {
+                          "type": "string",
+                          "description": "Java LTS major version - drives the Containerfile's eclipse-temurin base image tags and the build file's toolchain/release version. One of this platform's currently-supported LTS lines, not a free-form string, so a typo fails XR admission instead of producing a Containerfile that pulls a nonexistent image tag.",
+                          "enum": [
+                            "17",
+                            "21"
+                          ],
+                          "default": "21"
+                        },
+                        "buildTool": {
+                          "type": "string",
+                          "description": "Which build tool's boilerplate (pom.xml vs build.gradle) and Containerfile build stage this app scaffolds with.",
+                          "enum": [
+                            "maven",
+                            "gradle"
+                          ],
+                          "default": "maven"
+                        },
+                        "groupId": {
+                          "type": "string",
+                          "description": "Maven groupId / Gradle group - also this app's single Java package (see this XRD's own header for why it's one flat package, not groupId+artifactId nested). Lowercase, dot-separated Java package name.",
+                          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
+                          "default": "io.idp.apps"
+                        },
+                        "port": {
+                          "type": "integer",
+                          "description": "Port the boilerplate Spring Boot app listens on (server.port, also the Containerfile's EXPOSE). Matches airframe-application's own rollout.ports default convention.",
+                          "minimum": 1,
+                          "maximum": 65535,
+                          "default": 8080
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for both the src and gitops repos.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "tektoncicd"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the TektonCICD. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "self.appName.size() <= 54",
+                          "message": "appName is at most 54 characters: the app's CI namespace is app-<appName>-cicd, a 63-character name"
+                        }
+                      ],
+                      "required": [
+                        "appName",
+                        "appRepoUrl",
+                        "devCluster"
+                      ],
+                      "properties": {
+                        "appName": {
+                          "type": "string",
+                          "description": "The owning app's name (NodeJSApplication/SpringBootApplication's own $xrName). This XR is a distinct composed resource with its own metadata.name, so unlike its parent, appName can't be inferred from metadata.name and must be passed explicitly - it's what tenants/<appName>/identity.yaml is keyed on.",
+                          "minLength": 1
+                        },
+                        "type": {
+                          "type": "string",
+                          "description": "platformIdentity.type in the rendered identity.yaml - naming- conventions.md's real app|infra distinction, read by BOTH consuming ApplicationSets (platform-cicd's own <type>-<appName>-cicd namespace convention already keys off this exact field, glidepath-control-plane/templates/argocd/ tenant-onboarding-applicationset.yaml). Added for InfraService (service-catalog-design.md Item 7's missing Bootstrap XRD) - a standalone shared component (Redis, Postgres, ...) has no source code to build, so it onboards with type: infra and registerPipelinesAsCode: false rather than the CI/CD pipeline machinery every type: app tenant gets. Every existing caller (NodeJSApplication/SpringBootApplication/GoApplication/ PythonApplication) omits this field and keeps today's hardcoded \"app\" behavior via the default - zero behavior change for any already-onboarded app.",
+                          "enum": [
+                            "app",
+                            "infra"
+                          ],
+                          "default": "app"
+                        },
+                        "registerPipelinesAsCode": {
+                          "type": "boolean",
+                          "description": "platformIdentity.registerPipelinesAsCode in the rendered identity.yaml - an existing, already-designed-for glidepath-app chart override (charts/glidepath-app/templates/ pipelines-as-code/repository.yaml and hooks/ onboarding-resync-bootstrap.yaml are both already gated on this exact value, \"overridable per-app to deregister a repo\" per that chart's own header) - not new chart behavior, just the first XRD-level caller to actually set it to false. An InfraService's appRepoUrl has no real source to register PaC against or bootstrap a resync hook for.",
+                          "default": true
+                        },
+                        "gitopsRepoUrl": {
+                          "type": "string",
+                          "description": "Full URL of the app's gitops-<appName> repo, computed by the parent XR the same way its own gitops-repo.yaml template does. Passed in rather than recomputed here so this XRD stays agnostic to repo-naming convention. Omit it for a service that has no gitops repo (a LambdaFunction or AzureFunction deploys straight to its cloud, with no release stage): the identity file then carries an empty value and Glidepath skips gitops delivery and registration.",
+                          "minLength": 1
+                        },
+                        "appRepoUrl": {
+                          "type": "string",
+                          "description": "Full URL of the app's src repo, computed by the parent XR the same way its own src-repo.yaml template does. Passed in rather than recomputed here so this XRD stays agnostic to repo-naming convention.",
+                          "minLength": 1
+                        },
+                        "devCluster": {
+                          "type": "string",
+                          "description": "Which dev cluster this app onboards onto - passed straight through from the parent XR's own spec.devCluster. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or this Composition renders nothing and reports DevClusterReady: False rather than partially succeeding - see compositions/tektoncicd/templates/ 00-devcluster-gate.yaml.",
+                          "minLength": 1
+                        },
+                        "extraGitopsRepos": {
+                          "type": "array",
+                          "description": "Full URLs of extra gitops repos (beyond gitops-<appName>) this app's CI needs write access to - platform-cicd's gitops-image-bump stage for an app whose deploy target isn't its own gitops-<appName> repo (e.g. a hand-deployed singleton writing into a shared gitops-cluster-* repo). Rendered into identity.yaml's platformIdentity.extraGitopsRepos (see platform-cicd-app's repository.yaml) as an extra Repository CR grant - deliberately a declared XR spec field, not a hand-edited identity.yaml, since this resource's managementPolicies (Create/Update) reconcile that file back to exactly what this Composition renders on every drift.",
+                          "items": {
+                            "type": "string",
+                            "description": "A full gitops repo URL, e.g. https://github.com/jfillman/gitops-cluster-dev."
+                          },
+                          "default": []
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "high"
+        },
+        "slos": {
+          "description": "Rendered into the SLO XRD (xrds/slo.yaml), which wraps Sloth. No window/burn-rate fields here - Sloth computes those from just objective.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "service",
+              "objective",
+              "indicator"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name."
+              },
+              "service": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_.-]+$",
+                "description": "PromQL label-matcher value."
+              },
+              "objective": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100,
+                "description": "Target percentage (e.g. 99.9) over the cluster-wide compliance window."
+              },
+              "indicator": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "metric",
+                  "totalFilter"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "availability",
+                      "latency"
+                    ],
+                    "description": "Discriminator."
+                  },
+                  "metric": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The Prometheus metric name this indicator queries."
+                  },
+                  "totalFilter": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "PromQL label matcher selecting the total/denominator series."
+                  },
+                  "errorFilter": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Required when type is availability."
+                  },
+                  "latencyThreshold": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Required when type is latency, instead of errorFilter."
+                  }
+                },
+                "allOf": [
+                  {
+                    "description": "An availability indicator needs errorFilter.",
+                    "if": {
+                      "description": "indicator.type is availability ...",
+                      "properties": {
+                        "type": {
+                          "description": "The availability indicator type.",
+                          "const": "availability"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    "then": {
+                      "description": "... so errorFilter is required.",
+                      "required": [
+                        "errorFilter"
+                      ]
+                    }
+                  },
+                  {
+                    "description": "A latency indicator needs latencyThreshold.",
+                    "if": {
+                      "description": "indicator.type is latency ...",
+                      "properties": {
+                        "type": {
+                          "description": "The latency indicator type.",
+                          "const": "latency"
+                        }
+                      },
+                      "required": [
+                        "type"
+                      ]
+                    },
+                    "then": {
+                      "description": "... so latencyThreshold is required.",
+                      "required": [
+                        "latencyThreshold"
+                      ]
+                    }
+                  }
+                ],
+                "description": "How this SLO's compliance is measured."
+              }
+            },
+            "description": "One SLO."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "low"
+        },
+        "extraManifests": {
+          "description": "Last-resort escape hatch - a raw list of arbitrary Kubernetes objects, rendered as-is, no labels stamped.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "description": "One raw Kubernetes object, rendered as-is."
+          },
+          "x-hangar-owner": "human",
+          "x-hangar-risk": "critical"
+        }
+      }
+    },
+    "chart.networkPolicyPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Exactly one of namespace/cidr (mutually exclusive peer kinds).",
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "description": "Namespace to match."
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "description": "A label value (label key -> value).",
+            "type": "string"
+          },
+          "description": "Pod labels to match, ANDed with namespace."
+        },
+        "cidr": {
+          "type": "string",
+          "description": "An external CIDR peer instead of namespace/podLabels."
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Ports this rule applies to; omit for all ports."
+          },
+          "description": "Ports this rule applies to; omit for all ports."
+        }
+      },
+      "not": {
+        "description": "A peer selects by namespace or by CIDR, never both.",
+        "required": [
+          "namespace",
+          "cidr"
+        ]
+      }
+    },
+    "chart.probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Empty object ({}) means no probe of this kind is set. Exactly one of httpGet/tcpSocket/exec when non-empty.",
+      "default": {},
+      "properties": {
+        "httpGet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "port"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "URL/mount path."
+            },
+            "port": {
+              "type": [
+                "integer",
+                "string"
+              ],
+              "description": "Port to probe or route to."
+            }
+          },
+          "description": "An HTTP GET probe."
+        },
+        "tcpSocket": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "port"
+          ],
+          "properties": {
+            "port": {
+              "type": [
+                "integer",
+                "string"
+              ],
+              "description": "Port to probe or route to."
+            }
+          },
+          "description": "A TCP connect probe."
+        },
+        "exec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "command"
+          ],
+          "properties": {
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "One argv element."
+              },
+              "minItems": 1,
+              "description": "The command to run inside the container; exit 0 counts as success."
+            }
+          },
+          "description": "A command-exec probe."
+        },
+        "initialDelaySeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds after container start before the first probe."
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds between probes."
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds before a probe attempt times out."
+        },
+        "successThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Consecutive successes needed to consider the probe passed after a failure."
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Consecutive failures needed to consider the probe failed."
+        }
+      }
+    },
+    "chart.resourceList": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?m?$",
+          "description": "A Kubernetes CPU quantity, e.g. 250m or 1."
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|k)?$",
+          "description": "A Kubernetes memory quantity, e.g. 256Mi."
+        }
+      },
+      "description": "A cpu/memory pair."
     }
   }
 }

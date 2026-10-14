@@ -6,6 +6,13 @@ set of repo changes, each with its gate, its dependencies and what it will do. A
 network, no clock, same input gives the same output, so it is tested without a cluster and safe to
 re-run.
 
+An AppSpec's `config` and `overrides.<env>` are the airframe-application chart's values (every
+human-owned key, generated into the schema by airframe's tools/gen_appspec_schema.py), so the planner
+passes them through whole. What it adds on top: each environment's merged values are validated
+against the chart again (two valid halves can make an invalid whole), a hostname may serve only one
+environment, the scaffold's port and the chart's rollout.ports agree, and a critical-risk key takes
+the app-repo step out of auto-merge.
+
 It encodes what Airframe requires TODAY (Features all False) and what it should require once the
 A+ program lands (Features True), so the same acceptance test tracks the migration.
 """
@@ -20,6 +27,9 @@ from typing import Any
 import jsonschema
 
 SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "schemas" / "appspec.schema.json").read_text())
+CHART_VALUES = jsonschema.Draft202012Validator({"$defs": SCHEMA["$defs"], "$ref": "#/$defs/chartValues"})
+CHART_KEYS = SCHEMA["$defs"]["chartValues"]["properties"]
+CHART_DEFAULT_PORT = 8080                 # airframe-application's rollout.ports default and every stack XRD's port default
 STACK_KIND = {"nodejs": "NodeJSApplication", "springboot": "SpringBootApplication",
               "go": "GoApplication", "python": "PythonApplication"}
 PIPELINE_STAGES = {"build", "test", "deploy", "release"}
@@ -117,6 +127,43 @@ def env_config(spec: dict, env: str) -> dict:
     return merge(spec.get("config", {}), spec.get("overrides", {}).get(env, {}))
 
 
+def risk(key: str) -> str:
+    return CHART_KEYS.get(key, {}).get("x-hangar-risk", "unknown")
+
+
+def route_hosts(c: dict) -> list[str]:
+    """Hostnames an environment's values would serve: an enabled httpRoute's hostnames, an enabled ingress's host."""
+    hosts = []
+    if (c.get("httpRoute") or {}).get("enabled"):
+        hosts += c["httpRoute"].get("hostnames") or []
+    if (c.get("ingress") or {}).get("enabled") and c["ingress"].get("host"):
+        hosts.append(c["ingress"]["host"])
+    return hosts
+
+
+def env_checks(env: str, c: dict) -> list[str]:
+    """What the verify step looks for in one environment, for each claim its values make."""
+    out = []
+    if c.get("env"):
+        out.append(f"{env}: rendered config contains " + ", ".join(
+            f"{e['name']}={e['value']}" if "value" in e else e["name"] for e in c["env"]))
+    r = c.get("rollout") or {}
+    if r.get("steps"):
+        out.append(f"{env}: rollout steps == {json.dumps(r['steps'], separators=(',', ':'))}")
+    if "replicas" in r:
+        out.append(f"{env}: Rollout spec.replicas == {r['replicas']}")
+    if r.get("ports"):
+        out.append(f"{env}: Service ports == " + ", ".join(f"{p['name']}:{p['containerPort']}" for p in r["ports"]))
+    a = c.get("autoscaling") or {}
+    if a.get("enabled"):
+        out.append(f"{env}: HorizontalPodAutoscaler targets the Rollout (min {a.get('min', 2)}, max {a.get('max', 10)})")
+    if (c.get("podDisruptionBudget") or {}).get("enabled"):
+        out.append(f"{env}: PodDisruptionBudget exists for the Rollout's pods")
+    for h in route_hosts(c):
+        out.append(f"{env}: HTTPRoute for {h} is Accepted by its Gateway")
+    return out
+
+
 def xr_annotations(app: str, filename: str, reg: Registry) -> dict:
     owner = reg.owner
     src = {"pushToGit": True, "gitBranch": "main", "gitRepo": f"github.com?owner={owner}&repo={reg.tenants_repo}",
@@ -208,6 +255,35 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
     all_envs = ground + [e["name"] for e in flight]
     if len(set(all_envs)) != len(all_envs):
         raise SpecError("an environment name is used twice across ground and flight")
+    for k in spec.get("overrides") or {}:
+        if k not in all_envs:
+            raise SpecError(f"overrides/{k}: no environment named {k!r} ({', '.join(all_envs)})")
+
+    port = (spec.get("stackOptions") or {}).get("port")
+    if port is not None:
+        rollout = spec.setdefault("config", {}).get("rollout") or {}
+        if "ports" not in rollout:
+            spec["config"]["rollout"] = {**rollout, "ports": [{"name": "http", "containerPort": port}]}
+            if port != CHART_DEFAULT_PORT:
+                assumptions.append(f"stackOptions.port {port}: the chart's rollout.ports is set to http:{port} "
+                                   f"(its default is {CHART_DEFAULT_PORT}), so the Service reaches the scaffolded server")
+
+    hosts: dict[str, list[str]] = {}
+    for e in all_envs:
+        c = env_config(spec, e)
+        errs = sorted(CHART_VALUES.iter_errors(c), key=lambda x: list(x.absolute_path))
+        if errs:
+            path = "/".join(str(p) for p in errs[0].absolute_path) or "<root>"
+            raise SpecError(f"{e} (config merged with overrides.{e}): {path}: {errs[0].message}")
+        if port is not None and port not in [p["containerPort"] for p in (c.get("rollout") or {}).get("ports") or []]:
+            raise SpecError(f"{e}: rollout.ports does not include stackOptions.port {port}; the Service would miss the scaffolded server")
+        for h in route_hosts(c):
+            hosts.setdefault(h, []).append(e)
+    for h, envs in hosts.items():
+        if len(envs) > 1:
+            raise NeedsInput(f"Hostname {h} would be served by {', '.join(envs)}; a hostname belongs to one environment. "
+                             f"Which one is it for? (Put it under overrides.<env>.)", envs)
+
     for e in all_envs:
         if e in PIPELINE_STAGES:
             warnings.append(f"environment '{e}' has the same name as a pipeline stage; cicd.yaml will read `stage: {e}, env: {e}`. Legal, but easy to misread.")
@@ -215,6 +291,18 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
     steps_cfg = (cfg.get("rollout") or {}).get("steps")
     if steps_cfg and len(steps_cfg) == 1 and steps_cfg[0].get("setWeight") == 100:
         warnings.append("a single 100% step promotes immediately: it is a valid canary but has no gradual ramp")
+    floors: dict[tuple, list[str]] = {}
+    for e in all_envs:
+        c = env_config(spec, e)
+        replicas, a = (c.get("rollout") or {}).get("replicas"), c.get("autoscaling") or {}
+        if a.get("enabled") and replicas is not None and a.get("min", 2) < replicas:
+            floors.setdefault((replicas, a.get("min", 2)), []).append(e)
+    for (replicas, floor), envs in floors.items():
+        warnings.append(f"{', '.join(envs)}: autoscaling is on and rollout.replicas is {replicas}, but the HPA owns the count and "
+                        f"may scale down to autoscaling.min {floor}; set autoscaling.min: {replicas} if {replicas} is a floor")
+    critical = sorted({k for e in all_envs for k in env_config(spec, e) if risk(k) == "critical"})
+    if critical:
+        warnings.append(f"{', '.join(critical)} is critical-risk: the app-repo step needs a human merge")
 
     cs: list[Step] = []
     # 1. tenants repo: the app XR and every flight environment, in one PR
@@ -238,10 +326,7 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
         if features.base_layer:
             d.update({k: v for k, v in (spec.get("overrides", {}).get(env) or {}).items()})
         else:
-            if "env" in c:
-                d["env"] = c["env"]
-            if c.get("rollout"):
-                d["rollout"] = c["rollout"]
+            d.update(c)
         return d
 
     app_files = []
@@ -251,7 +336,8 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
         app_files.append(FileChange(BASE_FILE, "create", {k: v for k, v in cfg.items()}))
     for g in ground:
         app_files.append(FileChange(f"{ENVS_DIR}/{g}.yaml", "create", ground_file(g)))
-    cs.append(Step("app-repo", f"Declare ground environments {', '.join(ground)}", f"{owner}/{app}", "auto-merge", "T1",
+    cs.append(Step("app-repo", f"Declare ground environments {', '.join(ground)}", f"{owner}/{app}",
+                   "human-merge" if critical else "auto-merge", "T2" if critical else "T1",
                    depends_on=["repos-ready"], files=app_files,
                    effects=[f"creates namespace app-{app}-{g} for each ground environment" for g in ground]
                    + ["changing cicd.yaml regenerates .tekton/ in a follow-up PR"],
@@ -264,27 +350,21 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
         gfiles = []
         if features.base_layer:
             gfiles.append(FileChange("base/values.yaml", "create", {k: v for k, v in cfg.items()}))
-        else:
-            for e in flight:
-                c = env_config(spec, e["name"])
-                patch = {k: v for k, v in c.items() if k in ("rollout", "env")}
-                if patch:
-                    gfiles.append(FileChange(f"{e['cluster']}/{e['name']}/values.yaml", "merge-patch", patch))
+        for e in flight:
+            patch = (spec.get("overrides") or {}).get(e["name"]) if features.base_layer else env_config(spec, e["name"])
+            if patch:
+                gfiles.append(FileChange(f"{e['cluster']}/{e['name']}/values.yaml", "merge-patch", patch))
         if gfiles:
             cs.append(Step("gitops", "Configure the flight environments", f"{owner}/gitops-{app}", "human-merge", "T2",
                            depends_on=["tenants", "repos-ready"], files=gfiles,
                            wait_for="each environment's values.yaml exists (the composition bootstraps it)",
-                           effects=["changes what runs in staging and prod after the next release"]))
+                           effects=[f"changes what runs in {', '.join(e['name'] for e in flight)} after the next release"]))
 
     # 4. verify
     checks = [f"{STACK_KIND[spec['stack']]}/{app} Ready and CicdOnboarded",
               *[f"ApplicationEnvironment {app}-{e['cluster']}-{e['name']} Ready" for e in flight],
               *[f"namespace app-{app}-{g} exists and its Application is Synced" for g in ground]]
     for env in all_envs:
-        c = env_config(spec, env)
-        if c.get("env"):
-            checks.append(f"{env}: rendered config contains " + ", ".join(f"{e['name']}={e['value']}" for e in c["env"]))
-        if (c.get("rollout") or {}).get("steps"):
-            checks.append(f"{env}: rollout steps == {json.dumps(c['rollout']['steps'], separators=(',', ':'))}")
+        checks += env_checks(env, env_config(spec, env))
     cs.append(Step("verify", "Verify", "", "verify", "T0", depends_on=[s.id for s in cs], checks=checks))
     return ChangeSet(app, cs, assumptions, warnings)
