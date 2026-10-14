@@ -1,0 +1,46 @@
+# "provision a new python app with a dev, test ground envs, staging, pre-prod and prod flight envs,
+#  port 1234, replicas 3, 4 canary steps: 25% weight, pause 30s, 50% weight, pause 30s. 100% weight,
+#  a pdb enabled, an hpa enabled, a route called https://mynewpythonapp.hangar.io/."
+#
+# How the sentence maps, and what the agent had to decide:
+# - "4 canary steps" lists five Argo Rollouts steps (three setWeight, two pause); all five are kept.
+# - port goes in stackOptions (the scaffolded server); the planner derives rollout.ports from it.
+# - the route is one hostname, so it is one environment's: prod. Put in config it would land on all
+#   five environments and collide, so the planner asks instead of guessing. The Gateway (kiac in
+#   kiac-gateway) is the fleet's. An HTTPRoute has no scheme: https needs a TLS listener on that
+#   Gateway, which is platform config, not an AppSpec field (kind-prod's has only HTTP :80 today).
+# - replicas 3 with the HPA on: the HPA's default floor is 2, which the planner reports, not fixes.
+apiVersion: airframe/v1
+kind: AppSpec
+app: mynewpythonapp
+stack: python
+description: My new Python app
+stackOptions:
+  port: 1234
+environments:
+  ground: [dev, test]
+  flight:
+    - { name: staging }
+    - { name: pre-prod }
+    - { name: prod }
+config:
+  rollout:
+    strategy: canary
+    replicas: 3
+    steps:
+      - setWeight: 25
+      - pause: { duration: 30s }
+      - setWeight: 50
+      - pause: { duration: 30s }
+      - setWeight: 100
+  podDisruptionBudget:
+    enabled: true
+  autoscaling:
+    enabled: true
+overrides:
+  prod:
+    httpRoute:
+      enabled: true
+      hostnames: [mynewpythonapp.hangar.io]
+      parentRefs:
+        - { name: kiac, namespace: kiac-gateway }

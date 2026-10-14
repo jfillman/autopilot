@@ -1,4 +1,5 @@
-"""The planner, and the acceptance test it exists for: one sentence, four environments.
+"""The planner, and the acceptance test it exists for: one sentence, four environments. A second
+sentence (examples/mynewpythonapp.appspec.yaml) holds that the AppSpec reaches anything the chart allows.
 
     provision a new python application named parachute. give it a dev and test ground environment.
     a staging and prod flight environment. and configure it with 1 100% weight canary step, an
@@ -219,6 +220,117 @@ def test_with_only_the_chart_guard_ground_config_lands_immediately():
     assert dev["rollout"]["steps"] == [{"setWeight": 100}] and "ground-rollout" not in [s.id for s in cs.steps]
 
 
+# ---- the second sentence: anything the chart allows ------------------------------------------
+# "provision a new python app with a dev, test ground envs, staging, pre-prod and prod flight envs, port 1234,
+#  replicas 3, 4 canary steps: 25% weight, pause 30s, 50% weight, pause 30s. 100% weight, a pdb enabled,
+#  an hpa enabled, a route called https://mynewpythonapp.hangar.io/."
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+MYNEW = yaml.safe_load((EXAMPLES / "mynewpythonapp.appspec.yaml").read_text())
+FIVE = ["dev", "test", "staging", "pre-prod", "prod"]
+STEPS = [{"setWeight": 25}, {"pause": {"duration": "30s"}}, {"setWeight": 50}, {"pause": {"duration": "30s"}}, {"setWeight": 100}]
+
+
+def mynew(**over):
+    s = copy.deepcopy(MYNEW)
+    s.update(over)
+    return s
+
+
+def test_the_second_sentence_compiles_with_the_usual_gates():
+    cs = ap.plan(MYNEW, REG)
+    assert [(s.id, s.gate, s.risk) for s in cs.steps if s.gate != "wait"] == [
+        ("tenants", "human-merge", "T2"), ("app-repo", "auto-merge", "T1"), ("tekton-resync", "auto-merge", "T1"),
+        ("gitops", "human-merge", "T2"), ("verify", "verify", "T0")]
+    assert [f.content["metadata"]["name"] for f in cs.step("tenants").files] == [
+        "mynewpythonapp", "mynewpythonapp-kind-prod-staging", "mynewpythonapp-kind-prod-pre-prod", "mynewpythonapp-kind-prod-prod"]
+    assert cs.step("tenants").files[0].content["spec"]["port"] == 1234
+    assert "staging, pre-prod, prod" in cs.step("gitops").effects[0]
+
+
+def test_every_environment_gets_every_chart_value_and_only_prod_gets_the_route():
+    cs = ap.plan(MYNEW, REG)
+    files = {f.path: f.content for f in cs.step("app-repo").files + cs.step("gitops").files if f.path != "cicd.yaml"}
+    assert sorted(files) == sorted(["glidepath/envs/dev.yaml", "glidepath/envs/test.yaml", "kind-prod/staging/values.yaml",
+                                    "kind-prod/pre-prod/values.yaml", "kind-prod/prod/values.yaml"])
+    for path, v in files.items():
+        assert v["rollout"]["steps"] == STEPS and v["rollout"]["replicas"] == 3, path
+        assert v["rollout"]["ports"] == [{"name": "http", "containerPort": 1234}], path
+        assert v["podDisruptionBudget"] == {"enabled": True} and v["autoscaling"] == {"enabled": True}, path
+        assert ("httpRoute" in v) == (path == "kind-prod/prod/values.yaml"), path
+    assert files["kind-prod/prod/values.yaml"]["httpRoute"]["hostnames"] == ["mynewpythonapp.hangar.io"]
+
+
+def test_the_second_sentences_ambiguities_are_reported():
+    cs = ap.plan(MYNEW, REG)
+    assert any("rollout.ports is set to http:1234" in a for a in cs.assumptions)
+    floor = [w for w in cs.warnings if "HPA owns the count" in w]
+    assert len(floor) == 1 and all(e in floor[0] for e in FIVE) and "autoscaling.min 2" in floor[0]
+    checks = "\n".join(cs.step("verify").checks)
+    for e in FIVE:
+        assert f"{e}: Rollout spec.replicas == 3" in checks and f"{e}: Service ports == http:1234" in checks
+        assert f"{e}: HorizontalPodAutoscaler targets the Rollout (min 2, max 10)" in checks
+        assert f"{e}: PodDisruptionBudget exists" in checks
+    assert "prod: HTTPRoute for mynewpythonapp.hangar.io is Accepted by its Gateway" in checks
+    assert "staging: HTTPRoute" not in checks
+
+
+def test_a_hostname_shared_by_several_environments_is_a_question_not_a_guess():
+    s = mynew()
+    s["config"]["httpRoute"] = s.pop("overrides")["prod"]["httpRoute"]
+    with pytest.raises(ap.NeedsInput) as e:
+        ap.plan(s, REG)
+    assert e.value.options == FIVE and "mynewpythonapp.hangar.io" in e.value.question
+
+
+def test_an_override_for_an_undeclared_environment_is_rejected():
+    with pytest.raises(ap.SpecError, match="overrides/qa: no environment named 'qa'"):
+        ap.plan(mynew(overrides={"qa": {"rollout": {"replicas": 1}}}), REG)
+
+
+def test_each_environments_merged_values_are_validated_against_the_chart():
+    # each half is valid alone; merged, prod's route is enabled with no hostname
+    s = mynew(environments={"ground": ["dev"], "flight": [{"name": "prod"}]},
+              overrides={"prod": {"httpRoute": {"hostnames": []}}})
+    s["config"]["httpRoute"] = {"enabled": True, "hostnames": ["dev.example"], "parentRefs": [{"name": "kiac"}]}
+    jsonschema.validate(s, ap.SCHEMA)
+    with pytest.raises(ap.SpecError, match=r"prod \(config merged with overrides.prod\): httpRoute"):
+        ap.plan(s, REG)
+
+
+def test_the_scaffold_port_and_the_chart_ports_must_agree():
+    s = mynew()
+    s["config"]["rollout"]["ports"] = [{"name": "http", "containerPort": 8080}]
+    with pytest.raises(ap.SpecError, match="does not include stackOptions.port 1234"):
+        ap.plan(s, REG)
+    s["config"]["rollout"]["ports"] = [{"name": "web", "containerPort": 1234}]
+    cs = ap.plan(s, REG)
+    assert not any("rollout.ports is set" in a for a in cs.assumptions), "an explicit, agreeing ports list is left alone"
+
+
+def test_a_critical_risk_value_takes_the_app_repo_step_out_of_auto_merge():
+    s = mynew()
+    s["config"]["extraManifests"] = [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x"}}]
+    cs = ap.plan(s, REG)
+    assert (cs.step("app-repo").gate, cs.step("app-repo").risk) == ("human-merge", "T2")
+    assert any("extraManifests is critical-risk" in w for w in cs.warnings)
+
+
+def test_platform_owned_chart_keys_are_not_an_appspecs_to_set():
+    for key, value in (("cluster", "kind-prod"), ("envName", "prod"), ("release", {}), ("appType", "infra")):
+        s = mynew()
+        s["config"][key] = value
+        with pytest.raises(ap.SpecError, match=key):
+            ap.plan(s, REG)
+
+
+def test_with_a_base_layer_flight_overrides_are_still_written():
+    cs = ap.plan(MYNEW, REG, ap.Features(rollout_guard=True, base_layer=True))
+    g = {f.path: f.content for f in cs.step("gitops").files}
+    assert sorted(g) == ["base/values.yaml", "kind-prod/prod/values.yaml"]
+    assert g["kind-prod/prod/values.yaml"] == MYNEW["overrides"]["prod"]
+    assert g["base/values.yaml"]["rollout"]["ports"] == [{"name": "http", "containerPort": 1234}]
+
+
 # ---- tied to the real contracts ---------------------------------------------------------------
 AIRFRAME_APPSPEC = TECH / "airframe" / "contract" / "appspec.schema.json"
 
@@ -310,6 +422,30 @@ def test_the_flight_patch_renders_the_step_and_the_env_var_on_the_real_chart():
     values = ap.merge(BOOT, ap.merge({"rollout": {"image": {"repository": "ghcr.io/x/parachute", "tag": "1.0.0"}}}, patch))
     code, out = render(values)
     assert code == 0 and "- setWeight: 100" in out and "name: URL" in out and "value: http://myendpoint.io" in out
+
+
+@pytest.mark.skipif(not helm_ok, reason="helm or the airframe chart is not available")
+def test_the_second_sentence_renders_on_the_real_chart():
+    cs = ap.plan(MYNEW, REG)
+    files = {f.path: f.content for f in cs.step("app-repo").files + cs.step("gitops").files if f.path != "cicd.yaml"}
+    image = {"rollout": {"image": {"repository": "ghcr.io/x/mynewpythonapp", "tag": "1.0.0"}}}
+    for path, v in files.items():
+        env = path.split("/")[-2] if path.startswith("kind-prod/") else Path(path).stem
+        cluster = "kind-prod" if path.startswith("kind-prod/") else "kind-dev"
+        boot = {"appName": "mynewpythonapp", "appType": "app", "cluster": cluster, "envName": env}
+        code, out = render(ap.merge(boot, ap.merge(image, v)))
+        assert code == 0, path
+        docs = {d["kind"]: d for d in yaml.safe_load_all(out) if d}
+        ro = docs["Rollout"]["spec"]
+        assert ro["replicas"] == 3 and ro["strategy"]["canary"]["steps"] == STEPS, path
+        assert {"name": "http", "containerPort": 1234} in ro["template"]["spec"]["containers"][0]["ports"], path
+        assert docs["Service"]["spec"]["ports"][0]["port"] == 1234, path
+        assert docs["HorizontalPodAutoscaler"]["spec"]["scaleTargetRef"]["kind"] == "Rollout", path
+        assert "PodDisruptionBudget" in docs, path
+        assert ("HTTPRoute" in docs) == (env == "prod"), path
+        if env == "prod":
+            assert docs["HTTPRoute"]["spec"]["hostnames"] == ["mynewpythonapp.hangar.io"]
+            assert docs["HTTPRoute"]["spec"]["parentRefs"][0] == {"name": "kiac", "namespace": "kiac-gateway"}
 
 
 @pytest.mark.skipif(not helm_ok, reason="helm or the airframe chart is not available")

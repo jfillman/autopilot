@@ -33,7 +33,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 | Triggers | `triggers.py` | interval and alert triggers for scheduled and event agents |
 | Preflight | `preflight.py`, `preflight/cases/` | deterministic scoring, self-check that a case can fail |
 | MCP surface | `server.py` | three tools on the mcp SDK v2 |
-| AppSpec and the planner | `airframe_plan.py`, `schemas/appspec.schema.json` | the parachute test: one statement of intent to an ordered change set; validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` |
+| AppSpec and the planner | `airframe_plan.py`, `schemas/appspec.schema.json` (vendored from airframe's contract) | the parachute test: one statement of intent to an ordered change set; `config`/`overrides` take any human-owned chart value (second sentence: `examples/mynewpythonapp.appspec.yaml`, five environments, canary with pauses, HPA, PDB, a prod-only route); validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` of every environment |
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | `airframe-drafts/functions/function-agentrun/` | pure `compose()`; expiry, fail-closed validation, per-network-mode policy |
 | Network-policy canary (AP-A1) | `tools/netpol_canary.py` | renders a run's real policies with `compose()` on a live cluster and proves each denial against a no-policy control; its pass is what a person attests when setting the registry's `airframe.autopilotReady` |
