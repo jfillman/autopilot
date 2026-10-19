@@ -234,7 +234,7 @@
             "null"
           ],
           "additionalProperties": false,
-          "description": "The Argo Rollout workload. Set to null for an infra-type release with no custom workload (a standalone component-only env).",
+          "description": "The Argo Rollout workload. Use rollout.enabled: false for an environment with no long-running service; null is read the same way.",
           "properties": {
             "enabled": {
               "description": "Whether this environment runs a long-running service at all. false means only Jobs, CronJobs and components: no Rollout, Service, HPA or PDB, and Glidepath refuses to release an image to it. The rest of rollout: is kept, so turning it back on restores the same settings. Whether anything is deployed yet is not this field: that is release.image (the release file). rollout: null still means false, for older files.",
@@ -269,11 +269,11 @@
                 "canary",
                 "blueGreen"
               ],
-              "description": "Platform default steps used unless rollout.steps is set.",
+              "description": "canary (the default) or blueGreen.",
               "default": "canary"
             },
             "steps": {
-              "description": "Raw passthrough escape hatch - a real Argo Rollouts canary/blueGreen step list (setWeight/pause/analysis/experiment). Tower's Config tab offers a structured builder for the common shapes but falls back to raw YAML for anything else, matching this schema's own looseness here. Empty uses the platform default steps.",
+              "description": "Raw passthrough escape hatch - a real Argo Rollouts canary/blueGreen step list (setWeight/pause/analysis/experiment). Tower's Config tab offers a structured builder for the common shapes but falls back to raw YAML for anything else, matching this schema's own looseness here. Empty renders one setWeight: 100 step, an ordinary rolling update.",
               "type": "array",
               "default": [],
               "items": {
@@ -502,7 +502,7 @@
           "x-hangar-risk": "high"
         },
         "analysisTemplates": {
-          "description": "App-specific custom Argo Rollouts AnalysisTemplates, referenced by name from rollout.steps or rollout.canaryAnalysis. Not rendered as a Rollout - referenced only.",
+          "description": "App-specific Argo Rollouts AnalysisTemplates, rendered in this namespace. Reference them by name from rollout.steps or rollout.canaryAnalysis; the chart does not wire them in.",
           "type": "array",
           "default": [],
           "items": {
@@ -3414,7 +3414,7 @@
     "chart.probe": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Empty object ({}) means no probe of this kind is set. Exactly one of httpGet/tcpSocket/exec when non-empty.",
+      "description": "Empty object ({}) renders the default probe, an HTTP GET of / on the first port. Exactly one of httpGet/tcpSocket/exec when non-empty.",
       "default": {},
       "properties": {
         "httpGet": {
