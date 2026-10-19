@@ -140,7 +140,8 @@
             "create": true,
             "name": "",
             "annotations": {},
-            "imagePullSecrets": []
+            "imagePullSecrets": [],
+            "projectedTokens": []
           },
           "properties": {
             "create": {
@@ -180,6 +181,46 @@
                   }
                 },
                 "description": "One existing image-pull Secret."
+              }
+            },
+            "projectedTokens": {
+              "type": "array",
+              "default": [],
+              "description": "Short-lived tokens of this ServiceAccount for another audience (for example another cluster that trusts this cluster's ServiceAccount issuer, apron docs/cluster-identity.md), each projected into every workload's pods as a file the kubelet rotates. Nothing is stored: no Secret, no Infisical key. Each entry becomes a projected volume named after it, mounted read-only on the main container (and every jobs:/cronJobs: container) at mountPath, with the token at <mountPath>/token.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "audience",
+                  "mountPath"
+                ],
+                "description": "One projected ServiceAccount token.",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                    "maxLength": 63,
+                    "description": "Volume name (a DNS-1123 label). Must not equal another volume of this workload (a configMaps:/volumes: entry, or app-secrets)."
+                  },
+                  "audience": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The token's audience: what the receiving API server expects (its --api-audiences / AuthenticationConfiguration audiences)."
+                  },
+                  "expirationSeconds": {
+                    "type": "integer",
+                    "minimum": 600,
+                    "default": 600,
+                    "description": "Token lifetime. Kubernetes' minimum is 600; the kubelet refreshes the file at 80% of it."
+                  },
+                  "mountPath": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^/",
+                    "description": "Directory the token is mounted under; the file is <mountPath>/token."
+                  }
+                }
               }
             }
           },
@@ -267,6 +308,28 @@
                   "minimum": 1
                 }
               }
+            },
+            "maxSurge": {
+              "type": [
+                "integer",
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9]+%$",
+              "minimum": 0,
+              "description": "How many pods above replicas the canary may add while it shifts (Argo Rollouts spec.strategy.canary.maxSurge): an integer or a percentage. null (the default): Argo Rollouts' default, 25%, which rounds up to 1 extra pod even at replicas: 1. Set 0 (with maxUnavailable 1) for a single-replica app that must never run two copies at once, or on a node with no room for a second pod; the old pod stops before the new one starts, a short outage. Canary only; blueGreen always runs a preview ReplicaSet.",
+              "default": null
+            },
+            "maxUnavailable": {
+              "type": [
+                "integer",
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9]+%$",
+              "minimum": 0,
+              "description": "How many pods below replicas the canary may drop to while it shifts (spec.strategy.canary.maxUnavailable): an integer or a percentage. null (the default): Argo Rollouts' default. maxSurge and maxUnavailable cannot both be 0. Canary only.",
+              "default": null
             },
             "command": {
               "type": "array",
@@ -761,7 +824,7 @@
               },
               "shared": {
                 "type": "boolean",
-                "description": "false (default, on upper clusters) reads this env's own isolated Infisical environment. true reads the wide shared one instead. On kind-dev both read the one shared store, separated by a path prefix.",
+                "description": "false (default, on upper clusters) reads this env's own isolated Infisical environment. true reads the wide shared one instead. On the dev cluster (clusterType: dev) both read the one shared store, separated by a path prefix.",
                 "default": false
               }
             },
@@ -1220,7 +1283,7 @@
         "httpRoute": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Gateway API HTTPRoute, first-class alongside classic ingress. This platform's convention: <app>.<cluster-or-env-qualifier>.kiac.local.",
+          "description": "Gateway API HTTPRoute, first-class alongside classic ingress. This platform's convention: <app>.<cluster-or-env-qualifier>.<fleet domain> (the fleet's own local DNS suffix; nothing here assumes one).",
           "default": {
             "enabled": false,
             "hostnames": [],
@@ -1388,7 +1451,7 @@
             "allowIngressFromIngressController": true,
             "ingressControllerNamespaceSelector": {
               "matchLabels": {
-                "kubernetes.io/metadata.name": "kiac-gateway"
+                "kubernetes.io/metadata.name": "hangar-gateway"
               }
             },
             "allowIngressFrom": [],
@@ -1411,10 +1474,10 @@
               "type": "object",
               "default": {
                 "matchLabels": {
-                  "kubernetes.io/metadata.name": "kiac-gateway"
+                  "kubernetes.io/metadata.name": "hangar-gateway"
                 }
               },
-              "description": "Namespace selector identifying the ingress controller/gateway."
+              "description": "Namespace selector identifying the ingress controller/gateway. Default: hangar-gateway, the Gateway namespace Apron installs (Traefik, Gateway `hangar`) on every runtime; override it only on a cluster whose Gateway lives elsewhere."
             },
             "allowIngressFrom": {
               "type": "array",
@@ -1518,7 +1581,7 @@
                         },
                         "cluster": {
                           "type": "string",
-                          "description": "Which upper-env cluster to deploy this env onto - e.g. \"kind-prod\". Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: upper and crossplaneReady: \"true\", or the Composition creates nothing and reports ClusterReady: False rather than partially succeeding. A dev cluster is a structural rejection, not just an unlikely input - see this XRD's own header comment.",
+                          "description": "Which upper-env cluster to deploy this env onto: its name in the cluster registry (e.g. \"example-prod\", an example). Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: upper and crossplaneReady: \"true\", or the Composition creates nothing and reports ClusterReady: False rather than partially succeeding. A dev cluster is a structural rejection, not just an unlikely input - see this XRD's own header comment.",
                           "minLength": 1
                         },
                         "env": {
@@ -1587,7 +1650,7 @@
                       "properties": {
                         "appName": {
                           "type": "string",
-                          "description": "The app this target serves. Defaults to this XR's own name. Names everything: the ECS cluster (<appName>), the service and task-definition family (<appName>-<env>, Glidepath's own default family name) and the container (<appName>, the deploy.ecs.containerName the app's cicd.yaml must carry).",
+                          "description": "The app this target serves. Defaults to this XR's own name. Names everything: the ECS cluster, the service and task-definition family (all <appName>-<env>, Glidepath's own default family name) and the container (<appName>, the deploy.ecs.containerName the app's cicd.yaml must carry). One target per environment: a second target of the same app (env: prod) gets its own cluster, service, network, ECR repository and deploy role. A target created before 2026-10-17 keeps its cluster named <appName>.",
                           "pattern": "^[a-z][a-z0-9-]{0,30}$"
                         },
                         "env": {
@@ -1775,12 +1838,6 @@
                           "type": "boolean",
                           "description": "Create a public Lambda Function URL (auth type NONE, plus the resource policy that allows anonymous invocation) so the deployed function can be reached with curl. The URL is published in status.functionUrl. Set false for a function that is only ever invoked by another AWS service.",
                           "default": true
-                        },
-                        "credentialsSecret": {
-                          "type": "string",
-                          "description": "Name of a Secret in this XR's namespace holding the AWS credentials the bootstrap Job uses to push the placeholder image into ECR, under the keys aws-access-key-id and aws-secret-access-key - the same keys Glidepath's own deploy-lambda step reads from app-secrets. Defaults to app-secrets, which exists in every app-<app>-cicd namespace whose cicd.yaml lists those two secrets. These credentials are only used by that Job; the Crossplane-managed resources use the provider's own ClusterProviderConfig.",
-                          "minLength": 1,
-                          "default": "app-secrets"
                         }
                       },
                       "additionalProperties": false
@@ -1922,7 +1979,7 @@
                       "properties": {
                         "devCluster": {
                           "type": "string",
-                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding.",
+                          "description": "Which dev cluster this app is onboarded onto: its name in the cluster registry (e.g. \"example-dev\", an example). An app is pinned to exactly one. Checked live against the cluster registry via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding.",
                           "minLength": 1
                         },
                         "description": {
@@ -2096,7 +2153,7 @@
                       "properties": {
                         "devCluster": {
                           "type": "string",
-                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "description": "Which dev cluster this app is onboarded onto: its name in the cluster registry (e.g. \"example-dev\", an example). An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
                           "minLength": 1
                         },
                         "description": {
@@ -2113,6 +2170,42 @@
                             "1.24"
                           ],
                           "default": "1.23"
+                        },
+                        "deployTarget": {
+                          "type": "string",
+                          "description": "Where this app deploys, chosen once at creation. kubernetes (default): an Argo Rollout on this platform's clusters, with a Ground dev environment on the dev cluster. aws-ecs: an AWS ECS Fargate service; the app composes an AwsEcsTarget for dev (cluster and service <name>-dev, its ECR repository and deploy role) and its cicd.yaml deploys dev there, with no AWS key. The cluster registry must name the AWS account (web identity). Can't be changed later: delete and re-create the app instead.",
+                          "enum": [
+                            "kubernetes",
+                            "aws-ecs"
+                          ],
+                          "default": "kubernetes",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "deployTarget can't change after creation; delete and re-create the app to deploy elsewhere"
+                            }
+                          ]
+                        },
+                        "ecs": {
+                          "type": "object",
+                          "description": "Settings for deployTarget aws-ecs; ignored otherwise.",
+                          "properties": {
+                            "region": {
+                              "type": "string",
+                              "description": "AWS region of the ECS service and its ECR repository.",
+                              "default": "us-east-1"
+                            },
+                            "architecture": {
+                              "type": "string",
+                              "description": "The Fargate task's CPU architecture; the build produces only this one. arm64 builds natively on the dev cluster (Go amd64 builds crash there, Glidepath known gap 37).",
+                              "enum": [
+                                "arm64",
+                                "x86_64"
+                              ],
+                              "default": "arm64"
+                            }
+                          },
+                          "additionalProperties": false
                         },
                         "port": {
                           "type": "integer",
@@ -2197,7 +2290,7 @@
                       "properties": {
                         "devCluster": {
                           "type": "string",
-                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding.",
+                          "description": "Which dev cluster this app is onboarded onto: its name in the cluster registry (e.g. \"example-dev\", an example). An app is pinned to exactly one. Checked live against the cluster registry via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding.",
                           "minLength": 1
                         },
                         "description": {
@@ -2247,7 +2340,7 @@
                         },
                         "target": {
                           "type": "object",
-                          "description": "Opt-in (2026-10-08): let this app own the AWS infrastructure it deploys into. With enabled: true the Composition composes an AwsLambdaTarget child named <name>-target (xrds/awslambdatarget.yaml) from this spec's own functionName, region, architecture and runtime - the same values the scaffolded cicd.yaml carries, so they can never drift - and proxies its TargetReady condition onto this XR. The infrastructure then lives exactly as long as this app does. Leave it off (the default) to stand a target up and down independently, as its own AwsLambdaTarget XR in this app's xr-requests, which is the shape for a smoke app you only want to pay for while testing. Both need the AWS provider installed and the app's aws-access-key-id/aws-secret-access-key secrets in place (the child's bootstrap Job waits for them).",
+                          "description": "Opt-in (2026-10-08): let this app own the AWS infrastructure it deploys into. With enabled: true the Composition composes an AwsLambdaTarget child named <name>-target (xrds/awslambdatarget.yaml) from this spec's own functionName, region, architecture and runtime - the same values the scaffolded cicd.yaml carries, so they can never drift - and proxies its TargetReady condition onto this XR. The infrastructure then lives exactly as long as this app does. Leave it off (the default) to stand a target up and down independently, as its own AwsLambdaTarget XR in this app's xr-requests, which is the shape for a smoke app you only want to pay for while testing. Both need the AWS provider installed and the fleet's clusters.yaml to name the AWS account; no AWS key is stored anywhere (the target's bootstrap Job and every deploy assume IAM roles with a one-hour token).",
                           "properties": {
                             "enabled": {
                               "type": "boolean",
@@ -2334,7 +2427,7 @@
                       "properties": {
                         "devCluster": {
                           "type": "string",
-                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "description": "Which dev cluster this app is onboarded onto: its name in the cluster registry (e.g. \"example-dev\", an example). An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
                           "minLength": 1
                         },
                         "description": {
@@ -2362,6 +2455,42 @@
                           ],
                           "default": "npm"
                         },
+                        "deployTarget": {
+                          "type": "string",
+                          "description": "Where this app deploys, chosen once at creation. kubernetes (default): an Argo Rollout on this platform's clusters, with a Ground dev environment on the dev cluster. aws-ecs: an AWS ECS Fargate service; the app composes an AwsEcsTarget for dev (cluster and service <name>-dev, its ECR repository and deploy role) and its cicd.yaml deploys dev there, with no AWS key. The cluster registry must name the AWS account (web identity). Can't be changed later: delete and re-create the app instead.",
+                          "enum": [
+                            "kubernetes",
+                            "aws-ecs"
+                          ],
+                          "default": "kubernetes",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "deployTarget can't change after creation; delete and re-create the app to deploy elsewhere"
+                            }
+                          ]
+                        },
+                        "ecs": {
+                          "type": "object",
+                          "description": "Settings for deployTarget aws-ecs; ignored otherwise.",
+                          "properties": {
+                            "region": {
+                              "type": "string",
+                              "description": "AWS region of the ECS service and its ECR repository.",
+                              "default": "us-east-1"
+                            },
+                            "architecture": {
+                              "type": "string",
+                              "description": "The Fargate task's CPU architecture; the build produces only this one. arm64 builds natively on the dev cluster (Go amd64 builds crash there, Glidepath known gap 37).",
+                              "enum": [
+                                "arm64",
+                                "x86_64"
+                              ],
+                              "default": "arm64"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
                         "port": {
                           "type": "integer",
                           "description": "Port the boilerplate HTTP server listens on (also exposed as package.json's start script and Containerfile's EXPOSE). Matches airframe-application's own rollout.ports default convention.",
@@ -2383,7 +2512,7 @@
                           "description": "Passed straight through to the composed TektonCICD child's own spec.extraGitopsRepos - see xrds/tektoncicd.yaml for what this grants and why. Only needed by an app whose deploy target isn't its own gitops-<appName> repo (e.g. Backstage, hand-deployed to a shared gitops-cluster-* repo) - most apps never set this.",
                           "items": {
                             "type": "string",
-                            "description": "A full gitops repo URL, e.g. https://github.com/jfillman/gitops-cluster-dev."
+                            "description": "A full gitops repo URL, e.g. https://github.com/example-org/gitops-cluster-dev (an example)."
                           },
                           "default": []
                         }
@@ -2464,7 +2593,7 @@
                       "properties": {
                         "devCluster": {
                           "type": "string",
-                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "description": "Which dev cluster this app is onboarded onto: its name in the cluster registry (e.g. \"example-dev\", an example). An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
                           "minLength": 1
                         },
                         "description": {
@@ -2491,6 +2620,42 @@
                             "uv"
                           ],
                           "default": "pip"
+                        },
+                        "deployTarget": {
+                          "type": "string",
+                          "description": "Where this app deploys, chosen once at creation. kubernetes (default): an Argo Rollout on this platform's clusters, with a Ground dev environment on the dev cluster. aws-ecs: an AWS ECS Fargate service; the app composes an AwsEcsTarget for dev (cluster and service <name>-dev, its ECR repository and deploy role) and its cicd.yaml deploys dev there, with no AWS key. The cluster registry must name the AWS account (web identity). Can't be changed later: delete and re-create the app instead.",
+                          "enum": [
+                            "kubernetes",
+                            "aws-ecs"
+                          ],
+                          "default": "kubernetes",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "deployTarget can't change after creation; delete and re-create the app to deploy elsewhere"
+                            }
+                          ]
+                        },
+                        "ecs": {
+                          "type": "object",
+                          "description": "Settings for deployTarget aws-ecs; ignored otherwise.",
+                          "properties": {
+                            "region": {
+                              "type": "string",
+                              "description": "AWS region of the ECS service and its ECR repository.",
+                              "default": "us-east-1"
+                            },
+                            "architecture": {
+                              "type": "string",
+                              "description": "The Fargate task's CPU architecture; the build produces only this one. arm64 builds natively on the dev cluster (Go amd64 builds crash there, Glidepath known gap 37).",
+                              "enum": [
+                                "arm64",
+                                "x86_64"
+                              ],
+                              "default": "arm64"
+                            }
+                          },
+                          "additionalProperties": false
                         },
                         "port": {
                           "type": "integer",
@@ -2709,7 +2874,7 @@
                         },
                         "cluster": {
                           "type": "string",
-                          "description": "Which cluster this app is deployed to - e.g. \"kind-prod\". Used, together with env, to derive the GitOps manifest path (<cluster>/<env>/values.yaml) a dispatched diagnosis Job opens its fix PR against.",
+                          "description": "Which cluster this app is deployed to: its name in the cluster registry (e.g. \"example-prod\", an example). Used, together with env, to derive the GitOps manifest path (<cluster>/<env>/values.yaml) a dispatched diagnosis Job opens its fix PR against.",
                           "minLength": 1
                         },
                         "env": {
@@ -2768,7 +2933,7 @@
                       "properties": {
                         "appRef": {
                           "type": "object",
-                          "description": "Names the owning NodeJSApplication/SpringBootApplication XR this store belongs to. Labeling/audit only - not a live lookup, same convention as every other Attached-tier XRD's environmentRef in this catalog. Deliberately NOT named environmentRef like every other Attached-tier resource - this store explicitly must not pin to one env, item 8's whole point.",
+                          "description": "The application this store belongs to (any application kind or an InfraService). Its name sets the project slug and the namespaces the store serves; it is not a live lookup. The store belongs to the app, not to one environment.",
                           "required": [
                             "name"
                           ],
@@ -2776,20 +2941,20 @@
                             "name": {
                               "type": "string",
                               "minLength": 1,
-                              "description": "The owning application's XR name (NodeJSApplication/SpringBootApplication), not an ApplicationEnvironment - this store is app-scoped, not env-scoped."
+                              "description": "The owning application's XR name (not an ApplicationEnvironment)."
                             }
                           },
                           "additionalProperties": false
                         },
                         "cluster": {
                           "type": "string",
-                          "description": "Which cluster's ESO this store targets. No hard registry gate on this value itself (unlike ApplicationEnvironment/NodeJSApplication - an unregistered or mistyped name still renders a store, just with Universal Auth against the shared Infisical instance, not a refusal) - this XRD's Composition makes no cross-cluster call, only local ones (this cluster's own ESO + a call out to whichever cluster hosts Infisical). It DOES do one live cluster-registry read now (2026-08-18): whether Infisical itself is reachable in-cluster from here (registry field infisicalHost) decides Kubernetes Auth vs. Universal Auth - see compositions/secretstore/ templates/00-infisical-host-gate.yaml.",
+                          "description": "The cluster registry name of the cluster this store is for. Its registry record decides the rest: infisicalHost selects Kubernetes auth (on the cluster that runs Infisical) or universal auth (everywhere else), and infisicalUrl and infisicalOrgId say where Infisical is. A missing record, or one without those two keys, fails the render and leaves existing objects unchanged.",
                           "minLength": 1
                         },
                         "environmentSlug": {
                           "type": "string",
                           "default": "shared",
-                          "description": "\"shared\" (the default): this XR creates the project/identity/ ClusterSecretStore for this (app, cluster) pair, with one Infisical environment named \"shared\", wide-open across every env namespace. Any OTHER value: this XR does NOT create a project - it adds one more Infisical environment (this value) to the ALREADY-existing project from the \"shared\" XR, plus a second ClusterSecretStore narrowed to exactly one k8s namespace (app-<appRef.name>-<environmentSlug>). Real per-env isolation - see xrds/secretstore.yaml's own header for the full mechanism."
+                          "description": "\"shared\" (the default) creates the project, its \"shared\" environment, the identity and a ClusterSecretStore open to every app-<appRef.name>-* namespace. Any other value adds that environment to the existing project and a ClusterSecretStore limited to the namespace app-<appRef.name>-<environmentSlug>, and creates no project."
                         }
                       },
                       "additionalProperties": false
@@ -2900,7 +3065,7 @@
                       "properties": {
                         "devCluster": {
                           "type": "string",
-                          "description": "Which dev cluster this app is onboarded onto - e.g. \"kind-dev\". An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
+                          "description": "Which dev cluster this app is onboarded onto: its name in the cluster registry (e.g. \"example-dev\", an example). An app is pinned to exactly one. Checked live against the cluster registry (gitops-cluster-dev/00-bootstrap/ cluster-registry/) via a Crossplane extra-resources lookup: must resolve to a ConfigMap with type: dev and cicdReady: \"true\", or the Composition creates nothing and reports DevClusterReady: False rather than partially succeeding - see this XRD's own header comment.",
                           "minLength": 1
                         },
                         "description": {
@@ -2931,6 +3096,42 @@
                           "description": "Maven groupId / Gradle group - also this app's single Java package (see this XRD's own header for why it's one flat package, not groupId+artifactId nested). Lowercase, dot-separated Java package name.",
                           "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
                           "default": "io.idp.apps"
+                        },
+                        "deployTarget": {
+                          "type": "string",
+                          "description": "Where this app deploys, chosen once at creation. kubernetes (default): an Argo Rollout on this platform's clusters, with a Ground dev environment on the dev cluster. aws-ecs: an AWS ECS Fargate service; the app composes an AwsEcsTarget for dev (cluster and service <name>-dev, its ECR repository and deploy role) and its cicd.yaml deploys dev there, with no AWS key. The cluster registry must name the AWS account (web identity). Can't be changed later: delete and re-create the app instead.",
+                          "enum": [
+                            "kubernetes",
+                            "aws-ecs"
+                          ],
+                          "default": "kubernetes",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "deployTarget can't change after creation; delete and re-create the app to deploy elsewhere"
+                            }
+                          ]
+                        },
+                        "ecs": {
+                          "type": "object",
+                          "description": "Settings for deployTarget aws-ecs; ignored otherwise.",
+                          "properties": {
+                            "region": {
+                              "type": "string",
+                              "description": "AWS region of the ECS service and its ECR repository.",
+                              "default": "us-east-1"
+                            },
+                            "architecture": {
+                              "type": "string",
+                              "description": "The Fargate task's CPU architecture; the build produces only this one. arm64 builds natively on the dev cluster (Go amd64 builds crash there, Glidepath known gap 37).",
+                              "enum": [
+                                "arm64",
+                                "x86_64"
+                              ],
+                              "default": "arm64"
+                            }
+                          },
+                          "additionalProperties": false
                         },
                         "port": {
                           "type": "integer",
@@ -3021,7 +3222,7 @@
                           "description": "Full URLs of extra gitops repos (beyond gitops-<appName>) this app's CI needs write access to - platform-cicd's gitops-image-bump stage for an app whose deploy target isn't its own gitops-<appName> repo (e.g. a hand-deployed singleton writing into a shared gitops-cluster-* repo). Rendered into identity.yaml's platformIdentity.extraGitopsRepos (see platform-cicd-app's repository.yaml) as an extra Repository CR grant - deliberately a declared XR spec field, not a hand-edited identity.yaml, since this resource's managementPolicies (Create/Update) reconcile that file back to exactly what this Composition renders on every drift.",
                           "items": {
                             "type": "string",
-                            "description": "A full gitops repo URL, e.g. https://github.com/jfillman/gitops-cluster-dev."
+                            "description": "A full gitops repo URL, e.g. https://github.com/example-org/gitops-cluster-dev (an example)."
                           },
                           "default": []
                         }

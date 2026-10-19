@@ -387,7 +387,7 @@ def test_tenants_repo_comes_from_the_registry_and_reaches_every_place_it_is_name
 @pytest.mark.skipif(not FLEET_EXAMPLE.exists(), reason="airframe checkout not present")
 def test_the_registry_is_derived_from_the_fleet_file_the_cluster_registry_chart_reads():
     reg = ap.Registry.from_fleet(yaml.safe_load(FLEET_EXAMPLE.read_text()))
-    assert reg == ap.Registry("kind-dev", ("kind-prod",), "gitops-cluster-dev-tenants"), "aliases (kiac-dev) are not clusters"
+    assert reg == ap.Registry("example-dev", ("example-prod",), "gitops-cluster-dev-tenants"), "aliases (example-dev-alias) are not clusters"
 
 
 @pytest.mark.skipif(not FLEET_LIVE.exists(), reason="gitops-cluster-dev checkout not present")
