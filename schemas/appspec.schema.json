@@ -1626,7 +1626,7 @@
                         "configMapGenerator": {
                           "type": "boolean",
                           "default": false,
-                          "description": "Opts this env into the tenant-onboarding ApplicationSet's optional 3rd Kustomize source (a configMapGenerator for apps with many config files - see that ApplicationSet's own templatePatch comment for the full mechanism). Plumbed through to tenants/<appName>/<env>/identity.yaml's configMapGenerator: field so it survives this Composition's own continuous RepositoryFile reconciliation - added 2026-08-22 after a manual, out-of-band edit to that identity.yaml (done to live-test the mechanism 2026-08-18) was silently reverted by the next reconcile, since this field didn't exist yet for the Composition to read and re-render. Caught live on kind-prod: the ApplicationSet stopped rendering the 3rd source once the flag reverted, orphaning the checkout-api-app-config ConfigMap it had generated - ArgoCD flagged it requiresPruning without ever actually deleting it (no prune: true on this Application's syncPolicy)."
+                          "description": "Generate a ConfigMap for this environment from config files in the app's gitops repo. On, the environment's Application also renders <cluster>/<env>/configmap/ (a Kustomize configMapGenerator, a fixed-name <appName>-app-config ConfigMap that values.yaml can mount with existingConfigMap), and the composition seeds that folder's kustomization.yaml once. Add the files with Tower's Config tab. Leave it off if the app has no config files. Written to tenants/<appName>/<env>/identity.yaml, where the tenant-onboarding ApplicationSet reads it."
                         }
                       },
                       "additionalProperties": false
@@ -2954,7 +2954,7 @@
                         "environmentSlug": {
                           "type": "string",
                           "default": "shared",
-                          "description": "\"shared\" (the default) creates the project, its \"shared\" environment, the identity and a ClusterSecretStore open to every app-<appRef.name>-* namespace. Any other value adds that environment to the existing project and a ClusterSecretStore limited to the namespace app-<appRef.name>-<environmentSlug>, and creates no project."
+                          "description": "\"shared\" (the default) creates the project, its \"shared\" environment, the identity and a ClusterSecretStore open to every app-<appRef.name>-* (or infra-<appRef.name>-*) namespace. Any other value adds that environment to the existing project and a ClusterSecretStore limited to the namespace app-<appRef.name>-<environmentSlug>, and creates no project."
                         }
                       },
                       "additionalProperties": false
@@ -3201,6 +3201,16 @@
                           "type": "boolean",
                           "description": "platformIdentity.registerPipelinesAsCode in the rendered identity.yaml - an existing, already-designed-for glidepath-app chart override (charts/glidepath-app/templates/ pipelines-as-code/repository.yaml and hooks/ onboarding-resync-bootstrap.yaml are both already gated on this exact value, \"overridable per-app to deregister a repo\" per that chart's own header) - not new chart behavior, just the first XRD-level caller to actually set it to false. An InfraService's appRepoUrl has no real source to register PaC against or bootstrap a resync hook for.",
                           "default": true
+                        },
+                        "runtime": {
+                          "type": "string",
+                          "description": "platformIdentity.runtime in the rendered identity.yaml: the parent app's runtime, from its kind (NodeJSApplication nodejs, SpringBootApplication java, PythonApplication python, GoApplication go). Glidepath passes it to the chart as observability.runtime for OpenTelemetry auto-instrumentation. Omitted (no runtime line) for anything else.",
+                          "enum": [
+                            "nodejs",
+                            "java",
+                            "python",
+                            "go"
+                          ]
                         },
                         "gitopsRepoUrl": {
                           "type": "string",
