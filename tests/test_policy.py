@@ -6,7 +6,7 @@ from clearance.tiers import Tier
 
 from conftest import T0
 
-DENY = [".tekton/**", "cicd.yaml", "CODEOWNERS"]
+DENY = [".tekton/**", "**/.tekton/**", "CODEOWNERS"]
 ALLOW = ["jfillman/*"]
 PR_ARGS = {"repo": "jfillman/flight-api", "branch": "agent/t-1", "title": "fix probe",
            "files": [{"path": "charts/values.yaml", "content": "x"}]}
@@ -38,7 +38,7 @@ def test_baseline_pr_is_allowed(gw):
     ("repo.pr.open", {"repo": "jfillman/x", "branch": "b", "title": "t"}, "R008"),
     ("repo.pr.open", {**PR_ARGS, "repo": "someone-else/x"}, "R014"),
     ("repo.pr.open", {**PR_ARGS, "files": [{"path": ".tekton/pr.yaml", "content": "x"}]}, "R015"),
-    ("repo.pr.open", {**PR_ARGS, "files": [{"path": "a/../cicd.yaml", "content": "x"}]}, "R015"),
+    ("repo.pr.open", {**PR_ARGS, "files": [{"path": "a/../.tekton/pr.yaml", "content": "x"}]}, "R015"),
     ("repo.pr.open", {**PR_ARGS, "repo": "jfillman/gitops-flight-api"}, "R012"),
     ("argo.sync.lower", {"app": "flight-api", "project": "flight-api-prod"}, "R012"),
     ("xr.request", {"app": "a", "env": "production", "kind": "K", "spec": {"a": 1}}, "R012"),

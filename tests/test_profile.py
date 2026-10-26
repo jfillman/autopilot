@@ -29,7 +29,18 @@ def test_baseline_deny_paths_always_present_and_cannot_be_removed():
     d = doc()
     d["profile"]["repos"] = {"allow": ["jfillman/*"], "denyPaths": ["extra/**"]}
     out = profile.parse(d)
-    assert ".tekton/**" in out.deny_paths and "cicd.yaml" in out.deny_paths and "extra/**" in out.deny_paths
+    assert ".tekton/**" in out.deny_paths and "extra/**" in out.deny_paths
+
+
+def test_cicd_yaml_is_not_path_denied_it_is_field_scoped():
+    """2026-10-25: cicd.yaml moved from a whole-file deny to Glidepath's field scope (policy R021,
+    GP-SCOPE-*); a definition can still deny it whole with its own denyPaths."""
+    d = doc()
+    d["profile"]["repos"] = {"allow": ["jfillman/*"]}
+    out = profile.parse(d)
+    assert "cicd.yaml" not in out.deny_paths and "**/cicd.yaml" not in out.deny_paths
+    d["profile"]["repos"]["denyPaths"] = ["cicd.yaml"]
+    assert "cicd.yaml" in profile.parse(d).deny_paths
 
 
 def test_baseline_deny_paths_cover_release_files():

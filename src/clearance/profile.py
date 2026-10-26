@@ -17,8 +17,14 @@ SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "agent-definitio
 # Always denied, for every agent, in addition to whatever a definition adds. A definition
 # can extend this list but cannot shrink it: an agent must never be able to edit the
 # controls that constrain it.
+#
+# cicd.yaml is not here (2026-10-25): an agent may change it in a pull request, but only field by
+# field, under Glidepath's own scope rules (GP-SCOPE-001/002/003, src/clearance/vendor/cicd_scope.py
+# vendored from glidepath): `open` fields freely, `tighten` fields only the strict way, never a
+# `human` field, a Flight environment, a check-ride step or a required test step. policy.py runs
+# that check on every changed cicd.yaml. The generated pipeline (.tekton/) stays denied whole.
 BASELINE_DENY_PATHS: tuple[str, ...] = (
-    ".tekton/**", "**/.tekton/**", "cicd.yaml", "**/cicd.yaml",
+    ".tekton/**", "**/.tekton/**",
     "CODEOWNERS", "**/CODEOWNERS", ".github/**",
     "**/appproject*.yaml", "**/AppProject*.yaml",
     # D9/AF-5 release files (release.image, releaseTracking): machine-owned, written only by
@@ -30,7 +36,11 @@ BASELINE_DENY_PATHS: tuple[str, ...] = (
 # under them) can never be the field an agent's diff touches, even inside an otherwise-writable
 # file, and even if a definition's own fieldDeny omits them. Same risky fields AGENTS.md already
 # names by convention (extraManifests, networkPolicy, httpRoute need a human's approval) plus the
-# release-owned keys, for a file that hasn't done the AF-5 split yet.
+# release-owned keys, for a file that hasn't done the AF-5 split yet. These pointers are not
+# file-qualified, so they also apply to a cicd.yaml now that one can be written; none of them is a
+# cicd.yaml field (its top-level keys are apiVersion, kind, build, test, pipelines, deploy,
+# governance, secrets, notifications, ephemeralEnvironments, api), so they never collide with
+# Glidepath's scope rules there.
 BASELINE_DENY_FIELDS: tuple[str, ...] = (
     "/extraManifests", "/networkPolicy", "/httpRoute",
     "/release", "/releaseTracking", "/rollout/image",

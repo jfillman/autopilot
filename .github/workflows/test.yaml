@@ -1,5 +1,9 @@
 name: test
 on: [push, pull_request]
+env:
+  # glidepath ref the cicd.yaml scope drift test compares against (tests/test_cicd_scope.py).
+  # feat/glidepath-api-p0 until glidepath#153 merges; then set this to main.
+  GLIDEPATH_REF: feat/glidepath-api-p0
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -10,6 +14,12 @@ jobs:
         with:
           repository: jfillman/airframe
           path: tech/airframe
+      # glidepath's cicd.yaml scope rules and contract, vendored under src/clearance/vendor/
+      - uses: actions/checkout@v4
+        with:
+          repository: jfillman/glidepath
+          ref: ${{ env.GLIDEPATH_REF }}
+          path: tech/glidepath
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
