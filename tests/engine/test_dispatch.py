@@ -34,7 +34,7 @@ def test_denied_call_never_touches_the_backend_and_returns_a_fix_hint(gw, backen
 def test_budget_is_charged_only_on_allow(gw):
     sid = open_(gw)
     s = gw.store.get(sid)
-    gw.call("alice", sid, "repo.pr.open", {**PR, "files": [{"path": "cicd.yaml", "content": "x"}]})
+    gw.call("alice", sid, "repo.pr.open", {**PR, "files": [{"path": ".tekton/pr.yaml", "content": "x"}]})
     assert s.used["tool_calls"] == 0
     gw.call("alice", sid, "repo.pr.open", PR)
     assert s.used["tool_calls"] == 1 and s.used["github_calls"] == 4 and s.used["open_prs"] == 1
