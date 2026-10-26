@@ -2,8 +2,7 @@ name: test
 on: [push, pull_request]
 env:
   # glidepath ref the cicd.yaml scope drift test compares against (tests/test_cicd_scope.py).
-  # feat/glidepath-api-p0 until glidepath#153 merges; then set this to main.
-  GLIDEPATH_REF: feat/glidepath-api-p0
+  GLIDEPATH_REF: main
 jobs:
   pytest:
     runs-on: ubuntu-latest
