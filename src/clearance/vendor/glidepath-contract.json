@@ -1322,5 +1322,60 @@
       "match": "now resolves to .*, not the pinned",
       "hint": "The tag was pushed again after approval. Release the digest that was approved."
     }
-  ]
+  ],
+  "api": {
+    "spec": "api/openapi.yaml",
+    "version": "0.1.0",
+    "actions": [
+      {
+        "operationId": "whoami",
+        "method": "GET",
+        "path": "/v1/whoami",
+        "tier": "T0",
+        "summary": "Who the API thinks you are"
+      },
+      {
+        "operationId": "getContract",
+        "method": "GET",
+        "path": "/v1/contract",
+        "tier": "T0",
+        "summary": "contract/glidepath-contract.json, as this API was built with it"
+      },
+      {
+        "operationId": "listRuns",
+        "method": "GET",
+        "path": "/v1/apps/{app}/runs",
+        "tier": "T0",
+        "summary": "An app's runs since a time, newest first, from Tekton Results"
+      },
+      {
+        "operationId": "getRun",
+        "method": "GET",
+        "path": "/v1/apps/{app}/runs/{result}",
+        "tier": "T0",
+        "summary": "One run, its PipelineRun and TaskRuns"
+      },
+      {
+        "operationId": "getRunLog",
+        "method": "GET",
+        "path": "/v1/apps/{app}/runs/{result}/logs/{taskRun}",
+        "tier": "T0",
+        "summary": "One TaskRun's archived step logs, as plain text"
+      },
+      {
+        "operationId": "listReleases",
+        "method": "GET",
+        "path": "/v1/apps/{app}/releases",
+        "tier": "T0",
+        "summary": "Every release record of an app, all environments"
+      },
+      {
+        "operationId": "getRelease",
+        "method": "GET",
+        "path": "/v1/apps/{app}/releases/{chainId}",
+        "tier": "T0",
+        "summary": "The release record of one flow (release-tracking-<chainId>)"
+      }
+    ]
+  }
 }
