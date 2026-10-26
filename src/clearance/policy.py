@@ -7,7 +7,11 @@ guessing. Anything that raises while evaluating is a deny (R000): the gate fails
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import copy
+import json
+import posixpath
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import celpy
@@ -15,7 +19,8 @@ import celpy
 import yaml
 
 from .limits import Limits
-from .scope import diff_pointers, field_outside_allow, field_violations, path_violations, repo_allowed
+from .scope import BadPath, diff_pointers, field_outside_allow, field_violations, normalize, path_violations, repo_allowed
+from .vendor.cicd_scope import scope_problems
 from .session import Session
 from .tiers import TOOLS, TRIPWIRES, Tier, ToolSpec
 
@@ -81,7 +86,17 @@ RULES: tuple[Rule, ...] = (
     Rule("R020", "field-not-allowed", "ctx.field_violations > 0",
          "the change touches a field this agent may not set",
          "Remove that field from the change and let a human or the release pipeline set it instead."),
+    # Glidepath's cicd.yaml scope. The decision carries the GP-SCOPE rule id and hint of the first
+    # problem (and every problem under `problems`), not R021, so the agent sees the same rule id the
+    # pull request's own `glidepath validate --agent` check would report.
+    Rule("R021", "cicd-scope", "ctx.cicd_scope_problems > 0",
+         "the cicd.yaml change is outside what an agent may change",
+         "Change only the fields Glidepath's contract marks open; see the GP-SCOPE rule in the decision."),
 )
+
+# Glidepath's contract, vendored byte for byte from glidepath (contract/glidepath-contract.json) with
+# the code that reads it (vendor/cicd_scope.py); tests/test_cicd_scope.py fails if either drifts.
+CICD_SCOPE = json.loads((Path(__file__).resolve().parent / "vendor" / "glidepath-contract.json").read_text())["scope"]
 
 _ENV = celpy.Environment()
 _PROGRAMS = {r.id: _ENV.program(_ENV.compile(r.expr)) for r in RULES}
@@ -97,10 +112,14 @@ class Decision:
     message: str
     hint: str
     tier: int | None = None
+    problems: tuple[dict[str, str], ...] = field(default=())
 
     def as_dict(self) -> dict[str, Any]:
-        return {"allow": self.allow, "rule": self.rule, "name": self.name,
-                "message": self.message, "hint": self.hint, "tier": self.tier}
+        out = {"allow": self.allow, "rule": self.rule, "name": self.name,
+               "message": self.message, "hint": self.hint, "tier": self.tier}
+        if self.problems:
+            out["problems"] = [dict(p) for p in self.problems]
+        return out
 
 
 def env_tier_of(spec: ToolSpec, args: dict[str, Any]) -> str:
@@ -149,6 +168,74 @@ def _file_field_violations(files: list[dict[str, Any]], field_deny: list[str],
     return total
 
 
+def merge_patch(target: Any, patch: Any) -> Any:
+    """RFC 7386 JSON merge patch: dicts merge recursively, null deletes a key, anything else replaces."""
+    if not isinstance(patch, dict):
+        return copy.deepcopy(patch)
+    out = copy.deepcopy(target) if isinstance(target, dict) else {}
+    for k, v in patch.items():
+        if v is None:
+            out.pop(k, None)
+        else:
+            out[k] = merge_patch(out.get(k), v)
+    return out
+
+
+def _is_cicd_yaml(path: Any) -> bool:
+    try:
+        return posixpath.basename(normalize(path)) == "cicd.yaml"
+    except BadPath:
+        return False            # path_violations (R015) already denies an unsafe path
+
+
+def _whole_file(path: str, why: str) -> dict[str, str]:
+    return {"pointer": "", "rule": "GP-SCOPE-001", "message": f"{path}: {why}",
+            "hint": "Send cicd.yaml as YAML (a mapping), with `before` set to its current content, "
+                    "so Clearance can tell which fields change."}
+
+
+def cicd_scope_problems(files: list[dict[str, Any]], scope: dict = CICD_SCOPE) -> list[dict[str, str]]:
+    """Glidepath's GP-SCOPE rules on every changed cicd.yaml, at any depth.
+
+    base: the file's `before` (its current content, the same field AF-9a diffs). No `before` means
+    the file is new, so every field counts as added, and a new cicd.yaml with apiVersion/kind is a
+    human's change (GP-SCOPE-001). Leaving `before` out therefore never widens what passes.
+    head: `content`, parsed as YAML; with `op: merge-patch` (the planner's FileChange) it is a merge
+    patch (a dict, or YAML text of one) applied to the base first. Anything that doesn't parse to a
+    mapping fails closed as a whole-file change."""
+    problems: list[dict[str, str]] = []
+    for f in files:
+        if not isinstance(f, dict) or not _is_cicd_yaml(f.get("path")):
+            continue
+        path = f["path"]
+        before, content = f.get("before"), f.get("content")
+        try:
+            base = yaml.safe_load(before) if isinstance(before, str) else before
+            head = yaml.safe_load(content) if isinstance(content, str) else content
+        except yaml.YAMLError:
+            problems.append(_whole_file(path, "does not parse as YAML"))
+            continue
+        if base is not None and not isinstance(base, dict):
+            problems.append(_whole_file(path, "the current content (`before`) is not a YAML mapping"))
+            continue
+        if f.get("op") == "merge-patch":
+            if not isinstance(head, dict):
+                problems.append(_whole_file(path, "a merge-patch must be a mapping"))
+                continue
+            head = merge_patch(base or {}, head)
+        if not isinstance(head, dict):
+            problems.append(_whole_file(path, "the new content is not a YAML mapping"))
+            continue
+        try:
+            found = scope_problems(base, head, scope)
+        except Exception as e:  # noqa: BLE001 - a rule that can't be evaluated denies, never allows
+            problems.append(_whole_file(path, f"the scope check could not be evaluated ({type(e).__name__})"))
+            continue
+        for p in found:
+            problems.append({**p, "message": f"{path}: {p['message']}"})
+    return problems
+
+
 def build_context(session: Session, principal_id: str, principal_tier: Tier, tool: str,
                   args: dict[str, Any], deny_globs: list[str], repo_allow: list[str],
                   now, api_allow: list[str] | None = None, agent_kind: str = "task",
@@ -170,7 +257,9 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
         missing += 1            # a bad path is a bad argument
     eff_tier = min(session.limits.tier_ceiling, principal_tier)
     tier_val = int(spec.tier) if spec else 0
+    cicd = cicd_scope_problems(files) if (files and spec and spec.writes_files) else []
     return {
+        "cicd_scope": cicd,
         "tool": {"name": tool, "tier": tier_val,
                  "propose_only": bool(spec.propose_only) if spec else False},
         "effective": {"tools": sorted(session.limits.tools), "tier": int(eff_tier)},
@@ -190,6 +279,7 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
             "repo_ok": repo_allowed(repo, repo_allow) if repo else True,
             "path_violations": len(path_violations(paths, deny_globs)) if paths else 0,
             "field_violations": _file_field_violations(files, field_deny or [], field_allow or []) if files else 0,
+            "cicd_scope_problems": len(cicd),
             "has_service": tool == "app.api.get" and service is not None,
             "service_ok": service in (api_allow or []) if service else True,
             "is_chat": tool in ("chat.recv", "chat.send"),
@@ -207,6 +297,12 @@ def evaluate(context: dict[str, Any]) -> Decision:
             if isinstance(result, Exception):
                 raise result
             if bool(result):
+                if rule.id == "R021":
+                    probs = tuple(context["cicd_scope"])
+                    first = probs[0]
+                    return Decision(False, first["rule"], rule.name,
+                                    "; ".join(p["message"] for p in probs), first["hint"],
+                                    context["tool"]["tier"], probs)
                 return Decision(False, rule.id, rule.name, rule.message, rule.hint, context["tool"]["tier"])
     except Exception as e:  # noqa: BLE001 - fail closed on anything
         return Decision(False, _ERROR.id, _ERROR.name, f"{_ERROR.message}: {type(e).__name__}", _ERROR.hint)

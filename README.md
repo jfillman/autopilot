@@ -17,16 +17,17 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 254 tests, no cluster needed.
+`./.venv/bin/python -m pytest -q` runs 295 tests, no cluster needed (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
 
 | Piece | Where | What it does |
 |---|---|---|
 | Tool tiers and tripwires | `tiers.py` | T0 to T2 tools; T3 names are tripwires |
 | Path and repo scope | `scope.py` | one implementation, shared with the CI `agent-scope` gate; traversal-safe |
+| cicd.yaml field scope | `policy.py` (R021), `vendor/cicd_scope.py` + `vendor/glidepath-contract.json` (vendored byte for byte from glidepath, drift-tested) | an agent may change cicd.yaml in a PR within Glidepath's `open`/`tighten`/`human` field rules; a denial carries the `GP-SCOPE-00x` rule id and hint |
 | Narrow-only limits | `limits.py` | requested limits or a child can only narrow what they inherit |
 | Agent definitions | `profile.py`, `schemas/` | durable, schema-validated; baseline deny paths cannot be removed |
 | Sessions and run tree | `session.py` | budgets, expiry, breaker, parent-reserved child budgets |
-| Policy | `policy.py` | 15 CEL deny rules with ids and fix hints; fails closed |
+| Policy | `policy.py` | CEL deny rules with ids and fix hints; fails closed |
 | Audit | `audit.py` | hash chain; detects edit, delete, reorder; truncation via an anchored checkpoint |
 | Gateway core | `dispatch.py` | authenticate, decide, audit, spend, call, audit |
 | Model access | `modelproxy.py` | model allowlist, network mode, token budget; the decision core only |
