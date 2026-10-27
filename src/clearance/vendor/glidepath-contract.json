@@ -1194,9 +1194,9 @@
     },
     {
       "name": "policy-validation",
-      "description": "Gatekeeper/Kyverno admission-policy validation of the rendered manifest",
-      "status": "stub",
-      "class": "process",
+      "description": "The release's rendered manifests evaluated offline (Kyverno CLI) against the target cluster's admission policies (ValidatingPolicy, ClusterPolicy, ValidatingAdmissionPolicy) from its GitOps repo",
+      "status": "real",
+      "class": "integrity",
       "required": true,
       "targets": [
         "k8s-rollout"
