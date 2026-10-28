@@ -48,6 +48,12 @@ _TOOLS = [
     ToolSpec("glidepath.explain", Tier.T0, "Why a run failed: a knownFailures id, its hint and the cicd.yaml field to change",
              ("app", "result")),
     ToolSpec("glidepath.releases.get", Tier.T0, "Read an app's release records, or one by chainId", ("app",)),
+    # Glidepath writes (spec phase 3): through glidepath-api, which authorizes Clearance and audits the principal too.
+    # These replace pipeline.rerun, which went to the cluster directly.
+    ToolSpec("glidepath.run.rerun", Tier.T1, "Re-run a PipelineRun (a copy of its spec); retrying the same call starts no second run",
+             ("app", "pipelinerun"), target="lower"),
+    ToolSpec("glidepath.run.cancel", Tier.T1, "Cancel a running PipelineRun (its finally tasks still run)", ("app", "pipelinerun"),
+             target="lower"),
     ToolSpec("glidepath.contract", Tier.T0, "Glidepath's contract: cicd.yaml fields and agent scope, gates, states, knownFailures", ()),
     ToolSpec("chat.recv", Tier.T0, "Receive pending messages from the human in this session", ()),
     ToolSpec("chat.send", Tier.T0, "Send a message to the human in this session", ("text",)),
@@ -56,8 +62,6 @@ _TOOLS = [
     ToolSpec("xr.request", Tier.T1, "Commit an XR request for a lower environment", ("app", "env", "kind", "spec"),
              github_cost=3, target="lower"),
     ToolSpec("argo.sync.lower", Tier.T1, "Sync a lower-environment application", ("app", "project"),
-             target="lower"),
-    ToolSpec("pipeline.rerun", Tier.T1, "Re-run a failed pipeline run", ("app", "pipelinerun"),
              target="lower"),
     ToolSpec("artifact.put", Tier.T1, "Store an output artifact under this task (bounded, expiring)", ("name", "content")),
     ToolSpec("artifact.get", Tier.T0, "Read an artifact stored under this task tree", ("name",)),
