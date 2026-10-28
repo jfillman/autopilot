@@ -1363,6 +1363,13 @@
         "summary": "One TaskRun's archived step logs, as plain text"
       },
       {
+        "operationId": "explainRun",
+        "method": "GET",
+        "path": "/v1/apps/{app}/runs/{result}/explain",
+        "tier": "T0",
+        "summary": "Why a run failed, classified against the contract's knownFailures"
+      },
+      {
         "operationId": "listReleases",
         "method": "GET",
         "path": "/v1/apps/{app}/releases",

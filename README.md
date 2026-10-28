@@ -17,13 +17,14 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 295 tests, no cluster needed (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
+`./.venv/bin/python -m pytest -q` runs 308 tests, no cluster needed (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
 
 | Piece | Where | What it does |
 |---|---|---|
 | Tool tiers and tripwires | `tiers.py` | T0 to T2 tools; T3 names are tripwires |
 | Path and repo scope | `scope.py` | one implementation, shared with the CI `agent-scope` gate; traversal-safe |
 | cicd.yaml field scope | `policy.py` (R021), `vendor/cicd_scope.py` + `vendor/glidepath-contract.json` (vendored byte for byte from glidepath, drift-tested) | an agent may change cicd.yaml in a PR within Glidepath's `open`/`tighten`/`human` field rules; a denial carries the `GP-SCOPE-00x` rule id and hint |
+| Glidepath reads | `tiers.py` (`glidepath.*`), `glidepath_api.py`, `policy.py` (R022), `agents/cicd-explainer.yaml` | six T0 tools over glidepath-api: runs, one run, step logs, `explain` (a failed run's knownFailures id, hint and field), releases, the contract. `profile.glidepath.apps` (globs; none listed means none) scopes them per agent, arguments must be valid path segments, and the adapter calls as Clearance's own identity, re-reading its token file every call. A 400/404 from glidepath-api (no such run, no archived log) comes back as data with its `GP-*` rule; a 401/403 is a denial with that rule |
 | Narrow-only limits | `limits.py` | requested limits or a child can only narrow what they inherit |
 | Agent definitions | `profile.py`, `schemas/` | durable, schema-validated; baseline deny paths cannot be removed |
 | Sessions and run tree | `session.py` | budgets, expiry, breaker, parent-reserved child budgets |

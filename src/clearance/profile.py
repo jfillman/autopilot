@@ -60,6 +60,7 @@ class AgentDefinition:
     limits: Limits
     repos_allow: tuple[str, ...]
     api_allow: tuple[str, ...]
+    glidepath_apps: tuple[str, ...]
     deny_paths: tuple[str, ...]
     field_allow: tuple[str, ...]
     field_deny: tuple[str, ...]
@@ -99,6 +100,7 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         service_account=doc["identity"].get("serviceAccount"), limits=limits,
         repos_allow=tuple(repos.get("allow", [])),
         api_allow=tuple(p.get("apis", {}).get("allow", [])),
+        glidepath_apps=tuple(p.get("glidepath", {}).get("apps", [])),
         deny_paths=tuple(dict.fromkeys(BASELINE_DENY_PATHS + extra_deny)),
         field_allow=tuple(repos.get("fieldAllow", [])),
         field_deny=tuple(dict.fromkeys(BASELINE_DENY_FIELDS + extra_field_deny)),
