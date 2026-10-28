@@ -83,6 +83,8 @@ RULES: tuple[Rule, ...] = (
          "that application API is not on this agent's allowlist", "Call only the services your definition names under profile.apis.allow."),
     Rule("R022", "glidepath-app-not-allowed", "ctx.has_glidepath_app && !ctx.glidepath_app_ok",
          "that app is not on this agent's Glidepath allowlist", "Read only the apps your definition names under profile.glidepath.apps."),
+    Rule("R023", "airframe-app-not-allowed", "ctx.has_airframe_app && !ctx.airframe_app_ok",
+         "that app is not on this agent's Airframe allowlist", "Read only the apps your definition names under profile.airframe.apps."),
     Rule("R019", "artifact-too-large", "ctx.artifact_bytes > 1048576",
          "the artifact is larger than 1 MiB", "Store a smaller summary; artifacts are outputs, not datasets."),
     Rule("R018", "chat-outside-session", "ctx.is_chat && !ctx.session_kind",
@@ -266,11 +268,55 @@ def glidepath_app_allowed(app: str, allow: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(app, g) for g in allow)
 
 
+# airframe.* arguments. Shape only: every namespace and name the tools read is built from `app` (and `env`), so a
+# value that is not a Kubernetes name never reaches a path; the adapter's own allowlist is the second wall.
+_AF_ARGS = {
+    "app": re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"),
+    "env": re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"),
+    "name": re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$"),
+    "kind": re.compile(r"^[A-Za-z][A-Za-z0-9]{0,62}$"),
+    "rule": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"),
+}
+_AF_SECTIONS = frozenset({"chart", "xrds", "components", "targets", "kinds"})
+_AF_DOC_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.ya?ml$")
+_AF_MAX_DOCS, _AF_MAX_BYTES = 20, 256 << 10
+
+
+def _af_document_ok(d: Any) -> bool:
+    if not isinstance(d, dict) or set(d) - {"path", "content"} or not isinstance(d.get("content"), str):
+        return False
+    try:
+        path = normalize(d.get("path"))
+    except BadPath:
+        return False
+    return bool(_AF_DOC_NAME.match(posixpath.basename(path))) and len(d["content"].encode()) <= _AF_MAX_BYTES
+
+
+def airframe_bad_args(args: dict[str, Any]) -> int:
+    bad = sum(1 for k, pat in _AF_ARGS.items() if k in args and not (isinstance(args[k], str) and pat.match(args[k])))
+    if "section" in args and args["section"] not in _AF_SECTIONS:
+        bad += 1
+    if "documents" in args:
+        docs = args["documents"]
+        bad += not (isinstance(docs, list) and 1 <= len(docs) <= _AF_MAX_DOCS and all(_af_document_ok(d) for d in docs))
+    if "mode" in args and args["mode"] not in ("values", "xr"):
+        bad += 1
+    if "render" in args and not isinstance(args["render"], bool):
+        bad += 1
+    if "spec" in args and not isinstance(args["spec"], dict):
+        bad += 1
+    if "baseCicd" in args and not (isinstance(args["baseCicd"], dict)
+                                   or (isinstance(args["baseCicd"], str) and len(args["baseCicd"]) <= _AF_MAX_BYTES)):
+        bad += 1
+    return bad
+
+
 def build_context(session: Session, principal_id: str, principal_tier: Tier, tool: str,
                   args: dict[str, Any], deny_globs: list[str], repo_allow: list[str],
                   now, api_allow: list[str] | None = None, agent_kind: str = "task",
                   field_deny: list[str] | None = None, field_allow: list[str] | None = None,
-                  glidepath_apps: list[str] | None = None) -> dict[str, Any]:
+                  glidepath_apps: list[str] | None = None,
+                  airframe_apps: list[str] | None = None) -> dict[str, Any]:
     spec = TOOLS.get(tool)
     known = spec is not None
     files = args.get("files") if isinstance(args.get("files"), list) else []
@@ -289,6 +335,11 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
     gp_app = args.get("app") if tool.startswith("glidepath.") and isinstance(args.get("app"), str) else None
     if tool.startswith("glidepath.") and spec:
         missing += glidepath_bad_args(args)
+    # Every airframe.* call that names an app is scoped by it; the ones that read no app state (capabilities,
+    # explain, plan, and validate without an app) are not, so an agent with no apps listed reads no cluster state.
+    af_app = args.get("app") if tool.startswith("airframe.") and isinstance(args.get("app"), str) else None
+    if tool.startswith("airframe.") and spec:
+        missing += airframe_bad_args(args)
     eff_tier = min(session.limits.tier_ceiling, principal_tier)
     tier_val = int(spec.tier) if spec else 0
     cicd = cicd_scope_problems(files) if (files and spec and spec.writes_files) else []
@@ -318,6 +369,8 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
             "service_ok": service in (api_allow or []) if service else True,
             "has_glidepath_app": gp_app is not None,
             "glidepath_app_ok": glidepath_app_allowed(gp_app, glidepath_apps or []) if gp_app else True,
+            "has_airframe_app": af_app is not None,
+            "airframe_app_ok": glidepath_app_allowed(af_app, airframe_apps or []) if af_app else True,
             "is_chat": tool in ("chat.recv", "chat.send"),
             "artifact_bytes": len(args.get("content", "")) if tool == "artifact.put" and isinstance(args.get("content"), str) else 0,
             "session_kind": agent_kind == "session",

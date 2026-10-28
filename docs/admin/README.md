@@ -3,8 +3,16 @@
 For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
 
 ## What an install will need
-- **Clearance**, a standalone deployment with one Kubernetes permission: a namespaced Role on `agentruns` in
-  `autopilot-runs`. It never holds a cluster-wide grant.
+- **Clearance**, a standalone deployment. Its write permission is one namespaced Role on `agentruns` in
+  `autopilot-runs`. For the `airframe.*` tools it reads, cluster-wide and read-only, `catalog.hangar.io/*` and
+  `argoproj.io` applications and rollouts (ClusterRole `clearance-airframe-reader`, gitops-hangar-dev#40), and
+  nothing else: no Secrets, ConfigMaps or pods. The adapter (`src/clearance/airframe_api.py`) enforces the same
+  allowlist itself, GET only, so an RBAC mistake alone still reads nothing more. It needs the API server URL, the
+  CA file and a projected ServiceAccount token file (re-read every call). `airframe.validate` needs airframe's
+  `airframe-validate`: the script from an airframe checkout with python3, pyyaml, jsonschema and helm, or the
+  `tools/validate.Containerfile` image run with the content directory mounted read-only.
+- **Live check**: `tools/airframe_smoke.py` drives the tools through MCP against a cluster with a 10-minute token
+  (`kubectl create token clearance -n platform-system --duration=10m`) and compares them with `kubectl get`.
 - **provider-kubernetes RBAC** for the objects an `AgentRun` renders (Namespace, ResourceQuota, ServiceAccount,
   two NetworkPolicies, Job). Proven on the dev cluster with a scratch role and drafted in
   `airframe-drafts/rbac/provider-kubernetes-agentrun.yaml`; review it as a privilege grant before applying.

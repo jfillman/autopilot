@@ -44,6 +44,17 @@ class GlidepathBackend(Protocol):
     def cancel(self, app: str, pipelinerun: str, on_behalf_of: str) -> Any: ...
 
 
+class AirframeBackend(Protocol):
+    """Airframe's contract, validator and planner, and read-only cluster state (airframe_tools.py is the real one)."""
+    def capabilities(self, kind: str | None, section: str | None) -> Any: ...
+    def validate(self, documents: list[dict], app: str | None, mode: str, render: bool) -> Any: ...
+    def explain(self, rule: str) -> Any: ...
+    def plan(self, spec: dict, base_cicd: Any) -> Any: ...
+    def status(self, app: str, env: str | None) -> Any: ...
+    def describe(self, app: str, env: str) -> Any: ...
+    def verify(self, app: str, kind: str, name: str, env: str | None) -> Any: ...
+
+
 class ArtifactBackend(Protocol):
     def put(self, task_id: str, name: str, content: str) -> dict[str, Any]: ...
     def get(self, task_id: str, name: str) -> str | None: ...
@@ -56,9 +67,9 @@ class HumanBackend(Protocol):
 
 
 class Backends:
-    def __init__(self, git, argo, runs, read, human, artifacts=None, glidepath=None):
+    def __init__(self, git, argo, runs, read, human, artifacts=None, glidepath=None, airframe=None):
         self.git, self.argo, self.runs, self.read, self.human = git, argo, runs, read, human
-        self.artifacts, self.glidepath = artifacts, glidepath
+        self.artifacts, self.glidepath, self.airframe = artifacts, glidepath, airframe
 
 
 class Recorder:
@@ -195,5 +206,8 @@ class FakeGlidepath(Recorder):
 
 
 def fake_backends() -> Backends:
+    # Airframe's fake is the real tool logic over an in-memory cluster and a fake validator (airframe_tools.py),
+    # imported here so the clearance core never imports it at module load.
+    from .airframe_tools import fake_airframe
     return Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(),
-                    FakeGlidepath())
+                    FakeGlidepath(), fake_airframe())

@@ -55,6 +55,22 @@ _TOOLS = [
     ToolSpec("glidepath.run.cancel", Tier.T1, "Cancel a running PipelineRun (its finally tasks still run)", ("app", "pipelinerun"),
              target="lower"),
     ToolSpec("glidepath.contract", Tier.T0, "Glidepath's contract: cicd.yaml fields and agent scope, gates, states, knownFailures", ()),
+    # Airframe (airframe_tools.py). Reads only: the contract bundle, the validator, the planner, and XRs, Argo CD
+    # Applications and Rollouts through an allowlisted GET-only adapter (airframe_api.py); scoped by profile.airframe.apps.
+    ToolSpec("airframe.capabilities", Tier.T0, "What Airframe offers: chart fields, XR kinds, components and their outputs, "
+             "conditions and verify checks (kind or section optional)", ()),
+    ToolSpec("airframe.validate", Tier.T0, "Validate proposed env-file or values content with airframe-validate: AF-* rule ids, "
+             "JSON paths and fix hints (documents: [{path, content}])", ("documents",)),
+    ToolSpec("airframe.explain", Tier.T0, "What an AF-* rule id, a condition reason or a knownFailures id means, and how to fix it",
+             ("rule",)),
+    ToolSpec("airframe.plan", Tier.T0, "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
+             ("spec",)),
+    ToolSpec("airframe.status", Tier.T0, "An app's (or one environment's) XR conditions: reason, hint, stale-status detection",
+             ("app",)),
+    ToolSpec("airframe.describe", Tier.T0, "One environment: its XRs, the Argo CD Application syncing it and its Rollout",
+             ("app", "env")),
+    ToolSpec("airframe.verify", Tier.T0, "Run an XR's sidecar verify checks from its status alone; anything needing a Secret, "
+             "port-forward or exec is skipped with the reason", ("app", "kind", "name")),
     ToolSpec("chat.recv", Tier.T0, "Receive pending messages from the human in this session", ()),
     ToolSpec("chat.send", Tier.T0, "Send a message to the human in this session", ("text",)),
     ToolSpec("repo.pr.open", Tier.T1, "Open a PR on an app repo", ("repo", "branch", "title", "files"),

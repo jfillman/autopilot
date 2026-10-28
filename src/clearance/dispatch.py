@@ -89,6 +89,14 @@ class Gateway:
             # The key is the session and the run, so an agent retrying the same re-run starts no second one.
             "glidepath.run.rerun": lambda s, a: self.b.glidepath.rerun(a["app"], a["pipelinerun"], rerun_key(s.id, a["app"], a["pipelinerun"]), s.principal),
             "glidepath.run.cancel": lambda s, a: self.b.glidepath.cancel(a["app"], a["pipelinerun"], s.principal),
+            "airframe.capabilities": lambda s, a: self.b.airframe.capabilities(a.get("kind"), a.get("section")),
+            "airframe.validate": lambda s, a: self.b.airframe.validate(a["documents"], a.get("app"), a.get("mode", "values"),
+                                                                       a.get("render", True)),
+            "airframe.explain": lambda s, a: self.b.airframe.explain(a["rule"]),
+            "airframe.plan": lambda s, a: self.b.airframe.plan(a["spec"], a.get("baseCicd")),
+            "airframe.status": lambda s, a: self.b.airframe.status(a["app"], a.get("env")),
+            "airframe.describe": lambda s, a: self.b.airframe.describe(a["app"], a["env"]),
+            "airframe.verify": lambda s, a: self.b.airframe.verify(a["app"], a["kind"], a["name"], a.get("env")),
             "human.request": lambda s, a: self.b.human.request(a["question"], a.get("options")),
             "run.spawn": self._spawn,
             "run.close": self._close,
@@ -182,7 +190,8 @@ class Gateway:
                                    list(d.deny_paths), list(d.repos_allow), now,
                                    api_allow=list(d.api_allow), agent_kind=d.kind,
                                    field_deny=list(d.field_deny), field_allow=list(d.field_allow),
-                                   glidepath_apps=list(d.glidepath_apps))
+                                   glidepath_apps=list(d.glidepath_apps),
+                                   airframe_apps=list(d.airframe_apps))
         decision = policy.evaluate(ctx)
         if not decision.allow:
             s.record_denial()
