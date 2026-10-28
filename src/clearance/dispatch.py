@@ -6,6 +6,7 @@ agent try to do" is answerable from the audit log alone.
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Protocol
@@ -55,6 +56,11 @@ class Result:
                 "error": self.error, "audit_seq": self.audit_seq, "session": self.session}
 
 
+def rerun_key(session_id: str, app: str, pipelinerun: str) -> str:
+    """glidepath-api's Idempotency-Key for a session's re-run of one run: [A-Za-z0-9._:-], at most 128."""
+    return "clearance." + hashlib.sha256(f"{session_id}/{app}/{pipelinerun}".encode()).hexdigest()[:32]
+
+
 class Gateway:
     def __init__(self, definitions: dict[str, AgentDefinition], store: SessionStore,
                  audit: AuditLog, backends: Backends, auth: Authenticator,
@@ -74,13 +80,15 @@ class Gateway:
             "repo.pr.open_upper": lambda s, a: self.b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main")),
             "xr.request": lambda s, a: self.b.git.commit_xr(a["app"], a["env"], a["kind"], a["spec"]),
             "argo.sync.lower": lambda s, a: self.b.argo.sync(a["app"], a["project"]),
-            "pipeline.rerun": lambda s, a: self.b.pipelines.rerun(a["app"], a["pipelinerun"]),
             "glidepath.runs.list": lambda s, a: self.b.glidepath.runs(a["app"], a.get("sinceHours"), a.get("limit"), s.principal),
             "glidepath.run.get": lambda s, a: self.b.glidepath.run(a["app"], a["result"], s.principal),
             "glidepath.logs.get": lambda s, a: self.b.glidepath.log(a["app"], a["result"], a["taskRun"], s.principal),
             "glidepath.explain": lambda s, a: self.b.glidepath.explain(a["app"], a["result"], s.principal),
             "glidepath.releases.get": lambda s, a: self.b.glidepath.releases(a["app"], a.get("chainId"), s.principal),
             "glidepath.contract": lambda s, a: self.b.glidepath.contract(s.principal),
+            # The key is the session and the run, so an agent retrying the same re-run starts no second one.
+            "glidepath.run.rerun": lambda s, a: self.b.glidepath.rerun(a["app"], a["pipelinerun"], rerun_key(s.id, a["app"], a["pipelinerun"]), s.principal),
+            "glidepath.run.cancel": lambda s, a: self.b.glidepath.cancel(a["app"], a["pipelinerun"], s.principal),
             "human.request": lambda s, a: self.b.human.request(a["question"], a.get("options")),
             "run.spawn": self._spawn,
             "run.close": self._close,

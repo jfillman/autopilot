@@ -246,6 +246,7 @@ _GP_ARGS = {
     "app": re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$"),
     "result": re.compile(r"^[0-9a-f-]{36}$"),
     "taskRun": re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$"),
+    "pipelinerun": re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$"),
     "chainId": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$"),
 }
 

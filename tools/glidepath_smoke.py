@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from clearance import profile  # noqa: E402
 from clearance.audit import AuditLog  # noqa: E402
-from clearance.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakePipelines, FakeRead, FakeRuns  # noqa: E402
+from clearance.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from clearance.dispatch import Gateway, Principal  # noqa: E402
 from clearance.glidepath_api import GlidepathAPI  # noqa: E402
 from clearance.server import create_server  # noqa: E402
@@ -56,7 +56,7 @@ def main() -> int:
     a = ap.parse_args()
 
     api = GlidepathAPI(a.url, a.token_file)
-    backends = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakePipelines(), FakeHuman(), FakeArtifacts(), api)
+    backends = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
     gw = Gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
                  lambda: datetime.now(timezone.utc))
     mcp = create_server(gw, lambda: "local")
