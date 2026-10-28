@@ -88,6 +88,7 @@ class FileChange:
     path: str
     op: str                               # create | merge-patch
     content: Any                          # text for create, dict for merge-patch
+    before: Any = None                    # merge-patch: the content it applies to (what Clearance's R021 diffs against)
 
 
 @dataclass
@@ -219,26 +220,77 @@ def resolve_flight(spec: dict, reg: Registry) -> tuple[list[dict], list[str]]:
     return out, assumptions
 
 
-def patch_cicd(base: dict, spec: dict, flight: list[dict]) -> dict:
-    """Apply the environment declaration to a scaffolded cicd.yaml. The rest of the file is left alone.
+def _after(steps: list[dict], pred) -> int:
+    """The index just past the last step matching pred (0 when none does)."""
+    return max((i + 1 for i, st in enumerate(steps) if pred(st)), default=0)
 
-    Glidepath ADR-0019: one `deploy.environments` list, in promotion order, each entry a Ground
-    environment (deployed on every push) or a Flight environment (deployed through a release). A
-    flight entry names its cluster because a flight environment never runs on the app's own dev
-    cluster. The pre-ADR keys are dropped if the scaffold still carries them: the schema rejects them."""
-    ground = spec["environments"]["ground"]
+
+def ground_cicd(base: dict, spec: dict) -> dict:
+    """The part of the environment declaration an agent may write (Glidepath's GP-SCOPE rules, vendor/cicd_scope.py):
+    Ground environments and their deploy steps, added to what the file already has.
+
+    Nothing is removed or rewritten: every existing environment and step stays as it is, in place, so a check-ride
+    step or a required test step the file carries survives (GP-SCOPE-002), and a Flight environment is never
+    touched (GP-SCOPE-003). A missing Ground environment goes after the last Ground one (promotion order: Ground
+    before Flight), and its deploy step after the last deploy step."""
     out = copy.deepcopy(base)
+    dep = out.setdefault("deploy", {})
+    envs = dep.setdefault("environments", [{"name": "dev", "tier": "ground"}])   # the schema's documented default, made explicit
+    names = {e.get("name") for e in envs if isinstance(e, dict)}
+    for g in spec["environments"]["ground"]:
+        if g not in names:
+            envs.insert(_after(envs, lambda e: isinstance(e, dict) and e.get("tier") == "ground"), {"name": g, "tier": "ground"})
+            names.add(g)
+    ci = out.setdefault("pipelines", {}).setdefault("ci", {"trigger": {"source": "git", "event": "push", "branch": "main"}})
+    steps = ci.setdefault("steps", [])
+    if not any(isinstance(st, dict) and st.get("stage") == "build" for st in steps):
+        steps.insert(0, {"stage": "build"})
+    for g in spec["environments"]["ground"]:
+        if not any(isinstance(st, dict) and st.get("stage") == "deploy" and st.get("env") == g for st in steps):
+            at = _after(steps, lambda st: isinstance(st, dict) and st.get("stage") in ("build", "deploy"))
+            steps.insert(at, {"stage": "deploy", "env": g})
+    return out
+
+
+def flight_cicd(doc: dict, flight: list[dict]) -> dict:
+    """What only a human may write: each Flight environment (GP-SCOPE-003; its `cluster` is a human field too), the
+    release step into the first one, and dropping the pre-ADR-0019 deploy keys (no scope rule covers them, so
+    removing one is a human change, GP-SCOPE-001)."""
+    out = copy.deepcopy(doc)
     dep = out.setdefault("deploy", {})
     for k in LEGACY_DEPLOY_KEYS:
         dep.pop(k, None)
-    dep["environments"] = [{"name": g, "tier": "ground"} for g in ground] \
-        + [{"name": e["name"], "tier": "flight", "cluster": e["cluster"]} for e in flight]
-    steps = [{"stage": "build"}] + [{"stage": "deploy", "env": g} for g in ground]
+    envs = dep.setdefault("environments", [])
+    have = {e.get("name") for e in envs if isinstance(e, dict)}
+    for e in flight:
+        if e["name"] not in have:
+            envs.append({"name": e["name"], "tier": "flight", "cluster": e["cluster"]})
     if flight:
-        steps.append({"stage": "release", "env": flight[0]["name"]})
-    ci = out.setdefault("pipelines", {}).setdefault("ci", {"trigger": {"source": "git", "event": "push", "branch": "main"}})
-    ci["steps"] = steps
+        steps = out.setdefault("pipelines", {}).setdefault("ci", {}).setdefault("steps", [])
+        if not any(isinstance(st, dict) and st.get("stage") == "release" for st in steps):
+            steps.append({"stage": "release", "env": flight[0]["name"]})
     return out
+
+
+def patch_cicd(base: dict, spec: dict, flight: list[dict]) -> dict:
+    """The whole environment declaration applied to a scaffolded cicd.yaml (ground_cicd, then flight_cicd). The rest
+    of the file is left alone.
+
+    Glidepath ADR-0019: one `deploy.environments` list, in promotion order, each entry a Ground environment
+    (deployed on every push) or a Flight environment (deployed through a release). A flight entry names its cluster
+    because a flight environment never runs on the app's own dev cluster. The pre-ADR keys are dropped if the
+    scaffold still carries them: the schema rejects them."""
+    return flight_cicd(ground_cicd(base, spec), flight)
+
+
+def _cicd_patch(doc: dict, legacy_from: dict | None = None) -> dict:
+    """A merge patch carrying deploy and pipelines whole (lists replace in RFC 7386, so they are sent entire);
+    nulls remove the legacy keys `legacy_from` still has."""
+    dep = dict(doc.get("deploy") or {})
+    for k in LEGACY_DEPLOY_KEYS:
+        if k in ((legacy_from or {}).get("deploy") or {}):
+            dep[k] = None
+    return {"deploy": dep, "pipelines": doc.get("pipelines") or {}}
 
 
 def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cicd: dict | None = None) -> ChangeSet:
@@ -329,9 +381,22 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
             d.update(c)
         return d
 
+    # cicd.yaml in two halves: what an agent may change (Ground environments, their deploy steps) rides the
+    # auto-merge app-repo step, and passes Clearance's R021 / `glidepath validate --agent`; the rest (Flight
+    # environments, the release step, retiring pre-ADR keys) is its own step that a human merges.
+    base = base_cicd or {}
+    if base_cicd is None:
+        assumptions.append("no current cicd.yaml was given: the cicd.yaml patches assume the scaffold's (dev only); "
+                           "read the app's cicd.yaml and plan again before opening the pull request")
+    legacy = [k for k in LEGACY_DEPLOY_KEYS if k in (base.get("deploy") or {})]
+    ground_doc = base if legacy else ground_cicd(base, spec)
+    final_doc = patch_cicd(base, spec, flight)
+    if legacy:
+        warnings.append(f"cicd.yaml still carries {', '.join(legacy)} (pre-ADR-0019): removing them is a human change, "
+                        "so the whole cicd.yaml change is in the human-merge cicd-flight step")
     app_files = []
-    cicd_patch = patch_cicd(base_cicd or {}, spec, flight)
-    app_files.append(FileChange("cicd.yaml", "merge-patch", {"deploy": cicd_patch["deploy"], "pipelines": cicd_patch["pipelines"]}))
+    if ground_doc != base:
+        app_files.append(FileChange("cicd.yaml", "merge-patch", _cicd_patch(ground_doc), before=copy.deepcopy(base)))
     if features.base_layer:
         app_files.append(FileChange(BASE_FILE, "create", {k: v for k, v in cfg.items()}))
     for g in ground:
@@ -342,6 +407,14 @@ def plan(spec_in: dict, reg: Registry, features: Features = Features(), base_cic
                    effects=[f"creates namespace app-{app}-{g} for each ground environment" for g in ground]
                    + ["changing cicd.yaml regenerates .tekton/ in a follow-up PR"],
                    checks=["cicd.yaml validates against glidepath's cicd.schema.json"]))
+    if final_doc != ground_doc:
+        cs.append(Step("cicd-flight", "Declare the flight environments in cicd.yaml" if flight else "Retire the pre-ADR-0019 deploy keys",
+                       f"{owner}/{app}", "human-merge", "T2", depends_on=["tenants", "app-repo"],
+                       files=[FileChange("cicd.yaml", "merge-patch", _cicd_patch(final_doc, ground_doc), before=copy.deepcopy(ground_doc))],
+                       effects=[f"declares flight environment {e['name']} on {e['cluster']}" for e in flight]
+                       + ([f"adds the release step into {flight[0]['name']}"] if flight else [])
+                       + ["Flight environments and their clusters are human-only cicd.yaml fields (GP-SCOPE-003, GP-SCOPE-001)"],
+                       checks=["cicd.yaml validates against glidepath's cicd.schema.json"]))
     cs.append(Step("tekton-resync", "Merge the regenerated .tekton/ PR", f"{owner}/{app}", "auto-merge", "T1",
                    depends_on=["app-repo"], wait_for="the resync PR opened by the platform"))
 

@@ -83,10 +83,10 @@ def xrd_schema(name):
 # ---- the sentence ----------------------------------------------------------------------
 def test_the_sentence_becomes_an_ordered_change_set():
     cs = ap.plan(PARACHUTE, REG)
-    assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "tekton-resync", "gitops", "verify"]
+    assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "cicd-flight", "tekton-resync", "gitops", "verify"]
     assert [(s.id, s.gate, s.risk) for s in cs.steps if s.gate != "wait"] == [
-        ("tenants", "human-merge", "T2"), ("app-repo", "auto-merge", "T1"), ("tekton-resync", "auto-merge", "T1"),
-        ("gitops", "human-merge", "T2"), ("verify", "verify", "T0")]
+        ("tenants", "human-merge", "T2"), ("app-repo", "auto-merge", "T1"), ("cicd-flight", "human-merge", "T2"),
+        ("tekton-resync", "auto-merge", "T1"), ("gitops", "human-merge", "T2"), ("verify", "verify", "T0")]
 
 
 def test_dependencies_form_a_dag_that_respects_the_async_gates():
@@ -208,7 +208,7 @@ def test_per_environment_overrides_win_over_config():
 # ---- what Airframe should become -------------------------------------------------------------
 def test_with_the_a_plus_features_the_workaround_and_the_duplication_disappear():
     cs = ap.plan(PARACHUTE, REG, ap.Features(rollout_guard=True, base_layer=True, release_split=True))
-    assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "tekton-resync", "gitops", "verify"]
+    assert [s.id for s in cs.steps] == ["tenants", "repos-ready", "app-repo", "cicd-flight", "tekton-resync", "gitops", "verify"]
     assert "glidepath/base.yaml" in [f.path for f in cs.step("app-repo").files]
     assert [f.path for f in cs.step("gitops").files] == ["base/values.yaml"], "config is written once"
     assert not any("no empty-image guard" in w for w in cs.warnings)
@@ -239,8 +239,8 @@ def mynew(**over):
 def test_the_second_sentence_compiles_with_the_usual_gates():
     cs = ap.plan(MYNEW, REG)
     assert [(s.id, s.gate, s.risk) for s in cs.steps if s.gate != "wait"] == [
-        ("tenants", "human-merge", "T2"), ("app-repo", "auto-merge", "T1"), ("tekton-resync", "auto-merge", "T1"),
-        ("gitops", "human-merge", "T2"), ("verify", "verify", "T0")]
+        ("tenants", "human-merge", "T2"), ("app-repo", "auto-merge", "T1"), ("cicd-flight", "human-merge", "T2"),
+        ("tekton-resync", "auto-merge", "T1"), ("gitops", "human-merge", "T2"), ("verify", "verify", "T0")]
     assert [f.content["metadata"]["name"] for f in cs.step("tenants").files] == [
         "mynewpythonapp", "mynewpythonapp-kind-prod-staging", "mynewpythonapp-kind-prod-pre-prod", "mynewpythonapp-kind-prod-prod"]
     assert cs.step("tenants").files[0].content["spec"]["port"] == 1234
@@ -362,8 +362,10 @@ def test_the_patched_cicd_yaml_validates_against_glidepaths_schema():
     assert patched["pipelines"]["ci"]["steps"] == [
         {"stage": "build"}, {"stage": "deploy", "env": "dev"}, {"stage": "deploy", "env": "test"}, {"stage": "release", "env": "staging"}]
     assert patched["build"] == SCAFFOLD_CICD["build"], "everything the planner does not own is left alone"
-    envs = cs.step("app-repo").files[0].content["deploy"]["environments"]
-    assert [e["name"] for e in envs] == ["dev", "test", "staging", "prod"]
+    agent = next(f for f in cs.step("app-repo").files if f.path == "cicd.yaml").content["deploy"]["environments"]
+    assert [e["name"] for e in agent] == ["dev", "test"], "an agent's cicd.yaml change declares Ground environments only"
+    human = cs.step("cicd-flight").files[0].content["deploy"]["environments"]
+    assert [e["name"] for e in human] == ["dev", "test", "staging", "prod"]
 
 
 @pytest.mark.skipif(not CICD_SCHEMA.exists(), reason="glidepath checkout not present")
