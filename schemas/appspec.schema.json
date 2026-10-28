@@ -278,18 +278,21 @@
               "default": [],
               "items": {
                 "type": "object",
-                "description": "One raw Argo Rollouts step."
+                "description": "One raw Argo Rollouts step.",
+                "x-hangar-passthrough": true
               }
             },
             "canaryAnalysis": {
               "description": "Raw passthrough - spec.strategy.canary.analysis. Typical shape: {templates: [{templateName}], args: [...], startingStep}. Rendered only when strategy is canary and this is non-empty.",
               "type": "object",
-              "default": {}
+              "default": {},
+              "x-hangar-passthrough": true
             },
             "blueGreen": {
               "description": "Raw passthrough for the blueGreen strategy block, minus activeService/previewService (chart-owned). Rendered only when strategy is blueGreen.",
               "type": "object",
-              "default": {}
+              "default": {},
+              "x-hangar-passthrough": true
             },
             "rollbackWindow": {
               "description": "spec.rollbackWindow: a change back to one of the Rollout's last `revisions` revisions skips the canary steps and analysis and goes straight to 100% (Argo Rollouts' fast-track rollback). That revision already ran here; a Glidepath rollback (ADR-0021 phase 4) is exactly that case. null turns it off (an empty object does not: Helm merges it with this default).",
@@ -435,13 +438,15 @@
               "default": [],
               "items": {
                 "type": "object",
-                "description": "One raw additional container spec."
+                "description": "One raw additional container spec.",
+                "x-hangar-passthrough": true
               }
             },
             "podSpec": {
               "description": "Raw passthrough map, deep-merged last onto .spec.template.spec. NOT for containers[0] (use the curated fields above) or additional containers (use extraContainers).",
               "type": "object",
-              "default": {}
+              "default": {},
+              "x-hangar-passthrough": true
             },
             "labels": {
               "type": "object",
@@ -543,7 +548,8 @@
                 "default": [],
                 "items": {
                   "type": "object",
-                  "description": "One raw AnalysisTemplate metric."
+                  "description": "One raw AnalysisTemplate metric.",
+                  "x-hangar-passthrough": true
                 }
               }
             },
@@ -988,7 +994,8 @@
               "containerSecurityContext": {
                 "type": "object",
                 "description": "Raw passthrough.",
-                "default": {}
+                "default": {},
+                "x-hangar-passthrough": true
               },
               "concurrencyPolicy": {
                 "type": "string",
@@ -1097,7 +1104,8 @@
               "containerSecurityContext": {
                 "type": "object",
                 "description": "Raw passthrough.",
-                "default": {}
+                "default": {},
+                "x-hangar-passthrough": true
               },
               "backoffLimit": {
                 "type": "integer",
@@ -1477,7 +1485,55 @@
                   "kubernetes.io/metadata.name": "hangar-gateway"
                 }
               },
-              "description": "Namespace selector identifying the ingress controller/gateway. Default: hangar-gateway, the Gateway namespace Apron installs (Traefik, Gateway `hangar`) on every runtime; override it only on a cluster whose Gateway lives elsewhere."
+              "description": "Namespace selector identifying the ingress controller/gateway. Default: hangar-gateway, the Gateway namespace Apron installs (Traefik, Gateway `hangar`) on every runtime; override it only on a cluster whose Gateway lives elsewhere.",
+              "additionalProperties": false,
+              "properties": {
+                "matchLabels": {
+                  "type": "object",
+                  "description": "Namespace labels that must all match.",
+                  "additionalProperties": {
+                    "type": "string",
+                    "description": "A label value."
+                  }
+                },
+                "matchExpressions": {
+                  "type": "array",
+                  "description": "Set-based namespace label requirements (Kubernetes LabelSelectorRequirement).",
+                  "items": {
+                    "type": "object",
+                    "description": "One label requirement: key, operator and (for In and NotIn) values.",
+                    "additionalProperties": false,
+                    "required": [
+                      "key",
+                      "operator"
+                    ],
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "description": "The label key."
+                      },
+                      "operator": {
+                        "type": "string",
+                        "enum": [
+                          "In",
+                          "NotIn",
+                          "Exists",
+                          "DoesNotExist"
+                        ],
+                        "description": "How key relates to values."
+                      },
+                      "values": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "description": "A label value."
+                        },
+                        "description": "Values for In and NotIn; empty for Exists and DoesNotExist."
+                      }
+                    }
+                  }
+                }
+              }
             },
             "allowIngressFrom": {
               "type": "array",
@@ -1503,7 +1559,8 @@
               "default": [],
               "items": {
                 "type": "object",
-                "description": "One raw NetworkPolicy ingress rule."
+                "description": "One raw NetworkPolicy ingress rule.",
+                "x-hangar-passthrough": true
               }
             },
             "extraEgressRules": {
@@ -1512,7 +1569,8 @@
               "default": [],
               "items": {
                 "type": "object",
-                "description": "One raw NetworkPolicy egress rule."
+                "description": "One raw NetworkPolicy egress rule.",
+                "x-hangar-passthrough": true
               }
             }
           },
@@ -1544,7 +1602,8 @@
               },
               "spec": {
                 "type": "object",
-                "description": "Component-specific. See that component's XRD in xrds/ for its real shape."
+                "description": "Component-specific. See that component's XRD in xrds/ for its real shape.",
+                "x-hangar-passthrough": true
               }
             },
             "description": "One attached component instance.",
@@ -3792,7 +3851,8 @@
           "default": [],
           "items": {
             "type": "object",
-            "description": "One raw Kubernetes object, rendered as-is."
+            "description": "One raw Kubernetes object, rendered as-is.",
+            "x-hangar-passthrough": true
           },
           "x-hangar-owner": "human",
           "x-hangar-risk": "critical"

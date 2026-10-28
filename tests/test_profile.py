@@ -16,7 +16,7 @@ def doc():
 
 
 def test_all_shipped_definitions_load(defs):
-    assert set(defs) == {"coding-agent", "researcher", "orchestrator", "triage-agent", "nightly-reviewer", "cicd-explainer"}
+    assert set(defs) == {"coding-agent", "researcher", "orchestrator", "triage-agent", "nightly-reviewer", "cicd-explainer", "airframe-operator"}
     assert defs["coding-agent"].limits.tier_ceiling == Tier.T1
     assert defs["coding-agent"].limits.network == Network.CLEARANCE_MODEL
 

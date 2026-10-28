@@ -22,6 +22,16 @@ For people who **define and run agents**. The runtime is not deployed yet (see t
   `examples/parachute.appspec.yaml`) produces the ordered change set that creates an app, its environments and
   their configuration, without touching a repo.
 
+- **Ask Airframe through Clearance.** An agent with the `airframe.*` tools (`agents/airframe-operator.yaml`) can
+  read what Airframe offers (`airframe.capabilities`), check env-file or values content before proposing it
+  (`airframe.validate`, airframe's own validator: AF-* rule ids, JSON pointers, hints), look up a rule or a
+  condition reason (`airframe.explain`), plan an AppSpec (`airframe.plan`: pass the app's current cicd.yaml as
+  `baseCicd`), and read an app's XR conditions, an environment's Argo CD Application and Rollout, and an XR's verify
+  checks (`airframe.status`, `airframe.describe`, `airframe.verify`). Those three read the cluster and are limited
+  to the apps under `profile.airframe.apps` (none listed means none). `verify` never reads a Secret or opens a
+  port-forward: those checks come back `skipped` with the reason. A Flight environment's Application and Rollout
+  run on its own cluster; `describe` says so.
+
 ## Coming (roadmap M2 to M4)
 Running a definition as an `AgentRun` XR, sessions with parent and child budgets, and the Tower Agent tab.
 
