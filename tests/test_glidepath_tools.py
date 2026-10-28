@@ -68,6 +68,9 @@ def test_adapter_posts_writes_with_the_key_and_reads_409_as_an_answer(token):
     assert conflict.rerun("a", "r", "k", "p")["error"]["rule"] == "GP-API-409"
     with pytest.raises(Denied):
         GlidepathAPI("http://gp", token, opener=Opener(403, b'{"error":"no","rule":"GP-AUTHZ-001"}')).cancel("a", "r", "p")
+    with pytest.raises(Denied) as e:
+        GlidepathAPI("http://gp", token, opener=Opener(422, b'{"error":"denied by tower-pipelinerun-shape","rule":"GP-API-422"}')).rerun("a", "r", "k", "p")
+    assert e.value.rule == "GP-API-422"
 
 
 def test_explain_reaches_glidepath_as_the_session_principal(gw, backends):

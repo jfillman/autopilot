@@ -87,7 +87,11 @@ class GlidepathAPI:
         rule, message, hint = err.get("rule"), err.get("error", ""), err.get("hint", "")
         if status in _AUTH_STATUSES:
             raise Denied(rule or "GP-AUTHZ-001", f"glidepath-api refused: {message}", hint or
-                         "Clearance's identity may not read this app in Glidepath; ask a human to grant it.")
+                         "Clearance's identity may not do this for this app in Glidepath; ask a human to grant it.")
+        if status == 422:
+            # The cluster refused the write (admission policy or RBAC): a policy answer, not something to retry.
+            raise Denied(rule or "GP-API-422", f"the cluster refused the write: {message}", hint or
+                         "The PipelineRun is outside the shape Glidepath may start or change; ask a human.")
         if status in (400, 404) and rule:
             return {"error": {"rule": rule, "message": message, "hint": hint}}
         raise GlidepathError(f"glidepath-api {status} {rule or ''}".strip())
