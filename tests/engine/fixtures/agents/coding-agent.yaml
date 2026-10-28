@@ -3,8 +3,9 @@ kind: task
 identity: { type: delegated }
 profile:
   tierCeiling: T1
-  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.pr.open, xr.request, argo.sync.lower, pipeline.rerun, run.spawn, run.close, human.request, repo.pr.open_upper]
+  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.pr.open, xr.request, argo.sync.lower, glidepath.run.rerun, glidepath.run.cancel, run.spawn, run.close, human.request, repo.pr.open_upper]
   repos: { allow: ["jfillman/*"] }
+  glidepath: { apps: ["*"] }
   models: [claude-sonnet-5]
   network: clearance+model
   compute: small
