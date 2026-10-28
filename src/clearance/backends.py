@@ -31,10 +31,6 @@ class ReadBackend(Protocol):
     def app_api(self, service: str, path: str) -> Any: ...
 
 
-class PipelineBackend(Protocol):
-    def rerun(self, app: str, pipelinerun: str) -> dict[str, Any]: ...
-
-
 class GlidepathBackend(Protocol):
     """glidepath-api (glidepath_api.py is the real one). `on_behalf_of` is the session's principal,
     recorded in Glidepath's audit line next to Clearance's own identity."""
@@ -44,6 +40,8 @@ class GlidepathBackend(Protocol):
     def explain(self, app: str, result: str, on_behalf_of: str) -> Any: ...
     def releases(self, app: str, chain_id: str | None, on_behalf_of: str) -> Any: ...
     def contract(self, on_behalf_of: str) -> Any: ...
+    def rerun(self, app: str, pipelinerun: str, idempotency_key: str, on_behalf_of: str) -> Any: ...
+    def cancel(self, app: str, pipelinerun: str, on_behalf_of: str) -> Any: ...
 
 
 class ArtifactBackend(Protocol):
@@ -58,8 +56,8 @@ class HumanBackend(Protocol):
 
 
 class Backends:
-    def __init__(self, git, argo, runs, read, pipelines, human, artifacts=None, glidepath=None):
-        self.git, self.argo, self.runs, self.read, self.pipelines, self.human = git, argo, runs, read, pipelines, human
+    def __init__(self, git, argo, runs, read, human, artifacts=None, glidepath=None):
+        self.git, self.argo, self.runs, self.read, self.human = git, argo, runs, read, human
         self.artifacts, self.glidepath = artifacts, glidepath
 
 
@@ -128,12 +126,6 @@ class FakeRead(Recorder):
         return {"service": service, "path": path, "body": {}}
 
 
-class FakePipelines(Recorder):
-    def rerun(self, app, pipelinerun):
-        self._rec("pipelines.rerun", app, pipelinerun)
-        return {"rerun": pipelinerun}
-
-
 class FakeHuman(Recorder):
     def request(self, question, options=None):
         self._rec("human.request", question)
@@ -192,7 +184,16 @@ class FakeGlidepath(Recorder):
         self._rec("glidepath.contract", on_behalf_of=on_behalf_of)
         return {"contractVersion": 1}
 
+    def rerun(self, app, pipelinerun, idempotency_key, on_behalf_of):
+        self._rec("glidepath.rerun", app, pipelinerun, idempotency_key, on_behalf_of=on_behalf_of)
+        replayed = sum(1 for c in self.calls if c[0] == "glidepath.rerun" and c[1][2] == idempotency_key) > 1
+        return {"name": f"{pipelinerun}-rerun-abcde", "replayed": replayed}
+
+    def cancel(self, app, pipelinerun, on_behalf_of):
+        self._rec("glidepath.cancel", app, pipelinerun, on_behalf_of=on_behalf_of)
+        return {"name": pipelinerun, "status": "cancelled"}
+
 
 def fake_backends() -> Backends:
-    return Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakePipelines(), FakeHuman(), FakeArtifacts(),
+    return Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(),
                     FakeGlidepath())

@@ -54,15 +54,18 @@ class GlidepathAPI:
         self._open = opener
 
     def _get(self, path: str, on_behalf_of: str, accept: str = "application/json",
-             query: dict[str, Any] | None = None) -> tuple[int, bytes]:
+             query: dict[str, Any] | None = None, method: str = "GET",
+             extra: dict[str, str] | None = None) -> tuple[int, bytes]:
         q = {k: v for k, v in (query or {}).items() if v is not None}
         url = self.base + path + ("?" + urllib.parse.urlencode(q) if q else "")
         token = self.token_file.read_text().strip()
-        headers = {"Authorization": f"Bearer {token}", "X-Glidepath-Authorization": f"Bearer {token}", "Accept": accept}
+        headers = {"Authorization": f"Bearer {token}", "X-Glidepath-Authorization": f"Bearer {token}", "Accept": accept,
+                   **(extra or {})}
         if self.send_on_behalf_of and on_behalf_of:
             headers["X-Glidepath-On-Behalf-Of"] = on_behalf_of
+        req = urllib.request.Request(url, headers=headers, method=method, data=b"" if method == "POST" else None)
         try:
-            return self._open(urllib.request.Request(url, headers=headers), self.timeout)
+            return self._open(req, self.timeout)
         except OSError as e:
             raise GlidepathError(f"glidepath-api unreachable: {type(e).__name__}") from e
 
@@ -84,7 +87,11 @@ class GlidepathAPI:
         rule, message, hint = err.get("rule"), err.get("error", ""), err.get("hint", "")
         if status in _AUTH_STATUSES:
             raise Denied(rule or "GP-AUTHZ-001", f"glidepath-api refused: {message}", hint or
-                         "Clearance's identity may not read this app in Glidepath; ask a human to grant it.")
+                         "Clearance's identity may not do this for this app in Glidepath; ask a human to grant it.")
+        if status == 422:
+            # The cluster refused the write (admission policy or RBAC): a policy answer, not something to retry.
+            raise Denied(rule or "GP-API-422", f"the cluster refused the write: {message}", hint or
+                         "The PipelineRun is outside the shape Glidepath may start or change; ask a human.")
         if status in (400, 404) and rule:
             return {"error": {"rule": rule, "message": message, "hint": hint}}
         raise GlidepathError(f"glidepath-api {status} {rule or ''}".strip())
@@ -116,3 +123,21 @@ class GlidepathAPI:
 
     def contract(self, on_behalf_of):
         return self._json("/v1/contract", on_behalf_of)
+
+    # Writes (spec phase 3). glidepath-api requires a delegate's write to name the person, so Clearance must be
+    # configured with on_behalf_of=True for these; the Idempotency-Key makes a retried re-run start no second run.
+    def _post(self, path: str, on_behalf_of: str, extra: dict[str, str] | None = None) -> Any:
+        status, body = self._get(path, on_behalf_of, method="POST", extra=extra)
+        if status in (200, 201):
+            return json.loads(body)
+        if status == 409:
+            err = json.loads(body) if body else {}
+            return {"error": {"rule": err.get("rule", "GP-API-409"), "message": err.get("error", ""), "hint": err.get("hint", "")}}
+        return self._refusal(status, body)
+
+    def rerun(self, app, pipelinerun, idempotency_key, on_behalf_of):
+        return self._post(f"/v1/apps/{self._seg(app)}/pipelineruns/{self._seg(pipelinerun)}/rerun", on_behalf_of,
+                          {"Idempotency-Key": idempotency_key})
+
+    def cancel(self, app, pipelinerun, on_behalf_of):
+        return self._post(f"/v1/apps/{self._seg(app)}/pipelineruns/{self._seg(pipelinerun)}/cancel", on_behalf_of)

@@ -1399,9 +1399,9 @@
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Prometheus scraping of the main workload's first rollout.ports entry, via kube-prometheus-stack.",
+          "description": "Prometheus scraping of the main workload's first rollout.ports entry, via kube-prometheus-stack. Off by default: Hangar apps send metrics and traces over OTLP to the cluster's collector, and a scrape of an app that serves no /metrics is a target that is always down (and a 404 traced every 30s). Turn it on for an app that exposes Prometheus metrics.",
           "default": {
-            "enabled": true,
+            "enabled": false,
             "path": "/metrics",
             "port": "",
             "interval": "30s",
@@ -1410,8 +1410,8 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": true,
-              "description": "Turns this feature on."
+              "default": false,
+              "description": "Renders the ServiceMonitor (and the NetworkPolicy rule that admits Prometheus on the scrape port)."
             },
             "path": {
               "type": "string",

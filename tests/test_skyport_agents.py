@@ -50,7 +50,7 @@ def test_only_the_service_agent_needs_the_hardened_sandbox_and_it_is_public_faci
 
 def test_nothing_in_the_demo_can_apply_a_change_except_by_spawning_narrower_runs():
     for n, d in SKY.items():
-        assert not ({"repo.pr.open", "repo.pr.open_upper", "xr.request", "argo.sync.lower", "pipeline.rerun"} & d.limits.tools), n
+        assert not ({"repo.pr.open", "repo.pr.open_upper", "xr.request", "argo.sync.lower", "glidepath.run.rerun", "glidepath.run.cancel"} & d.limits.tools), n
         assert d.limits.github_calls == 0 and d.limits.open_prs == 0, n
 
 

@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from clearance.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakePipelines, FakeRead, FakeRuns
+from clearance.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
 from clearance.dispatch import Denied, Gateway
 from clearance.glidepath_api import GlidepathAPI, GlidepathError
 from clearance.server import create_server
@@ -21,9 +21,56 @@ def open_(gw, agent="cicd-explainer", token="alice"):
     return r.data["session"]
 
 
-def test_every_glidepath_tool_is_a_read():
-    gp = [t for t in TOOLS.values() if t.name.startswith("glidepath.")]
-    assert len(gp) == 6 and all(t.tier == Tier.T0 and not t.writes_files for t in gp)
+WRITES = {"glidepath.run.rerun", "glidepath.run.cancel"}
+
+
+def test_glidepath_tools_are_reads_except_run_control():
+    gp = {t.name: t for t in TOOLS.values() if t.name.startswith("glidepath.")}
+    assert len(gp) == 8 and "pipeline.rerun" not in TOOLS, "pipeline.rerun is retired for glidepath.run.rerun"
+    assert all(t.tier == Tier.T0 for n, t in gp.items() if n not in WRITES)
+    assert all(gp[n].tier == Tier.T1 and gp[n].target == "lower" and not gp[n].writes_files for n in WRITES)
+
+
+def test_a_retried_rerun_reuses_its_key_so_glidepath_starts_one_run(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    args = {"app": "gate-api", "pipelinerun": "ci-0-build-abcde"}
+    first = gw.call("alice", sid, "glidepath.run.rerun", args)
+    again = gw.call("alice", sid, "glidepath.run.rerun", args)
+    assert first.ok and again.ok and not first.data["replayed"] and again.data["replayed"]
+    keys = {c[1][2] for c in backends.glidepath.calls if c[0] == "glidepath.rerun"}
+    assert len(keys) == 1 and next(iter(keys)).startswith("clearance.")
+    other = open_(gw, agent="coding-agent")
+    gw.call("alice", other, "glidepath.run.rerun", args)
+    assert len({c[1][2] for c in backends.glidepath.calls if c[0] == "glidepath.rerun"}) == 2, "another session is another re-run"
+    assert all(c[2]["on_behalf_of"] == "user:alice" for c in backends.glidepath.calls)
+
+
+def test_run_control_is_t1_scoped_and_validated(gw, backends):
+    sid = open_(gw)  # cicd-explainer: T0, no write tools
+    assert gw.call("alice", sid, "glidepath.run.cancel", {"app": "gate-api", "pipelinerun": "x"}).decision["rule"] in ("R006", "R007")
+    sid = open_(gw, agent="coding-agent")
+    assert gw.call("alice", sid, "glidepath.run.cancel", {"app": "gate-api", "pipelinerun": "../x"}).decision["rule"] == "R008"
+    assert gw.call("alice", sid, "glidepath.run.cancel", {"app": "gate-api", "pipelinerun": "ci-0-build-abcde"}).ok
+    ro = gw.open_session("readonly", "coding-agent")
+    assert gw.call("readonly", ro.data["session"], "glidepath.run.rerun",
+                   {"app": "gate-api", "pipelinerun": "ci-0-build-abcde"}).decision["rule"] == "R007"
+    assert [c[0] for c in backends.glidepath.calls] == ["glidepath.cancel"]
+
+
+def test_adapter_posts_writes_with_the_key_and_reads_409_as_an_answer(token):
+    o = Opener(201, b'{"name":"r-rerun-abcde","replayed":false}')
+    api = GlidepathAPI("http://gp", token, on_behalf_of=True, opener=o)
+    assert api.rerun("gate-api", "r", "clearance.k", "user:alice") == {"name": "r-rerun-abcde", "replayed": False}
+    req = o.reqs[0]
+    assert req.get_method() == "POST" and req.full_url == "http://gp/v1/apps/gate-api/pipelineruns/r/rerun"
+    assert req.get_header("Idempotency-key") == "clearance.k" and req.get_header("X-glidepath-on-behalf-of") == "user:alice"
+    conflict = GlidepathAPI("http://gp", token, opener=Opener(409, b'{"error":"exists","rule":"GP-API-409"}'))
+    assert conflict.rerun("a", "r", "k", "p")["error"]["rule"] == "GP-API-409"
+    with pytest.raises(Denied):
+        GlidepathAPI("http://gp", token, opener=Opener(403, b'{"error":"no","rule":"GP-AUTHZ-001"}')).cancel("a", "r", "p")
+    with pytest.raises(Denied) as e:
+        GlidepathAPI("http://gp", token, opener=Opener(422, b'{"error":"denied by tower-pipelinerun-shape","rule":"GP-API-422"}')).rerun("a", "r", "k", "p")
+    assert e.value.rule == "GP-API-422"
 
 
 def test_explain_reaches_glidepath_as_the_session_principal(gw, backends):
@@ -162,7 +209,7 @@ def test_an_agent_names_the_failure_id_using_only_mcp(defs, clock, token):
         from clearance.dispatch import Principal
         from clearance.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token)
-        b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakePipelines(), FakeHuman(), FakeArtifacts(), api)
+        b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
         gw = Gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
