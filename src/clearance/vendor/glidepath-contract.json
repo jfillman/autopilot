@@ -1340,7 +1340,7 @@
   ],
   "api": {
     "spec": "api/openapi.yaml",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "actions": [
       {
         "operationId": "whoami",
@@ -1418,6 +1418,20 @@
         "path": "/v1/apps/{app}/tests/{id}/report",
         "tier": "T0",
         "summary": "The JUnit report a test run left (data/artifacts/junit.xml)"
+      },
+      {
+        "operationId": "rerunRun",
+        "method": "POST",
+        "path": "/v1/apps/{app}/pipelineruns/{name}/rerun",
+        "tier": "T1",
+        "summary": "Start a copy of a PipelineRun, once per Idempotency-Key"
+      },
+      {
+        "operationId": "cancelRun",
+        "method": "POST",
+        "path": "/v1/apps/{app}/pipelineruns/{name}/cancel",
+        "tier": "T1",
+        "summary": "Cancel a PipelineRun (CancelledRunFinally, so its finally tasks still report)"
       }
     ]
   }
