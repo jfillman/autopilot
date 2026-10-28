@@ -75,6 +75,12 @@ class Gateway:
             "xr.request": lambda s, a: self.b.git.commit_xr(a["app"], a["env"], a["kind"], a["spec"]),
             "argo.sync.lower": lambda s, a: self.b.argo.sync(a["app"], a["project"]),
             "pipeline.rerun": lambda s, a: self.b.pipelines.rerun(a["app"], a["pipelinerun"]),
+            "glidepath.runs.list": lambda s, a: self.b.glidepath.runs(a["app"], a.get("sinceHours"), a.get("limit"), s.principal),
+            "glidepath.run.get": lambda s, a: self.b.glidepath.run(a["app"], a["result"], s.principal),
+            "glidepath.logs.get": lambda s, a: self.b.glidepath.log(a["app"], a["result"], a["taskRun"], s.principal),
+            "glidepath.explain": lambda s, a: self.b.glidepath.explain(a["app"], a["result"], s.principal),
+            "glidepath.releases.get": lambda s, a: self.b.glidepath.releases(a["app"], a.get("chainId"), s.principal),
+            "glidepath.contract": lambda s, a: self.b.glidepath.contract(s.principal),
             "human.request": lambda s, a: self.b.human.request(a["question"], a.get("options")),
             "run.spawn": self._spawn,
             "run.close": self._close,
@@ -167,7 +173,8 @@ class Gateway:
         ctx = policy.build_context(s, principal.id, principal.tier_ceiling, tool, args,
                                    list(d.deny_paths), list(d.repos_allow), now,
                                    api_allow=list(d.api_allow), agent_kind=d.kind,
-                                   field_deny=list(d.field_deny), field_allow=list(d.field_allow))
+                                   field_deny=list(d.field_deny), field_allow=list(d.field_allow),
+                                   glidepath_apps=list(d.glidepath_apps))
         decision = policy.evaluate(ctx)
         if not decision.allow:
             s.record_denial()
