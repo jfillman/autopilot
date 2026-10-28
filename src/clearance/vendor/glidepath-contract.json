@@ -1397,6 +1397,27 @@
         "path": "/v1/apps/{app}/releases/{chainId}",
         "tier": "T0",
         "summary": "The release record of one flow (release-tracking-<chainId>)"
+      },
+      {
+        "operationId": "getEvidence",
+        "method": "GET",
+        "path": "/v1/apps/{app}/evidence",
+        "tier": "T0",
+        "summary": "Every signature and attestation on an image, each re-verified against the cluster's Fulcio root and Rekor"
+      },
+      {
+        "operationId": "listTests",
+        "method": "GET",
+        "path": "/v1/apps/{app}/tests",
+        "tier": "T0",
+        "summary": "An app's test runs from Testkube, newest first, each read in full"
+      },
+      {
+        "operationId": "getTestReport",
+        "method": "GET",
+        "path": "/v1/apps/{app}/tests/{id}/report",
+        "tier": "T0",
+        "summary": "The JUnit report a test run left (data/artifacts/junit.xml)"
       }
     ]
   }
