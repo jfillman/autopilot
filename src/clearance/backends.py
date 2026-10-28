@@ -35,6 +35,17 @@ class PipelineBackend(Protocol):
     def rerun(self, app: str, pipelinerun: str) -> dict[str, Any]: ...
 
 
+class GlidepathBackend(Protocol):
+    """glidepath-api (glidepath_api.py is the real one). `on_behalf_of` is the session's principal,
+    recorded in Glidepath's audit line next to Clearance's own identity."""
+    def runs(self, app: str, since_hours: int | None, limit: int | None, on_behalf_of: str) -> Any: ...
+    def run(self, app: str, result: str, on_behalf_of: str) -> Any: ...
+    def log(self, app: str, result: str, task_run: str, on_behalf_of: str) -> Any: ...
+    def explain(self, app: str, result: str, on_behalf_of: str) -> Any: ...
+    def releases(self, app: str, chain_id: str | None, on_behalf_of: str) -> Any: ...
+    def contract(self, on_behalf_of: str) -> Any: ...
+
+
 class ArtifactBackend(Protocol):
     def put(self, task_id: str, name: str, content: str) -> dict[str, Any]: ...
     def get(self, task_id: str, name: str) -> str | None: ...
@@ -47,9 +58,9 @@ class HumanBackend(Protocol):
 
 
 class Backends:
-    def __init__(self, git, argo, runs, read, pipelines, human, artifacts=None):
+    def __init__(self, git, argo, runs, read, pipelines, human, artifacts=None, glidepath=None):
         self.git, self.argo, self.runs, self.read, self.pipelines, self.human = git, argo, runs, read, pipelines, human
-        self.artifacts = artifacts
+        self.artifacts, self.glidepath = artifacts, glidepath
 
 
 class Recorder:
@@ -152,5 +163,36 @@ class FakeArtifacts(Recorder):
         return self.store.get((task_id, name))
 
 
+class FakeGlidepath(Recorder):
+    def runs(self, app, since_hours, limit, on_behalf_of):
+        self._rec("glidepath.runs", app, since_hours, limit, on_behalf_of=on_behalf_of)
+        return {"runs": [{"result": "0b9d1a2e-1111-4c4c-9999-aaaaaaaaaaaa", "name": f"{app}-push-abc", "status": "failed"}]}
+
+    def run(self, app, result, on_behalf_of):
+        self._rec("glidepath.run", app, result, on_behalf_of=on_behalf_of)
+        return {"result": result, "pipelineRun": {}, "taskRuns": []}
+
+    def log(self, app, result, task_run, on_behalf_of):
+        self._rec("glidepath.log", app, result, task_run, on_behalf_of=on_behalf_of)
+        return {"log": "[build] error: no space left on device\n"}
+
+    def explain(self, app, result, on_behalf_of):
+        self._rec("glidepath.explain", app, result, on_behalf_of=on_behalf_of)
+        return {"result": result, "status": "failed", "failures": [
+            {"taskRun": f"{app}-push-abc-build", "step": "build", "log": "archived",
+             "knownFailure": {"id": "SourceVolumeFull", "hint": "Raise build.sourceVolume.size one step.",
+                              "field": "/build/sourceVolume/size"},
+             "evidence": "error: no space left on device"}]}
+
+    def releases(self, app, chain_id, on_behalf_of):
+        self._rec("glidepath.releases", app, chain_id, on_behalf_of=on_behalf_of)
+        return {"releases": []}
+
+    def contract(self, on_behalf_of):
+        self._rec("glidepath.contract", on_behalf_of=on_behalf_of)
+        return {"contractVersion": 1}
+
+
 def fake_backends() -> Backends:
-    return Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakePipelines(), FakeHuman(), FakeArtifacts())
+    return Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakePipelines(), FakeHuman(), FakeArtifacts(),
+                    FakeGlidepath())

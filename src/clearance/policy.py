@@ -8,8 +8,10 @@ guessing. Anything that raises while evaluating is a deny (R000): the gate fails
 from __future__ import annotations
 
 import copy
+import fnmatch
 import json
 import posixpath
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -79,6 +81,8 @@ RULES: tuple[Rule, ...] = (
          "Spawn fewer or smaller child runs, or finish the ones running."),
     Rule("R017", "api-not-allowed", "ctx.has_service && !ctx.service_ok",
          "that application API is not on this agent's allowlist", "Call only the services your definition names under profile.apis.allow."),
+    Rule("R022", "glidepath-app-not-allowed", "ctx.has_glidepath_app && !ctx.glidepath_app_ok",
+         "that app is not on this agent's Glidepath allowlist", "Read only the apps your definition names under profile.glidepath.apps."),
     Rule("R019", "artifact-too-large", "ctx.artifact_bytes > 1048576",
          "the artifact is larger than 1 MiB", "Store a smaller summary; artifacts are outputs, not datasets."),
     Rule("R018", "chat-outside-session", "ctx.is_chat && !ctx.session_kind",
@@ -236,10 +240,36 @@ def cicd_scope_problems(files: list[dict[str, Any]], scope: dict = CICD_SCOPE) -
     return problems
 
 
+# glidepath-api's own path rules (api/openapi.yaml): an argument that would not be a valid path
+# segment there is a bad argument here, so nothing odd is ever put into a URL.
+_GP_ARGS = {
+    "app": re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$"),
+    "result": re.compile(r"^[0-9a-f-]{36}$"),
+    "taskRun": re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$"),
+    "chainId": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$"),
+}
+
+
+def glidepath_bad_args(args: dict[str, Any]) -> int:
+    bad = 0
+    for k, pat in _GP_ARGS.items():
+        if k in args and not (isinstance(args[k], str) and pat.match(args[k])):
+            bad += 1
+    for k, hi in (("sinceHours", 744), ("limit", 1000)):
+        if k in args and not (isinstance(args[k], int) and not isinstance(args[k], bool) and 1 <= args[k] <= hi):
+            bad += 1
+    return bad
+
+
+def glidepath_app_allowed(app: str, allow: list[str]) -> bool:
+    return any(fnmatch.fnmatchcase(app, g) for g in allow)
+
+
 def build_context(session: Session, principal_id: str, principal_tier: Tier, tool: str,
                   args: dict[str, Any], deny_globs: list[str], repo_allow: list[str],
                   now, api_allow: list[str] | None = None, agent_kind: str = "task",
-                  field_deny: list[str] | None = None, field_allow: list[str] | None = None) -> dict[str, Any]:
+                  field_deny: list[str] | None = None, field_allow: list[str] | None = None,
+                  glidepath_apps: list[str] | None = None) -> dict[str, Any]:
     spec = TOOLS.get(tool)
     known = spec is not None
     files = args.get("files") if isinstance(args.get("files"), list) else []
@@ -255,6 +285,9 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
     if tool == "app.api.get" and (api_path is None or not api_path.startswith("/") or ".." in api_path
                                   or "?" in api_path or "#" in api_path or "\\" in api_path):
         missing += 1            # a bad path is a bad argument
+    gp_app = args.get("app") if tool.startswith("glidepath.") and isinstance(args.get("app"), str) else None
+    if tool.startswith("glidepath.") and spec:
+        missing += glidepath_bad_args(args)
     eff_tier = min(session.limits.tier_ceiling, principal_tier)
     tier_val = int(spec.tier) if spec else 0
     cicd = cicd_scope_problems(files) if (files and spec and spec.writes_files) else []
@@ -282,6 +315,8 @@ def build_context(session: Session, principal_id: str, principal_tier: Tier, too
             "cicd_scope_problems": len(cicd),
             "has_service": tool == "app.api.get" and service is not None,
             "service_ok": service in (api_allow or []) if service else True,
+            "has_glidepath_app": gp_app is not None,
+            "glidepath_app_ok": glidepath_app_allowed(gp_app, glidepath_apps or []) if gp_app else True,
             "is_chat": tool in ("chat.recv", "chat.send"),
             "artifact_bytes": len(args.get("content", "")) if tool == "artifact.put" and isinstance(args.get("content"), str) else 0,
             "session_kind": agent_kind == "session",

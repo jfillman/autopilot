@@ -191,6 +191,21 @@
               "uniqueItems": true
             }
           }
+        },
+        "glidepath": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Which apps the glidepath.* tools may read. Globs over app names; none listed means none.",
+          "properties": {
+            "apps": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9*][a-z0-9*-]{0,62}$"
+              },
+              "uniqueItems": true
+            }
+          }
         }
       }
     },
