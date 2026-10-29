@@ -28,6 +28,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .dispatch import AuthError, Authenticator, Gateway
+from .modelproxy import charged_tokens
 
 
 class GatewayTokenVerifier:
@@ -154,7 +155,8 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
     for `api_key`) and its session in `x-hangar-session`. Each call is decided by Gateway.model_authorize (the
     session's model allowlist, network mode, breaker and token budget, recorded in the evidence chain), forwarded
     to the route's upstream with the provider key read from `key_file` on every call (never logged, never
-    returned), and its actual usage charged back with Gateway.model_usage. Only the request body is forwarded: no
+    returned), and its actual usage charged back with Gateway.model_usage, weighted by modelproxy.USAGE_WEIGHTS (a
+    prompt-cache read costs a tenth of an input token). Only the request body is forwarded: no
     client header reaches the provider, and `model` is rewritten to the route's upstream model.
 
     Refusals are Anthropic-shaped errors with the Clearance rule: 401 for a bad token, 403 for a policy denial, 429
@@ -207,8 +209,7 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
             return _error(502, "api_error", f"the model provider answered {status} with no JSON")
         usage = doc.get("usage") if isinstance(doc, dict) else None
         if isinstance(usage, dict):
-            used = sum(int(usage.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens",
-                                                        "cache_read_input_tokens"))
+            used = charged_tokens(usage)
             await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
         return JSONResponse(doc, status_code=status)
 

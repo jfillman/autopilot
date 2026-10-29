@@ -47,8 +47,8 @@ _TOOLS = [
     ToolSpec("app.api.get", Tier.T0, "GET a path on an allowlisted application API", ("service", "path")),
     ToolSpec("chat.recv", Tier.T0, "Receive pending messages from the human in this session", ()),
     ToolSpec("chat.send", Tier.T0, "Send a message to the human in this session", ("text",)),
-    ToolSpec("repo.file.get", Tier.T0, "Read a file (or list a directory) in an allowed repo at a ref (default main)",
-             ("repo", "path"), github_cost=2, reads_repo=True),
+    ToolSpec("repo.file.get", Tier.T0, "Read a file, or list a directory (path empty: the repo root), in an allowed repo "
+             "at a ref (default main)", ("repo",), github_cost=2, reads_repo=True),
     ToolSpec("repo.pr.open", Tier.T1, "Open a PR on an app repo", ("repo", "branch", "title", "files"),
              github_cost=4, target="lower", writes_files=True),
     ToolSpec("xr.request", Tier.T1, "Commit an XR request for a lower environment", ("app", "env", "kind", "spec"),

@@ -67,3 +67,13 @@ def test_every_model_call_is_audited(gw, mp):
     mp.authorize(sid, "user:alice", "gpt-9", 5)
     recs = gw.audit.records[n:]
     assert [r["decision"] for r in recs] == ["allow", "deny"] and all(r["tool"] == "model.call" for r in recs)
+
+
+
+def test_usage_is_weighted_by_what_each_kind_of_token_costs():
+    from clearance.modelproxy import charged_tokens
+    assert charged_tokens({"input_tokens": 100, "output_tokens": 50}) == 150
+    assert charged_tokens({"input_tokens": 10, "cache_read_input_tokens": 10000, "output_tokens": 5}) == 1015
+    assert charged_tokens({"cache_creation_input_tokens": 1000}) == 1250
+    assert charged_tokens({"cache_read_input_tokens": 1}) == 1          # rounded up, never free
+    assert charged_tokens({"input_tokens": -5, "output_tokens": "x"}) == 0

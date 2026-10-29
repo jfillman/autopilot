@@ -21,6 +21,24 @@ from .limits import Network
 from .session import SessionStore
 
 
+# What a call's usage costs the session's model_tokens budget, per kind of token, by what the provider charges for it
+# relative to an uncached input token (Anthropic: a cache write is 1.25x, a cache read 0.1x; output is counted at 1
+# here, because the budget bounds work done, not money). A run that resends a long conversation under prompt caching
+# is charged for what it costs, not for every token again; one that does not cache is charged in full, as before.
+USAGE_WEIGHTS = {"input_tokens": 1.0, "output_tokens": 1.0, "cache_creation_input_tokens": 1.25,
+                 "cache_read_input_tokens": 0.1}
+
+
+def charged_tokens(usage: dict) -> int:
+    """The budget charge for one call's `usage` (Anthropic's shape), rounded up."""
+    total = 0.0
+    for k, w in USAGE_WEIGHTS.items():
+        v = usage.get(k)
+        if isinstance(v, (int, float)) and v > 0:
+            total += v * w
+    return int(-(-total // 1))
+
+
 @dataclass(frozen=True)
 class ModelRoute:
     alias: str
