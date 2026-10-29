@@ -55,6 +55,21 @@ _TOOLS = [
     ToolSpec("glidepath.run.cancel", Tier.T1, "Cancel a running PipelineRun (its finally tasks still run)", ("app", "pipelinerun"),
              target="lower"),
     ToolSpec("glidepath.contract", Tier.T0, "Glidepath's contract: cicd.yaml fields and agent scope, gates, states, knownFailures", ()),
+    # Glidepath releases (spec phase 4). Two reads, then two propose-only writes: each starts the app's release
+    # Pipeline, whose open-release-pr step opens the gitops PR with the platform's GitHub App; a human merges it.
+    # Neither Clearance nor glidepath-api holds a GitHub identity that can merge, push or approve.
+    ToolSpec("glidepath.environments.list", Tier.T0, "An app's release plan: its environments in promotion order, "
+             "Ground (lower) and Flight (upper, with cluster)", ("app",)),
+    ToolSpec("glidepath.environments.rollbackPlan", Tier.T0, "A Flight environment's current release and the earlier "
+             "healthy releases it may roll back to (newest first)", ("app", "env", "cluster")),
+    ToolSpec("glidepath.promote", Tier.T2, "Propose promoting to the next Flight environment: starts the release run "
+             "that opens the gitops PR a human merges (sourceEnv+sourceCluster, or sourceImageRepo+sourceImageTag for "
+             "a first deploy; dryRun checks everything and starts nothing); retrying the same call starts no second run",
+             ("app", "env", "cluster"), target="upper", propose_only=True),
+    ToolSpec("glidepath.rollback", Tier.T2, "Propose rolling a Flight environment back to one of its rollback plan's "
+             "targets: starts the rollback release run whose PR a human merges (dryRun starts nothing); retrying the "
+             "same call starts no second run", ("app", "env", "cluster", "targetReleaseId", "reason"),
+             target="upper", propose_only=True),
     # Airframe (airframe_tools.py). Reads only: the contract bundle, the validator, the planner, and XRs, Argo CD
     # Applications and Rollouts through an allowlisted GET-only adapter (airframe_api.py); scoped by profile.airframe.apps.
     ToolSpec("airframe.capabilities", Tier.T0, "What Airframe offers: chart fields, XR kinds, components and their outputs, "
