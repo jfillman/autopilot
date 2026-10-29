@@ -12,7 +12,7 @@ GET-only adapter in src/autopilot/airframe_api.py) pointed at a live API server 
   3. a Secret read: refused by the adapter before any request is made (counted at the transport);
   4. airframe.verify on one live component: pass/skipped results, each skip with its reason.
 
-    kubectl --context hangar-dev -n platform-system create token clearance --duration=10m > $SCRATCH/token; chmod 600 $SCRATCH/token
+    kubectl --context hangar-dev -n autopilot-system create token clearance --duration=10m > $SCRATCH/token; chmod 600 $SCRATCH/token
     kubectl config view --minify --raw --context hangar-dev -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
         | base64 -d > $SCRATCH/ca.crt
     tools/airframe_smoke.py --server https://192.168.64.240:6443 --ca-file $SCRATCH/ca.crt --token-file $SCRATCH/token \

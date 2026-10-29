@@ -8,7 +8,7 @@ newest failed one and asks `glidepath.explain` why it failed. It prints each fai
 line that matched. Every other backend is a fake; nothing here can write.
 
     kubectl --context hangar-dev -n platform-system port-forward svc/glidepath-api 18080:8080 &
-    kubectl --context hangar-dev -n platform-system create token clearance --duration=10m > /tmp/clearance-token
+    kubectl --context hangar-dev -n autopilot-system create token clearance --duration=10m > /tmp/clearance-token
     tools/glidepath_smoke.py --url http://127.0.0.1:18080 --token-file /tmp/clearance-token --app gate-api
 
 The token is read from the file on every call and never printed. Exit 0 when the newest failed run's failures all
