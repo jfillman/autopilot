@@ -10,6 +10,7 @@ tree. Nothing is found by import: a Gateway with no packs is a complete Clearanc
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Mapping, Protocol, Sequence
@@ -64,6 +65,18 @@ class Result:
 CORE_OWNED = frozenset({"run.spawn", "run.close"})
 
 
+def _durable(op):
+    """End every public operation with store.flush(), whatever path it returned by: the sessions it changed, and
+    (with a durable audit sink sharing the store's transaction) its audit records, commit together."""
+    @functools.wraps(op)
+    def run(self, *a, **k):
+        try:
+            return op(self, *a, **k)
+        finally:
+            self.store.flush()
+    return run
+
+
 class Gateway:
     def __init__(self, definitions: dict[str, AgentDefinition], store: SessionStore,
                  audit: AuditLog, auth: Authenticator, clock: Callable[[], datetime], *,
@@ -85,6 +98,7 @@ class Gateway:
             self._handlers.update({"run.spawn": self._spawn, "run.close": self._close})
 
     # -- sessions --------------------------------------------------------
+    @_durable
     def open_session(self, token: str, agent: str, limits: dict | None = None,
                      task_id: str | None = None) -> Result:
         principal = self.auth.authenticate(token)
@@ -113,6 +127,7 @@ class Gateway:
                                  "target": None, "args_sha256": args_digest({}), "result": why})
         return Result(False, {"allow": False, "rule": rule, "message": why}, error=why, audit_seq=rec["seq"])
 
+    @_durable
     def open_triggered(self, agent: str, trigger: str, task_id: str | None = None) -> Result:
         """Start a scheduled or event-driven agent. The run's identity is the agent's own
         workload identity; the trigger that started it is recorded, not trusted."""
@@ -138,6 +153,7 @@ class Gateway:
                                               "expires_at": iso(s.expires_at), "deduped": False},
                       audit_seq=rec["seq"], session=s.id)
 
+    @_durable
     def launch(self, session_id: str, run_input: dict | None = None) -> Result:
         """Start the run for a top-level session (a triggered or delegated in-cluster run; on Hangar, an
         AgentRun XR). Children are created by run.spawn; service agents are deployed as applications and have no run."""
@@ -158,6 +174,7 @@ class Gateway:
                       audit_seq=rec["seq"], session=s.id)
 
     # -- tool calls ------------------------------------------------------
+    @_durable
     def call(self, token: str, session_id: str, tool: str, args: dict[str, Any]) -> Result:
         principal = self.auth.authenticate(token)
         s = self.store.get(session_id)
