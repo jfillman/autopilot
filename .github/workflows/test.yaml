@@ -13,7 +13,7 @@ jobs:
         with:
           repository: jfillman/airframe
           path: tech/airframe
-      # glidepath's cicd.yaml scope rules and contract, vendored under src/clearance/packs/hangar/vendor/
+      # glidepath's cicd.yaml scope rules and contract, which the pinned clearance release vendors (tests/test_cicd_scope.py)
       - uses: actions/checkout@v4
         with:
           repository: jfillman/glidepath

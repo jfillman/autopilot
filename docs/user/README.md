@@ -11,7 +11,7 @@ For people who **define and run agents**. The runtime is not deployed yet (see t
   within Glidepath's contract: fields marked `open` freely, `tighten` fields (sast, imageScan, policyCheck, sbom,
   githubMerge, a step's `required`) only the strict way, and never a `human` field (secrets, allowedCommitSigners,
   deploy target, clusters, gitops repos), a Flight environment, a check-ride step or a required test step. Clearance
-  runs Glidepath's own check (`src/clearance/packs/hangar/vendor/cicd_scope.py`, vendored byte for byte) on the file's `before`
+  runs Glidepath's own check (clearance's `packs/hangar/vendor/cicd_scope.py`, vendored byte for byte) on the file's `before`
   and new content and denies with the Glidepath rule id (`GP-SCOPE-001` human field, `GP-SCOPE-002` gate loosened,
   `GP-SCOPE-003` Flight environment or tier) and its hint; every problem is listed under `problems`. Send the file's
   current content as `before`: without it the file counts as new, and a new cicd.yaml is a human's change.

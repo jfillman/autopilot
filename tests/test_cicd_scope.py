@@ -15,7 +15,8 @@ from autopilot import airframe_plan as ap
 from clearance.packs import hangar
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / "src" / "clearance" / "packs" / "hangar" / "vendor"
+# The pinned clearance release's copy (github.com/jfillman/clearance): when glidepath changes it, bump the pin.
+VENDOR = Path(hangar.__file__).resolve().parent / "vendor"
 # CI clones glidepath under HANGAR_TECH (.github/workflows/test.yaml, GLIDEPATH_REF); locally it is ~/tech.
 GLIDEPATH = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech")) / "glidepath"
 VENDORED = {"cicd_scope.py": "tools/cicd_scope.py", "glidepath-contract.json": "contract/glidepath-contract.json"}
@@ -54,7 +55,8 @@ def test_vendored_file_matches_glidepath(vendored, upstream):
     if not src.exists():
         pytest.skip(f"no glidepath checkout with {upstream} at {GLIDEPATH} (CI clones it; set HANGAR_TECH)")
     assert (VENDOR / vendored).read_bytes() == src.read_bytes(), (
-        f"src/clearance/packs/hangar/vendor/{vendored} drifted from glidepath's {upstream} - copy it over byte for byte")
+        f"clearance's packs/hangar/vendor/{vendored} drifted from glidepath's {upstream}: re-vendor it in the clearance "
+        "repo, tag a release and bump the pin in pyproject.toml")
 
 
 def test_policy_reads_the_vendored_contracts_scope_block():
