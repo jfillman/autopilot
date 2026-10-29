@@ -31,6 +31,10 @@ class ClearanceError(RuntimeError):
     """The gateway could not be asked, or did not answer as an MCP server. Never carries the token."""
 
 
+class ToolFailed(ClearanceError):
+    """The gateway answered, and the tool itself failed (a JSON-RPC error or an isError result)."""
+
+
 def urllib_post(url: str, headers: dict[str, str], body: bytes, timeout: float) -> tuple[int, bytes]:
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
@@ -47,9 +51,18 @@ class Clearance:
         self.token_file, self.session = token_file, session
         self.post, self.timeout, self.retry_wait, self.sleep = post, timeout, retry_wait, sleep
         self._id = 0
+        self.scoped = False
 
     def tools_list(self) -> list[dict[str, Any]]:
-        tools = self._tool("tools_list", {})
+        """This session's runnable tools (clearance v0.7.0's tools_list(session)): only what the session may call and
+        the deployment backs, so the model is not sent every tool's schema each turn. An older Clearance refuses the
+        argument; then the whole registry, as before (self.scoped says which)."""
+        try:
+            tools = self._tool("tools_list", {"session": self.session})
+            self.scoped = True
+        except ToolFailed:
+            tools = self._tool("tools_list", {})
+            self.scoped = False
         if not isinstance(tools, list):
             raise ClearanceError("tools_list did not return a list")
         return tools
@@ -81,7 +94,7 @@ class Clearance:
             raise ClearanceError("the gateway's answer is not JSON") from e
         if "error" in msg:
             err = msg["error"] if isinstance(msg["error"], dict) else {}
-            raise ClearanceError(f"JSON-RPC error {err.get('code')}: {err.get('message')}")
+            raise ToolFailed(f"JSON-RPC error {err.get('code')}: {err.get('message')}")
         return unwrap(msg.get("result") or {})
 
     def _send(self, body: bytes) -> tuple[int, bytes]:
@@ -110,7 +123,7 @@ def unwrap(result: dict[str, Any]) -> Any:
     else structuredContent, else the first text content parsed as JSON."""
     if result.get("isError"):
         text = "".join(c.get("text", "") for c in result.get("content") or [] if isinstance(c, dict))
-        raise ClearanceError(f"the gateway's tool failed: {text[:300]}")
+        raise ToolFailed(f"the gateway's tool failed: {text[:300]}")
     sc = result.get("structuredContent")
     if isinstance(sc, dict):
         return sc["result"] if set(sc) == {"result"} else sc

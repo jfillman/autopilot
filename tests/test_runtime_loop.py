@@ -239,3 +239,30 @@ def test_the_turn_log_names_tools_and_decisions_never_arguments():
 def test_outcome_shape(status):
     d = loop.Outcome(status).as_dict()
     assert set(d) == {"status", "turns", "final_text", "tool_calls", "reason"} and d["status"] == status
+
+
+def test_tools_list_asks_for_the_sessions_tools_and_falls_back_on_an_older_gateway(tmp_path):
+    import json as _json
+    from hangar_agent.clearance import Clearance
+    tok = tmp_path / "t"
+    tok.write_text("x")
+    sent = []
+
+    def post(url, headers, body, timeout, older=False):
+        args = _json.loads(body)["params"]["arguments"]
+        sent.append(args)
+        if older and args:
+            return 200, _json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"isError": True, "content": [{"type": "text", "text": "unexpected session"}]}}).encode()
+        return 200, _json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"result": [{"name": "a.b"}]}}}).encode()
+    c = Clearance("http://x", tok, "s-1", post=post)
+    assert c.tools_list() == [{"name": "a.b"}] and c.scoped and sent == [{"session": "s-1"}]
+    sent.clear()
+    old = Clearance("http://x", tok, "s-1", post=lambda *a: post(*a, older=True))
+    assert old.tools_list() == [{"name": "a.b"}] and not old.scoped and sent == [{"session": "s-1"}, {}]
+
+
+def test_the_system_prompt_names_the_run_and_whether_the_tools_are_scoped():
+    from hangar_agent.loop import system_prompt
+    s = system_prompt("triage-agent", {}, ids={"task id": "t-9b91", "run id": "r-1", "session": ""}, scoped=True)
+    assert "This run: task id t-9b91, run id r-1." in s and "whole registry" not in s
+    assert "whole registry" in system_prompt("x", {})

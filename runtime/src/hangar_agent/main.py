@@ -57,6 +57,7 @@ def main(env: Mapping[str, str] | None = None) -> int:
     grant = cfg.limits.get("tools")
     out = loop.run(model, gateway, agent=cfg.agent, task=cfg.task, model_name=cfg.model, max_turns=cfg.max_turns,
                    max_tokens=cfg.max_tokens, expires_at=cfg.expires_at,
+                   ids={"task id": cfg.task_id, "run id": cfg.run_id, "session": cfg.session_id},
                    grant=[t for t in grant if isinstance(t, str)] if isinstance(grant, list) else None, log=say)
     write_result(cfg.output_dir, out.as_dict())
     calls = len(out.tool_calls)
