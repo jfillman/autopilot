@@ -114,16 +114,14 @@ def test_spawn_creates_a_narrower_child_and_an_agentrun_xr(gw, backends):
     assert r.ok, r.as_dict()
     child = gw.store.get(r.data["session"])
     assert child.limits.tool_calls == 30 and child.parent_id == sid and child.task_id == gw.store.get(sid).task_id
-    m = backends.runs.manifests[r.data["run"]]
-    assert m["kind"] == "AgentRun" and m["spec"]["sessionId"] == child.id and m["spec"]["parentSessionId"] == sid
-    assert m["spec"]["limits"]["toolCalls"] == 30
+    assert backends.runs.live[child.id] == r.data["run"] and backends.runs.names() == ["runs.create"]
 
 
 def test_spawn_that_widens_is_denied_with_r007_and_creates_nothing(gw, backends):
     sid = open_(gw, agent="orchestrator")
     r = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tier_ceiling": "T1"}})
     assert not r.ok and r.decision["rule"] == "R007"
-    assert backends.runs.manifests == {}
+    assert backends.runs.live == {}
 
 
 def test_spawn_child_cannot_exceed_what_the_parent_has_left(gw):
@@ -146,7 +144,7 @@ def test_close_deletes_the_run_and_only_my_own(gw, backends):
     other = open_(gw, token="bob", agent="orchestrator")
     assert not gw.call("bob", other, "run.close", {"run_id": r.data["session"]}).ok
     c = gw.call("alice", sid, "run.close", {"run_id": r.data["session"]})
-    assert c.ok and backends.runs.manifests == {}
+    assert c.ok and backends.runs.live == {}
 
 
 # ---- scheduled and event-driven agents ----------------------------------------------

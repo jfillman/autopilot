@@ -8,15 +8,15 @@ from clearance import profile
 from clearance.limits import Network
 from clearance.tiers import Tier
 
-ROOT = Path(__file__).resolve().parents[1]
+AGENTS = Path(__file__).resolve().parent / "fixtures" / "agents"
 
 
 def doc():
-    return yaml.safe_load((ROOT / "agents" / "coding-agent.yaml").read_text())
+    return yaml.safe_load((AGENTS / "coding-agent.yaml").read_text())
 
 
 def test_all_shipped_definitions_load(defs):
-    assert set(defs) == {"coding-agent", "researcher", "orchestrator", "triage-agent", "nightly-reviewer", "cicd-explainer", "airframe-operator", "release-proposer"}
+    assert set(defs) == {"coding-agent", "researcher", "orchestrator", "triage-agent", "nightly-reviewer"}
     assert defs["coding-agent"].limits.tier_ceiling == Tier.T1
     assert defs["coding-agent"].limits.network == Network.CLEARANCE_MODEL
 

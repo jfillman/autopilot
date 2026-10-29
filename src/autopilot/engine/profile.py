@@ -12,7 +12,7 @@ import yaml
 from .limits import ComputeClass, Limits, Network
 from .tiers import Tier
 
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "agent-definition.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "agent-definition.schema.json"
 
 # Always denied, for every agent, in addition to whatever a definition adds. A definition
 # can extend this list but cannot shrink it: an agent must never be able to edit the
