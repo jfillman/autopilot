@@ -1,18 +1,14 @@
-# airframe-drafts
+# airframe-drafts (moved)
 
-Files that belong in `airframe/` but are NOT there yet, on purpose.
+The AgentRun drafts that lived here moved into airframe in AP-A3 and are no longer drafts:
 
-Airframe is ArgoCD-synced with selfHeal on dev, and a shared XRD or composition is a fleet-wide
-blast radius. These are moved in through a git worktree, one at a time, and a new composition is
-first exercised by pointing ONE XR at it through `compositionRef` (the test-via-copy rule).
+| Was | Now |
+|---|---|
+| `xrds/agentrun.yaml` | airframe `xrds/agentrun.yaml` (+ `xrds/agentrun.meta.yaml`) |
+| `compositions/agentrun.yaml` | airframe `compositions/agentrun/composition.yaml`, with golden render cases |
+| `functions/function-agentrun/` | airframe `functions/function-agentrun/` (renders an agent-sandbox `Sandbox`, not a Job) |
+| `rbac/provider-kubernetes-agentrun.yaml` | apron `templates/55-autopilot/agentrun-grants/`, with the confinement policy (D15) |
 
-| Draft | Goes to | Notes |
-|---|---|---|
-| `xrds/agentrun.yaml` | `airframe/xrds/` | namespaced XR, dev clusters only |
-| `compositions/agentrun.yaml` | `airframe/compositions/agentrun/` | single Python-function step |
-| `functions/function-agentrun/` | `airframe/functions/function-agentrun/` | pure `compose()` plus a thin gRPC wrapper; needs the usual package/Dockerfile from `function-template-python` |
-
-Also required before any of it can run (none of this is drafted yet): grants for the composed
-kinds in `provider-kubernetes-applied-resources` (Namespace, ResourceQuota, NetworkPolicy,
-ServiceAccount, batch/Job), `function-agentrun` in `functions.yaml`, and a namespaced Role that
-lets Clearance create, get, list, patch and delete `agentruns` in `autopilot-runs` and nothing else.
+This repo keeps byte-identical copies of the two files it uses: `src/clearance/vendor/agentrun_compose.py`
+(`tools/netpol_canary.py` renders with it) and `schemas/agentrun.xrd.yaml` (Clearance's manifests are validated
+against it). `tests/test_agentrun_vendor.py` fails when they drift from airframe; copy them over, never edit here.

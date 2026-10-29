@@ -34,8 +34,10 @@ from pathlib import Path
 from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "airframe-drafts" / "functions" / "function-agentrun"))
-from function.compose import ClusterConfig, compose, iso  # noqa: E402
+sys.path.insert(0, str(ROOT / "src"))
+# function-agentrun's compose(), vendored byte for byte from airframe functions/function-agentrun/function/compose.py
+# (tests/test_agentrun_vendor.py fails on drift), so the canary tests the exact policies a real AgentRun gets.
+from clearance.vendor.agentrun_compose import ClusterConfig, compose, iso  # noqa: E402
 
 # busybox 1.37, multi-arch index digest (kiac-dev is arm64, kind-prod amd64).
 IMAGE = "docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
@@ -119,7 +121,10 @@ def render_run(name: str, mode: str, svc_ns: str, now: datetime) -> list[dict]:
             "limits": {"toolCalls": 1, "githubCalls": 0, "modelTokens": 0},
         },
     }
-    comp = compose(xr, {}, now, ClusterConfig.from_input({"clearance_namespace": svc_ns}))
+    # The canary is what attests airframe.autopilotReady, so it cannot depend on it: it hands compose() a registry
+    # record that admits the run. Nothing else is faked; the policies are the ones a real run gets.
+    observed = {"cluster": "netpol-canary", "registry": {"type": "dev", "autopilotReady": "true"}}
+    comp = compose(xr, observed, now, ClusterConfig.from_input({"clearance_namespace": svc_ns}))
     if not comp.resources:
         raise RuntimeError(f"compose() rendered nothing for mode {mode}: {comp.status}")
     keep = ("namespace", "quota", "netpol-default-deny", "netpol-egress")
@@ -201,7 +206,9 @@ def main(argv: list[str] | None = None) -> int:
     sfx = secrets.token_hex(3)
     now = datetime.now(timezone.utc)
     svc_ns, ctl_ns = f"canary-svc-{sfx}", f"canary-ctl-{sfx}"
-    run_name, none_name = f"canary-{sfx}", f"canary-none-{sfx}"
+    # AgentRun names are r-<hex> (the XRD and compose() enforce it), so the run namespaces are agent-r-ca<sfx> and
+    # agent-r-cb<sfx>; the hangar.io/agent=netpol-canary label tells them apart from real runs.
+    run_name, none_name = f"r-ca{sfx}", f"r-cb{sfx}"
     run_docs, none_docs = render_run(run_name, "clearance", svc_ns, now), render_run(none_name, "none", svc_ns, now)
     run_ns, none_ns = run_docs[0]["metadata"]["name"], none_docs[0]["metadata"]["name"]
     namespaces = [run_ns, none_ns, svc_ns, ctl_ns]

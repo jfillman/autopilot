@@ -38,7 +38,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 | MCP surface | `server.py` | three tools on the mcp SDK v2 |
 | AppSpec and the planner | `airframe_plan.py`, `schemas/appspec.schema.json` (vendored from airframe's contract) | the parachute test: one statement of intent to an ordered change set; its cicd.yaml patch is split by Glidepath's scope rules: the agent's half (Ground environments and their deploy steps, added without dropping a step) passes R021, and Flight environments, the release step and retiring pre-ADR-0019 keys are a separate `cicd-flight` step a human merges; `config`/`overrides` take any human-owned chart value (second sentence: `examples/mynewpythonapp.appspec.yaml`, five environments, canary with pauses, HPA, PDB, a prod-only route); validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` of every environment |
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
-| AgentRun composition | `airframe-drafts/functions/function-agentrun/` | pure `compose()`; expiry, fail-closed validation, per-network-mode policy |
+| AgentRun composition | lives in airframe (`xrds/agentrun.yaml`, `compositions/agentrun/`, `functions/function-agentrun/`); `src/clearance/vendor/agentrun_compose.py` and `schemas/agentrun.xrd.yaml` are byte-identical copies | the canary renders with the vendored `compose()`; Clearance's AgentRun manifests are validated against the vendored XRD; `tests/test_agentrun_vendor.py` fails on drift |
 | Network-policy canary (AP-A1) | `tools/netpol_canary.py` | renders a run's real policies with `compose()` on a live cluster and proves each denial against a no-policy control; its pass is what a person attests when setting the registry's `airframe.autopilotReady` |
 
 ## What is NOT built
@@ -48,7 +48,6 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`). T
 * Authentication adapters: Tower/OAuth introspection for delegated agents, TokenReview for workloads.
 * The HTTP transport for MCP, and the model proxy's HTTP forwarder.
 * The interceptor's `/agent-installation-token` route, the `agent-scope` and `agent-identity` CI gates.
-* Anything in `airframe-drafts/` has never been applied to a cluster or rendered by Crossplane.
-  Unit tests prove the composition logic, not that provider-kubernetes accepts what it renders.
-* Time-driven re-invocation: the function sets a response TTL so Crossplane calls it again near
-  expiry, but that behaviour is **unverified** on your Crossplane version. Test it first.
+* The AgentRun composition has not run under Crossplane on a cluster yet (AP-A3's copy-test, airframe
+  `docs/admin/agentrun-copy-test.md`). Expiry does not depend on Crossplane re-invocation (U2: about every 60 s):
+  the Sandbox's `shutdownTime` is the deadline.

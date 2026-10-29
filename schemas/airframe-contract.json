@@ -956,6 +956,194 @@
   },
   "generated_by": "tools/gen_contract.py",
   "kinds": {
+    "agentrun": {
+      "agentNotes": [
+        "Rendered by function-agentrun (Python, functions/function-agentrun; unit tests in CI, in the compositions job). Build and push per its README; the Function package is installed per cluster, with HANGAR_CLUSTER_NAME in its DeploymentRuntimeConfig.",
+        "Never create, patch or delete an AgentRun by hand outside a copy-test: Clearance is the only intended client. spec is immutable except frozen (false to true only), so a run's deadline can never be extended.",
+        "Expiry does not depend on this XR being reconciled: the Sandbox's shutdownTime deletes the pod. With function-agentrun down, the pod still ends at shutdownTime; the namespace waits for the next reconcile.",
+        "Ready=True with no composed resources means nothing is running (Expired, Drained, Rejected): read RunReady, not Ready."
+      ],
+      "conditions": [
+        {
+          "reasons": [
+            {
+              "meaning": "The run's objects are being created and its Sandbox does not report Ready yet (image pull, scheduling, quota). The message names the Sandbox.",
+              "reason": "AgentRunProvisioning",
+              "status": "False"
+            },
+            {
+              "meaning": "The Sandbox reports Ready; the agent pod is running. It ends at shutdownTime at the latest.",
+              "reason": "AgentRunRunning",
+              "status": "True"
+            },
+            {
+              "meaning": "The agent exited 0. The run is kept for the completion grace period (5 minutes by default), then drained.",
+              "reason": "AgentRunSucceeded",
+              "status": "True"
+            },
+            {
+              "meaning": "The agent pod failed. It is not restarted (failedPodPolicy Retain); the run drains after the grace period.",
+              "reason": "AgentRunFailed",
+              "status": "False"
+            },
+            {
+              "meaning": "Clearance set spec.frozen (the session breaker tripped). Egress is cut, the pod is kept for forensics until freezeHoldMinutes, then the run expires.",
+              "reason": "AgentRunFrozen",
+              "status": "False"
+            },
+            {
+              "meaning": "Past expiresAt, or the freeze hold ended. Nothing renders; Crossplane is removing the run namespace. Final.",
+              "reason": "AgentRunExpired",
+              "status": "False"
+            },
+            {
+              "meaning": "The agent finished and the grace period is over; everything was removed. status.outcome keeps how it exited. Final.",
+              "reason": "AgentRunDrained",
+              "status": "False"
+            },
+            {
+              "meaning": "The request can't be honoured exactly on this cluster and nothing was created; the message says why (no autopilotReady, hardened without a runtime class, unknown compute class, TTL over the cap, a too-broad allowlist, input over 4 KiB). Final; never downgraded.",
+              "reason": "AgentRunRejected",
+              "status": "False"
+            }
+          ],
+          "type": "RunReady"
+        }
+      ],
+      "kind": "AgentRun",
+      "knownFailures": [
+        {
+          "condition": "Synced",
+          "example": "cannot apply composed resource \"sandbox\": observe failed: cannot get object: no matches for kind \"Sandbox\" in version \"agents.x-k8s.io/v1beta1\"",
+          "hint": "Install the pinned agent-sandbox Application (the cluster repo's 55-autopilot/agent-sandbox) before creating AgentRuns.",
+          "id": "SandboxCRDMissing",
+          "match": "no matches for kind \"Sandbox\" in (version|group) \"agents\\.x-k8s\\.io",
+          "meaning": "The agent-sandbox controller and its CRD are not installed on this cluster."
+        },
+        {
+          "condition": "Synced",
+          "example": "observe failed: cannot get object: namespaces \"agent-r-1a2b3c\" is forbidden: User \"system:serviceaccount:crossplane-system:provider-kubernetes\" cannot get resource \"namespaces\" in API group \"\" at the cluster scope",
+          "hint": "Sync the cluster repo's 55-autopilot/agentrun-grants Application and check provider-kubernetes runs as the stable service account provider-kubernetes.",
+          "id": "ProviderKubernetesForbidden",
+          "match": "is forbidden: User \"system:serviceaccount:crossplane-system:provider-kubernetes[^\"]*\" cannot",
+          "meaning": "provider-kubernetes lacks the AgentRun grants (ClusterRole hangar-agentrun-objects), or still runs under its revision-hashed service account."
+        },
+        {
+          "condition": "Synced",
+          "example": "cannot create object: admission webhook denied: namespaces \"default\" is forbidden: ValidatingAdmissionPolicy 'autopilot-agentrun-provider-confinement' with binding 'autopilot-agentrun-provider-confinement' denied request: provider-kubernetes may manage namespaces only as Autopilot run namespaces (agent-r-*), not default",
+          "hint": "Report it with the message; do not loosen the policy. The policy is D15's containment for provider-kubernetes's shared grant.",
+          "id": "AgentRunAdmissionDenied",
+          "match": "ValidatingAdmissionPolicy .autopilot-agentrun-provider-confinement",
+          "meaning": "The cluster's confinement policy refused what provider-kubernetes tried to write. For an AgentRun that means the function rendered something outside its contract."
+        }
+      ],
+      "outputs": {},
+      "owner": "human",
+      "role": "platform",
+      "sources": [
+        {
+          "createdBy": "composition",
+          "note": "Pod security restricted, labelled hangar.io/agent-run=true, never hangar.io/ephemeral-env.",
+          "object": {
+            "kind": "Namespace",
+            "name": "agent-{name}"
+          }
+        },
+        {
+          "createdBy": "composition",
+          "note": "In the run namespace. shutdownTime is spec.expiresAt and shutdownPolicy Delete; the agent-sandbox controller creates the pod `agent` from it.",
+          "object": {
+            "kind": "Sandbox",
+            "name": "agent"
+          }
+        },
+        {
+          "createdBy": "composition",
+          "object": {
+            "kind": "NetworkPolicy",
+            "name": "default-deny"
+          }
+        },
+        {
+          "createdBy": "composition",
+          "note": "The only service account a run pod may use (the cluster's admission policy for provider-kubernetes enforces it). No token is mounted; the pod gets projected tokens for the clearance and model-proxy audiences only.",
+          "object": {
+            "kind": "ServiceAccount",
+            "name": "run"
+          }
+        }
+      ],
+      "summary": "One bounded, disposable run of an Autopilot agent in its own sandboxed namespace (agent-<name>), as an agent-sandbox Sandbox with a hard deadline (shutdownTime) that needs no gateway, no Crossplane and no function to enforce. Created by Clearance through the Kubernetes API in autopilot-runs, on an autopilotReady control-plane cluster only.",
+      "verify": [
+        {
+          "check": "The AgentRun's RunReady condition has reason AgentRunRunning or AgentRunSucceeded.",
+          "id": "xr-run-ready",
+          "run": {
+            "kind": "condition",
+            "reasons": [
+              "AgentRunRunning",
+              "AgentRunSucceeded"
+            ],
+            "type": "RunReady"
+          }
+        },
+        {
+          "check": "status.phase is Running or Succeeded.",
+          "id": "phase-live",
+          "run": {
+            "in": [
+              "Running",
+              "Succeeded"
+            ],
+            "kind": "xrField",
+            "path": "status.phase"
+          }
+        },
+        {
+          "check": "The run namespace agent-{name} exists and is Active.",
+          "id": "run-namespace",
+          "run": {
+            "clusterScoped": true,
+            "equals": "Active",
+            "field": "status.phase",
+            "kind": "resource",
+            "name": "agent-{name}",
+            "resource": "namespace"
+          }
+        },
+        {
+          "check": "The Sandbox agent in agent-{name} reports Ready (its pod is running).",
+          "id": "sandbox-ready",
+          "run": {
+            "condition": {
+              "status": "True",
+              "type": "Ready"
+            },
+            "kind": "resource",
+            "name": "agent",
+            "namespace": "agent-{name}",
+            "resource": "sandboxes.agents.x-k8s.io"
+          }
+        },
+        {
+          "check": "The NetworkPolicy default-deny exists in agent-{name}.",
+          "id": "default-deny",
+          "run": {
+            "kind": "resource",
+            "name": "default-deny",
+            "namespace": "agent-{name}",
+            "resource": "networkpolicy"
+          }
+        },
+        {
+          "check": "The run's egress is what its network mode allows and no more. A port-forward cannot prove this; run autopilot's tools/netpol_canary.py against the cluster, which renders the same policies with function-agentrun's compose() and pairs every denial with a control.",
+          "id": "egress-enforced",
+          "run": {
+            "kind": "manual"
+          }
+        }
+      ]
+    },
     "applicationenvironment": {
       "agentNotes": [
         "values.yaml in the app's gitops repo is a create-once scaffold (ledgered and retired); the identity files and SecretStore requests stay Update-managed because only this composition writes them.",
@@ -3050,6 +3238,15 @@
     }
   },
   "xrds": {
+    "AgentRun": {
+      "agentSummary": "One bounded, disposable run of an Autopilot agent in its own sandboxed namespace, with a hard deadline that needs no gateway to enforce.",
+      "apiVersion": "catalog.hangar.io/v1alpha1",
+      "fieldsDescribed": 25,
+      "fieldsTotal": 25,
+      "file": "agentrun.yaml",
+      "group": "catalog.hangar.io",
+      "plural": "agentruns"
+    },
     "ApplicationEnvironment": {
       "agentSummary": "Adds a deploy environment (e.g. staging, prod) on a target cluster for an app that's already been onboarded.",
       "apiVersion": "catalog.hangar.io/v1alpha1",

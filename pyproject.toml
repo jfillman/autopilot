@@ -16,7 +16,6 @@ test = ["pytest>=8"]
 packages = ["src/clearance"]
 
 [tool.pytest.ini_options]
-# airframe-drafts/ is not tested here: its function tests need the Crossplane function SDK,
-# which this package does not install. Test the drafts on their own when they get a CI job.
+# function-agentrun's tests live with it in airframe (functions/function-agentrun, CI's compositions job).
 testpaths = ["tests"]
 pythonpath = ["src"]

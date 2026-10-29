@@ -1671,6 +1671,300 @@
                 "if": {
                   "properties": {
                     "type": {
+                      "const": "agentrun"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "What this run may do. Every field is something a run may only narrow relative to its agent definition (Clearance enforces that) and the composition holds to the cluster's own caps. The spec is fixed at creation; only frozen may change, and only from false to true.",
+                      "required": [
+                        "agent",
+                        "image",
+                        "expiresAt",
+                        "taskId",
+                        "sessionId",
+                        "compute",
+                        "sandbox",
+                        "network",
+                        "limits"
+                      ],
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "has(self.parentSessionId) == has(oldSelf.parentSessionId) && has(self.sidecars) == has(oldSelf.sidecars) && has(self.input) == has(oldSelf.input)",
+                          "message": "an AgentRun's spec is fixed at creation: parentSessionId, sidecars and input can't be added or removed afterwards"
+                        }
+                      ],
+                      "properties": {
+                        "agent": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9-]{1,40}$",
+                          "description": "Name of the durable agent definition this run instantiates (autopilot agents/<agent>.yaml).",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "agent can't change after creation"
+                            }
+                          ]
+                        },
+                        "image": {
+                          "type": "string",
+                          "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$",
+                          "description": "The agent's container image, pinned by digest (registry/repo@sha256:...). A tag is rejected, because what runs must be what was signed.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "image can't change after creation"
+                            }
+                          ]
+                        },
+                        "framework": {
+                          "type": "string",
+                          "enum": [
+                            "claude-agent-sdk",
+                            "langgraph",
+                            "generic"
+                          ],
+                          "default": "generic",
+                          "description": "The agent framework, recorded for the audit and the Flight recorder. It does not change what is rendered: every framework gets the same runtime contract (environment, files, tokens).",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "framework can't change after creation"
+                            }
+                          ]
+                        },
+                        "sandbox": {
+                          "type": "string",
+                          "enum": [
+                            "standard",
+                            "hardened"
+                          ],
+                          "description": "standard: pod security restricted, non-root, read-only root filesystem, all capabilities dropped. hardened adds the cluster's runtime class for it (gVisor or Kata, from the composition's runtime_classes). If the cluster has none, the run is Rejected; it is never silently downgraded to standard.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "sandbox can't change after creation"
+                            }
+                          ]
+                        },
+                        "compute": {
+                          "type": "string",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large",
+                            "gpu"
+                          ],
+                          "description": "Compute class. The composition's input declares which classes this cluster has and their requests and limits; a class the cluster lacks is Rejected.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "compute can't change after creation"
+                            }
+                          ]
+                        },
+                        "network": {
+                          "type": "object",
+                          "required": [
+                            "mode"
+                          ],
+                          "description": "Egress, ordered by reach. Every run gets a default-deny NetworkPolicy (ingress and egress); the mode adds exactly these exceptions: none (nothing, not even DNS), clearance (DNS and the Clearance gateway), clearance+model (also the model proxy), allowlist (also the listed CIDRs).",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self.mode == 'allowlist' ? (has(self.allowCidrs) && size(self.allowCidrs) > 0) : !has(self.allowCidrs)",
+                              "message": "allowCidrs is required with network mode allowlist and not allowed with any other mode"
+                            },
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "network can't change after creation; freeze the run to cut its egress"
+                            }
+                          ],
+                          "properties": {
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "none",
+                                "clearance",
+                                "clearance+model",
+                                "allowlist"
+                              ],
+                              "description": "The egress mode (see network)."
+                            },
+                            "allowCidrs": {
+                              "type": "array",
+                              "maxItems": 8,
+                              "description": "Only with mode allowlist: IPv4 CIDRs the run may reach, besides Clearance and the model proxy. A /0 is not accepted by this pattern, and the function also rejects loopback and link-local ranges.",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/([1-9]|[12][0-9]|3[0-2])$",
+                                "description": "An IPv4 CIDR with a prefix of /1 to /32."
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Hard deadline (RFC 3339, UTC). It becomes the Sandbox's shutdownTime, so the agent-sandbox controller deletes the run's pod at this instant with no Clearance and no Crossplane involved. Past it the composition renders nothing and Crossplane removes the run namespace. At most the cluster's max_ttl_minutes after the XR's creation.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "expiresAt can't change after creation: a run's deadline is never extended"
+                            }
+                          ]
+                        },
+                        "taskId": {
+                          "type": "string",
+                          "pattern": "^t-[a-f0-9]{6,32}$",
+                          "description": "The task this run belongs to (Flight recorder correlation id), passed to the run as HANGAR_TASK_ID.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "taskId can't change after creation"
+                            }
+                          ]
+                        },
+                        "sessionId": {
+                          "type": "string",
+                          "pattern": "^s-[a-f0-9]{6,32}$",
+                          "description": "Clearance's session id for this run, passed to the run as HANGAR_SESSION_ID. The XR's name is r-<the same hex>.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "sessionId can't change after creation"
+                            }
+                          ]
+                        },
+                        "parentSessionId": {
+                          "type": "string",
+                          "pattern": "^s-[a-f0-9]{6,32}$",
+                          "description": "For a child run of a team, the parent's session id. Clearance narrows a child to its parent's limits.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "parentSessionId can't change after creation"
+                            }
+                          ]
+                        },
+                        "limits": {
+                          "type": "object",
+                          "required": [
+                            "toolCalls",
+                            "githubCalls",
+                            "modelTokens"
+                          ],
+                          "description": "The run's narrowed budgets, passed to it as HANGAR_LIMITS for its own information. Clearance is what enforces them, at each call.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "limits can't change after creation"
+                            }
+                          ],
+                          "properties": {
+                            "toolCalls": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "Tool calls the session may make through Clearance."
+                            },
+                            "githubCalls": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "GitHub API calls the session may cause."
+                            },
+                            "modelTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "Model tokens the session may spend through the model proxy."
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "sidecars": {
+                          "type": "array",
+                          "maxItems": 4,
+                          "description": "Extra containers from the agent definition (tool servers and the like). Each gets the same lockdown as the agent container, a small fixed resource budget, /tmp only, and none of the run's environment or tokens.",
+                          "x-kubernetes-list-type": "map",
+                          "x-kubernetes-list-map-keys": [
+                            "name"
+                          ],
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "sidecars can't change after creation"
+                            }
+                          ],
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "name",
+                              "image"
+                            ],
+                            "description": "One sidecar container.",
+                            "x-kubernetes-validations": [
+                              {
+                                "rule": "self.name != 'agent'",
+                                "message": "the sidecar name agent is the agent container's"
+                              }
+                            ],
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]{1,30}$",
+                                "description": "Container name; not agent."
+                              },
+                              "image": {
+                                "type": "string",
+                                "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$",
+                                "description": "Image pinned by digest."
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "input": {
+                          "type": "object",
+                          "x-kubernetes-preserve-unknown-fields": true,
+                          "maxProperties": 64,
+                          "description": "Small structured input, passed to the run as HANGAR_INPUT (compact JSON). Over 4 KiB of JSON is Rejected: pass a reference (an artifact name) for anything larger."
+                        },
+                        "frozen": {
+                          "type": "boolean",
+                          "default": false,
+                          "description": "Set by Clearance when the session breaker trips. Cuts all egress (only the default-deny policy stays) and keeps the run for forensics for freezeHoldMinutes, then expires it. A frozen run can't be unfrozen.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "!oldSelf || self",
+                              "message": "a frozen run can't be unfrozen"
+                            }
+                          ]
+                        },
+                        "freezeHoldMinutes": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 240,
+                          "default": 15,
+                          "description": "How long a frozen run is kept for forensics before it expires. Never past expiresAt.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "freezeHoldMinutes can't change after creation"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
                       "const": "applicationenvironment"
                     }
                   }

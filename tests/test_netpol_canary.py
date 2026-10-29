@@ -59,9 +59,9 @@ def test_no_internet_on_the_cluster_fails_the_run_for_a_person_to_judge():
 
 
 def test_clearance_mode_renders_default_deny_and_only_dns_and_clearance_egress():
-    docs = nc.render_run("canary-x", "clearance", "canary-svc-x", NOW)
+    docs = nc.render_run("r-ca0001", "clearance", "canary-svc-x", NOW)
     kinds = {(d["kind"], d["metadata"]["name"]) for d in docs}
-    assert ("Namespace", "agent-canary-x") in kinds
+    assert ("Namespace", "agent-r-ca0001") in kinds
     deny = next(d for d in docs if d["metadata"]["name"] == "default-deny")
     assert deny["spec"] == {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}
     egress = next(d for d in docs if d["metadata"]["name"] == "allow-egress")["spec"]["egress"]
@@ -73,7 +73,7 @@ def test_clearance_mode_renders_default_deny_and_only_dns_and_clearance_egress()
 
 
 def test_none_mode_renders_no_egress_policy_at_all():
-    docs = nc.render_run("canary-none-x", "none", "canary-svc-x", NOW)
+    docs = nc.render_run("r-cb0001", "none", "canary-svc-x", NOW)
     assert not any(d["metadata"]["name"] == "allow-egress" for d in docs)
 
 
