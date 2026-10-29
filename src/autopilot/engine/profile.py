@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +19,10 @@ SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "agent-definitio
 # controls that constrain it.
 #
 # cicd.yaml is not here (2026-10-25): an agent may change it in a pull request, but only field by
-# field, under Glidepath's own scope rules (GP-SCOPE-001/002/003, src/clearance/vendor/cicd_scope.py
-# vendored from glidepath): `open` fields freely, `tighten` fields only the strict way, never a
-# `human` field, a Flight environment, a check-ride step or a required test step. policy.py runs
-# that check on every changed cicd.yaml. The generated pipeline (.tekton/) stays denied whole.
+# field, under Glidepath's own scope rules (GP-SCOPE-001/002/003, vendored from glidepath into
+# src/clearance/packs/hangar/vendor/cicd_scope.py): `open` fields freely, `tighten` fields only the strict
+# way, never a `human` field, a Flight environment, a check-ride step or a required test step. The Hangar
+# pack's R021 runs that check on every changed cicd.yaml. The generated pipeline (.tekton/) stays denied whole.
 BASELINE_DENY_PATHS: tuple[str, ...] = (
     ".tekton/**", "**/.tekton/**",
     "CODEOWNERS", "**/CODEOWNERS", ".github/**",
@@ -60,8 +60,6 @@ class AgentDefinition:
     limits: Limits
     repos_allow: tuple[str, ...]
     api_allow: tuple[str, ...]
-    glidepath_apps: tuple[str, ...]
-    airframe_apps: tuple[str, ...]
     deny_paths: tuple[str, ...]
     field_allow: tuple[str, ...]
     field_deny: tuple[str, ...]
@@ -70,6 +68,9 @@ class AgentDefinition:
     sandbox: str
     sidecars: tuple[dict[str, str], ...]
     triggers: tuple[dict[str, Any], ...]
+    # The profile as written. Core reads only the fields above; a pack reads its own sections from
+    # here (clearance.packs.hangar: profile.glidepath.apps, profile.airframe.apps).
+    raw_profile: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
 def _schema() -> dict:
@@ -101,14 +102,13 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         service_account=doc["identity"].get("serviceAccount"), limits=limits,
         repos_allow=tuple(repos.get("allow", [])),
         api_allow=tuple(p.get("apis", {}).get("allow", [])),
-        glidepath_apps=tuple(p.get("glidepath", {}).get("apps", [])),
-        airframe_apps=tuple(p.get("airframe", {}).get("apps", [])),
         deny_paths=tuple(dict.fromkeys(BASELINE_DENY_PATHS + extra_deny)),
         field_allow=tuple(repos.get("fieldAllow", [])),
         field_deny=tuple(dict.fromkeys(BASELINE_DENY_FIELDS + extra_field_deny)),
         image=rt.get("image"), framework=rt.get("framework", "generic"),
         sandbox=rt.get("sandbox", "standard"), sidecars=tuple(rt.get("sidecars", [])),
         triggers=tuple(doc.get("triggers", [{"type": "manual"}])),
+        raw_profile=p,
     )
 
 

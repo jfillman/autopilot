@@ -1,7 +1,8 @@
 """MCP surface for the gateway core (mcp SDK v2, `MCPServer`).
 
 Deliberately thin: three tools, all delegating to Gateway, which owns every decision.
-  tools_list    what this deployment offers, with tiers and required arguments
+  tools_list    what this deployment offers (the registry its Gateway was built with: core plus
+                its packs), with tiers and required arguments
   session_open  open a session for an agent definition, optionally narrowing it with requested limits
   call          call one tool inside a session
 
@@ -17,7 +18,6 @@ from typing import Any, Callable
 from mcp.server.mcpserver import MCPServer
 
 from .dispatch import Gateway
-from .tiers import TOOLS
 
 
 def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = None) -> MCPServer:
@@ -30,7 +30,7 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
     def tools_list() -> list[dict[str, Any]]:
         return [{"name": t.name, "tier": t.tier.name, "description": t.description,
                  "required_args": list(t.required_args), "propose_only": t.propose_only}
-                for t in TOOLS.values()]
+                for t in gateway.tools.values()]
 
     @mcp.tool(description="Open a session for an agent definition. `limits` may only narrow the definition's limits.")
     def session_open(agent: str, limits: dict[str, Any] | None = None) -> dict[str, Any]:

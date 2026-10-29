@@ -1,5 +1,8 @@
 """Tool tiers and the tool registry.
 
+The registry here is the core one: tools any Clearance deployment can offer. A pack (pack.py)
+contributes more, e.g. clearance.packs.hangar's glidepath.* and airframe.* tools.
+
 T0 read-only. T1 reversible writes (a PR a human can revert, a lower-env sync, a child
 run). T2 propose-only: the tool may open a PR against an upper environment, but a human
 merge is what applies it. T3 is never exposed to any identity; T3 names are registered
@@ -41,51 +44,6 @@ _TOOLS = [
     ToolSpec("logs.query", Tier.T0, "Run a read-only LogQL query", ("logql",)),
     ToolSpec("argo.app.get", Tier.T0, "Read an ArgoCD application", ("app",)),
     ToolSpec("app.api.get", Tier.T0, "GET a path on an allowlisted application API", ("service", "path")),
-    # Glidepath (glidepath-api, glidepath docs/admin/api.md). Reads, scoped by profile.glidepath.apps.
-    ToolSpec("glidepath.runs.list", Tier.T0, "List an app's CI/CD runs, newest first (sinceHours, limit optional)", ("app",)),
-    ToolSpec("glidepath.run.get", Tier.T0, "Read one run: its PipelineRun and TaskRuns", ("app", "result")),
-    ToolSpec("glidepath.logs.get", Tier.T0, "Read one TaskRun's archived step logs", ("app", "result", "taskRun")),
-    ToolSpec("glidepath.explain", Tier.T0, "Why a run failed: a knownFailures id, its hint and the cicd.yaml field to change",
-             ("app", "result")),
-    ToolSpec("glidepath.releases.get", Tier.T0, "Read an app's release records, or one by chainId", ("app",)),
-    # Glidepath writes (spec phase 3): through glidepath-api, which authorizes Clearance and audits the principal too.
-    # These replace pipeline.rerun, which went to the cluster directly.
-    ToolSpec("glidepath.run.rerun", Tier.T1, "Re-run a PipelineRun (a copy of its spec); retrying the same call starts no second run",
-             ("app", "pipelinerun"), target="lower"),
-    ToolSpec("glidepath.run.cancel", Tier.T1, "Cancel a running PipelineRun (its finally tasks still run)", ("app", "pipelinerun"),
-             target="lower"),
-    ToolSpec("glidepath.contract", Tier.T0, "Glidepath's contract: cicd.yaml fields and agent scope, gates, states, knownFailures", ()),
-    # Glidepath releases (spec phase 4). Two reads, then two propose-only writes: each starts the app's release
-    # Pipeline, whose open-release-pr step opens the gitops PR with the platform's GitHub App; a human merges it.
-    # Neither Clearance nor glidepath-api holds a GitHub identity that can merge, push or approve.
-    ToolSpec("glidepath.environments.list", Tier.T0, "An app's release plan: its environments in promotion order, "
-             "Ground (lower) and Flight (upper, with cluster)", ("app",)),
-    ToolSpec("glidepath.environments.rollbackPlan", Tier.T0, "A Flight environment's current release and the earlier "
-             "healthy releases it may roll back to (newest first)", ("app", "env", "cluster")),
-    ToolSpec("glidepath.promote", Tier.T2, "Propose promoting to the next Flight environment: starts the release run "
-             "that opens the gitops PR a human merges (sourceEnv+sourceCluster, or sourceImageRepo+sourceImageTag for "
-             "a first deploy; dryRun checks everything and starts nothing); retrying the same call starts no second run",
-             ("app", "env", "cluster"), target="upper", propose_only=True),
-    ToolSpec("glidepath.rollback", Tier.T2, "Propose rolling a Flight environment back to one of its rollback plan's "
-             "targets: starts the rollback release run whose PR a human merges (dryRun starts nothing); retrying the "
-             "same call starts no second run", ("app", "env", "cluster", "targetReleaseId", "reason"),
-             target="upper", propose_only=True),
-    # Airframe (airframe_tools.py). Reads only: the contract bundle, the validator, the planner, and XRs, Argo CD
-    # Applications and Rollouts through an allowlisted GET-only adapter (airframe_api.py); scoped by profile.airframe.apps.
-    ToolSpec("airframe.capabilities", Tier.T0, "What Airframe offers: chart fields, XR kinds, components and their outputs, "
-             "conditions and verify checks (kind or section optional)", ()),
-    ToolSpec("airframe.validate", Tier.T0, "Validate proposed env-file or values content with airframe-validate: AF-* rule ids, "
-             "JSON paths and fix hints (documents: [{path, content}])", ("documents",)),
-    ToolSpec("airframe.explain", Tier.T0, "What an AF-* rule id, a condition reason or a knownFailures id means, and how to fix it",
-             ("rule",)),
-    ToolSpec("airframe.plan", Tier.T0, "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
-             ("spec",)),
-    ToolSpec("airframe.status", Tier.T0, "An app's (or one environment's) XR conditions: reason, hint, stale-status detection",
-             ("app",)),
-    ToolSpec("airframe.describe", Tier.T0, "One environment: its XRs, the Argo CD Application syncing it and its Rollout",
-             ("app", "env")),
-    ToolSpec("airframe.verify", Tier.T0, "Run an XR's sidecar verify checks from its status alone; anything needing a Secret, "
-             "port-forward or exec is skipped with the reason", ("app", "kind", "name")),
     ToolSpec("chat.recv", Tier.T0, "Receive pending messages from the human in this session", ()),
     ToolSpec("chat.send", Tier.T0, "Send a message to the human in this session", ("text",)),
     ToolSpec("repo.pr.open", Tier.T1, "Open a PR on an app repo", ("repo", "branch", "title", "files"),
@@ -104,13 +62,32 @@ _TOOLS = [
              propose_only=True, writes_files=True),
 ]
 
-TOOLS: dict[str, ToolSpec] = {t.name: t for t in _TOOLS}
+
+def registry(*groups: "tuple[ToolSpec, ...] | list[ToolSpec]") -> dict[str, ToolSpec]:
+    """One registry from several groups of specs (core, then each pack's). A name registered
+    twice, or a tripwire name registered as a tool, is a configuration error, never an override."""
+    out: dict[str, ToolSpec] = {}
+    for group in groups:
+        for t in group:
+            if t.name in out:
+                raise ValueError(f"tool {t.name!r} is registered twice")
+            if t.name in TRIPWIRES:
+                raise ValueError(f"tool {t.name!r} is a T3 tripwire and can never be registered")
+            out[t.name] = t
+    return out
+
 
 # T3: never exposed. Registered by name only so an attempt is loud, not merely unknown.
 TRIPWIRES = frozenset({
     "k8s.exec", "k8s.apply", "k8s.delete", "secrets.read", "iam.grant",
     "argo.sync.upper", "argo.app.delete", "branch_protection.update",
 })
+
+
+# The core registry: tools whose policy is Clearance's own and that every deployment can offer.
+# A pack (pack.py) adds its own; Gateway.tools is the registry one deployment was built with.
+CORE_TOOLS: tuple[ToolSpec, ...] = tuple(_TOOLS)
+TOOLS: dict[str, ToolSpec] = registry(CORE_TOOLS)
 
 
 def effective_tier_name(t: Tier) -> str:
