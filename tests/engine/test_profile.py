@@ -99,3 +99,14 @@ def test_a_glidepath_event_trigger_validates(tmp_path):
 def profile_dir():
     from pathlib import Path
     return Path(__file__).resolve().parent / "fixtures" / "agents"
+
+
+def test_runtime_instructions(tmp_path):
+    base = yaml.safe_load((profile_dir() / "nightly-reviewer.yaml").read_text())
+    base["runtime"]["instructions"] = "Review every app nightly."
+    (tmp_path / "nightly-reviewer.yaml").write_text(yaml.safe_dump(base))
+    assert profile.load_dir(tmp_path)["nightly-reviewer"].instructions == "Review every app nightly."
+    base["runtime"]["instructions"] = "x" * 1501
+    (tmp_path / "nightly-reviewer.yaml").write_text(yaml.safe_dump(base))
+    with pytest.raises(profile.DefinitionError):
+        profile.load_dir(tmp_path)

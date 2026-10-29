@@ -266,6 +266,12 @@
               }
             }
           }
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "The task instructions a run of this agent starts with, passed in the run's input (an AgentRun's input is at most 4 KiB, with the trigger's event beside it). Not a policy: Clearance decides every call whatever this says."
         }
       }
     },
