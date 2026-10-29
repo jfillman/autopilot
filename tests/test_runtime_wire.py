@@ -261,13 +261,18 @@ def test_main_runs_a_session_to_done_and_leaves_no_token_behind(served, proxy, t
     stdout = capsys.readouterr().out
     result = json.loads((out / "result.json").read_text())
     assert code == 0
+    # Clearance v0.7.0 scopes tools_list to the session: repo.pr.open is not in researcher's grant, so it is never
+    # offered, and a model that names it anyway is answered here without reaching Clearance.
+    offered = {t["name"] for t in p.requests[0]["body"]["tools"]}
+    assert "catalog__read" in offered and "repo__pr__open" not in offered and len(offered) <= 4
     assert result == {"status": "done", "turns": 2, "final_text": "flight-api is in the catalog; I may not open PRs.",
                       "tool_calls": [{"tool": "catalog.read", "ok": True, "rule": None},
-                                     {"tool": "repo.pr.open", "ok": False, "rule": "R006"}], "reason": ""}
+                                     {"tool": "repo__pr__open", "ok": False, "rule": None}], "reason": ""}
     sent = p.requests[1]["body"]["messages"][-1]["content"]
     assert "is_error" not in sent[0] and "flight-api" in sent[0]["content"]
-    assert sent[1]["is_error"] is True and "R006" in sent[1]["content"]
-    assert "turn 1: stop=tool_use tools=[catalog.read:ok, repo.pr.open:deny(R006)]" in stdout
+    assert sent[1]["is_error"] is True and "no tool named" in sent[1]["content"]
+    assert "turn 1: stop=tool_use tools=[catalog.read:ok, repo__pr__open:unknown]" in stdout
+    assert [r["tool"] for r in served.audit.records if r["tool"] != "session.open"] == ["catalog.read"]
     everything = stdout + (out / "result.json").read_text()
     assert not any(t in everything for t in TOKENS + MODEL_TOKENS)
     assert "flight-api\"" not in stdout and "jfillman/x" not in stdout, "no tool arguments in the log"
