@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hangar-agent-runtime"
+version = "0.1.0"
+description = "The generic agent runtime for Autopilot AgentRun pods: a tool-use loop over Clearance and the model proxy"
+requires-python = ">=3.11"
+# Only the model SDK: the Clearance client, the loop and result.json are the stdlib. The image installs the hashed
+# lock (requirements.lock, made by `uv pip compile pyproject.toml --universal --generate-hashes -o requirements.lock`).
+dependencies = ["anthropic>=0.40,<3"]
+
+[project.scripts]
+hangar-agent = "hangar_agent.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hangar_agent"]
