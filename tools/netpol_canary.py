@@ -9,8 +9,9 @@ namespaces, which it always deletes.
 What it does, on the cluster named by --context:
   1. Renders the run namespace and NetworkPolicies with function-agentrun's own compose(), for
      the `clearance` network mode and for `none`, so it tests the policy shape a real run gets.
-  2. Stands up a stand-in service namespace (pods labelled as Clearance, as the model proxy and
-     as an unrelated service) and a control namespace with no policies at all.
+  2. Stands up a stand-in service namespace (a pod labelled as Clearance serving its MCP port 8080 and the model
+     proxy's 8081, as the live composition has it, and an unrelated service) and a control namespace with no
+     policies at all.
   3. Probes from inside each run namespace and from the control namespace. Every expected denial
      must be paired with a control probe that succeeds, or the denial proves nothing (a pass
      can mean the gate is off, or the network is broken).
@@ -57,6 +58,11 @@ class Check:
     result: str = ""       # "allowed" or "denied" once run
     verdict: str = ""      # "pass", "fail" or "inconclusive"
     detail: str = ""
+
+
+# The AgentRun composition's input that changes a run's policies (airframe compositions/agentrun/composition.yaml,
+# airframe#135): the model proxy is Clearance's own pod. Keep in step with the composition.
+COMPOSITION_INPUT = {"model_proxy_selector": {"app.kubernetes.io/name": "clearance"}}
 
 
 def plan() -> list[Check]:
@@ -124,7 +130,7 @@ def render_run(name: str, mode: str, svc_ns: str, now: datetime) -> list[dict]:
     # The canary is what attests airframe.autopilotReady, so it cannot depend on it: it hands compose() a registry
     # record that admits the run. Nothing else is faked; the policies are the ones a real run gets.
     observed = {"cluster": "netpol-canary", "registry": {"type": "dev", "autopilotReady": "true"}}
-    comp = compose(xr, observed, now, ClusterConfig.from_input({"clearance_namespace": svc_ns}))
+    comp = compose(xr, observed, now, ClusterConfig.from_input({"clearance_namespace": svc_ns, **COMPOSITION_INPUT}))
     if not comp.resources:
         raise RuntimeError(f"compose() rendered nothing for mode {mode}: {comp.status}")
     keep = ("namespace", "quota", "netpol-default-deny", "netpol-egress")
@@ -137,8 +143,11 @@ def _sec() -> dict:
             "seccompProfile": {"type": "RuntimeDefault"}}
 
 
-def pod(name: str, ns: str, labels: dict, port: int) -> dict:
-    """A busybox pod serving HTTP on `port` (so it can be a target) that can also run probes."""
+def pod(name: str, ns: str, labels: dict, port: int, extra_port: int | None = None) -> dict:
+    """A busybox pod serving HTTP on `port` (and `extra_port`), so it can be a target, that can also run probes."""
+    serve = ["httpd", "-f", "-p", str(port), "-h", "/etc"]
+    if extra_port:
+        serve = ["sh", "-c", f"httpd -p {extra_port} -h /etc && exec httpd -f -p {port} -h /etc"]
     return {
         "apiVersion": "v1", "kind": "Pod",
         "metadata": {"name": name, "namespace": ns, "labels": labels},
@@ -146,7 +155,7 @@ def pod(name: str, ns: str, labels: dict, port: int) -> dict:
             "automountServiceAccountToken": False,
             "securityContext": {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{
-                "name": "c", "image": IMAGE, "command": ["httpd", "-f", "-p", str(port), "-h", "/etc"],
+                "name": "c", "image": IMAGE, "command": serve,
                 "securityContext": _sec(),
                 "resources": {"requests": {"cpu": "10m", "memory": "16Mi"}, "limits": {"cpu": "100m", "memory": "32Mi"}},
             }],
@@ -218,21 +227,21 @@ def main(argv: list[str] | None = None) -> int:
         k.create_ns(ctl_ns)
         k.apply(run_docs + none_docs)
         k.apply([
-            pod("clearance", svc_ns, {"app.kubernetes.io/name": "clearance"}, 8080),
-            pod("model-proxy", svc_ns, {"app.kubernetes.io/name": "model-proxy"}, 8081),
+            # Clearance is also the model proxy (8081): the run's two egress rules select the same pod, by port.
+            pod("clearance", svc_ns, {"app.kubernetes.io/name": "clearance"}, 8080, extra_port=8081),
             pod("other", svc_ns, {"app.kubernetes.io/name": "other"}, 8080),
             pod("probe", run_ns, {"app.kubernetes.io/name": "probe"}, 8080),
             pod("probe", none_ns, {"app.kubernetes.io/name": "probe"}, 8080),
             pod("probe", ctl_ns, {"app.kubernetes.io/name": "probe"}, 8080),
         ])
-        k.wait_ready(svc_ns, ["clearance", "model-proxy", "other"])
+        k.wait_ready(svc_ns, ["clearance", "other"])
         for ns in (run_ns, none_ns, ctl_ns):
             k.wait_ready(ns, ["probe"])
         time.sleep(POLICY_SETTLE_SECONDS)
 
         targets = {
             "clearance": (k.pod_ip(svc_ns, "clearance"), 8080),
-            "model-proxy": (k.pod_ip(svc_ns, "model-proxy"), 8081),
+            "model-proxy": (k.pod_ip(svc_ns, "clearance"), 8081),
             "other": (k.pod_ip(svc_ns, "other"), 8080),
             "run-probe": (k.pod_ip(run_ns, "probe"), 8080),
             "control-probe": (k.pod_ip(ctl_ns, "probe"), 8080),
