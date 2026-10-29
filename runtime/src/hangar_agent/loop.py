@@ -118,8 +118,7 @@ def run(model: Model, gateway: Gateway, *, agent: str, task: dict[str, Any], mod
             out.status, out.reason = "budget", f"max turns ({max_turns}) reached"
             return out
         try:
-            resp = model.create(model=model_name, max_tokens=max_tokens, system=system, messages=list(messages),
-                                tools=toolset.tools)
+            resp = model.create(model=model_name, max_tokens=max_tokens, **cached(system, toolset.tools, messages))
         except ModelStop as e:
             out.status = "budget" if e.status == 429 else "error"
             out.reason = f"model proxy {e.status}: {e}"
@@ -128,13 +127,14 @@ def run(model: Model, gateway: Gateway, *, agent: str, task: dict[str, Any], mod
             out.reason = str(e)
             return out
         out.turns += 1
+        use_note = _usage(resp.get("usage"))
         content = resp.get("content") or []
         stop = resp.get("stop_reason")
         out.final_text = text_of(content) or out.final_text
         uses = [b for b in content if b.get("type") == "tool_use"]
         messages.append({"role": "assistant", "content": content})
         if not uses:
-            log(f"turn {out.turns}: stop={stop}")
+            log(f"turn {out.turns}: stop={stop}{use_note}")
             if stop in ("end_turn", "stop_sequence"):
                 out.status = "done"
                 return out
@@ -156,8 +156,37 @@ def run(model: Model, gateway: Gateway, *, agent: str, task: dict[str, Any], mod
                 return out
             results.append(r)
             notes.append(note)
-        log(f"turn {out.turns}: stop={stop} tools=[{', '.join(notes)}]")
+        log(f"turn {out.turns}: stop={stop} tools=[{', '.join(notes)}]{use_note}")
         messages.append({"role": "user", "content": results})
+
+
+def _usage(u: Any) -> str:
+    """The turn's token use for the log: input, cache read, cache write, output. Empty when the answer has none."""
+    if not isinstance(u, dict):
+        return ""
+    keys = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
+    return " usage=" + "/".join(str(int(u.get(k) or 0)) for k in keys)
+
+
+CACHE = {"type": "ephemeral"}
+
+
+def cached(system: str, tools: list[dict[str, Any]], messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """The request's system, tools and messages with prompt-cache breakpoints, on copies (the conversation keeps
+    none, so there are never more than three): after the tools and the system prompt, which never change, and
+    after the newest message, so each turn reads everything before it from the cache and writes only what is new.
+    Every turn resends the whole conversation; cached, it costs the session a tenth (clearance USAGE_WEIGHTS)."""
+    tools_c = [dict(t) for t in tools]
+    if tools_c:
+        tools_c[-1]["cache_control"] = CACHE
+    msgs = [dict(m) for m in messages]
+    last = msgs[-1]
+    content = last["content"]
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else [dict(b) for b in content]
+    if blocks:
+        blocks[-1]["cache_control"] = CACHE
+    last["content"] = blocks
+    return {"system": [{"type": "text", "text": system, "cache_control": CACHE}], "tools": tools_c, "messages": msgs}
 
 
 def _notes(toolset: T.Toolset, uses: list[dict[str, Any]], suffix: str) -> str:
@@ -176,4 +205,4 @@ def _run_tool(gateway: Gateway, toolset: T.Toolset, use: dict[str, Any], out: Ou
     out.tool_calls.append({"tool": dotted, "ok": ok, "rule": rule})
     d = r.get("decision") if isinstance(r.get("decision"), dict) else {}
     verdict = "ok" if ok else ("deny" if d.get("allow") is False else "error")
-    return T.tool_result(use["id"], r), f"{dotted}:{verdict}" + (f"({rule})" if rule and not ok else "")
+    return T.tool_result(use["id"], r, dotted), f"{dotted}:{verdict}" + (f"({rule})" if rule and not ok else "")

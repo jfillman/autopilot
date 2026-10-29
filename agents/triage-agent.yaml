@@ -6,7 +6,7 @@ kind: event
 identity: { type: workload, serviceAccount: autopilot-runs/triage-agent }
 profile:
   tierCeiling: T1
-  tools: [glidepath.runs.list, glidepath.run.get, glidepath.logs.get, glidepath.explain, glidepath.contract, repo.file.get, repo.pr.open]
+  tools: [glidepath.runs.list, glidepath.run.get, glidepath.logs.get, glidepath.explain, repo.file.get, repo.pr.open]
   glidepath: { apps: ["gate-api"] }
   repos: { allow: ["jfillman/gate-api"] }
   models: [claude-sonnet-5-5]
