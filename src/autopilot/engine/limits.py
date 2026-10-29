@@ -71,6 +71,15 @@ class Limits:
             "network": self.network.label(), "compute": self.compute.name.lower(),
         }
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Limits":
+        """The inverse of as_dict, for limits read back from a durable store."""
+        return cls(tier_ceiling=Tier[d["tier_ceiling"]], ttl_minutes=int(d["ttl_minutes"]),
+                   tool_calls=int(d["tool_calls"]), github_calls=int(d["github_calls"]), open_prs=int(d["open_prs"]),
+                   model_tokens=int(d["model_tokens"]), children=int(d["children"]),
+                   tools=frozenset(d["tools"]), models=frozenset(d["models"]),
+                   network=Network.parse(d["network"]), compute=ComputeClass.parse(d["compute"]))
+
 
 class WideningError(ValueError):
     def __init__(self, fields: list[str]):

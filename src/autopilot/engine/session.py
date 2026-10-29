@@ -6,10 +6,11 @@ parent, so the sum of a team's spend can never exceed what the root was granted.
 """
 from __future__ import annotations
 
+import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Callable
+from typing import Any, Callable, Iterable, Protocol
 
 from .limits import BUDGET_FIELDS, LimitRequest, Limits, narrow
 from .tiers import Tier
@@ -72,11 +73,62 @@ class Session:
         if self.denials >= DENIAL_TRIP:
             self.trip(f"{self.denials} denied calls")
 
+    # -- durability ------------------------------------------------------
+    def to_record(self) -> dict[str, Any]:
+        return {"id": self.id, "principal": self.principal, "agent": self.agent, "limits": self.limits.as_dict(),
+                "created_at": self.created_at.isoformat(), "expires_at": self.expires_at.isoformat(),
+                "parent_id": self.parent_id, "depth": self.depth, "task_id": self.task_id,
+                "used": dict(self.used), "reserved": dict(self.reserved), "children": list(self.children),
+                "tripped": self.tripped, "trip_reason": self.trip_reason, "denials": self.denials,
+                "closed": self.closed}
+
+    @classmethod
+    def from_record(cls, r: dict[str, Any]) -> "Session":
+        return cls(id=r["id"], principal=r["principal"], agent=r["agent"], limits=Limits.from_dict(r["limits"]),
+                   created_at=datetime.fromisoformat(r["created_at"]), expires_at=datetime.fromisoformat(r["expires_at"]),
+                   parent_id=r["parent_id"], depth=r["depth"], task_id=r["task_id"], used=dict(r["used"]),
+                   reserved=dict(r["reserved"]), children=list(r["children"]), tripped=r["tripped"],
+                   trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"])
+
+
+class Persistence(Protocol):
+    """Where a SessionStore keeps its sessions across restarts (clearance.pg.PgSessions is the real one)."""
+    def load(self) -> Iterable[dict[str, Any]]: ...
+    def save(self, records: list[dict[str, Any]]) -> None: ...
+
 
 class SessionStore:
-    def __init__(self, id_gen: Callable[[], str] | None = None):
+    """Sessions in memory, written through to a Persistence when there is one.
+
+    The store is single-writer: the server serializes calls into the gateway, and the gateway calls flush() at
+    the end of every operation, which saves each session whose state changed since the last flush. Restarting
+    Clearance therefore keeps every grant, budget and breaker as it was after the last completed operation."""
+
+    def __init__(self, id_gen: Callable[[], str] | None = None, persist: Persistence | None = None):
         self._s: dict[str, Session] = {}
         self._id = id_gen or (lambda: "s-" + secrets.token_hex(6))
+        self._persist = persist
+        self._saved: dict[str, str] = {}
+        if persist is not None:
+            for r in persist.load():
+                s = Session.from_record(r)
+                self._s[s.id] = s
+                self._saved[s.id] = json.dumps(r, sort_keys=True)
+
+    def flush(self) -> int:
+        """Save every session that changed since the last flush; returns how many. A no-op without persistence."""
+        if self._persist is None:
+            return 0
+        changed: list[dict[str, Any]] = []
+        for sid, s in self._s.items():
+            r = s.to_record()
+            blob = json.dumps(r, sort_keys=True)
+            if self._saved.get(sid) != blob:
+                changed.append(r)
+        self._persist.save(changed)
+        for r in changed:
+            self._saved[r["id"]] = json.dumps(r, sort_keys=True)
+        return len(changed)
 
     def get(self, sid: str) -> Session | None:
         return self._s.get(sid)
