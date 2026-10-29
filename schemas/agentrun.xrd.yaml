@@ -24,8 +24,11 @@
 # the cluster cap, an allowlist of 0.0.0.0/0, an input over 4 KiB, an XR outside autopilot-runs, or a cluster
 # whose registry record lacks airframe.autopilotReady is Rejected and renders nothing. Never downgraded.
 #
-# Test via a copy first (AGENTS.md): this XRD and composition are not in any cluster's airframe-service-catalog
-# include list until the copy-test on the dev cluster passes.
+# Who deletes it: Clearance, once it has recorded the run's evidence, and a backstop CronJob (cluster repo
+# 55-autopilot/agentrun-reaper/, decision D20) 60 minutes past min(expiresAt, creation + max TTL).
+#
+# Test changes via a copy first (AGENTS.md, docs/admin/agentrun-copy-test.md). Installed by airframe-service-catalog
+# on components.autopilot clusters since v0.3.169.
 apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
