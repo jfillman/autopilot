@@ -9,6 +9,8 @@ from clearance.profile import AgentDefinition
 from clearance.session import Session
 
 RUN_NAMESPACE = "autopilot-runs"
+# The ServiceAccount a run pod runs as, in its namespace agent-<run> (function-agentrun RUN_SERVICE_ACCOUNT).
+RUN_SERVICE_ACCOUNT = "run"
 API_VERSION = "catalog.hangar.io/v1alpha1"
 
 

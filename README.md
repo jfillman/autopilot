@@ -100,6 +100,14 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `ARGO_APP_NAMESPACES` | `argocd` | comma-separated: the namespaces `argo.app.get` looks for an Application in, in order |
 | `PROMETHEUS_URL` | unset | a Prometheus-compatible query API (e.g. `http://thanos-query.observability.svc:9090`); unset, `metrics.query` has no backend |
 | `LOKI_URL` | unset | Loki's query API (e.g. `http://loki-gateway.observability.svc`); unset, `logs.query` has no backend |
+| `GITHUB_PR_ENABLED` | `0` | `1`: `repo.pr.open` opens PRs as the agents' GitHub App through Glidepath's broker (`github_pr.py`) |
+| `AGENT_TOKEN_FILE` | `/var/run/clearance/agent-installation-token` | a projected token for the broker's `agent-installation-token` audience, re-read per PR |
+| `BROKER_URL` | `http://cdevents-broker-auth.platform-system.svc:8080` | Glidepath's token broker |
+| `MODEL_KEY_FILE` | unset | the model provider's API key (a mounted Secret file, re-read per call); set, the model proxy listens on `MODEL_PORT` |
+| `MODEL_PORT` | `8081` | the model proxy's port (function-agentrun's `MODEL_PROXY_URL` port) |
+| `MODEL_ROUTES` | unset | comma-separated `alias=upstream-model`, e.g. `claude-sonnet-5-5=claude-sonnet-5-5`: the models a definition may name (`profile.models`), all on Anthropic's API |
+| `MODEL_TOKEN_AUDIENCE` | `model-proxy` | the audience of a run's model-proxy token (TokenReview) |
+| `EVENTS_ENABLED` | `0` | `1`: the event trigger bridge holds glidepath-api's `/v1/events` stream and launches each agent whose Glidepath event trigger matches (needs `GLIDEPATH_API_URL`) |
 | `LOG_LEVEL` | `info` | |
 
 The start line names what is enabled (store kind, agent and tool counts, auth, Glidepath URL, Airframe cluster, expiry
@@ -119,10 +127,17 @@ projected token and CA at the standard path; every adapter re-reads both on each
 | Loki (`LOKI_URL`) | `logs.query` | network reach to the query API. A range query over the last hour, newest first; at most 200 lines of at most 2000 characters. On hangar-dev the labels are the OpenTelemetry ones (`k8s_namespace_name`, `k8s_pod_name`, `service_name`) |
 | Postgres (`CLEARANCE_DSN`) | everything | a database the gateway owns; it creates its tables and verifies the evidence chain from genesis at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
 
+| GitHub PRs (`GITHUB_PR_ENABLED`) | `repo.pr.open` | a projected token for audience `agent-installation-token` at `AGENT_TOKEN_FILE`, and `autopilot-system/clearance` in the broker's `agentToken.callers`. Per PR the broker mints a token for the agents' App on that one repo (contents and pull_requests write, never workflows), only for an onboarded app's own repo. The PR is built with the Git data API (no clone), on a new branch only (an existing one is refused, never forced); its commit trailer and body carry the agent, task, session and run |
+| Model proxy (`MODEL_KEY_FILE`) | a run's model calls | the provider key file, egress to `api.anthropic.com`, and the Service `model-proxy` on `MODEL_PORT` selecting this pod. A run sends its model-proxy token as `x-api-key` and its session as `x-hangar-session`; Clearance checks the session's model allowlist, network mode, breaker and token budget, forwards the body only, and charges the actual usage to the session in the same evidence chain (clearance `server.create_model_app`) |
+| Event triggers (`EVENTS_ENABLED`) | Glidepath event triggers | glidepath-api's reader role (it already lists this identity). One run per (agent, event id) while it is live, a storm brake per agent (`maxPerHour`, default 6), the event summarised into the run's input beside the definition's `runtime.instructions` (`event_bridge.py`) |
+
+A launched run's pod authenticates as `agent-<run>/run` (function-agentrun's run ServiceAccount). Clearance lets that
+caller act as the run's session, and only that one (`AgentRunBackend.principal`); its records name the run.
+
 A query Prometheus or Loki rejects (a parse error, a timeout, too many samples) comes back as data with `error` and
 `message`, so the agent can fix it; any other failure is a "backend error".
 
-Everything else (`repo.pr.open*`, `xr.request`, `argo.sync.lower`, `catalog.read`, `app.api.get`, `chat.*`,
+Everything else (`repo.pr.open_upper`, `xr.request`, `argo.sync.lower`, `catalog.read`, `app.api.get`, `chat.*`,
 `human.request`, `artifact.*`) has no handler: a call is audited and refused with "no backend for this tool in this
 deployment", charged nothing. `tools_list` still lists them, with their policy.
 

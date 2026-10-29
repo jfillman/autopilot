@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
+from typing import Any
 
 from clearance.profile import AgentDefinition
 
@@ -59,12 +60,39 @@ def amqp_topic_match(pattern: str, key: str) -> bool:
 
 
 def match_event(defs: dict[str, AgentDefinition], exchange: str, routing_key: str) -> list[str]:
-    """Agents whose event trigger binds this exchange and routing key."""
+    """Agents whose RabbitMQ event trigger binds this exchange and routing key."""
     out = []
     for name, d in sorted(defs.items()):
         for t in d.triggers:
-            if t["type"] == "event" and t["exchange"] == exchange and amqp_topic_match(t["bindingKey"], routing_key):
+            if (t["type"] == "event" and t.get("source", "rabbitmq") == "rabbitmq" and t["exchange"] == exchange
+                    and amqp_topic_match(t["bindingKey"], routing_key)):
                 out.append(name)
+                break
+    return out
+
+
+def _at(doc: Any, path: str) -> Any:
+    for part in path.split("."):
+        if not isinstance(doc, dict):
+            return None
+        doc = doc.get(part)
+    return doc
+
+
+def match_glidepath_event(defs: dict[str, AgentDefinition], envelope: dict[str, Any]) -> list[tuple[str, dict]]:
+    """(agent, trigger) for each agent with a Glidepath event trigger this /v1/events envelope satisfies: its
+    bindingKey against the envelope's routingKey (AMQP topic semantics), and every `match` path, read in the CDEvent,
+    equal to its value. The first matching trigger per agent."""
+    key = envelope.get("routingKey")
+    event = envelope.get("event")
+    if not isinstance(key, str) or not isinstance(event, dict):
+        return []
+    out = []
+    for name, d in sorted(defs.items()):
+        for t in d.triggers:
+            if (t["type"] == "event" and t.get("source") == "glidepath" and amqp_topic_match(t["bindingKey"], key)
+                    and all(_at(event, p) == v for p, v in (t.get("match") or {}).items())):
+                out.append((name, t))
                 break
     return out
 

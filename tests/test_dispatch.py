@@ -84,7 +84,8 @@ def test_backend_failure_is_reported_without_leaking_internals(gw, backends):
 
 
 def test_workload_identity_must_match_the_definition(gw):
-    assert gw.open_session("holmes", "triage-agent").ok
+    assert gw.open_session("triage", "triage-agent").ok
+    assert not gw.open_session("holmes", "triage-agent").ok
     assert not gw.open_session("alice", "triage-agent").ok
     assert not gw.open_session("holmes", "coding-agent").ok       # delegated agents need a user
     assert not gw.open_session("alice", "no-such-agent").ok
@@ -151,11 +152,11 @@ def test_close_deletes_the_run_and_only_my_own(gw, backends):
 
 # ---- scheduled and event-driven agents ----------------------------------------------
 def test_triggered_workload_agents_run_as_their_own_identity(gw):
-    r = gw.open_triggered("triage-agent", "alert:RolloutDegraded")
+    r = gw.open_triggered("triage-agent", "glidepath:1-abc")
     assert r.ok
     s = gw.store.get(r.data["session"])
-    assert s.principal == "holmesgpt/holmes"
-    assert gw.audit.records[-1]["principal"] == "holmesgpt/holmes"
+    assert s.principal == "autopilot-runs/triage-agent"
+    assert gw.audit.records[-1]["principal"] == "autopilot-runs/triage-agent"
 
 
 def test_delegated_and_task_agents_cannot_be_triggered(gw):

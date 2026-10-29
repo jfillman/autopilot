@@ -3,8 +3,9 @@
 Builds the Hangar Gateway (core Clearance, the Hangar pack, Autopilot's real backends) from environment variables
 and serves Clearance's streamable-HTTP MCP app with uvicorn. See README.md, "Running the gateway", for the variables.
 
-Only real backends are registered. A tool whose backend this deployment does not have (git, human, artifacts,
-argo.sync.lower, catalog.read and app.api.get today; glidepath.* without GLIDEPATH_API_URL; metrics.query without
+Only real backends are registered. A tool whose backend this deployment does not have (human, artifacts,
+argo.sync.lower, catalog.read, app.api.get, xr.request and repo.pr.open_upper today; repo.pr.open without
+GITHUB_PR_ENABLED; glidepath.* without GLIDEPATH_API_URL; metrics.query without
 PROMETHEUS_URL; logs.query without LOKI_URL; airframe.* with AIRFRAME_ENABLED=0; argo.app.get with ARGO_ENABLED=0;
 airframe.validate always, since the image carries no airframe-validate) has no handler, so a call to it is refused
 as having no backend. Nothing here registers a fake.
@@ -33,6 +34,7 @@ from clearance.audit import AuditLog
 from clearance.auth import JWKS, CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
 from clearance.backends import Handler
 from clearance.dispatch import Authenticator, Gateway
+from clearance.modelproxy import ModelRoute
 from clearance.session import SessionStore
 
 from . import airframe_plan
@@ -43,9 +45,11 @@ from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from .reads import KubeArgo, LokiAPI, PrometheusAPI, Reads
+from .github_pr import BROKER_URL, GitHubPRs
 
 log = logging.getLogger("autopilot.gateway")
 
+ANTHROPIC_API = "https://api.anthropic.com"
 REPO_AGENTS = Path(__file__).resolve().parents[2] / "agents"   # /app/agents in the image (editable install)
 
 
@@ -77,6 +81,14 @@ class Config:
     argo_namespaces: tuple[str, ...]
     prometheus_url: str | None
     loki_url: str | None
+    github_pr_enabled: bool
+    agent_token_file: Path
+    broker_url: str
+    model_key_file: Path | None
+    model_port: int
+    model_routes: dict[str, str]
+    model_audience: str
+    events_enabled: bool
 
     @property
     def issuer_url(self) -> str:
@@ -127,6 +139,22 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     argo_ns = tuple(n.strip() for n in get("ARGO_APP_NAMESPACES", "argocd").split(",") if n.strip())
     if _flag(env, "ARGO_ENABLED", True) and not argo_ns:
         raise ConfigError("ARGO_APP_NAMESPACES names no namespace (or set ARGO_ENABLED=0)")
+    routes = {}
+    for pair in (get("MODEL_ROUTES", "") or "").split(","):
+        if pair.strip():
+            alias, sep, upstream = pair.strip().partition("=")
+            if not sep or not alias.strip() or not upstream.strip():
+                raise ConfigError(f"MODEL_ROUTES entries are alias=upstream-model, not {pair.strip()!r}")
+            routes[alias.strip()] = upstream.strip()
+    model_key = get("MODEL_KEY_FILE")
+    if model_key and not routes:
+        raise ConfigError("MODEL_KEY_FILE is set but MODEL_ROUTES names no model")
+    model_port = _number(env, "MODEL_PORT", 8081, int)
+    if model_key and model_port == port:
+        raise ConfigError("MODEL_PORT must differ from PORT")
+    events = _flag(env, "EVENTS_ENABLED", False)
+    if events and not get("GLIDEPATH_API_URL"):
+        raise ConfigError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
     return Config(
         agents_dir=agents, dsn=None if ephemeral else dsn, ephemeral=ephemeral,
         resource_url=get("CLEARANCE_RESOURCE_URL", f"http://localhost:{port}/mcp"),
@@ -144,6 +172,11 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         airframe_tenants_repo=get("AIRFRAME_TENANTS_REPO", "gitops-hangar-dev-tenants"),
         argo_enabled=_flag(env, "ARGO_ENABLED", True), argo_namespaces=argo_ns,
         prometheus_url=get("PROMETHEUS_URL"), loki_url=get("LOKI_URL"),
+        github_pr_enabled=_flag(env, "GITHUB_PR_ENABLED", False),
+        agent_token_file=Path(get("AGENT_TOKEN_FILE", "/var/run/clearance/agent-installation-token")),
+        broker_url=get("BROKER_URL", BROKER_URL),
+        model_key_file=Path(model_key) if model_key else None, model_port=model_port, model_routes=routes,
+        model_audience=get("MODEL_TOKEN_AUDIENCE", "model-proxy"), events_enabled=events,
     )
 
 
@@ -165,13 +198,15 @@ def build_backends(cfg: Config) -> Backends:
     if cfg.prometheus_url or cfg.loki_url:
         read = Reads(PrometheusAPI(cfg.prometheus_url) if cfg.prometheus_url else None,
                      LokiAPI(cfg.loki_url) if cfg.loki_url else None)
-    return Backends(None, argo, KubeAgentRuns(), read, None, None, glidepath, airframe)
+    git = GitHubPRs(cfg.agent_token_file, broker_url=cfg.broker_url) if cfg.github_pr_enabled else None
+    return Backends(git, argo, KubeAgentRuns(), read, None, None, glidepath, airframe)
 
 
 def build_handlers(b: Backends) -> dict[str, Handler]:
     """hangar_handlers, less every tool whose backend is absent (so it is "no backend", not "backend error")."""
     h = hangar_handlers(b)
-    drop = {"argo.sync.lower", "catalog.read", "app.api.get"}   # no adapter yet: the Argo one is read-only
+    # No adapter yet: the Argo one is read-only, and the GitHub one opens lower PRs only.
+    drop = {"argo.sync.lower", "catalog.read", "app.api.get", "xr.request", "repo.pr.open_upper"}
     if b.read is not None:
         if getattr(b.read, "prometheus", None) is None:
             drop.add("metrics.query")
@@ -240,6 +275,12 @@ class SerializedGateway(Gateway):
     def expire(self, *a, **k):
         return self._locked(super().expire, *a, **k)
 
+    def model_authorize(self, *a, **k):
+        return self._locked(super().model_authorize, *a, **k)
+
+    def model_usage(self, *a, **k):
+        return self._locked(super().model_usage, *a, **k)
+
     def ping(self) -> None:
         """One round trip to the database, under the lock (a no-op when ephemeral)."""
         if self.state is None:
@@ -265,9 +306,13 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         from clearance.pg import open_durable
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
+    models = model_auth = None
+    if cfg.model_key_file:
+        models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
+        model_auth = CachingAuthenticator(WorkloadAuthenticator(cfg.model_audience))
     gw = SerializedGateway(defs, store, audit, auth or build_auth(cfg), clock, packs=PACKS,
                            handlers=build_handlers(b), runs=AgentRunBackend(b.runs), state=state,
-                           store_errors=store_errors)
+                           store_errors=store_errors, models=models, model_auth=model_auth)
     return gw, state
 
 
@@ -320,6 +365,10 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + f" airframe={'on (cluster ' + cfg.airframe_cluster + ', no validator)' if cfg.airframe_enabled else 'off'}"
             + f" argo={'on (' + ','.join(cfg.argo_namespaces) + ')' if cfg.argo_enabled else 'off'}"
             + f" prometheus={cfg.prometheus_url or 'off'} loki={cfg.loki_url or 'off'}"
+            + f" github-prs={'on (broker ' + cfg.broker_url + ')' if cfg.github_pr_enabled else 'off'}"
+            + (f" model-proxy=:{cfg.model_port} routes={','.join(sorted(cfg.model_routes))}" if cfg.model_key_file
+               else " model-proxy=off")
+            + f" events={'on' if cfg.events_enabled else 'off'}"
             + f" agentruns=in-cluster expire-every={cfg.expire_seconds:g}s")
 
 
@@ -331,15 +380,33 @@ def main() -> int:
     except ConfigError as e:
         log.error("configuration: %s", e)
         return 2
+    import asyncio
+
     import uvicorn
     gw, state = build_gateway(cfg)
     app = build_app(cfg, gw)
     log.info(describe(cfg, gw))
     expirer = Expirer(gw, cfg.expire_seconds).start()
+    bridge = None
+    if cfg.events_enabled:
+        from .event_bridge import EventBridge
+        bridge = EventBridge(gw, cfg.glidepath_url, cfg.glidepath_token_file).start()
+    level = os.environ.get("LOG_LEVEL", "info").lower()
+    servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=cfg.port, log_level=level,
+                                             proxy_headers=False, server_header=False))]
+    if cfg.model_key_file:
+        from clearance.server import create_model_app
+        servers.append(uvicorn.Server(uvicorn.Config(create_model_app(gw, key_file=str(cfg.model_key_file)),
+                                                     host="0.0.0.0", port=cfg.model_port, log_level=level,
+                                                     proxy_headers=False, server_header=False)))
+
+    async def serve_all():
+        await asyncio.gather(*(s.serve() for s in servers))
     try:
-        uvicorn.run(app, host="0.0.0.0", port=cfg.port, log_level=os.environ.get("LOG_LEVEL", "info").lower(),
-                    proxy_headers=False, server_header=False)
+        asyncio.run(serve_all())
     finally:
+        if bridge is not None:
+            bridge.stop()
         expirer.stop()
         if state is not None:
             state.close()

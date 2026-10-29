@@ -49,6 +49,11 @@ def promote_source(a: dict[str, Any]) -> str:
     return f"image:{a['sourceImageRepo']}:{a['sourceImageTag']}"
 
 
+def pr_meta(s: Session) -> dict[str, str]:
+    """What an agent PR carries about its origin (AP-B1: Clearance's provenance detector reads it)."""
+    return {k: v for k, v in {"agent": s.agent, "task": s.task_id, "session": s.id, "run": s.run}.items() if v}
+
+
 def _promote(b: Backends, s: Session, a: dict[str, Any]) -> Any:
     body = {"cluster": a["cluster"], **{k: a[k] for k in ("sourceEnv", "sourceCluster", "sourceImageRepo",
                                                            "sourceImageTag") if a.get(k)}}
@@ -76,12 +81,22 @@ class AgentRunBackend:
     def delete(self, session: Session) -> None:
         self.store.delete(manifests.run_name(session))
 
+    def principal(self, session: Session) -> str | None:
+        """The identity a session's run pod authenticates as: function-agentrun runs it as the ServiceAccount `run`
+        in the run's own namespace, agent-<run> (airframe functions/function-agentrun, RUN_SERVICE_ACCOUNT, ns_name).
+        Clearance lets that caller act as the session, and only that session (Gateway._acting)."""
+        return f"agent-{session.run}/{manifests.RUN_SERVICE_ACCOUNT}" if session.run else None
+
 
 def hangar_handlers(b: Backends) -> dict[str, Handler]:
     """Every handler a Hangar Gateway registers (run.spawn and run.close are the Gateway's own).
     The glidepath and airframe backends are read at call time, so a deployment without one fails that
     tool's calls as a backend error rather than refusing to start."""
     h = core_handlers(git=b.git, argo=b.argo, read=b.read, human=b.human, artifacts=b.artifacts)
+    if b.git is not None and getattr(b.git, "takes_meta", False):
+        # The real adapter (github_pr.GitHubPRs) records who opened the PR in its commit trailer and body.
+        h["repo.pr.open"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
+                                                       a.get("base", "main"), meta=pr_meta(s))
     h.update({
         "glidepath.runs.list": lambda s, a: b.glidepath.runs(a["app"], a.get("sinceHours"), a.get("limit"), s.principal),
         "glidepath.run.get": lambda s, a: b.glidepath.run(a["app"], a["result"], s.principal),
