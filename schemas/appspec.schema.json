@@ -577,7 +577,7 @@
               },
               "value": {
                 "type": "string",
-                "description": "A literal env var value. Mutually exclusive with valueFrom."
+                "description": "A literal env var value. Mutually exclusive with valueFrom, fromComponent and fromService."
               },
               "valueFrom": {
                 "description": "Pass-through of a container env valueFrom. Use secretKeyRef to read a Secret already in this namespace, e.g. the <name>-app Secret a PostgreSQL component creates.",
@@ -659,7 +659,7 @@
                   "name",
                   "output"
                 ],
-                "description": "AF-3: resolve this env var from a components[] entry's own declared output (see that component's xrds/<type>.meta.yaml), instead of a hand-written valueFrom. Mutually exclusive with value/valueFrom.",
+                "description": "AF-3: resolve this env var from a components[] entry's own declared output (see that component's xrds/<type>.meta.yaml), instead of a hand-written valueFrom. Mutually exclusive with value/valueFrom/fromService.",
                 "properties": {
                   "name": {
                     "type": "string",
@@ -672,13 +672,60 @@
                     "description": "The output name that component's type declares, e.g. host, port, password."
                   }
                 }
+              },
+              "fromService": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "app",
+                  "port"
+                ],
+                "description": "Another app's in-cluster Service URL, <scheme>://<service>.<namespace>.svc.cluster.local:<port>, with the namespace resolved from the platform's serviceNamespacePattern instead of a hand-written URL that guesses the convention. Mutually exclusive with value/valueFrom/fromComponent. Fails the render when serviceNamespacePattern is not passed.",
+                "properties": {
+                  "app": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                    "description": "The other app's own name (its appName), e.g. flight-api. Fills {app} in the namespace pattern, and is the Service name unless service is set."
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "description": "The other app's Service port, always explicit: the chart cannot see another app's values."
+                  },
+                  "scheme": {
+                    "type": "string",
+                    "default": "http",
+                    "pattern": "^[a-z][a-z0-9+.-]*$",
+                    "description": "The URL scheme, e.g. http, https, grpc."
+                  },
+                  "type": {
+                    "type": "string",
+                    "default": "app",
+                    "enum": [
+                      "app",
+                      "infra"
+                    ],
+                    "description": "Fills {type} in the namespace pattern: app for an application, infra for an InfraService (infra-<name>-<env> namespaces)."
+                  },
+                  "env": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                    "description": "The other app's environment. Defaults to this release's envName. Set it where the names differ: a PR environment (pr-N) has no matching environment in the other app, so glidepath/pr-env.yaml points at e.g. dev."
+                  },
+                  "service": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                    "description": "The Service name, when it is not the app's name (an airframe-application app's Service is named after its appName; an InfraService's operator-made Service may not be)."
+                  }
+                }
               }
             },
             "oneOf": [
               {
-                "description": "Branch 1 of 4: a bare name with no value source, which renders the variable empty.",
+                "description": "Branch 1 of 5: a bare name with no value source, which renders the variable empty.",
                 "not": {
-                  "description": "None of value, valueFrom or fromComponent is set.",
+                  "description": "None of value, valueFrom, fromComponent or fromService is set.",
                   "anyOf": [
                     {
                       "description": "value is set.",
@@ -697,30 +744,42 @@
                       "required": [
                         "fromComponent"
                       ]
+                    },
+                    {
+                      "description": "fromService is set.",
+                      "required": [
+                        "fromService"
+                      ]
                     }
                   ]
                 }
               },
               {
-                "description": "Branch 2 of 4: a literal value.",
+                "description": "Branch 2 of 5: a literal value.",
                 "required": [
                   "value"
                 ]
               },
               {
-                "description": "Branch 3 of 4: a Kubernetes valueFrom (secretKeyRef, configMapKeyRef, fieldRef).",
+                "description": "Branch 3 of 5: a Kubernetes valueFrom (secretKeyRef, configMapKeyRef, fieldRef).",
                 "required": [
                   "valueFrom"
                 ]
               },
               {
-                "description": "Branch 4 of 4: fromComponent, resolved against the component's output contract (xrds/<type>.meta.yaml).",
+                "description": "Branch 4 of 5: fromComponent, resolved against the component's output contract (xrds/<type>.meta.yaml).",
                 "required": [
                   "fromComponent"
                 ]
+              },
+              {
+                "description": "Branch 5 of 5: fromService, another app's Service URL with its namespace from the platform's serviceNamespacePattern.",
+                "required": [
+                  "fromService"
+                ]
               }
             ],
-            "description": "One container environment variable. At most one of value/valueFrom/fromComponent."
+            "description": "One container environment variable. At most one of value/valueFrom/fromComponent/fromService."
           },
           "x-hangar-owner": "human",
           "x-hangar-risk": "low"
