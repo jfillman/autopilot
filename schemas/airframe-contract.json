@@ -222,6 +222,11 @@
         "description": "Prometheus scraping of the main workload's first rollout.ports entry, via kube-prometheus-stack. Off by default: Hangar apps send metrics and traces over OTLP to the cluster's collector, and a scrape of an app that serves no /metrics is a target that is always down (and a 404 traced every 30s). Turn it on for an app that exposes Prometheus metrics.",
         "type": "object"
       },
+      "serviceNamespacePattern": {
+        "default": "",
+        "description": "The platform's environment-namespace convention, as a pattern over {type}, {app} and {env} (it must contain {app} and {env}). The platform passes it, the same way it passes envName: Glidepath from its glidepath-app.envNamespacePattern helper for Ground and PR environments, the cluster's tenant-onboarding ApplicationSet for Flight environments. env[].fromService resolves another app's namespace with it, so the chart never hard-codes the convention. Empty means not passed: a fromService entry then fails the render rather than guess.",
+        "type": "string"
+      },
       "slos": {
         "default": [],
         "description": "Rendered into the SLO XRD (xrds/slo.yaml), which wraps Sloth. No window/burn-rate fields here - Sloth computes those from just objective.",
