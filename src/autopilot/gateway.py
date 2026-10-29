@@ -36,6 +36,32 @@ def rerun_key(session_id: str, app: str, pipelinerun: str) -> str:
     return "clearance." + hashlib.sha256(f"{session_id}/{app}/{pipelinerun}".encode()).hexdigest()[:32]
 
 
+def release_key(session_id: str, op: str, app: str, env: str, cluster: str, source: str) -> str:
+    """The Idempotency-Key for a session's promote or rollback: the session, the app, the target environment and
+    cluster, and what it promotes from (or rolls back to). Not dryRun, so a dry run names the run the real call
+    would start; not a rollback's reason, so a retry that rewords it still replays."""
+    return "clearance." + hashlib.sha256(f"{session_id}/{op}/{app}/{env}/{cluster}/{source}".encode()).hexdigest()[:32]
+
+
+def promote_source(a: dict[str, Any]) -> str:
+    if a.get("sourceEnv"):
+        return f"env:{a['sourceEnv']}@{a['sourceCluster']}"
+    return f"image:{a['sourceImageRepo']}:{a['sourceImageTag']}"
+
+
+def _promote(b: Backends, s: Session, a: dict[str, Any]) -> Any:
+    body = {"cluster": a["cluster"], **{k: a[k] for k in ("sourceEnv", "sourceCluster", "sourceImageRepo",
+                                                           "sourceImageTag") if a.get(k)}}
+    key = release_key(s.id, "promote", a["app"], a["env"], a["cluster"], promote_source(a))
+    return b.glidepath.promote(a["app"], a["env"], body, key, bool(a.get("dryRun")), s.principal)
+
+
+def _rollback(b: Backends, s: Session, a: dict[str, Any]) -> Any:
+    body = {"cluster": a["cluster"], "targetReleaseId": a["targetReleaseId"], "reason": a["reason"].strip()}
+    key = release_key(s.id, "rollback", a["app"], a["env"], a["cluster"], a["targetReleaseId"])
+    return b.glidepath.rollback(a["app"], a["env"], body, key, bool(a.get("dryRun")), s.principal)
+
+
 class AgentRunBackend:
     """Clearance's RunBackend on Hangar: a session's run is an AgentRun XR (manifests.agentrun_manifest)."""
 
@@ -66,6 +92,12 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
         # The key is the session and the run, so an agent retrying the same re-run starts no second one.
         "glidepath.run.rerun": lambda s, a: b.glidepath.rerun(a["app"], a["pipelinerun"], rerun_key(s.id, a["app"], a["pipelinerun"]), s.principal),
         "glidepath.run.cancel": lambda s, a: b.glidepath.cancel(a["app"], a["pipelinerun"], s.principal),
+        "glidepath.environments.list": lambda s, a: b.glidepath.environments(a["app"], s.principal),
+        "glidepath.environments.rollbackPlan": lambda s, a: b.glidepath.rollback_plan(a["app"], a["env"], a["cluster"], s.principal),
+        # T2, propose only: each starts a release run whose PR a human merges. The key is the session and the
+        # promotion (or rollback), so an agent retrying it replays the first answer instead of starting another.
+        "glidepath.promote": lambda s, a: _promote(b, s, a),
+        "glidepath.rollback": lambda s, a: _rollback(b, s, a),
         "airframe.capabilities": lambda s, a: b.airframe.capabilities(a.get("kind"), a.get("section")),
         "airframe.validate": lambda s, a: b.airframe.validate(a["documents"], a.get("app"), a.get("mode", "values"),
                                                               a.get("render", True)),

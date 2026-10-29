@@ -20,18 +20,38 @@ _GP_ARGS = {
     "taskRun": re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$"),
     "pipelinerun": re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$"),
     "chainId": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$"),
+    # Phase 4 (environments/promote/rollback): glidepath-api's NameRE, imageRepoRE and imageTagRE.
+    "env": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"),
+    "cluster": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"),
+    "sourceEnv": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"),
+    "sourceCluster": re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"),
+    "sourceImageRepo": re.compile(r"^[a-z0-9][a-z0-9._/:-]{0,254}$"),
+    "sourceImageTag": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$"),
+    # Goes in the body, not a path; glidepath-api caps it at 256 and checks it against the rollback plan.
+    "targetReleaseId": re.compile(r"^[\x21-\x7e]{1,256}$"),
 }
 
 
 def glidepath_bad_args(args: dict[str, Any]) -> int:
     bad = 0
     for k, pat in _GP_ARGS.items():
-        if k in args and not (isinstance(args[k], str) and pat.match(args[k])):
+        if k in args and not (isinstance(args[k], str) and pat.fullmatch(args[k])):
             bad += 1
     for k, hi in (("sinceHours", 744), ("limit", 1000)):
         if k in args and not (isinstance(args[k], int) and not isinstance(args[k], bool) and 1 <= args[k] <= hi):
             bad += 1
+    if "dryRun" in args and not isinstance(args["dryRun"], bool):
+        bad += 1
+    if "reason" in args and not (isinstance(args["reason"], str) and 1 <= len(args["reason"].strip()) <= 1024):
+        bad += 1
     return bad
+
+
+def glidepath_promote_source_ok(args: dict[str, Any]) -> bool:
+    """A promotion names exactly one whole source pair: a deployed environment, or (a first deploy) an image."""
+    env_keys, image_keys = ("sourceEnv", "sourceCluster"), ("sourceImageRepo", "sourceImageTag")
+    given = {k for k in env_keys + image_keys if args.get(k) not in (None, "")}
+    return given in (set(env_keys), set(image_keys))
 
 
 def glidepath_app_allowed(app: str, allow: list[str]) -> bool:
