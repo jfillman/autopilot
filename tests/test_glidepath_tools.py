@@ -396,7 +396,8 @@ def test_adapter_posts_a_proposal_with_its_body_key_and_dry_run_header(token):
 # --- the phase-4 done-when: the agent had no way to merge -----------------------------------------
 
 # Every tool that reaches GitHub with Clearance's own identity: it pushes a branch, commits, or opens a PR.
-GITHUB_WRITERS = {n for n, t in TOOLS.items() if t.github_cost > 0 or t.writes_files}
+# A T0 tool that spends GitHub calls (repo.file.get) reads; every other GitHub-spending or file-carrying tool writes.
+GITHUB_WRITERS = {n for n, t in TOOLS.items() if (t.github_cost > 0 and t.tier > 0) or t.writes_files}
 
 
 def test_the_registry_has_no_tool_that_merges_or_approves():

@@ -6,13 +6,13 @@ kind: event
 identity: { type: workload, serviceAccount: autopilot-runs/triage-agent }
 profile:
   tierCeiling: T1
-  tools: [glidepath.runs.list, glidepath.run.get, glidepath.logs.get, glidepath.explain, glidepath.contract, repo.pr.open]
+  tools: [glidepath.runs.list, glidepath.run.get, glidepath.logs.get, glidepath.explain, glidepath.contract, repo.file.get, repo.pr.open]
   glidepath: { apps: ["gate-api"] }
   repos: { allow: ["jfillman/gate-api"] }
   models: [claude-sonnet-5-5]
   network: clearance+model
   compute: small
-  limits: { ttlMinutes: 20, toolCalls: 60, githubCalls: 12, openPrs: 1, modelTokens: 400000, children: 0 }
+  limits: { ttlMinutes: 20, toolCalls: 60, githubCalls: 40, openPrs: 1, modelTokens: 400000, children: 0 }
 runtime:
   # autopilot-agent-runtime runtime-v0.1.0 (runtime/, README "The agent runtime"), multi-arch index digest.
   image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:57bd0328cbc5c04ce0563008a08ed4259c6d2eff41ea9de7e70ad8253b54da7c
@@ -21,8 +21,8 @@ runtime:
     A Glidepath pipeline run for this app failed; the event in your input names it (subject.id is the PipelineRun,
     app is the app). Find out why: list the app's recent runs (glidepath.runs.list) to get the failed run's result
     id, read it (glidepath.run.get), read the failing TaskRun's log (glidepath.logs.get) and Glidepath's own
-    explanation (glidepath.explain). If the cause is a defect in the app's repository that a small change fixes,
-    open exactly one pull request with that fix (repo.pr.open) on a new branch named agent/<task id>, with a title
+    explanation (glidepath.explain), and read the code involved (repo.file.get, repo jfillman/<app>). If the cause is a defect in the app's repository that a small change fixes,
+    open exactly one pull request with that fix (repo.pr.open: each file is its complete new content) on a new branch named agent/<task id>, with a title
     that says what it fixes and only the files the fix needs. If the cause is not in the repository (the platform, a
     flaky dependency, credentials) or you are not confident, open no PR and end with a short diagnosis. Never change
     .tekton/, .github/ or cicd.yaml governance fields; Clearance refuses them. Finish with one paragraph: the cause,
