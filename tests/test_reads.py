@@ -9,7 +9,13 @@ from autopilot.airframe_api import KubeReader, PathRefused
 from autopilot.backends import Backends
 from autopilot.kube_runs import KubeAgentRuns
 from autopilot.reads import KubeArgo, LokiAPI, PrometheusAPI, ReadError, Reads
-from clearance.dispatch import Denied
+from clearance.dispatch import Denied, Principal
+from clearance.tiers import Tier
+
+
+class Auth:
+    def authenticate(self, token):
+        return Principal("user:alice", "user", Tier.T1)
 
 APP = {"metadata": {"name": "flight-api-dev", "namespace": "argocd"},
        "spec": {"project": "flight-api", "destination": {"server": "https://kubernetes.default.svc", "namespace": "app-flight-api-dev"},
@@ -177,7 +183,6 @@ def test_argo_needs_a_namespace():
 
 
 def test_read_calls_through_the_gateway_are_charged_and_audited(tmp_path, clock):
-    from tests.test_serve import Auth
     token = tmp_path / "token"
     token.write_text("t")
     k = Kube({"/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/flight-api-dev": APP})
