@@ -266,6 +266,12 @@
               }
             }
           }
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "The task instructions a run of this agent starts with, passed in the run's input (an AgentRun's input is at most 4 KiB, with the trigger's event beside it). Not a policy: Clearance decides every call whatever this says."
         }
       }
     },
@@ -348,6 +354,44 @@
               "bindingKey": {
                 "type": "string",
                 "minLength": 1
+              },
+              "maxPerHour": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 600
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "source",
+              "bindingKey"
+            ],
+            "description": "A Glidepath event (glidepath-api GET /v1/events): bindingKey matches the envelope's routingKey <app>.<subject>.<predicate> with AMQP topic semantics; match keys are dotted paths into the CDEvent (e.g. subject.content.outcome), each equal to its string value.",
+            "properties": {
+              "type": {
+                "const": "event"
+              },
+              "source": {
+                "const": "glidepath"
+              },
+              "bindingKey": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-z0-9*#][a-z0-9*#.-]*$"
+              },
+              "match": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
               },
               "maxPerHour": {
                 "type": "integer",

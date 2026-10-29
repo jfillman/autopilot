@@ -78,3 +78,35 @@ def test_file_name_must_match_agent_name(tmp_path):
     (tmp_path / "other.yaml").write_text(yaml.safe_dump(d))
     with pytest.raises(profile.DefinitionError):
         profile.load_dir(tmp_path)
+
+
+def test_a_glidepath_event_trigger_validates(tmp_path):
+    import yaml
+    from clearance import profile
+    base = yaml.safe_load((profile_dir() / "nightly-reviewer.yaml").read_text())
+    base.update(kind="event", triggers=[{"type": "event", "source": "glidepath", "bindingKey": "*.pipelinerun.finished",
+                                         "match": {"subject.content.outcome": "failure"}, "maxPerHour": 6}])
+    (tmp_path / "nightly-reviewer.yaml").write_text(yaml.safe_dump(base))
+    d = profile.load_dir(tmp_path)[base["name"]]
+    assert d.triggers[0]["match"] == {"subject.content.outcome": "failure"}
+    for bad in ({"bindingKey": "Bad Key"}, {"match": {"a b": "x"}}, {"exchange": "x"}, {"match": {"a": 1}}):
+        t = {"type": "event", "source": "glidepath", "bindingKey": "*.pipelinerun.finished", **bad}
+        (tmp_path / "nightly-reviewer.yaml").write_text(yaml.safe_dump({**base, "triggers": [t]}))
+        with pytest.raises(Exception):
+            profile.load_dir(tmp_path)
+
+
+def profile_dir():
+    from pathlib import Path
+    return Path(__file__).resolve().parent / "fixtures" / "agents"
+
+
+def test_runtime_instructions(tmp_path):
+    base = yaml.safe_load((profile_dir() / "nightly-reviewer.yaml").read_text())
+    base["runtime"]["instructions"] = "Review every app nightly."
+    (tmp_path / "nightly-reviewer.yaml").write_text(yaml.safe_dump(base))
+    assert profile.load_dir(tmp_path)["nightly-reviewer"].instructions == "Review every app nightly."
+    base["runtime"]["instructions"] = "x" * 1501
+    (tmp_path / "nightly-reviewer.yaml").write_text(yaml.safe_dump(base))
+    with pytest.raises(profile.DefinitionError):
+        profile.load_dir(tmp_path)

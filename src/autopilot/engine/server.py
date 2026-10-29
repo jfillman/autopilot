@@ -14,8 +14,8 @@ serialized: the session store and the audit chain are single-writer.
 """
 from __future__ import annotations
 
+import json
 import os
-import threading
 from typing import Any, Callable
 
 import anyio
@@ -60,7 +60,7 @@ def _request_token() -> str:
 def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = None, *,
                   auth: AuthSettings | None = None) -> MCPServer:
     token = token_provider or (lambda: os.environ["CLEARANCE_TOKEN"])
-    lock = threading.Lock()
+    lock = gateway.lock
     verifier = GatewayTokenVerifier(gateway.auth) if auth is not None else None
     mcp = MCPServer("clearance", token_verifier=verifier, auth=auth, instructions=(
         "Governed access to Hangar. Open a session, then call tools inside it. Every call is checked "
@@ -100,3 +100,113 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
         return JSONResponse({"ok": True, "tools": len(gateway.tools)})
 
     return mcp.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
+
+
+# -- the model proxy -----------------------------------------------------------------------------------------------
+
+ANTHROPIC_VERSION = "2023-06-01"
+MAX_BODY = 4 << 20
+
+
+def _anthropic_post(url: str, key: str, version: str, body: bytes, timeout: float) -> tuple[int, bytes]:
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, method="POST", data=body, headers={
+        "x-api-key": key, "anthropic-version": version, "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - the URL is configuration
+            return r.status, r.read(MAX_BODY)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(64 << 10)
+
+
+def _estimate(payload: dict[str, Any], raw: bytes) -> int:
+    """Tokens a call may use before it is made: its max_tokens plus its input at ~4 bytes a token, so the budget
+    check refuses a call that could overrun it. The real usage is charged after the call."""
+    return int(payload.get("max_tokens") or 0) + len(raw) // 4
+
+
+def _error(status: int, kind: str, message: str, rule: str | None = None) -> JSONResponse:
+    body: dict[str, Any] = {"type": "error", "error": {"type": kind, "message": message}}
+    if rule:
+        body["error"]["rule"] = rule
+    return JSONResponse(body, status_code=status)
+
+
+def _locked(gateway: Gateway, fn: Callable[..., Any]) -> Callable[..., Any]:
+    def run(*a):
+        with gateway.lock:
+            return fn(*a)
+    return run
+
+
+def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
+                     post: Callable[[str, str, str, bytes, float], tuple[int, bytes]] = _anthropic_post):
+    """The model proxy over HTTP: Anthropic's Messages API (`POST /v1/messages`, non-streaming) for runs, which hold
+    no model key. A run sends its model-proxy service-account token as `x-api-key` (what the Anthropic SDKs send
+    for `api_key`) and its session in `x-hangar-session`. Each call is decided by Gateway.model_authorize (the
+    session's model allowlist, network mode, breaker and token budget, recorded in the evidence chain), forwarded
+    to the route's upstream with the provider key read from `key_file` on every call (never logged, never
+    returned), and its actual usage charged back with Gateway.model_usage. Only the request body is forwarded: no
+    client header reaches the provider, and `model` is rewritten to the route's upstream model.
+
+    Refusals are Anthropic-shaped errors with the Clearance rule: 401 for a bad token, 403 for a policy denial, 429
+    for the token budget (M007), 400 for a request the proxy does not take (streaming, no model)."""
+    from pathlib import Path
+
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+
+    key_path = Path(key_file)
+
+    async def messages(request: Request) -> JSONResponse:
+        token = request.headers.get("x-api-key") or ""
+        if not token and request.headers.get("authorization", "").lower().startswith("bearer "):
+            token = request.headers["authorization"][7:]
+        session_id = request.headers.get("x-hangar-session") or ""
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            return _error(413, "request_too_large", "request body too large")
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            return _error(400, "invalid_request_error", "body is not JSON")
+        if not isinstance(payload, dict) or not isinstance(payload.get("model"), str):
+            return _error(400, "invalid_request_error", "a Messages API body with a model is required")
+        if payload.get("stream"):
+            return _error(400, "invalid_request_error", "streaming is not supported by this proxy")
+        if not token or not session_id:
+            return _error(401, "authentication_error", "x-api-key (the run's model-proxy token) and x-hangar-session are required")
+        try:
+            d = await anyio.to_thread.run_sync(_locked(gateway, gateway.model_authorize), token, session_id,
+                                               payload["model"], _estimate(payload, raw))
+        except AuthError:
+            return _error(401, "authentication_error", "token refused")
+        if not d.allow:
+            return _error(429 if d.rule == "M007" else 403,
+                          "rate_limit_error" if d.rule == "M007" else "permission_error", d.message, d.rule)
+        if d.route.backend != "anthropic":
+            return _error(501, "api_error", f"backend {d.route.backend!r} is not forwarded by this proxy")
+        body = json.dumps({**payload, "model": d.route.upstream_model}).encode()
+        version = request.headers.get("anthropic-version") or ANTHROPIC_VERSION
+        try:
+            status, out = await anyio.to_thread.run_sync(
+                post, d.route.upstream.rstrip("/") + "/v1/messages", key_path.read_text().strip(), version, body, timeout)
+        except OSError:
+            return _error(502, "api_error", "the model provider is unreachable")
+        try:
+            doc = json.loads(out)
+        except ValueError:
+            return _error(502, "api_error", f"the model provider answered {status} with no JSON")
+        usage = doc.get("usage") if isinstance(doc, dict) else None
+        if isinstance(usage, dict):
+            used = sum(int(usage.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens",
+                                                        "cache_read_input_tokens"))
+            await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
+        return JSONResponse(doc, status_code=status)
+
+    async def healthz(_: Request) -> JSONResponse:
+        return JSONResponse({"ok": True, "routes": sorted(gateway.models.routes) if gateway.models else []})
+
+    return Starlette(routes=[Route("/v1/messages", messages, methods=["POST"]),
+                             Route("/healthz", healthz, methods=["GET"])])

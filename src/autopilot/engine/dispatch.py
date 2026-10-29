@@ -11,6 +11,7 @@ tree. Nothing is found by import: a Gateway with no packs is a complete Clearanc
 from __future__ import annotations
 
 import functools
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Mapping, Protocol, Sequence
@@ -19,6 +20,7 @@ from . import policy
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
+from .modelproxy import ModelDecision, ModelProxy, ModelRoute
 from .pack import Pack
 from .profile import AgentDefinition
 from .session import Session, SessionError, SessionStore
@@ -81,8 +83,17 @@ class Gateway:
     def __init__(self, definitions: dict[str, AgentDefinition], store: SessionStore,
                  audit: AuditLog, auth: Authenticator, clock: Callable[[], datetime], *,
                  packs: Sequence[Pack] = (), handlers: Mapping[str, Handler] | None = None,
-                 runs: RunBackend | None = None):
+                 runs: RunBackend | None = None, models: Mapping[str, ModelRoute] | None = None,
+                 model_auth: Authenticator | None = None):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
+        # The session store and the audit chain are single-writer: every transport (the MCP server, the model proxy)
+        # takes this lock around a gateway operation.
+        self.lock = threading.RLock()
+        # The model proxy's decisions (modelproxy.py), on this Gateway's store and audit chain, so a model call is
+        # charged to the same session budget and recorded in the same chain as the tool calls. model_auth verifies
+        # the run's model-proxy token (its own audience); without models, no model call is ever allowed.
+        self.models = ModelProxy(dict(models), store, audit, clock) if models else None
+        self.model_auth = model_auth
         self.policy = policy.Policy(packs)
         self.tools = self.policy.tools
         self.runs = runs
@@ -188,7 +199,7 @@ class Gateway:
             return Result(False, d.as_dict(), error=d.message, audit_seq=rec["seq"], session=session_id)
         d = self.defs[s.agent]
         now = self.now()
-        ctx = self.policy.build_context(s, principal.id, principal.tier_ceiling, tool, args,
+        ctx = self.policy.build_context(s, self._acting(s, principal.id), principal.tier_ceiling, tool, args,
                                         list(d.deny_paths), list(d.repos_allow), now,
                                         api_allow=list(d.api_allow), agent_kind=d.kind,
                                         field_deny=list(d.field_deny), field_allow=list(d.field_allow),
@@ -224,6 +235,31 @@ class Gateway:
             return Result(False, decision.as_dict(), error="backend error", audit_seq=rec["seq"], session=s.id)
         rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "ok")
         return Result(True, decision.as_dict(), data, audit_seq=rec["seq"], session=s.id)
+
+    def _acting(self, s: Session, principal_id: str) -> str:
+        """Who the caller acts as in session `s`: the session's principal when the caller is the session's own run
+        (RunBackend.principal), else the caller. Records always name the caller itself."""
+        run_principal = getattr(self.runs, "principal", None)
+        if s.run and run_principal is not None and principal_id != s.principal and run_principal(s) == principal_id:
+            return s.principal
+        return principal_id
+
+    # -- model calls (the proxy's half lives in server.create_model_app) ---
+    @_durable
+    def model_authorize(self, token: str, session_id: str, model: str, est_tokens: int) -> ModelDecision:
+        """Authenticate a run's model-proxy token and decide one model call (modelproxy.ModelProxy.authorize)."""
+        if self.models is None or self.model_auth is None:
+            return ModelDecision(False, "M006", "this deployment has no model routes")
+        principal = self.model_auth.authenticate(token)
+        s = self.store.get(session_id)
+        acting = self._acting(s, principal.id) if s is not None else principal.id
+        return self.models.authorize(session_id, principal.id, model, est_tokens, acting=acting)
+
+    @_durable
+    def model_usage(self, session_id: str, tokens: int) -> None:
+        """Charge what an allowed model call actually used; an overrun trips the session's breaker."""
+        if self.models is not None:
+            self.models.record_usage(session_id, tokens)
 
     # -- run tree --------------------------------------------------------
     def _spawn(self, parent: Session, a: dict[str, Any]) -> dict[str, Any]:

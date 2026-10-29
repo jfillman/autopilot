@@ -68,6 +68,9 @@ class AgentDefinition:
     sandbox: str
     sidecars: tuple[dict[str, str], ...]
     triggers: tuple[dict[str, Any], ...]
+    # What a run starts with (runtime.instructions), passed in its input; None for agents that take their task from
+    # whoever opens the session.
+    instructions: str | None = None
     # The profile as written. Core reads only the fields above; a pack reads its own sections from
     # here (clearance.packs.hangar: profile.glidepath.apps, profile.airframe.apps).
     raw_profile: dict[str, Any] = field(default_factory=dict, compare=False)
@@ -108,6 +111,7 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         image=rt.get("image"), framework=rt.get("framework", "generic"),
         sandbox=rt.get("sandbox", "standard"), sidecars=tuple(rt.get("sidecars", [])),
         triggers=tuple(doc.get("triggers", [{"type": "manual"}])),
+        instructions=rt.get("instructions"),
         raw_profile=p,
     )
 
