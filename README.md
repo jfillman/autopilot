@@ -18,8 +18,8 @@ pins a tagged release in `pyproject.toml` and supplies what only Hangar has:
 
 | Part | Where | What it owns |
 |---|---|---|
-| Clearance (pinned) | `clearance @ git+https://github.com/jfillman/clearance@v0.1.0` | tiers, scope, limits, CEL policy and packs, sessions and the run tree, the gateway, the MCP surface, model-access decisions, audit |
-| Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the vendored airframe files `vendor/`, and `gateway.py`, which builds the Hangar Gateway: Clearance's core + the Hangar pack + a handler per tool + AgentRun as the run backend |
+| Clearance (pinned) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.4.0` | tiers, scope, limits, CEL policy and packs, sessions and the run tree (`Gateway.expire`), the gateway, the MCP surface over stdio and streamable HTTP, authentication (TokenReview, OIDC), the Postgres store, model-access decisions, audit |
+| Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, and `gateway.py`, which builds the Hangar Gateway: Clearance's core + the Hangar pack + a handler per tool + AgentRun as the run backend |
 
 ```python
 Gateway(definitions, store, audit, auth, clock, packs=(HANGAR,), handlers=hangar_handlers(backends),
@@ -34,7 +34,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 288 tests, no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
+`./.venv/bin/python -m pytest -q` runs 346 tests, no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
 
 `clearance/...` paths below are in the clearance repo, under `src/clearance/`.
 
@@ -59,15 +59,72 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 | AppSpec and the planner | `autopilot/airframe_plan.py`, `schemas/appspec.schema.json` (vendored from airframe's contract) | the parachute test: one statement of intent to an ordered change set; its cicd.yaml patch is split by Glidepath's scope rules: the agent's half (Ground environments and their deploy steps, added without dropping a step) passes R021, and Flight environments, the release step and retiring pre-ADR-0019 keys are a separate `cicd-flight` step a human merges; `config`/`overrides` take any human-owned chart value (second sentence: `examples/mynewpythonapp.appspec.yaml`, five environments, canary with pauses, HPA, PDB, a prod-only route); validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` of every environment |
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | lives in airframe (`xrds/agentrun.yaml`, `compositions/agentrun/`, `functions/function-agentrun/`); `src/autopilot/vendor/agentrun_compose.py` and `schemas/agentrun.xrd.yaml` are byte-identical copies | the canary renders with the vendored `compose()`; Clearance's AgentRun manifests are validated against the vendored XRD; `tests/test_agentrun_vendor.py` fails on drift |
+| AgentRun store | `autopilot/kube_runs.py` | the real `AgentRunStore`: POST to `/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns` and DELETE of one named AgentRun there, nothing else (any other method, path, namespace, kind or a non-DNS-label name is refused before a request is built); a 404 on delete is success, a 409 on create an error; token and CA re-read every call |
+| The deployable gateway | `autopilot/serve.py` (`autopilot-gateway`), `Dockerfile` | builds the Hangar Gateway from environment variables and serves Clearance's HTTP app with uvicorn; real backends only; the expiry sweep on a thread under the same lock as every gateway call. See [Running the gateway](#running-the-gateway) |
 | Network-policy canary (AP-A1) | `tools/netpol_canary.py` | renders a run's real policies with `compose()` on a live cluster and proves each denial against a no-policy control; its pass is what a person attests when setting the registry's `airframe.autopilotReady` |
+
+## Running the gateway
+
+`autopilot-gateway` (`src/autopilot/serve.py`) is the deployable Clearance for Hangar: core Clearance, the Hangar pack
+and Autopilot's real backends, served as Clearance's streamable-HTTP MCP app (`/mcp`, bearer auth on every request,
+an unauthenticated `GET /healthz`). The image is the repo's `Dockerfile` (python:3.13-slim, uid 65532, nothing
+written at runtime, so it runs with a read-only root filesystem; linux/amd64 and linux/arm64):
+
+```shell
+container build --arch arm64 -t autopilot-gateway:dev .         # or --arch amd64
+container run --rm --read-only -e CLEARANCE_EPHEMERAL=1 -p 8080:8080 autopilot-gateway:dev
+curl -s localhost:8080/healthz                                   # {"ok":true,"tools":35}
+```
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CLEARANCE_DSN` | required unless ephemeral | Postgres for sessions and evidence (`clearance.pg.open_durable`). One writer: a second replica on the same database stops at start (advisory lock), so run one |
+| `CLEARANCE_EPHEMERAL` | `0` | `1`: in-memory sessions and audit log, lost on exit. Local runs only; `CLEARANCE_DSN` is ignored |
+| `CLEARANCE_AGENTS_DIR` | the repo's `agents/` (`/app/agents` in the image) | the agent definitions loaded at start (that directory only, not its subdirectories) |
+| `CLEARANCE_RESOURCE_URL` | `http://localhost:$PORT/mcp` | this server's public URL, for the OAuth protected-resource metadata |
+| `CLEARANCE_OIDC_ISSUER`, `CLEARANCE_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
+| `CLEARANCE_OIDC_JWKS_URL` | `$CLEARANCE_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
+| `CLEARANCE_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
+| `CLEARANCE_AUDIENCE` | `clearance` | the audience a workload's service-account token must carry (TokenReview) |
+| `PORT` | `8080` | listen port, all interfaces |
+| `CLEARANCE_EXPIRE_SECONDS` | `60` | how often `Gateway.expire()` closes sessions past their deadline and deletes their AgentRuns (and their children's), on a background thread under the gateway lock; a failed sweep is logged and retried |
+| `GLIDEPATH_API_URL` | unset | glidepath-api's base URL (e.g. `http://glidepath-api.platform-system:8080`); unset, the `glidepath.*` tools have no backend |
+| `GLIDEPATH_TOKEN_FILE` | `/var/run/secrets/kubernetes.io/serviceaccount/token` | Clearance's token toward glidepath-api, re-read every call |
+| `GLIDEPATH_ON_BEHALF_OF` | `0` | `1`: send the session principal in `X-Glidepath-On-Behalf-Of` (only when Clearance is one of glidepath-api's `api.delegates`; a non-delegate sending it is refused) |
+| `AIRFRAME_ENABLED` | `1` | `0`: the `airframe.*` tools have no backend |
+| `AIRFRAME_CLUSTER` | `hangar-dev` | the cluster the Airframe reader reads, and the planner's dev cluster |
+| `AIRFRAME_UPPER_CLUSTERS` | `hangar-prod` | comma-separated: the clusters the planner may put a Flight environment on |
+| `AIRFRAME_TENANTS_REPO` | `gitops-hangar-dev-tenants` | the dev cluster's tenants repo, where the planner commits XR requests |
+| `LOG_LEVEL` | `info` | |
+
+The start line names what is enabled (store kind, agent and tool counts, auth, Glidepath URL, Airframe cluster, expiry
+interval) and never a DSN, token or file content.
+
+What each backend needs. The gateway runs as one ServiceAccount (`platform-system/clearance` on hangar-dev) with its
+projected token and CA at the standard path; every adapter re-reads both on each call.
+
+| Backend | Tools | Needs |
+|---|---|---|
+| Authentication (always) | every MCP request | `create` on `tokenreviews.authentication.k8s.io`: a ClusterRoleBinding to `system:auth-delegator`. Callers bring a projected token with audience `CLEARANCE_AUDIENCE`. For people, network reach to the OIDC issuer's JWKS |
+| AgentRuns (always) | `run.spawn`, `run.close`, the expiry sweep | Role `clearance-agentruns` in `autopilot-runs`: `create` and `delete` on `agentruns.catalog.hangar.io` (the adapter sends nothing else) |
+| Airframe reads (`AIRFRAME_ENABLED`) | `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify` | ClusterRole `clearance-airframe-reader`: get/list/watch on `catalog.hangar.io` and `argoproj.io` applications and rollouts, nothing else (gitops-hangar-dev#40). `airframe.validate` has no backend in the image |
+| Glidepath (`GLIDEPATH_API_URL`) | `glidepath.*` | network reach to glidepath-api and RBAC there for Clearance's identity: glidepath-api checks it with a SubjectAccessReview (ClusterRoles `glidepath-api-reader`, `-operator`, `-releaser` for reads, run control and release proposals) |
+| Postgres (`CLEARANCE_DSN`) | everything | a database the gateway owns; it creates its tables and verifies the evidence chain from genesis at start |
+
+Everything else (`repo.pr.open*`, `xr.request`, `argo.*`, `catalog.read`, `metrics.query`, `logs.query`,
+`app.api.get`, `chat.*`, `human.request`, `artifact.*`) has no handler: a call is audited and refused with "no
+backend for this tool in this deployment", charged nothing. `tools_list` still lists them, with their policy.
 
 ## What is NOT built
 
-* Real backends: GitHub through the token-review-interceptor, the ArgoCD API, the Kubernetes API
-  for `AgentRun` XRs, Backstage MCP federation. `clearance/backends.py` (core tools) and `autopilot/backends.py` (Glidepath,
-  Airframe, the AgentRun store) define the interfaces and fakes.
-* Authentication adapters: Tower/OAuth introspection for delegated agents, TokenReview for workloads.
-* The HTTP transport for MCP, and the model proxy's HTTP forwarder.
+* Real backends: GitHub through the token-review-interceptor, the ArgoCD API, the read backend (catalog, PromQL,
+  LogQL, app APIs), human chat, artifacts, Backstage MCP federation. `clearance/backends.py` (core tools) defines the
+  interfaces and fakes; the deployable gateway registers no handler for these, so their calls are refused as having no
+  backend.
+* `airframe.validate` in the image: it needs airframe's `airframe-validate` (helm included), which the image does not
+  carry.
+* The model proxy's HTTP forwarder.
+* A deployment of the gateway (manifests, the Postgres database, the TokenReview binding): nothing here deploys it.
 * The interceptor's `/agent-installation-token` route, the `agent-scope` and `agent-identity` CI gates.
 * The AgentRun composition has not run under Crossplane on a cluster yet (AP-A3's copy-test, airframe
   `docs/admin/agentrun-copy-test.md`). Expiry does not depend on Crossplane re-invocation (U2: about every 60 s):
