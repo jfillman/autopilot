@@ -67,6 +67,11 @@ AF_RULES: dict[str, dict[str, str]] = {
     "AF-COMP-003": {"mode": "values", "severity": "warning", "description": "A hand-written valueFrom.secretKeyRef or "
                     "configMapKeyRef matches a real component's own output name.",
                     "hint": "Use fromComponent: {name, output} instead of the derived Secret or ConfigMap name."},
+    "AF-SVC-001": {"mode": "values", "severity": "warning", "description": "An env value hand-writes another app's "
+                   "in-cluster Service URL (<svc>.<namespace>.svc[.cluster.local]), relying on the platform's namespace "
+                   "convention instead of letting the platform resolve it.",
+                   "hint": "Use fromService: {app, port} (scheme, type, env, service as needed); a platform service "
+                           "outside the <type>-<app>-<env> namespaces can stay a value."},
     "AF-CLUSTER-001": {"mode": "values", "severity": "error", "description": "devClusterName is set; it was removed "
                        "(2026-10-16) and the chart compares no cluster names.",
                        "hint": "Delete it; the platform sets clusterType and cluster from the cluster registry."},
