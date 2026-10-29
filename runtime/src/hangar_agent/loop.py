@@ -34,8 +34,7 @@ be refused. A refusal comes back as an error result naming the rule that refused
 
 When a call is refused, read the rule and the hint and change your approach: use another tool, narrow the arguments, \
 or explain in your final answer what you could not do and why. Do not retry the same call with the same arguments; \
-it will be refused again, and every call counts against the session's limits. The tool list is the deployment's whole \
-registry, so some tools are outside this session's grant and will be refused.
+it will be refused again, and every call counts against the session's limits. {tools_note}
 
 Work toward the task with as few calls as it needs. When you are done, answer with a short summary of what you did, \
 what you found, and anything you could not do. That final answer is the run's result."""
@@ -63,8 +62,17 @@ class Outcome:
                 "tool_calls": self.tool_calls, "reason": self.reason}
 
 
-def system_prompt(agent: str, task: dict[str, Any]) -> str:
-    s = SYSTEM.format(agent=agent or "unnamed agent")
+SCOPED = "The tools you have are the ones this session may call; arguments are still checked on every call."
+UNSCOPED = ("The tool list is the deployment's whole registry, so some tools are outside this session's grant and will "
+            "be refused.")
+
+
+def system_prompt(agent: str, task: dict[str, Any], *, ids: dict[str, str] | None = None, scoped: bool = False) -> str:
+    s = SYSTEM.format(agent=agent or "unnamed agent", tools_note=SCOPED if scoped else UNSCOPED)
+    facts = {k: v for k, v in (ids or {}).items() if v}
+    if facts:
+        # The run's own ids, so instructions that name them ("a branch named agent/<task id>") can be followed.
+        s += "\n\nThis run: " + ", ".join(f"{k} {v}" for k, v in facts.items()) + "."
     if isinstance(task.get("instructions"), str) and task["instructions"].strip():
         s += "\n\nInstructions for this agent:\n" + task["instructions"].strip()
     return s
@@ -85,7 +93,7 @@ def text_of(content: list[dict[str, Any]]) -> str:
 
 
 def run(model: Model, gateway: Gateway, *, agent: str, task: dict[str, Any], model_name: str, max_turns: int,
-        max_tokens: int, expires_at: datetime, grant: list[str] | None = None,
+        max_tokens: int, expires_at: datetime, grant: list[str] | None = None, ids: dict[str, str] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         log: Callable[[str], None] = print) -> Outcome:
     out = Outcome("error")
@@ -101,7 +109,7 @@ def run(model: Model, gateway: Gateway, *, agent: str, task: dict[str, Any], mod
     log(f"start: model={model_name} tools={len(toolset.tools)} max_turns={max_turns}"
         + (f" skipped={','.join(toolset.skipped)}" if toolset.skipped else ""))
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
-    system = system_prompt(agent, task)
+    system = system_prompt(agent, task, ids=ids, scoped=bool(getattr(gateway, "scoped", False)))
     while True:
         if expires_at - clock() < EXPIRY_MARGIN:
             out.status, out.reason = "expired", "less than 60s of the session left"

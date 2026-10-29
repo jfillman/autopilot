@@ -2,7 +2,8 @@
 # Multi-arch (linux/amd64 and linux/arm64): nothing here is architecture-specific.
 # Runs as uid 65532 with a read-only root filesystem: nothing is written at runtime.
 
-FROM python:3.13-slim AS build
+# python:3.13-slim, multi-arch index (2026-10-29; the same base as runtime/Dockerfile). Bump the tag and digest together.
+FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb AS build
 # git: the clearance dependency is pinned as a git tag (pyproject.toml).
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -17,7 +18,7 @@ COPY schemas/ schemas/
 RUN /opt/venv/bin/pip install -e /app \
     && /opt/venv/bin/python -m compileall -q /app/src /opt/venv/lib
 
-FROM python:3.13-slim
+FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb
 ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     CLEARANCE_AGENTS_DIR=/app/agents PORT=8080
 COPY --from=build /opt/venv /opt/venv
