@@ -32,6 +32,16 @@ For people who **define and run agents**. The runtime is not deployed yet (see t
   port-forward: those checks come back `skipped` with the reason. A Flight environment's Application and Rollout
   run on its own cluster; `describe` says so.
 
+- **Propose a release through Glidepath.** An agent with `glidepath.promote` or `glidepath.rollback`
+  (`agents/release-proposer.yaml`) proposes a promotion to the next Flight environment, or a rollback to one of the
+  environment's rollback-plan targets: glidepath-api starts the app's release run, which opens the gitops PR, and a
+  person merges it. Read the plan first (`glidepath.environments.list`, `glidepath.environments.rollbackPlan`), pass
+  `dryRun: true` to check everything without starting anything, and follow the release with
+  `glidepath.releases.get`. Retrying the same call starts no second run. A refusal (out of order, a Ground target,
+  a target not in the plan) comes back as a denial with Glidepath's rule (`GP-API-422`) and hint. The definition
+  lists no tool that reaches GitHub, so the merge is always a person's. `tools/glidepath_release_smoke.py` runs it
+  against a live glidepath-api (dry run unless `--propose`).
+
 ## Coming (roadmap M2 to M4)
 Running a definition as an `AgentRun` XR, sessions with parent and child budgets, and the Tower Agent tab.
 
