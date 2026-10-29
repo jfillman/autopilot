@@ -32,7 +32,12 @@ class ArgoBackend(Protocol):
 
 
 class RunBackend(Protocol):
-    """Starts and stops the workload behind a session. create returns the run's name."""
+    """Starts and stops the workload behind a session. create returns the run's name.
+
+    A backend may also define `principal(session) -> str | None`: the identity the run's own workload
+    authenticates as (on Hangar, the run namespace's ServiceAccount). The Gateway then treats that caller as the
+    session's owner for calls into that session only, so a run acts as its session without holding its owner's
+    credential. Without it, only the session's principal owns the session."""
     def create(self, session: "Session", definition: "AgentDefinition", run_input: dict[str, Any] | None) -> str: ...
     def delete(self, session: "Session") -> None: ...
 

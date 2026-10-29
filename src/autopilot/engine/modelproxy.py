@@ -7,7 +7,8 @@ Modelplane InferenceGateway. Modelplane's gateway can run "behind another gatewa
 an `x-modelplane-caller` header, so the run's session id becomes the caller identity on its
 usage records and the two systems join on it.
 
-This module is the decision core only. The HTTP forwarder is not built.
+This module is the decision core. The Gateway owns one (Gateway.model_authorize / model_usage, durable like every
+other operation) and server.create_model_app is the HTTP forwarder in front of it.
 """
 from __future__ import annotations
 
@@ -42,9 +43,12 @@ class ModelProxy:
                  clock: Callable[[], datetime]):
         self.routes, self.store, self.audit, self.now = routes, store, audit, clock
 
-    def authorize(self, session_id: str, principal_id: str, model: str, est_tokens: int) -> ModelDecision:
+    def authorize(self, session_id: str, principal_id: str, model: str, est_tokens: int,
+                  acting: str | None = None) -> ModelDecision:
+        """`acting` is who the caller acts as (Gateway._acting: a run acts as its session); the record names the
+        caller."""
         s = self.store.get(session_id)
-        d = self._decide(s, principal_id, model, est_tokens)
+        d = self._decide(s, acting or principal_id, model, est_tokens)
         self.audit.append({
             "ts": iso(self.now()), "task_id": s.task_id if s else None, "session": session_id,
             "parent": s.parent_id if s else None, "principal": principal_id, "agent": s.agent if s else None,
