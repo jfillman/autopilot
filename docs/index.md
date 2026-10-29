@@ -20,6 +20,6 @@ commits, held to a tier of tools, a path scope and a budget that can only narrow
 | Agent definitions | `agents/`: durable, schema-validated, one per workload shape |
 | Preflight | `preflight/cases/`: cases that score an agent definition before it is promoted |
 | AppSpec planner | Turns one statement of intent into an ordered change set across the tenants, app and gitops repos |
-| `AgentRun` drafts | `airframe-drafts/`: XRD, composition, function and the RBAC it needs. Drafts: never applied by a pipeline |
+| `AgentRun` | built in airframe (XRD, composition, function-agentrun) and the cluster repos (grants, agent-sandbox); `airframe-drafts/README.md` points there |
 
 Status: **v0.1, pre-release.** See the README for what is built and tested, and what is not.

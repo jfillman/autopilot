@@ -7,7 +7,7 @@ import yaml
 from clearance import manifests
 
 ROOT = Path(__file__).resolve().parents[1]
-XRD = yaml.safe_load((ROOT / "airframe-drafts" / "xrds" / "agentrun.yaml").read_text())
+XRD = yaml.safe_load((ROOT / "schemas" / "agentrun.xrd.yaml").read_text())
 SCHEMA = XRD["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
 
 

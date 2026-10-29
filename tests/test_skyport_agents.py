@@ -241,7 +241,7 @@ def test_a_triggered_top_level_run_gets_an_agentrun_xr_that_satisfies_the_xrd(sg
     r = gw.launch(sid, run_input={"day": "2026-09-25"})
     assert r.ok and list(b.runs.manifests) == [r.data["run"]]
     m = b.runs.manifests[r.data["run"]]
-    xrd = yaml.safe_load((ROOT / "airframe-drafts" / "xrds" / "agentrun.yaml").read_text())
+    xrd = yaml.safe_load((ROOT / "schemas" / "agentrun.xrd.yaml").read_text())
     jsonschema.validate({"spec": m["spec"]}, xrd["spec"]["versions"][0]["schema"]["openAPIV3Schema"])
     assert m["spec"]["input"] == {"day": "2026-09-25"} and m["spec"]["taskId"].startswith("t-")
 

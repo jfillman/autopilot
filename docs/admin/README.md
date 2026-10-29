@@ -14,8 +14,8 @@ For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
 - **Live check**: `tools/airframe_smoke.py` drives the tools through MCP against a cluster with a 10-minute token
   (`kubectl create token clearance -n platform-system --duration=10m`) and compares them with `kubectl get`.
 - **provider-kubernetes RBAC** for the objects an `AgentRun` renders (Namespace, ResourceQuota, ServiceAccount,
-  two NetworkPolicies, Job). Proven on the dev cluster with a scratch role and drafted in
-  `airframe-drafts/rbac/provider-kubernetes-agentrun.yaml`; review it as a privilege grant before applying.
+  two NetworkPolicies, the agent-sandbox Sandbox): the cluster repo's `55-autopilot/agentrun-grants/` (apron
+  template), shipped only with the ValidatingAdmissionPolicy that confines it to run namespaces (decision D15).
 - **Expiry** cannot come from Crossplane re-invocation: on Crossplane 2.3 a function's response TTL is only honoured
   with the beta realtime-compositions flag, and the poll floor is one minute. Use the Sandbox `shutdownTime`
   (Kubernetes SIG Agent Sandbox v1.0.x, measured to expire within a second) or the Job's `activeDeadlineSeconds`.
