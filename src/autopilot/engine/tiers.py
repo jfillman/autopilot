@@ -35,6 +35,7 @@ class ToolSpec:
     target: Target = "none"       # which environment tier the tool acts on
     propose_only: bool = False    # T2: opens a PR, never applies anything
     writes_files: bool = False    # args carry a `files` list subject to path scope
+    reads_repo: bool = False      # args name a `repo` the definition's repos.allow must admit
     extra: dict = field(default_factory=dict)
 
 
@@ -46,6 +47,8 @@ _TOOLS = [
     ToolSpec("app.api.get", Tier.T0, "GET a path on an allowlisted application API", ("service", "path")),
     ToolSpec("chat.recv", Tier.T0, "Receive pending messages from the human in this session", ()),
     ToolSpec("chat.send", Tier.T0, "Send a message to the human in this session", ("text",)),
+    ToolSpec("repo.file.get", Tier.T0, "Read a file (or list a directory) in an allowed repo at a ref (default main)",
+             ("repo", "path"), github_cost=2, reads_repo=True),
     ToolSpec("repo.pr.open", Tier.T1, "Open a PR on an app repo", ("repo", "branch", "title", "files"),
              github_cost=4, target="lower", writes_files=True),
     ToolSpec("xr.request", Tier.T1, "Commit an XR request for a lower environment", ("app", "env", "kind", "spec"),

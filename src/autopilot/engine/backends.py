@@ -22,6 +22,7 @@ Handler = Callable[["Session", dict[str, Any]], Any]
 
 
 class GitBackend(Protocol):
+    """read_file is optional: a backend without it gives repo.file.get no handler."""
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main") -> dict[str, Any]: ...
     def commit_xr(self, app: str, env: str, kind: str, spec: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -81,6 +82,8 @@ def core_handlers(*, git: GitBackend | None = None, argo: ArgoBackend | None = N
         h["chat.recv"] = lambda s, a: human.recv(s.id)
         h["chat.send"] = lambda s, a: human.send(s.id, a["text"])
         h["human.request"] = lambda s, a: human.request(a["question"], a.get("options"))
+    if git is not None and hasattr(git, "read_file"):
+        h["repo.file.get"] = lambda s, a: git.read_file(a["repo"], a["path"], a.get("ref", "main"))
     if git is not None:
         h["repo.pr.open"] = lambda s, a: git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main"))
         h["repo.pr.open_upper"] = lambda s, a: git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main"))
@@ -101,6 +104,10 @@ class Recorder:
 
 
 class FakeGit(Recorder):
+    def read_file(self, repo, path, ref="main"):
+        self._rec("git.read_file", repo, path, ref)
+        return {"path": path, "ref": ref, "content": "x"}
+
     def open_pr(self, repo, branch, title, files, base="main"):
         self._rec("git.open_pr", repo, branch, title, files, base=base)
         return {"pr": len([c for c in self.calls if c[0] == "git.open_pr"]), "url": f"https://github.com/{repo}/pull/1"}
