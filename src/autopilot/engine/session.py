@@ -43,6 +43,7 @@ class Session:
     trip_reason: str | None = None
     denials: int = 0
     closed: bool = False
+    run: str | None = None        # the run backend's name for this session's run, once one is started
 
     # -- budgets ---------------------------------------------------------
     def remaining(self, f: str) -> int:
@@ -80,7 +81,7 @@ class Session:
                 "parent_id": self.parent_id, "depth": self.depth, "task_id": self.task_id,
                 "used": dict(self.used), "reserved": dict(self.reserved), "children": list(self.children),
                 "tripped": self.tripped, "trip_reason": self.trip_reason, "denials": self.denials,
-                "closed": self.closed}
+                "closed": self.closed, "run": self.run}
 
     @classmethod
     def from_record(cls, r: dict[str, Any]) -> "Session":
@@ -88,7 +89,7 @@ class Session:
                    created_at=datetime.fromisoformat(r["created_at"]), expires_at=datetime.fromisoformat(r["expires_at"]),
                    parent_id=r["parent_id"], depth=r["depth"], task_id=r["task_id"], used=dict(r["used"]),
                    reserved=dict(r["reserved"]), children=list(r["children"]), tripped=r["tripped"],
-                   trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"])
+                   trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"], run=r.get("run"))
 
 
 class Persistence(Protocol):
@@ -132,6 +133,9 @@ class SessionStore:
 
     def get(self, sid: str) -> Session | None:
         return self._s.get(sid)
+
+    def all(self) -> list[Session]:
+        return list(self._s.values())
 
     def open(self, principal: str, agent: str, base: Limits, request: LimitRequest | None, now: datetime,
              parent_id: str | None = None, task_id: str | None = None) -> Session:

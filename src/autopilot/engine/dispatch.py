@@ -168,6 +168,7 @@ class Gateway:
             return Result(False, {"allow": False, "rule": "R001"}, session=s.id,
                           error="this deployment has no run backend")
         run = self.runs.create(s, d, run_input)
+        s.run = run
         rec = self._audit(s, Principal(s.principal, "workload"), "run.launch", None, "allow", None,
                           {"run": run}, "created")
         return Result(True, {"allow": True}, {"run": run, "session": s.id},
@@ -240,6 +241,7 @@ class Gateway:
             raise Denied("R008", str(e), "Fix the requested limits; see the tool schema.") from e
         try:
             run = self.runs.create(child, d, a.get("input"))
+            child.run = run
         except Exception:
             self.store.close(child.id)
             raise
@@ -250,8 +252,51 @@ class Gateway:
         if target is None or (target.id != s.id and target.id not in s.children):
             raise Denied("R001", "not one of this session's runs", "You may only close your own run or its children.")
         self.store.close(target.id)
-        self.runs.delete(target)
+        self._delete_runs(target, s, "closed")
         return {"closed": target.id}
+
+    # -- expiry (Hangar D20) ---------------------------------------------
+    @_durable
+    def expire(self, now: datetime | None = None) -> list[str]:
+        """Close every session past its deadline and delete its run, and its children's, each with a record.
+
+        The run itself already ended at its deadline (the run backend enforces that without Clearance); this is the
+        cleanup after the evidence is written: the record of the deletion is in the same commit as the closed
+        session. A deletion that fails is recorded and retried by the next sweep, because the session keeps its run."""
+        now = now or self.now()
+        self.store.sweep(now)
+        pending = [s for s in self.store.all() if s.run and s.closed]
+        done = []
+        for s in pending:
+            if s.run and self.runs is not None:
+                self._delete_runs(s, s, "expired")
+                done.append(s.id)
+        return done
+
+    def _delete_runs(self, target: Session, actor: Session, why: str) -> None:
+        self.store.close(target.id)
+        for sid in [target.id, *self._descendants(target)]:
+            s = self.store.get(sid)
+            if s is None or not s.run or self.runs is None:
+                continue
+            try:
+                self.runs.delete(s)
+            except Exception as e:  # noqa: BLE001 - recorded and retried on the next sweep
+                self._audit(s, Principal(actor.principal, "workload"), "run.delete", None, "allow", None,
+                            {"run": s.run, "why": why}, f"error:{type(e).__name__}")
+                continue
+            self._audit(s, Principal(actor.principal, "workload"), "run.delete", None, "allow", None,
+                        {"run": s.run, "why": why}, "deleted")
+            s.run = None
+
+    def _descendants(self, s: Session) -> list[str]:
+        out = []
+        for c in s.children:
+            out.append(c)
+            child = self.store.get(c)
+            if child is not None:
+                out.extend(self._descendants(child))
+        return out
 
     # -- audit -----------------------------------------------------------
     def _audit(self, s: Session, principal: Principal, tool: str, tier, decision: str, rule, args, result: str) -> dict:

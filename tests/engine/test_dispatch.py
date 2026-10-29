@@ -159,3 +159,46 @@ def test_triggered_workload_agents_run_as_their_own_identity(gw):
 def test_delegated_and_task_agents_cannot_be_triggered(gw):
     assert not gw.open_triggered("coding-agent", "cron").ok
     assert not gw.open_triggered("nope", "cron").ok
+
+
+# ---- expiry deletes runs (Hangar D20) ----------------------------------------------------------
+def test_expire_deletes_each_expired_run_with_a_record_and_leaves_live_ones(gw, backends, clock):
+    sid = open_(gw, agent="orchestrator")
+    child = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 5}}).data
+    other = open_(gw, token="bob", agent="orchestrator")
+    clock.advance(minutes=24 * 60)
+    fresh = open_(gw, token="bob", agent="orchestrator")
+    fresh_child = gw.call("bob", fresh, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 5}}).data
+    assert other and fresh_child
+    done = gw.expire()
+    assert child["session"] in done and fresh_child["session"] not in done
+    assert backends.runs.names().count("runs.delete") == 1
+    rec = [r for r in gw.audit.records if r["tool"] == "run.delete"]
+    assert len(rec) == 1 and rec[0]["session"] == child["session"] and rec[0]["result"] == "deleted"
+    assert gw.store.get(child["session"]).run is None
+    assert gw.expire() == [], "a deleted run is not deleted again"
+
+
+def test_a_failed_delete_is_recorded_and_retried(gw, backends, clock):
+    sid = open_(gw, agent="orchestrator")
+    child = gw.call("alice", sid, "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 5}}).data
+    clock.advance(minutes=24 * 60)
+    real = backends.runs.delete
+
+    def down(s):
+        raise OSError("api server down")
+    backends.runs.delete = down
+    assert gw.expire() == [child["session"]]
+    assert [r["result"] for r in gw.audit.records if r["tool"] == "run.delete"] == ["error:OSError"]
+    backends.runs.delete = real
+    gw.expire()
+    assert [r["result"] for r in gw.audit.records if r["tool"] == "run.delete"] == ["error:OSError", "deleted"]
+
+
+def test_closing_a_run_deletes_its_childrens_runs_too(gw, backends):
+    sid = open_(gw, agent="orchestrator")
+    child = gw.call("alice", sid, "run.spawn", {"agent": "orchestrator", "limits": {"tool_calls": 20}}).data
+    grand = gw.call("alice", child["session"], "run.spawn", {"agent": "researcher", "limits": {"tool_calls": 5}})
+    assert grand.ok, grand.as_dict()
+    assert gw.call("alice", sid, "run.close", {"run_id": child["session"]}).ok
+    assert backends.runs.names().count("runs.delete") == 2
