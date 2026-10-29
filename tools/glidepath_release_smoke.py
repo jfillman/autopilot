@@ -2,7 +2,7 @@
 """Glidepath API spec phase 4, done when: an agent proposes a staging promotion, a human merges it, the release record
 reaches healthy, and the agent had no way to merge it.
 
-Runs Clearance's MCP server in process, with the real Glidepath backend (src/clearance/glidepath_api.py) pointed at a
+Runs Clearance's MCP server in process, with the real Glidepath backend (src/autopilot/glidepath_api.py) pointed at a
 live glidepath-api, opens a `release-proposer` session and, through MCP calls only: reads the app's release plan,
 checks the target is the Flight environment right after the source, dry-runs `glidepath.promote` (every read and
 check, and a server-side dry run of the release PipelineRun; nothing is stored), and, only with --propose, really
