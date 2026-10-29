@@ -1,0 +1,33 @@
+name: runtime-image
+# The autopilot-agent-runtime image (runtime/Dockerfile): the generic agent runtime an AgentRun pod runs. Built for
+# linux/amd64 and linux/arm64 (hangar-prod and hangar-dev) when a runtime-v* tag is pushed, and pushed to
+# ghcr.io/jfillman/autopilot-agent-runtime under that tag. A new ghcr.io package is private: make it public once (or
+# give the cluster a pull secret). Pin agent definitions' runtime.image by digest.
+on:
+  push:
+    tags: ["runtime-v*"]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: runtime
+          file: runtime/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/jfillman/autopilot-agent-runtime:${{ github.ref_name }}
+          provenance: false
+      - run: echo "ghcr.io/jfillman/autopilot-agent-runtime:${{ github.ref_name }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"

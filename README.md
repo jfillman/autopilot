@@ -34,7 +34,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 346 tests, no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
+`./.venv/bin/python -m pytest -q` runs 411 tests, no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
 
 `clearance/...` paths below are in the clearance repo, under `src/clearance/`.
 
@@ -62,6 +62,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 | AgentRun store | `autopilot/kube_runs.py` | the real `AgentRunStore`: POST to `/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns` and DELETE of one named AgentRun there, nothing else (any other method, path, namespace, kind or a non-DNS-label name is refused before a request is built); a 404 on delete is success, a 409 on create an error; token and CA re-read every call |
 | Read adapters | `autopilot/reads.py` | `argo.app.get` over the Application objects (the GET-only Kubernetes reader), `metrics.query` on a Prometheus-compatible API, `logs.query` on Loki; summaries and bounds, a rejected query as an answer |
 | The deployable gateway | `autopilot/serve.py` (`autopilot-gateway`), `Dockerfile` | builds the Hangar Gateway from environment variables and serves Clearance's HTTP app with uvicorn; real backends only; the expiry sweep on a thread under the same lock as every gateway call. See [Running the gateway](#running-the-gateway) |
+| The agent runtime | `runtime/` (`hangar_agent`, `runtime/Dockerfile`), `tests/test_runtime_*.py` | the program an AgentRun pod runs: a tool-use loop that offers Clearance's tools to the model, sends every call through Clearance in the run's existing session, and writes `result.json`. See [The agent runtime](#the-agent-runtime) |
 | Network-policy canary (AP-A1) | `tools/netpol_canary.py` | renders a run's real policies with `compose()` on a live cluster and proves each denial against a no-policy control; its pass is what a person attests when setting the registry's `airframe.autopilotReady` |
 
 ## Running the gateway
@@ -140,6 +141,63 @@ A query Prometheus or Loki rejects (a parse error, a timeout, too many samples) 
 Everything else (`repo.pr.open_upper`, `xr.request`, `argo.sync.lower`, `catalog.read`, `app.api.get`, `chat.*`,
 `human.request`, `artifact.*`) has no handler: a call is audited and refused with "no backend for this tool in this
 deployment", charged nothing. `tools_list` still lists them, with their policy.
+
+## The agent runtime
+
+`hangar-agent` (`runtime/src/hangar_agent/`, its own package in `runtime/pyproject.toml`) is the generic program an
+AgentRun pod runs. The session already exists: Clearance opened it and launched the run. The runtime never calls
+`session_open`; it calls `tools_list` once and `call` for every action, and talks to the model only through the model
+proxy. It holds no authority of its own.
+
+The loop: it offers every tool in `tools_list` to the model (the deployment's whole registry; `glidepath.run.get`
+becomes `glidepath__run__get`, since Anthropic tool names allow no dots, and is mapped back through a table), asks the
+model for the next step, sends each `tool_use` to Clearance and hands the answer back as a `tool_result`. A refusal
+goes back with `is_error` and Clearance's rule, message and hint; the system prompt tells the model to adapt, not
+retry. It stops on `end_turn` (done), after `HANGAR_MAX_TURNS` model calls (budget; the last turn's tool calls are
+not run), when the session has less than 60 s left (expired), on a 429 from the proxy (budget), and on a 403 or any
+failure a retry did not fix (error). stdout gets one line per turn with the tool names and decisions
+(`turn 2: stop=tool_use tools=[catalog.read:ok, repo.pr.open:deny(R006)]`), never a token or an argument.
+
+```shell
+python -m hangar_agent             # the image's entrypoint; `hangar-agent` when installed from runtime/
+```
+
+The environment is airframe's function-agentrun's (`_pod_spec`):
+
+| Variable | Used for |
+|---|---|
+| `HANGAR_SESSION_ID` | the session every `call` names; also sent to the proxy as `x-hangar-session` |
+| `HANGAR_EXPIRES_AT` | RFC 3339; the loop stops 60 s before it |
+| `CLEARANCE_URL` | the gateway; the runtime POSTs JSON-RPC `tools/call` to `$CLEARANCE_URL/mcp` (stateless, no initialize) |
+| `MODEL_PROXY_URL` | the proxy; `POST $MODEL_PROXY_URL/v1/messages`, the Anthropic Messages API, non-streaming. Without it (network mode `clearance` only) the runtime does not start |
+| `HANGAR_TOKEN_DIR` | `clearance-token` (`Authorization: Bearer`, to Clearance) and `model-proxy-token` (`x-api-key`, to the proxy; `Authorization` is not sent), both read again on every request because the kubelet rotates them |
+| `HANGAR_INPUT` | optional JSON: `prompt` (the user turn), `event` (appended to it as JSON), `instructions` (appended to the system prompt), `model`. With neither `prompt` nor `event` the run ends as an error without calling the model |
+| `HANGAR_MODEL` | the model alias, over `HANGAR_INPUT.model`; default `claude-sonnet-5-5`. The proxy maps it upstream |
+| `HANGAR_MAX_TURNS`, `HANGAR_MAX_TOKENS` | model calls per run (default 30) and `max_tokens` per call (default 8192) |
+| `HANGAR_OUTPUT_DIR` | where `result.json` goes (`/run/output`) |
+| `HANGAR_LIMITS` | read; if it ever carries `tools` (the session's grant), only those are offered |
+| `HANGAR_RUN_ID`, `HANGAR_TASK_ID`, `HANGAR_AGENT` | the start line and the system prompt |
+
+`result.json`, written atomically in every case the process can still write, a bad environment included:
+
+```json
+{"status": "done", "turns": 2, "final_text": "flight-api is owned by ...", "reason": "",
+ "tool_calls": [{"tool": "catalog.read", "ok": true, "rule": null},
+                {"tool": "repo.pr.open", "ok": false, "rule": "R006"}]}
+```
+
+`status` is `done`, `budget`, `expired` or `error`, and `reason` says why it is not `done`. The exit code is 0 for
+`done`, 1 otherwise, 2 for an unusable environment.
+
+The image is `runtime/Dockerfile`: python:3.13-slim pinned by its multi-arch digest, the dependencies (the anthropic
+SDK only) installed from the hashed `runtime/requirements.lock`, uid 65532, nothing written outside `/run/output` and
+`/tmp`, so it runs with a read-only root filesystem under any uid (function-agentrun sets 10001). The
+`runtime-image` workflow builds it for linux/amd64 and linux/arm64 on a `runtime-v*` tag and pushes
+`ghcr.io/jfillman/autopilot-agent-runtime:<tag>`.
+
+```shell
+container build --arch arm64 -t autopilot-agent-runtime:dev runtime   # or --arch amd64
+```
 
 ## What is NOT built
 

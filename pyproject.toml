@@ -18,7 +18,8 @@ autopilot-gateway = "autopilot.serve:main"
 allow-direct-references = true
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+# anthropic: the agent runtime's model client (runtime/, tests/test_runtime_*.py).
+test = ["pytest>=8", "anthropic>=0.40,<3"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/autopilot"]
@@ -26,4 +27,5 @@ packages = ["src/autopilot"]
 [tool.pytest.ini_options]
 # function-agentrun's tests live with it in airframe (functions/function-agentrun, CI's compositions job).
 testpaths = ["tests"]
-pythonpath = ["src"]
+# runtime/src: the agent runtime (runtime/pyproject.toml), its own package and image.
+pythonpath = ["src", "runtime/src"]
