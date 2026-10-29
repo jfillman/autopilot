@@ -5,8 +5,9 @@ import pytest
 
 from clearance import profile
 from clearance.audit import AuditLog
-from clearance.backends import fake_backends
-from clearance.dispatch import Gateway, Principal
+from autopilot.backends import fake_backends
+from autopilot.gateway import hangar_gateway
+from clearance.dispatch import Principal
 from clearance.session import SessionStore
 from clearance.tiers import Tier
 
@@ -58,4 +59,4 @@ def gw(defs, backends, clock):
         "readonly": Principal("user:ro", "user", Tier.T0),
         "holmes": Principal("holmesgpt/holmes", "workload", Tier.T1),
     })
-    return Gateway(defs, store, AuditLog(), backends, auth, clock)
+    return hangar_gateway(defs, store, AuditLog(), backends, auth, clock)

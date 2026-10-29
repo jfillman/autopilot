@@ -4,7 +4,7 @@ import jsonschema
 import pytest
 import yaml
 
-from clearance import manifests
+from autopilot import manifests
 
 ROOT = Path(__file__).resolve().parents[1]
 XRD = yaml.safe_load((ROOT / "schemas" / "agentrun.xrd.yaml").read_text())

@@ -1,0 +1,84 @@
+"""The Hangar Gateway: core Clearance, the Hangar pack's policy, and Hangar's backends.
+
+Clearance owns the decision (clearance.dispatch.Gateway, clearance.packs.hangar). What this module adds
+is what the tools DO on Hangar: a handler per glidepath.* and airframe.* tool over the backends in
+backends.py, the core tools' handlers over the same bundle, and the run tree as AgentRun XRs.
+
+    gw = hangar_gateway(definitions, store, audit, fake_backends(), auth, clock)
+"""
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime
+from typing import Any, Callable
+
+from clearance.audit import AuditLog
+from clearance.backends import Handler, core_handlers
+from clearance.dispatch import Authenticator, Gateway
+from clearance.packs.hangar import HANGAR
+from clearance.policy import Policy
+from clearance.profile import AgentDefinition
+from clearance.session import Session, SessionStore
+from clearance.tiers import ToolSpec
+
+from . import manifests
+from .backends import AgentRunStore, Backends
+
+PACKS = (HANGAR,)
+
+# The registry a Hangar Gateway is built with (core plus the Hangar pack), for code that wants it
+# without a Gateway at hand. Gateway.tools is the same thing.
+TOOLS: dict[str, ToolSpec] = Policy(PACKS).tools
+
+
+def rerun_key(session_id: str, app: str, pipelinerun: str) -> str:
+    """glidepath-api's Idempotency-Key for a session's re-run of one run: [A-Za-z0-9._:-], at most 128."""
+    return "clearance." + hashlib.sha256(f"{session_id}/{app}/{pipelinerun}".encode()).hexdigest()[:32]
+
+
+class AgentRunBackend:
+    """Clearance's RunBackend on Hangar: a session's run is an AgentRun XR (manifests.agentrun_manifest)."""
+
+    def __init__(self, store: AgentRunStore):
+        self.store = store
+
+    def create(self, session: Session, definition: AgentDefinition, run_input: dict[str, Any] | None) -> str:
+        manifest = manifests.agentrun_manifest(session, definition, run_input=run_input)
+        self.store.create(manifest)
+        return manifest["metadata"]["name"]
+
+    def delete(self, session: Session) -> None:
+        self.store.delete(manifests.run_name(session))
+
+
+def hangar_handlers(b: Backends) -> dict[str, Handler]:
+    """Every handler a Hangar Gateway registers (run.spawn and run.close are the Gateway's own).
+    The glidepath and airframe backends are read at call time, so a deployment without one fails that
+    tool's calls as a backend error rather than refusing to start."""
+    h = core_handlers(git=b.git, argo=b.argo, read=b.read, human=b.human, artifacts=b.artifacts)
+    h.update({
+        "glidepath.runs.list": lambda s, a: b.glidepath.runs(a["app"], a.get("sinceHours"), a.get("limit"), s.principal),
+        "glidepath.run.get": lambda s, a: b.glidepath.run(a["app"], a["result"], s.principal),
+        "glidepath.logs.get": lambda s, a: b.glidepath.log(a["app"], a["result"], a["taskRun"], s.principal),
+        "glidepath.explain": lambda s, a: b.glidepath.explain(a["app"], a["result"], s.principal),
+        "glidepath.releases.get": lambda s, a: b.glidepath.releases(a["app"], a.get("chainId"), s.principal),
+        "glidepath.contract": lambda s, a: b.glidepath.contract(s.principal),
+        # The key is the session and the run, so an agent retrying the same re-run starts no second one.
+        "glidepath.run.rerun": lambda s, a: b.glidepath.rerun(a["app"], a["pipelinerun"], rerun_key(s.id, a["app"], a["pipelinerun"]), s.principal),
+        "glidepath.run.cancel": lambda s, a: b.glidepath.cancel(a["app"], a["pipelinerun"], s.principal),
+        "airframe.capabilities": lambda s, a: b.airframe.capabilities(a.get("kind"), a.get("section")),
+        "airframe.validate": lambda s, a: b.airframe.validate(a["documents"], a.get("app"), a.get("mode", "values"),
+                                                              a.get("render", True)),
+        "airframe.explain": lambda s, a: b.airframe.explain(a["rule"]),
+        "airframe.plan": lambda s, a: b.airframe.plan(a["spec"], a.get("baseCicd")),
+        "airframe.status": lambda s, a: b.airframe.status(a["app"], a.get("env")),
+        "airframe.describe": lambda s, a: b.airframe.describe(a["app"], a["env"]),
+        "airframe.verify": lambda s, a: b.airframe.verify(a["app"], a["kind"], a["name"], a.get("env")),
+    })
+    return h
+
+
+def hangar_gateway(definitions: dict[str, AgentDefinition], store: SessionStore, audit: AuditLog,
+                   backends: Backends, auth: Authenticator, clock: Callable[[], datetime]) -> Gateway:
+    return Gateway(definitions, store, audit, auth, clock, packs=PACKS,
+                   handlers=hangar_handlers(backends), runs=AgentRunBackend(backends.runs))

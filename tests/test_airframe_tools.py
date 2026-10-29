@@ -16,14 +16,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from clearance import airframe_plan as ap
-from clearance import airframe_tools as at
-from clearance import policy
-from clearance.airframe_api import AirframeError, KubeReader, PathRefused, path_allowed
-from clearance.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
-from clearance.dispatch import Denied, Gateway
+from autopilot import airframe_plan as ap
+from autopilot import airframe_tools as at
+from autopilot.airframe_api import AirframeError, KubeReader, PathRefused, path_allowed
+from autopilot.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
+from autopilot.gateway import TOOLS, hangar_gateway
+from clearance.dispatch import Denied
+from clearance.packs import hangar
 from clearance.server import create_server
-from clearance.tiers import TOOLS, Tier
+from clearance.tiers import Tier
 
 ROOT = Path(__file__).resolve().parents[1]
 # CI clones airframe under HANGAR_TECH (.github/workflows/test.yaml); locally it is ~/tech.
@@ -117,9 +118,9 @@ def test_vendored_contract_bundle_matches_airframes():
 
 @pytest.mark.skipif(not (AIRFRAME / "tools" / "sidecars.py").exists(), reason="airframe checkout not present")
 def test_vendored_sidecar_helpers_match_airframes():
-    vendored = ROOT / "src" / "clearance" / "vendor" / "airframe_sidecars.py"
+    vendored = ROOT / "src" / "autopilot" / "vendor" / "airframe_sidecars.py"
     assert vendored.read_bytes() == (AIRFRAME / "tools" / "sidecars.py").read_bytes(), (
-        "src/clearance/vendor/airframe_sidecars.py drifted from airframe's tools/sidecars.py - copy it over")
+        "src/autopilot/vendor/airframe_sidecars.py drifted from airframe's tools/sidecars.py - copy it over")
 
 
 @pytest.mark.skipif(not (AIRFRAME / "tools" / "airframe-validate").exists(), reason="airframe checkout not present")
@@ -299,19 +300,19 @@ def test_the_planners_cicd_patch_passes_r021_and_the_rest_is_a_human_step(gw, ba
     cs = gw.call("alice", open_(gw), "airframe.plan", {"spec": spec, "baseCicd": yaml.safe_dump(base)}).data
     steps = {s["id"]: s for s in cs["steps"]}
     agent = next(f for f in steps["app-repo"]["files"] if f["path"] == "cicd.yaml")
-    assert policy.cicd_scope_problems([as_file(agent)]) == []
+    assert hangar.cicd_scope_problems([as_file(agent)]) == []
     # and through the gateway, as the coding agent would open it
     r = gw.call("alice", gw.open_session("alice", "coding-agent").data["session"], "repo.pr.open",
                 {"repo": f"jfillman/{example}", "branch": "agent/plan", "title": "plan", "files": [as_file(agent)]})
     assert r.ok, r.as_dict()
-    head = policy.merge_patch(base, agent["content"])
+    head = hangar.merge_patch(base, agent["content"])
     assert [s for s in base["pipelines"]["ci"]["steps"] if s not in head["pipelines"]["ci"]["steps"]] == [], "no step is dropped"
     assert all(e["tier"] == "ground" for e in head["deploy"]["environments"])
     human = steps["cicd-flight"]
     assert human["gate"] == "human-merge" and human["risk"] == "T2"
-    rules = {p["rule"] for p in policy.cicd_scope_problems([as_file(human["files"][0])])}
+    rules = {p["rule"] for p in hangar.cicd_scope_problems([as_file(human["files"][0])])}
     assert "GP-SCOPE-003" in rules, "Flight environments are exactly what an agent may not write"
-    final = policy.merge_patch(head, human["files"][0]["content"])
+    final = hangar.merge_patch(head, human["files"][0]["content"])
     assert [e["name"] for e in final["deploy"]["environments"] if e["tier"] == "flight"] == \
         [e["name"] for e in spec["environments"]["flight"]]
     assert backends.git.names() == ["git.open_pr"]
@@ -324,7 +325,7 @@ def test_a_pre_adr_scaffold_puts_the_whole_cicd_change_in_the_human_step(gw):
     steps = {s["id"]: s for s in cs["steps"]}
     assert "cicd.yaml" not in [f["path"] for f in steps["app-repo"]["files"]]
     patch = steps["cicd-flight"]["files"][0]["content"]
-    assert patch["deploy"]["lowerEnvironments"] is None and "lowerEnvironments" not in policy.merge_patch(legacy, patch)["deploy"]
+    assert patch["deploy"]["lowerEnvironments"] is None and "lowerEnvironments" not in hangar.merge_patch(legacy, patch)["deploy"]
     assert any("pre-ADR-0019" in w for w in cs["warnings"])
 
 
@@ -433,7 +434,7 @@ def test_verify_misses_are_answers(gw, cluster):
 
 # ---- scope and arguments ------------------------------------------------------------------------------------------------
 def test_an_app_off_the_allowlist_is_refused_before_any_read(gw, cluster, defs):
-    object.__setattr__(defs["airframe-operator"], "airframe_apps", ("gate-*",))
+    object.__setattr__(defs["airframe-operator"], "raw_profile", {**defs["airframe-operator"].raw_profile, "airframe": {"apps": ["gate-*"]}})
     sid = open_(gw)
     r = gw.call("alice", sid, "airframe.status", {"app": "boarding-api"})
     assert r.decision["rule"] == "R023" and r.decision["hint"]
@@ -441,7 +442,7 @@ def test_an_app_off_the_allowlist_is_refused_before_any_read(gw, cluster, defs):
 
 
 def test_no_apps_listed_means_none_but_contract_reads_still_work(gw, cluster, defs):
-    object.__setattr__(defs["airframe-operator"], "airframe_apps", ())
+    object.__setattr__(defs["airframe-operator"], "raw_profile", {**defs["airframe-operator"].raw_profile, "airframe": {"apps": []}})
     sid = open_(gw)
     for tool, args in (("airframe.status", {"app": "boarding-api"}), ("airframe.describe", {"app": "boarding-api", "env": "dev"}),
                        ("airframe.verify", {"app": "boarding-api", "kind": "Redis", "name": "redis"}),
@@ -594,7 +595,7 @@ def test_an_agent_reads_an_environment_using_only_mcp(defs, clock, token):
         reader = KubeReader(f"http://127.0.0.1:{srv.server_address[1]}", token)
         tools = at.AirframeTools(reader, at.FakeValidator(), REG, cluster="hangar-dev")
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), None, tools)
-        gw = Gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):

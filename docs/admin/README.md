@@ -3,10 +3,12 @@
 For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
 
 ## What an install will need
-- **Clearance**, a standalone deployment. Its write permission is one namespaced Role on `agentruns` in
+- **Clearance**, a standalone deployment. Its core (`src/clearance/`, all but `packs/hangar/`) needs no Airframe
+  and no Glidepath; on Hangar it runs with the Hangar pack and Autopilot's backends (`autopilot.gateway.hangar_gateway`).
+  `tools_list` shows exactly the tools the deployment was built with. Its write permission is one namespaced Role on `agentruns` in
   `autopilot-runs`. For the `airframe.*` tools it reads, cluster-wide and read-only, `catalog.hangar.io/*` and
   `argoproj.io` applications and rollouts (ClusterRole `clearance-airframe-reader`, gitops-hangar-dev#40), and
-  nothing else: no Secrets, ConfigMaps or pods. The adapter (`src/clearance/airframe_api.py`) enforces the same
+  nothing else: no Secrets, ConfigMaps or pods. The adapter (`src/autopilot/airframe_api.py`) enforces the same
   allowlist itself, GET only, so an RBAC mistake alone still reads nothing more. It needs the API server URL, the
   CA file and a projected ServiceAccount token file (re-read every call). `airframe.validate` needs airframe's
   `airframe-validate`: the script from an airframe checkout with python3, pyyaml, jsonschema and helm, or the

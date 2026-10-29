@@ -13,7 +13,7 @@ jobs:
         with:
           repository: jfillman/airframe
           path: tech/airframe
-      # glidepath's cicd.yaml scope rules and contract, vendored under src/clearance/vendor/
+      # glidepath's cicd.yaml scope rules and contract, vendored under src/clearance/packs/hangar/vendor/
       - uses: actions/checkout@v4
         with:
           repository: jfillman/glidepath

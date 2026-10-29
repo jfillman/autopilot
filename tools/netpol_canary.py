@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 # function-agentrun's compose(), vendored byte for byte from airframe functions/function-agentrun/function/compose.py
 # (tests/test_agentrun_vendor.py fails on drift), so the canary tests the exact policies a real AgentRun gets.
-from clearance.vendor.agentrun_compose import ClusterConfig, compose, iso  # noqa: E402
+from autopilot.vendor.agentrun_compose import ClusterConfig, compose, iso  # noqa: E402
 
 # busybox 1.37, multi-arch index digest (kiac-dev is arm64, kind-prod amd64).
 IMAGE = "docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"

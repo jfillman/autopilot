@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from clearance import profile, triggers
+from autopilot import triggers
+from autopilot.backends import fake_backends
+from autopilot.gateway import hangar_gateway
+from clearance import profile
 from clearance.audit import verify
-from clearance.backends import fake_backends
-from clearance.dispatch import Gateway, Principal
+from clearance.dispatch import Principal
 from clearance.audit import AuditLog
 from clearance.session import SessionStore
 from clearance.tiers import Tier
@@ -30,7 +32,7 @@ def sgw():
         "assistant": Principal("app-passenger-assistant-dev/passenger-assistant", "workload", Tier.T1),
     })
     b = fake_backends()
-    return Gateway(SKY, store, AuditLog(), b, auth, clock), b, clock
+    return hangar_gateway(SKY, store, AuditLog(), b, auth, clock), b, clock
 
 
 def test_all_six_shapes_are_represented():

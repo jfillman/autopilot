@@ -2,18 +2,14 @@
 XRD's own schema in tests (see tests/test_manifests.py)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
-from .profile import AgentDefinition
-from .session import Session
+from clearance.audit import iso
+from clearance.profile import AgentDefinition
+from clearance.session import Session
 
 RUN_NAMESPACE = "autopilot-runs"
 API_VERSION = "catalog.hangar.io/v1alpha1"
-
-
-def iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def run_name(session: Session) -> str:

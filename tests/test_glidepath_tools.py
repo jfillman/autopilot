@@ -6,11 +6,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from clearance.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
-from clearance.dispatch import Denied, Gateway
-from clearance.glidepath_api import GlidepathAPI, GlidepathError
+from autopilot.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
+from autopilot.gateway import TOOLS, hangar_gateway
+from autopilot.glidepath_api import GlidepathAPI, GlidepathError
+from clearance.dispatch import Denied
 from clearance.server import create_server
-from clearance.tiers import TOOLS, Tier
+from clearance.tiers import Tier
 
 RESULT = "0b9d1a2e-1111-4c4c-9999-aaaaaaaaaaaa"
 
@@ -85,7 +86,7 @@ def test_an_app_off_the_allowlist_is_refused_before_any_call(gw, backends, defs)
     sid = open_(gw, agent="coding-agent")  # no glidepath tools at all
     assert gw.call("alice", sid, "glidepath.explain", {"app": "gate-api", "result": RESULT}).decision["rule"] == "R006"
     d = defs["cicd-explainer"]
-    object.__setattr__(d, "glidepath_apps", ("gate-*",))
+    object.__setattr__(d, "raw_profile", {**d.raw_profile, "glidepath": {"apps": ["gate-*"]}})
     sid = open_(gw)
     assert gw.call("alice", sid, "glidepath.runs.list", {"app": "gate-api"}).ok
     r = gw.call("alice", sid, "glidepath.runs.list", {"app": "flight-api"})
@@ -94,7 +95,7 @@ def test_an_app_off_the_allowlist_is_refused_before_any_call(gw, backends, defs)
 
 
 def test_no_apps_listed_means_none(gw, backends, defs):
-    object.__setattr__(defs["cicd-explainer"], "glidepath_apps", ())
+    object.__setattr__(defs["cicd-explainer"], "raw_profile", {**defs["cicd-explainer"].raw_profile, "glidepath": {"apps": []}})
     sid = open_(gw)
     assert gw.call("alice", sid, "glidepath.runs.list", {"app": "gate-api"}).decision["rule"] == "R022"
     assert backends.glidepath.calls == []
@@ -210,7 +211,7 @@ def test_an_agent_names_the_failure_id_using_only_mcp(defs, clock, token):
         from clearance.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token)
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-        gw = Gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):

@@ -2,7 +2,7 @@
 """Glidepath API spec phase 2, done when: an agent starting cold names the right failure id for a failed flow,
 using only MCP.
 
-Runs Clearance's MCP server in process, with the real Glidepath backend (src/clearance/glidepath_api.py) pointed at
+Runs Clearance's MCP server in process, with the real Glidepath backend (src/autopilot/glidepath_api.py) pointed at
 a live glidepath-api, opens a `cicd-explainer` session and, through MCP calls only, lists the app's runs, picks the
 newest failed one and asks `glidepath.explain` why it failed. It prints each failed TaskRun's knownFailures id and the
 line that matched. Every other backend is a fake; nothing here can write.
@@ -29,9 +29,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from clearance import profile  # noqa: E402
 from clearance.audit import AuditLog  # noqa: E402
-from clearance.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
-from clearance.dispatch import Gateway, Principal  # noqa: E402
-from clearance.glidepath_api import GlidepathAPI  # noqa: E402
+from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
+from autopilot.gateway import hangar_gateway  # noqa: E402
+from autopilot.glidepath_api import GlidepathAPI  # noqa: E402
+from clearance.dispatch import Principal  # noqa: E402
 from clearance.server import create_server  # noqa: E402
 from clearance.session import SessionStore  # noqa: E402
 from clearance.tiers import Tier  # noqa: E402
@@ -57,7 +58,7 @@ def main() -> int:
 
     api = GlidepathAPI(a.url, a.token_file)
     backends = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-    gw = Gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
+    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
                  lambda: datetime.now(timezone.utc))
     mcp = create_server(gw, lambda: "local")
 

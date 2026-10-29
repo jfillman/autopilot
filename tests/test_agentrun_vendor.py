@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # CI clones airframe under HANGAR_TECH (.github/workflows/test.yaml); locally it is ~/tech.
 AIRFRAME = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech")) / "airframe"
 VENDORED = {
-    "src/clearance/vendor/agentrun_compose.py": "functions/function-agentrun/function/compose.py",
+    "src/autopilot/vendor/agentrun_compose.py": "functions/function-agentrun/function/compose.py",
     "schemas/agentrun.xrd.yaml": "xrds/agentrun.yaml",
 }
 
@@ -23,7 +23,7 @@ def test_vendored_agentrun_file_matches_airframe(vendored, upstream):
 
 
 def test_the_canary_renders_through_the_vendored_compose():
-    from clearance.vendor import agentrun_compose
+    from autopilot.vendor import agentrun_compose
     from importlib.util import module_from_spec, spec_from_file_location
     spec = spec_from_file_location("netpol_canary_v", ROOT / "tools" / "netpol_canary.py")
     nc = module_from_spec(spec)

@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,11 @@ def sha256_hex(b: bytes) -> str:
 
 def args_digest(args: Any) -> str:
     return sha256_hex(canonical(args))
+
+
+def iso(dt: datetime) -> str:
+    """The one timestamp format records (and anything that names a session's expiry) use."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass(frozen=True)

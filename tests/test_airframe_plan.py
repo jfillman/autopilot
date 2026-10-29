@@ -17,7 +17,7 @@ import jsonschema
 import pytest
 import yaml
 
-from clearance import airframe_plan as ap
+from autopilot import airframe_plan as ap
 
 # Sibling checkouts. CI clones airframe under HANGAR_TECH; locally it is ~/tech.
 TECH = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech"))

@@ -1,7 +1,7 @@
 """The airframe.* tools: Airframe's contract, validator and planner, and read-only cluster state, for agents.
 
-All seven are T0. Self-contained on purpose (a later split moves Hangar backends out of the clearance package):
-Clearance's core knows them only by their registration (tiers.py, dispatch.py) and the per-app scope rule (R023).
+All seven are T0. Their policy (ToolSpecs, argument shapes, the per-app scope rule R023) is the Hangar pack's,
+clearance.packs.hangar; Clearance's core does not know them. autopilot.gateway registers their handlers.
 
   capabilities  the contract bundle, airframe's contract/airframe-contract.json, vendored as
                 schemas/airframe-contract.json and drift-tested against airframe main
