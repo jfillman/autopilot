@@ -1,3 +1,4 @@
+import pytest
 from datetime import timedelta
 
 from clearance.audit import verify
@@ -202,3 +203,27 @@ def test_closing_a_run_deletes_its_childrens_runs_too(gw, backends):
     assert grand.ok, grand.as_dict()
     assert gw.call("alice", sid, "run.close", {"run_id": child["session"]}).ok
     assert backends.runs.names().count("runs.delete") == 2
+
+
+def _with_file_get(gw):
+    import dataclasses
+    d = gw.defs["coding-agent"]
+    gw.defs["coding-agent"] = dataclasses.replace(d, limits=dataclasses.replace(d.limits, tools=d.limits.tools | {"repo.file.get"}))
+
+
+def test_repo_file_get_is_scoped_to_the_definitions_repos(gw, backends):
+    _with_file_get(gw)
+    sid = gw.open_session("alice", "coding-agent").data["session"]
+    r = gw.call("alice", sid, "repo.file.get", {"repo": "jfillman/flight-api", "path": "src/app.py"})
+    assert r.ok, r.as_dict()
+    assert backends.git.calls[-1] == ("git.read_file", ("jfillman/flight-api", "src/app.py", "main"), {})
+    r = gw.call("alice", sid, "repo.file.get", {"repo": "someone/else", "path": "a"})
+    assert not r.ok and r.decision["rule"] == "R014"
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "../x", "a/../../b", "", "a\\b"])
+def test_repo_file_get_refuses_a_path_outside_the_repo(gw, path):
+    _with_file_get(gw)
+    sid = gw.open_session("alice", "coding-agent").data["session"]
+    r = gw.call("alice", sid, "repo.file.get", {"repo": "jfillman/flight-api", "path": path})
+    assert not r.ok and r.decision["rule"] == "R008", r.as_dict()
