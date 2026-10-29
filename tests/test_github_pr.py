@@ -112,3 +112,25 @@ def test_broker_failure_is_hidden(token):
 
 def test_app_of():
     assert [app_of(r) for r in ("gate-api", "gitops-gate-api", "gitops-infra-broker")] == ["gate-api", "gate-api", "broker"]
+
+
+def test_read_file_returns_text_and_lists_directories(token):
+    import base64
+    body = json.dumps({"type": "file", "size": 6, "sha": "f1", "encoding": "base64",
+                       "content": base64.b64encode(b"hello\n").decode()}).encode()
+    gh = GH({("GET", "repos/jfillman/gate-api/contents/app.js?ref=main"): (200, body),
+             ("GET", "repos/jfillman/gate-api/contents/test?ref=main"): (200, b'[{"name": "app.test.js", "type": "file", "size": 9}]'),
+             ("GET", "repos/jfillman/gate-api/contents/nope?ref=main"): (404, b"{}")})
+    p = prs(token, gh)
+    assert p.read_file("jfillman/gate-api", "app.js")["content"] == "hello\n"
+    assert p.read_file("jfillman/gate-api", "test")["entries"] == [{"name": "app.test.js", "type": "file", "size": 9}]
+    assert p.read_file("jfillman/gate-api", "nope")["found"] is False
+    assert all(r[0] in ("GET", "POST") for r in gh.reqs)
+    assert [r[0] for r in gh.reqs if "api.github.test" in r[1]] == ["GET", "GET", "GET"]
+
+
+def test_read_file_refuses_a_bad_ref_before_any_token(token):
+    gh = GH()
+    with pytest.raises(Denied):
+        prs(token, gh).read_file("jfillman/gate-api", "app.js", "../x")
+    assert gh.reqs == []

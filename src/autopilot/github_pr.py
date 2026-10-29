@@ -16,13 +16,17 @@ The PR is built with the Git data API, so nothing is cloned and nothing is writt
 Every request is to api.github.com under /repos/{owner}/{repo}/, and nothing else is sent: no merge, no review,
 no push to an existing branch.
 
+repo.file.get (read_file) uses the same per-call token: GET /repos/{o}/{r}/contents/{path}?ref=.
+
 xr.request (commit_xr) has no adapter yet; serve.build_handlers drops it.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
@@ -150,6 +154,47 @@ class GitHubPRs:
         if status != 201:
             raise GitHubError(f"pull: {status}")
         return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch, "commit": new["sha"]}
+
+    def read_file(self, repo: str, path: str, ref: str = "main") -> dict[str, Any]:
+        """repo.file.get: one file's text, or a directory's entries, at a ref. The same per-call broker token (the
+        broker's repo rule applies to reads too); GET only. A file over 1 MiB or a binary one is named, not returned."""
+        owner, name = _split(repo)
+        if not _BRANCH.match(ref or "") or ".." in ref:
+            raise Denied("GH-REF", f"{ref!r} is not a ref", "Pass a branch, tag or commit sha.")
+        token = self._installation_token(owner, name)
+        quoted = urllib.parse.quote(path.strip("/"), safe="/")
+        status, doc = self._gh_any(token, f"/repos/{owner}/{name}/contents/{quoted}?ref={urllib.parse.quote(ref, safe='')}")
+        if status == 404:
+            return {"path": path, "ref": ref, "found": False}
+        if status != 200:
+            raise GitHubError(f"contents: {status}")
+        if isinstance(doc, list):
+            return {"path": path, "ref": ref, "type": "dir",
+                    "entries": [{"name": e.get("name"), "type": e.get("type"), "size": e.get("size")} for e in doc[:500]]}
+        if doc.get("type") != "file":
+            return {"path": path, "ref": ref, "type": doc.get("type")}
+        size = int(doc.get("size") or 0)
+        if size > MAX_FILE_BYTES or doc.get("encoding") != "base64":
+            return {"path": path, "ref": ref, "type": "file", "size": size, "content": None,
+                    "note": "too large to return (over 1 MiB)"}
+        raw = base64.b64decode(doc.get("content") or "")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"path": path, "ref": ref, "type": "file", "size": size, "content": None, "note": "binary"}
+        return {"path": path, "ref": ref, "type": "file", "size": size, "sha": doc.get("sha"), "content": text}
+
+    def _gh_any(self, token: str, path: str) -> tuple[int, Any]:
+        req = urllib.request.Request(self.api + path, method="GET", headers={
+            "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            status, out = self._open(req, self.timeout)
+        except OSError as e:
+            raise GitHubError(f"GitHub unreachable: {type(e).__name__}") from e
+        try:
+            return status, json.loads(out) if out else {}
+        except ValueError:
+            return status, {}
 
     def commit_xr(self, app: str, env: str, kind: str, spec: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError("xr.request has no adapter")
