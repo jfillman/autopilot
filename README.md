@@ -156,7 +156,11 @@ becomes `glidepath__run__get`, since Anthropic tool names allow no dots, and is 
 model for the next step, sends each `tool_use` to Clearance and hands the answer back as a `tool_result`. A refusal
 goes back with `is_error` and Clearance's rule, message and hint; the system prompt tells the model to adapt, not
 retry. The system prompt also names the run's task id, run id and session, so instructions can use them (a branch
-named `agent/<task id>`). It stops on `end_turn` (done), after `HANGAR_MAX_TURNS` model calls (budget; the last turn's tool calls are
+named `agent/<task id>`). Each request carries prompt-cache breakpoints (after the tools,
+the system prompt and the newest message), so a turn reads the conversation so far from the cache; Clearance charges
+a cache read at a tenth of an input token (clearance `USAGE_WEIGHTS`). A tool result is cut at 16k characters (60k for
+`repo.file.get`, since a fix PR carries whole files), and a cut result says it is incomplete. Each turn's log line ends
+with `usage=<input>/<cache read>/<cache write>/<output>`. It stops on `end_turn` (done), after `HANGAR_MAX_TURNS` model calls (budget; the last turn's tool calls are
 not run), when the session has less than 60 s left (expired), on a 429 from the proxy (budget), and on a 403 or any
 failure a retry did not fix (error). stdout gets one line per turn with the tool names and decisions
 (`turn 2: stop=tool_use tools=[catalog.read:ok, repo.pr.open:deny(R006)]`), never a token or an argument.

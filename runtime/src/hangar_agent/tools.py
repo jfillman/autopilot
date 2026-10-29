@@ -19,7 +19,12 @@ from dataclasses import dataclass
 from typing import Any
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
-MAX_RESULT_CHARS = 60_000   # one tool result's share of the context; the rest is cut and the cut is said
+# One tool result's share of the context. Every result is resent on every later turn, so a large one costs many
+# times over: most results are cut at 16k characters (about 4k tokens), and the cut is said. A file read gets more,
+# because a fix PR carries whole files and an agent must not rewrite a file it only saw part of.
+MAX_RESULT_CHARS = 16_000
+MAX_FILE_RESULT_CHARS = 60_000
+WHOLE_RESULT_TOOLS = frozenset({"repo.file.get"})
 
 # Required arguments whose type is not a string, from Clearance's tool specs (clearance.packs, the core registry).
 KNOWN_TYPES: dict[str, dict[str, Any]] = {
@@ -81,11 +86,12 @@ def rule_of(result: dict[str, Any]) -> str | None:
     return d.get("rule") if isinstance(d, dict) else None
 
 
-def tool_result(tool_use_id: str, result: dict[str, Any]) -> dict[str, Any]:
+def tool_result(tool_use_id: str, result: dict[str, Any], tool: str = "") -> dict[str, Any]:
     """An Anthropic tool_result for Clearance's answer. ok: the data. Not ok: a refusal (the rule, its message and
     hint) or a backend error, with is_error so the model treats it as one."""
     if result.get("ok"):
-        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": _text(result.get("data"))}
+        limit = MAX_FILE_RESULT_CHARS if tool in WHOLE_RESULT_TOOLS else MAX_RESULT_CHARS
+        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": _text(result.get("data"), limit)}
     d = result.get("decision") if isinstance(result.get("decision"), dict) else {}
     denied = d.get("allow") is False
     body: dict[str, Any] = {"refused": denied}
@@ -103,8 +109,9 @@ def error_result(tool_use_id: str, message: str) -> dict[str, Any]:
     return {"type": "tool_result", "tool_use_id": tool_use_id, "content": message, "is_error": True}
 
 
-def _text(v: Any) -> str:
+def _text(v: Any, limit: int = MAX_RESULT_CHARS) -> str:
     s = v if isinstance(v, str) else json.dumps(v, separators=(",", ":"), default=str)
-    if len(s) > MAX_RESULT_CHARS:
-        s = s[:MAX_RESULT_CHARS] + f"... [cut: {len(s) - MAX_RESULT_CHARS} more characters]"
+    if len(s) > limit:
+        s = (s[:limit] + f"... [cut: {len(s) - limit} more characters. This result is incomplete: do not rewrite or "
+             "quote it as whole; narrow the request instead]")
     return s

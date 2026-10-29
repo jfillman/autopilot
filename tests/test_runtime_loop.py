@@ -123,9 +123,11 @@ def test_end_turn_is_done_with_the_final_text():
     assert first["model"] == "claude-sonnet-5-5" and first["max_tokens"] == 1024
     assert [t["name"] for t in first["tools"]] == ["catalog__read", "repo__pr__open",
                                                    "glidepath__environments__rollbackPlan"]
-    assert "Clearance" in first["system"] and "Do not retry the same call" in first["system"]
+    system = first["system"][0]["text"]
+    assert "Clearance" in system and "Do not retry the same call" in system
     result = model.requests[1]["messages"][-1]["content"][0]
-    assert result == {"type": "tool_result", "tool_use_id": "tu_1", "content": '{"rows":1}'}
+    assert result == {"type": "tool_result", "tool_use_id": "tu_1", "content": '{"rows":1}',
+                      "cache_control": {"type": "ephemeral"}}
 
 
 def test_a_refusal_goes_back_to_the_model_as_an_error_with_rule_and_hint():
@@ -223,8 +225,8 @@ def test_instructions_join_the_system_prompt_and_the_event_the_user_turn():
     model = FakeModel(reply(text("ok"), stop="end_turn"))
     go(model, FakeGateway(), task={"instructions": "Only read.", "event": {"kind": "alert", "app": "flight-api"}})
     req = model.requests[0]
-    assert req["system"].endswith("Only read.")
-    assert '"app": "flight-api"' in req["messages"][0]["content"]
+    assert req["system"][0]["text"].endswith("Only read.")
+    assert '"app": "flight-api"' in req["messages"][0]["content"][0]["text"]
 
 
 def test_the_turn_log_names_tools_and_decisions_never_arguments():
@@ -266,3 +268,26 @@ def test_the_system_prompt_names_the_run_and_whether_the_tools_are_scoped():
     s = system_prompt("triage-agent", {}, ids={"task id": "t-9b91", "run id": "r-1", "session": ""}, scoped=True)
     assert "This run: task id t-9b91, run id r-1." in s and "whole registry" not in s
     assert "whole registry" in system_prompt("x", {})
+
+
+
+def test_prompt_cache_breakpoints_are_on_copies_and_at_most_three():
+    from hangar_agent.loop import cached
+    msgs = [{"role": "user", "content": "go"}, {"role": "assistant", "content": [{"type": "text", "text": "a"}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "x"}]}]
+    tools = [{"name": "a"}, {"name": "b"}]
+    req = cached("sys", tools, msgs)
+    marks = [b for m in req["messages"] for b in (m["content"] if isinstance(m["content"], list) else []) if "cache_control" in b]
+    assert len(marks) == 1 and req["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" in req["tools"][-1] and "cache_control" not in req["tools"][0]
+    assert req["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in tools[-1] and "cache_control" not in msgs[-1]["content"][-1], "the conversation keeps none"
+
+
+def test_large_results_are_cut_and_say_so_but_files_get_more_room():
+    from hangar_agent import tools as T
+    big = {"ok": True, "data": "x" * 30_000}
+    cut = T.tool_result("t", big, "glidepath.logs.get")["content"]
+    assert len(cut) < 17_000 and "incomplete" in cut
+    whole = T.tool_result("t", big, "repo.file.get")["content"]
+    assert whole == "x" * 30_000
