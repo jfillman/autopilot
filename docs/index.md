@@ -16,7 +16,7 @@ commits, held to a tier of tools, a path scope and a budget that can only narrow
 ## What is here
 | Piece | What it is |
 |---|---|
-| Clearance | Policy (CEL), hash-chained audit, tiers, path scope, narrow-only limits, the gateway and MCP surface (`src/clearance/`); a core that imports nothing from Hangar, plus packs: `clearance.packs.hangar` is the policy for the Glidepath and Airframe tools |
+| Clearance | Policy (CEL), hash-chained audit, tiers, path scope, narrow-only limits, the gateway and MCP surface (its own repo, https://github.com/jfillman/clearance, pinned in `pyproject.toml`); a core that imports nothing from Hangar, plus packs: `clearance.packs.hangar` is the policy for the Glidepath and Airframe tools |
 | Autopilot code | `src/autopilot/`: the Glidepath and Airframe tool backends, the AgentRun manifest, triggers, Preflight, and the builder of the Hangar Gateway |
 | Agent definitions | `agents/`: durable, schema-validated, one per workload shape |
 | Preflight | `preflight/cases/`: cases that score an agent definition before it is promoted |

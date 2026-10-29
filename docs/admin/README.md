@@ -3,7 +3,7 @@
 For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
 
 ## What an install will need
-- **Clearance**, a standalone deployment. Its core (`src/clearance/`, all but `packs/hangar/`) needs no Airframe
+- **Clearance**, a standalone deployment. Its core (https://github.com/jfillman/clearance, `src/clearance/` all but `packs/hangar/`) needs no Airframe
   and no Glidepath; on Hangar it runs with the Hangar pack and Autopilot's backends (`autopilot.gateway.hangar_gateway`).
   `tools_list` shows exactly the tools the deployment was built with. Its write permission is one namespaced Role on `agentruns` in
   `autopilot-runs`. For the `airframe.*` tools it reads, cluster-wide and read-only, `catalog.hangar.io/*` and
