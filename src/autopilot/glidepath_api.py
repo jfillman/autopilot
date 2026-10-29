@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from .dispatch import Denied
+from clearance.dispatch import Denied
 
 # Every refusal glidepath-api can give that is about who is asking, not what was asked.
 _AUTH_STATUSES = (401, 403)

@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 
-from .scope import glob_to_regex, normalize, BadPath
+from clearance.scope import glob_to_regex, normalize, BadPath
 
 
 @dataclass(frozen=True)

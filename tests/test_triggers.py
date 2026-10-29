@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pytest
 
-from clearance import triggers
+from autopilot import triggers
 
 from conftest import T0
 

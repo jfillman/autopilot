@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from clearance import preflight as cr
+from autopilot import preflight as cr
 
 CASES = cr.load_cases(Path(__file__).resolve().parents[1] / "preflight" / "cases")
 

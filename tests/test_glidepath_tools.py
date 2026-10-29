@@ -9,11 +9,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from clearance.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
-from clearance.dispatch import Denied, Gateway, release_key
-from clearance.glidepath_api import GlidepathAPI, GlidepathError
+from autopilot.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
+from autopilot.gateway import TOOLS, hangar_gateway, release_key
+from autopilot.glidepath_api import GlidepathAPI, GlidepathError
+from clearance.dispatch import Denied
 from clearance.server import create_server
-from clearance.tiers import TOOLS, TRIPWIRES, Tier
+from clearance.tiers import TRIPWIRES, Tier
 
 RESULT = "0b9d1a2e-1111-4c4c-9999-aaaaaaaaaaaa"
 
@@ -94,7 +95,7 @@ def test_an_app_off_the_allowlist_is_refused_before_any_call(gw, backends, defs)
     sid = open_(gw, agent="coding-agent")  # no glidepath tools at all
     assert gw.call("alice", sid, "glidepath.explain", {"app": "gate-api", "result": RESULT}).decision["rule"] == "R006"
     d = defs["cicd-explainer"]
-    object.__setattr__(d, "glidepath_apps", ("gate-*",))
+    object.__setattr__(d, "raw_profile", {**d.raw_profile, "glidepath": {"apps": ["gate-*"]}})
     sid = open_(gw)
     assert gw.call("alice", sid, "glidepath.runs.list", {"app": "gate-api"}).ok
     r = gw.call("alice", sid, "glidepath.runs.list", {"app": "flight-api"})
@@ -103,7 +104,7 @@ def test_an_app_off_the_allowlist_is_refused_before_any_call(gw, backends, defs)
 
 
 def test_no_apps_listed_means_none(gw, backends, defs):
-    object.__setattr__(defs["cicd-explainer"], "glidepath_apps", ())
+    object.__setattr__(defs["cicd-explainer"], "raw_profile", {**defs["cicd-explainer"].raw_profile, "glidepath": {"apps": []}})
     sid = open_(gw)
     assert gw.call("alice", sid, "glidepath.runs.list", {"app": "gate-api"}).decision["rule"] == "R022"
     assert backends.glidepath.calls == []
@@ -219,7 +220,7 @@ def test_an_agent_names_the_failure_id_using_only_mcp(defs, clock, token):
         from clearance.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token)
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-        gw = Gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):
@@ -278,7 +279,7 @@ def test_proposals_are_scoped_to_the_definitions_apps(gw, backends, defs):
                        ("glidepath.environments.list", {"app": "gate-api"})):
         r = gw.call("alice", sid, tool, {**args, "app": "flight-api"})
         assert r.decision["rule"] == "R022" and r.decision["hint"], tool
-    object.__setattr__(defs["release-proposer"], "glidepath_apps", ())
+    object.__setattr__(defs["release-proposer"], "raw_profile", {**defs["release-proposer"].raw_profile, "glidepath": {"apps": []}})
     assert gw.call("alice", open_(gw, agent="release-proposer"), "glidepath.promote", PROMOTE).decision["rule"] == "R022"
     assert backends.glidepath.calls == []
 
@@ -355,7 +356,7 @@ def test_a_refused_proposal_is_a_denial_with_glidepaths_hint(defs, clock, token)
                "hint": "Promote to a Flight environment; Ground promotions are a commit to the app repo."}
     api = GlidepathAPI("http://gp", token, on_behalf_of=True, opener=Opener(422, json.dumps(refusal).encode()))
     b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-    gw = Gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+    gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
     sid = gw.open_session("alice", "release-proposer").data["session"]
     r = gw.call("alice", sid, "glidepath.promote", {**PROMOTE, "env": "dev"})
     assert not r.ok and r.decision["rule"] == "GP-API-422" and r.decision["hint"] == refusal["hint"]
@@ -413,7 +414,7 @@ def test_release_proposer_cannot_reach_any_github_write(gw, backends, defs):
                               "glidepath.promote", "glidepath.rollback"}
     assert all(t.startswith("glidepath.") for t in d.limits.tools) and not d.limits.tools & GITHUB_WRITERS
     assert d.limits.github_calls == 0 and d.limits.open_prs == 0 and d.limits.children == 0 and d.repos_allow == ()
-    assert d.glidepath_apps == ("gate-api",) and d.identity_type == "delegated"
+    assert d.raw_profile["glidepath"]["apps"] == ["gate-api"] and d.identity_type == "delegated"
     sid = open_(gw, agent="release-proposer")
     pr = {"repo": "jfillman/gitops-gate-api", "branch": "x", "title": "t", "files": [{"path": "a.yaml", "content": "a: 1"}]}
     for tool, args in (("repo.pr.open_upper", pr), ("repo.pr.open", pr),
@@ -479,7 +480,7 @@ def test_an_agent_proposes_a_staging_promotion_using_only_mcp(defs, clock, token
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token, on_behalf_of=True)
         git = FakeGit()
         b = Backends(git, FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-        gw = Gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):

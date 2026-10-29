@@ -1,6 +1,6 @@
 """Model access decisions.
 
-Runs never hold a model API key. They call a Hangar model proxy that authenticates the run
+Runs never hold a model API key. They call a model proxy that authenticates the run
 (TokenReview, in the real adapter), checks its model allowlist, network reach and token
 budget, then forwards to whichever backend the route names: a hosted provider, or a
 Modelplane InferenceGateway. Modelplane's gateway can run "behind another gateway" and trust
@@ -15,8 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
-from . import manifests
-from .audit import AuditLog, args_digest
+from .audit import AuditLog, args_digest, iso
 from .limits import Network
 from .session import SessionStore
 
@@ -47,7 +46,7 @@ class ModelProxy:
         s = self.store.get(session_id)
         d = self._decide(s, principal_id, model, est_tokens)
         self.audit.append({
-            "ts": manifests.iso(self.now()), "task_id": s.task_id if s else None, "session": session_id,
+            "ts": iso(self.now()), "task_id": s.task_id if s else None, "session": session_id,
             "parent": s.parent_id if s else None, "principal": principal_id, "agent": s.agent if s else None,
             "tool": "model.call", "tier": None, "decision": "allow" if d.allow else "deny", "rule": d.rule,
             "target": model, "args_sha256": args_digest({"model": model, "est": est_tokens}),

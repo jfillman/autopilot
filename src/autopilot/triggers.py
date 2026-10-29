@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from .profile import AgentDefinition
+from clearance.profile import AgentDefinition
 
 _INTERVAL = re.compile(r"^(\d+)([mh])$")
 

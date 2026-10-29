@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from .dispatch import Denied
+from clearance.dispatch import Denied
 
 _SEG = r"[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?"
 _NS = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"

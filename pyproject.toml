@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "clearance"
 version = "0.1.0.dev0"
-description = "Policy, audit and session gateway for AI agent workloads on Hangar"
+description = "Clearance (policy, audit and session gateway for AI agent workloads) and Autopilot, its Hangar backends"
 requires-python = ">=3.11"
 dependencies = ["cel-python>=0.5", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2"]
 
@@ -13,7 +13,7 @@ dependencies = ["cel-python>=0.5", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2"]
 test = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/clearance"]
+packages = ["src/clearance", "src/autopilot"]
 
 [tool.pytest.ini_options]
 # function-agentrun's tests live with it in airframe (functions/function-agentrun, CI's compositions job).

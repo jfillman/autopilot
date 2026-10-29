@@ -3,21 +3,25 @@
 authenticate -> find session -> policy -> audit -> budget -> backend -> audit result.
 Every call, allowed or denied, produces exactly one decision record, so "what did the
 agent try to do" is answerable from the audit log alone.
+
+A deployment builds its Gateway from parts it names: the packs whose policy it runs (pack.py),
+a handler per tool (backends.core_handlers plus its packs' handlers), and a RunBackend for the run
+tree. Nothing is found by import: a Gateway with no packs is a complete Clearance for the core tools.
 """
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
-from . import manifests, policy
-from .audit import AuditLog, args_digest
-from .backends import Backends
+from . import policy
+from .audit import AuditLog, args_digest, iso
+from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
+from .pack import Pack
 from .profile import AgentDefinition
 from .session import Session, SessionError, SessionStore
-from .tiers import TOOLS, Tier
+from .tiers import Tier
 
 
 @dataclass(frozen=True)
@@ -56,70 +60,29 @@ class Result:
                 "error": self.error, "audit_seq": self.audit_seq, "session": self.session}
 
 
-def rerun_key(session_id: str, app: str, pipelinerun: str) -> str:
-    """glidepath-api's Idempotency-Key for a session's re-run of one run: [A-Za-z0-9._:-], at most 128."""
-    return "clearance." + hashlib.sha256(f"{session_id}/{app}/{pipelinerun}".encode()).hexdigest()[:32]
-
-
-def release_key(session_id: str, op: str, app: str, env: str, cluster: str, source: str) -> str:
-    """The Idempotency-Key for a session's promote or rollback: the session, the app, the target environment and
-    cluster, and what it promotes from (or rolls back to). Not dryRun, so a dry run names the run the real call
-    would start; not a rollback's reason, so a retry that rewords it still replays."""
-    return "clearance." + hashlib.sha256(f"{session_id}/{op}/{app}/{env}/{cluster}/{source}".encode()).hexdigest()[:32]
-
-
-def promote_source(a: dict[str, Any]) -> str:
-    if a.get("sourceEnv"):
-        return f"env:{a['sourceEnv']}@{a['sourceCluster']}"
-    return f"image:{a['sourceImageRepo']}:{a['sourceImageTag']}"
+# Handlers the Gateway owns because they need the session store; a deployment cannot replace them.
+CORE_OWNED = frozenset({"run.spawn", "run.close"})
 
 
 class Gateway:
     def __init__(self, definitions: dict[str, AgentDefinition], store: SessionStore,
-                 audit: AuditLog, backends: Backends, auth: Authenticator,
-                 clock: Callable[[], datetime]):
-        self.defs, self.store, self.audit, self.b, self.auth, self.now = definitions, store, audit, backends, auth, clock
-        self._handlers: dict[str, Callable[[Session, dict], Any]] = {
-            "catalog.read": lambda s, a: self.b.read.catalog(a["query"]),
-            "metrics.query": lambda s, a: self.b.read.promql(a["promql"]),
-            "logs.query": lambda s, a: self.b.read.logql(a["logql"]),
-            "argo.app.get": lambda s, a: self.b.argo.get_app(a["app"]),
-            "app.api.get": lambda s, a: self.b.read.app_api(a["service"], a["path"]),
-            "artifact.put": lambda s, a: self.b.artifacts.put(s.task_id, a["name"], a["content"]),
-            "artifact.get": lambda s, a: self.b.artifacts.get(s.task_id, a["name"]),
-            "chat.recv": lambda s, a: self.b.human.recv(s.id),
-            "chat.send": lambda s, a: self.b.human.send(s.id, a["text"]),
-            "repo.pr.open": lambda s, a: self.b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main")),
-            "repo.pr.open_upper": lambda s, a: self.b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main")),
-            "xr.request": lambda s, a: self.b.git.commit_xr(a["app"], a["env"], a["kind"], a["spec"]),
-            "argo.sync.lower": lambda s, a: self.b.argo.sync(a["app"], a["project"]),
-            "glidepath.runs.list": lambda s, a: self.b.glidepath.runs(a["app"], a.get("sinceHours"), a.get("limit"), s.principal),
-            "glidepath.run.get": lambda s, a: self.b.glidepath.run(a["app"], a["result"], s.principal),
-            "glidepath.logs.get": lambda s, a: self.b.glidepath.log(a["app"], a["result"], a["taskRun"], s.principal),
-            "glidepath.explain": lambda s, a: self.b.glidepath.explain(a["app"], a["result"], s.principal),
-            "glidepath.releases.get": lambda s, a: self.b.glidepath.releases(a["app"], a.get("chainId"), s.principal),
-            "glidepath.contract": lambda s, a: self.b.glidepath.contract(s.principal),
-            # The key is the session and the run, so an agent retrying the same re-run starts no second one.
-            "glidepath.run.rerun": lambda s, a: self.b.glidepath.rerun(a["app"], a["pipelinerun"], rerun_key(s.id, a["app"], a["pipelinerun"]), s.principal),
-            "glidepath.run.cancel": lambda s, a: self.b.glidepath.cancel(a["app"], a["pipelinerun"], s.principal),
-            "glidepath.environments.list": lambda s, a: self.b.glidepath.environments(a["app"], s.principal),
-            "glidepath.environments.rollbackPlan": lambda s, a: self.b.glidepath.rollback_plan(a["app"], a["env"], a["cluster"], s.principal),
-            # T2, propose only: each starts a release run whose PR a human merges. The key is the session and the
-            # promotion (or rollback), so an agent retrying it replays the first answer instead of starting another.
-            "glidepath.promote": self._promote,
-            "glidepath.rollback": self._rollback,
-            "airframe.capabilities": lambda s, a: self.b.airframe.capabilities(a.get("kind"), a.get("section")),
-            "airframe.validate": lambda s, a: self.b.airframe.validate(a["documents"], a.get("app"), a.get("mode", "values"),
-                                                                       a.get("render", True)),
-            "airframe.explain": lambda s, a: self.b.airframe.explain(a["rule"]),
-            "airframe.plan": lambda s, a: self.b.airframe.plan(a["spec"], a.get("baseCicd")),
-            "airframe.status": lambda s, a: self.b.airframe.status(a["app"], a.get("env")),
-            "airframe.describe": lambda s, a: self.b.airframe.describe(a["app"], a["env"]),
-            "airframe.verify": lambda s, a: self.b.airframe.verify(a["app"], a["kind"], a["name"], a.get("env")),
-            "human.request": lambda s, a: self.b.human.request(a["question"], a.get("options")),
-            "run.spawn": self._spawn,
-            "run.close": self._close,
-        }
+                 audit: AuditLog, auth: Authenticator, clock: Callable[[], datetime], *,
+                 packs: Sequence[Pack] = (), handlers: Mapping[str, Handler] | None = None,
+                 runs: RunBackend | None = None):
+        self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
+        self.policy = policy.Policy(packs)
+        self.tools = self.policy.tools
+        self.runs = runs
+        handlers = dict(handlers or {})
+        unknown = sorted(set(handlers) - set(self.tools))
+        if unknown:
+            raise ValueError(f"handlers for tools that are not registered: {unknown}")
+        owned = sorted(set(handlers) & CORE_OWNED)
+        if owned:
+            raise ValueError(f"handlers for tools the Gateway owns: {owned}")
+        self._handlers: dict[str, Handler] = handlers
+        if runs is not None:
+            self._handlers.update({"run.spawn": self._spawn, "run.close": self._close})
 
     # -- sessions --------------------------------------------------------
     def open_session(self, token: str, agent: str, limits: dict | None = None,
@@ -140,11 +103,11 @@ class Gateway:
             return self._deny_open(principal, agent, "R008", str(e))
         rec = self._audit(s, principal, "session.open", None, "allow", None, {"limits": limits or {}}, "opened")
         return Result(True, {"allow": True}, {"session": s.id, "task_id": s.task_id,
-                                              "expires_at": manifests.iso(s.expires_at),
+                                              "expires_at": iso(s.expires_at),
                                               "limits": s.limits.as_dict()}, audit_seq=rec["seq"], session=s.id)
 
     def _deny_open(self, principal: Principal, agent: str, rule: str, why: str) -> Result:
-        rec = self.audit.append({"ts": manifests.iso(self.now()), "session": None, "task_id": None,
+        rec = self.audit.append({"ts": iso(self.now()), "session": None, "task_id": None,
                                  "principal": principal.id, "agent": agent, "tool": "session.open",
                                  "tier": None, "decision": "deny", "rule": rule,
                                  "target": None, "args_sha256": args_digest({}), "result": why})
@@ -166,18 +129,18 @@ class Gateway:
                 rec = self._audit(live, Principal(d.service_account, "workload"), "session.open", None, "allow",
                                   None, {"trigger": trigger, "deduped": True}, "deduped")
                 return Result(True, {"allow": True}, {"session": live.id, "task_id": live.task_id,
-                                                      "expires_at": manifests.iso(live.expires_at), "deduped": True},
+                                                      "expires_at": iso(live.expires_at), "deduped": True},
                               audit_seq=rec["seq"], session=live.id)
         s = self.store.open(d.service_account, agent, d.limits, None, self.now(), task_id=task_id)
         rec = self._audit(s, Principal(d.service_account, "workload"), "session.open", None, "allow", None,
                           {"trigger": trigger}, "opened")
         return Result(True, {"allow": True}, {"session": s.id, "task_id": s.task_id,
-                                              "expires_at": manifests.iso(s.expires_at), "deduped": False},
+                                              "expires_at": iso(s.expires_at), "deduped": False},
                       audit_seq=rec["seq"], session=s.id)
 
     def launch(self, session_id: str, run_input: dict | None = None) -> Result:
-        """Create the AgentRun XR for a top-level session (a triggered or delegated in-cluster run).
-        Children are created by run.spawn; service agents are deployed as applications and have no run."""
+        """Start the run for a top-level session (a triggered or delegated in-cluster run; on Hangar, an
+        AgentRun XR). Children are created by run.spawn; service agents are deployed as applications and have no run."""
         s = self.store.get(session_id)
         if s is None or s.closed:
             return Result(False, {"allow": False, "rule": "R004"}, error="no live session")
@@ -185,11 +148,13 @@ class Gateway:
         if d.kind == "service":
             return Result(False, {"allow": False, "rule": "R001"}, session=s.id,
                           error="service agents are deployed as applications, not launched as runs")
-        manifest = manifests.agentrun_manifest(s, d, run_input=run_input)
-        self.b.runs.create(manifest)
+        if self.runs is None:
+            return Result(False, {"allow": False, "rule": "R001"}, session=s.id,
+                          error="this deployment has no run backend")
+        run = self.runs.create(s, d, run_input)
         rec = self._audit(s, Principal(s.principal, "workload"), "run.launch", None, "allow", None,
-                          {"run": manifest["metadata"]["name"]}, "created")
-        return Result(True, {"allow": True}, {"run": manifest["metadata"]["name"], "session": s.id},
+                          {"run": run}, "created")
+        return Result(True, {"allow": True}, {"run": run, "session": s.id},
                       audit_seq=rec["seq"], session=s.id)
 
     # -- tool calls ------------------------------------------------------
@@ -198,34 +163,39 @@ class Gateway:
         s = self.store.get(session_id)
         if s is None:
             d = policy.Decision(False, "R004", "session-expired", "no such session", "Open a new session.")
-            rec = self.audit.append({"ts": manifests.iso(self.now()), "session": session_id, "task_id": None,
+            rec = self.audit.append({"ts": iso(self.now()), "session": session_id, "task_id": None,
                                      "principal": principal.id, "agent": None, "tool": tool, "tier": None,
                                      "decision": "deny", "rule": "R004", "target": None,
                                      "args_sha256": args_digest(args), "result": "no such session"})
             return Result(False, d.as_dict(), error=d.message, audit_seq=rec["seq"], session=session_id)
         d = self.defs[s.agent]
         now = self.now()
-        ctx = policy.build_context(s, principal.id, principal.tier_ceiling, tool, args,
-                                   list(d.deny_paths), list(d.repos_allow), now,
-                                   api_allow=list(d.api_allow), agent_kind=d.kind,
-                                   field_deny=list(d.field_deny), field_allow=list(d.field_allow),
-                                   glidepath_apps=list(d.glidepath_apps),
-                                   airframe_apps=list(d.airframe_apps))
-        decision = policy.evaluate(ctx)
+        ctx = self.policy.build_context(s, principal.id, principal.tier_ceiling, tool, args,
+                                        list(d.deny_paths), list(d.repos_allow), now,
+                                        api_allow=list(d.api_allow), agent_kind=d.kind,
+                                        field_deny=list(d.field_deny), field_allow=list(d.field_allow),
+                                        definition=d)
+        decision = self.policy.evaluate(ctx)
         if not decision.allow:
             s.record_denial()
             if decision.rule == "R002":
                 self.store.trip(s.id, f"tripwire: {tool}")
             rec = self._audit(s, principal, tool, decision.tier, "deny", decision.rule, args, decision.message)
             return Result(False, decision.as_dict(), error=decision.message, audit_seq=rec["seq"], session=s.id)
-        spec = TOOLS[tool]
+        spec = self.tools[tool]
+        handler = self._handlers.get(tool)
+        if handler is None:
+            # Registered (its policy is known) but nothing in this deployment backs it. Charged nothing.
+            rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "error:NoHandler")
+            return Result(False, decision.as_dict(), error="no backend for this tool in this deployment",
+                          audit_seq=rec["seq"], session=s.id)
         s.spend("tool_calls", 1)
         if spec.github_cost:
             s.spend("github_calls", spec.github_cost)
         if ctx["cost"]["prs"]:
             s.spend("open_prs", 1)
         try:
-            data = self._handlers[tool](s, args)
+            data = handler(s, args)
         except Denied as e:
             s.record_denial()
             rec = self._audit(s, principal, tool, int(spec.tier), "deny", e.rule, args, e.message)
@@ -236,18 +206,6 @@ class Gateway:
             return Result(False, decision.as_dict(), error="backend error", audit_seq=rec["seq"], session=s.id)
         rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "ok")
         return Result(True, decision.as_dict(), data, audit_seq=rec["seq"], session=s.id)
-
-    # -- Glidepath releases (spec phase 4) --------------------------------
-    def _promote(self, s: Session, a: dict[str, Any]) -> Any:
-        body = {"cluster": a["cluster"], **{k: a[k] for k in ("sourceEnv", "sourceCluster", "sourceImageRepo",
-                                                               "sourceImageTag") if a.get(k)}}
-        key = release_key(s.id, "promote", a["app"], a["env"], a["cluster"], promote_source(a))
-        return self.b.glidepath.promote(a["app"], a["env"], body, key, bool(a.get("dryRun")), s.principal)
-
-    def _rollback(self, s: Session, a: dict[str, Any]) -> Any:
-        body = {"cluster": a["cluster"], "targetReleaseId": a["targetReleaseId"], "reason": a["reason"].strip()}
-        key = release_key(s.id, "rollback", a["app"], a["env"], a["cluster"], a["targetReleaseId"])
-        return self.b.glidepath.rollback(a["app"], a["env"], body, key, bool(a.get("dryRun")), s.principal)
 
     # -- run tree --------------------------------------------------------
     def _spawn(self, parent: Session, a: dict[str, Any]) -> dict[str, Any]:
@@ -264,27 +222,26 @@ class Gateway:
         except ValueError as e:
             raise Denied("R008", str(e), "Fix the requested limits; see the tool schema.") from e
         try:
-            manifest = manifests.agentrun_manifest(child, d, run_input=a.get("input"))
-            self.b.runs.create(manifest)
+            run = self.runs.create(child, d, a.get("input"))
         except Exception:
             self.store.close(child.id)
             raise
-        return {"session": child.id, "run": manifests.run_name(child), "expires_at": manifests.iso(child.expires_at)}
+        return {"session": child.id, "run": run, "expires_at": iso(child.expires_at)}
 
     def _close(self, s: Session, a: dict[str, Any]) -> dict[str, Any]:
         target = self.store.get(a["run_id"])
         if target is None or (target.id != s.id and target.id not in s.children):
             raise Denied("R001", "not one of this session's runs", "You may only close your own run or its children.")
         self.store.close(target.id)
-        self.b.runs.delete(manifests.run_name(target))
+        self.runs.delete(target)
         return {"closed": target.id}
 
     # -- audit -----------------------------------------------------------
     def _audit(self, s: Session, principal: Principal, tool: str, tier, decision: str, rule, args, result: str) -> dict:
-        spec = TOOLS.get(tool)
+        spec = self.tools.get(tool)
         target = policy.env_tier_of(spec, args) if spec and isinstance(args, dict) else None
         return self.audit.append({
-            "ts": manifests.iso(self.now()), "task_id": s.task_id, "session": s.id,
+            "ts": iso(self.now()), "task_id": s.task_id, "session": s.id,
             "parent": s.parent_id, "principal": principal.id, "agent": s.agent,
             "tool": tool, "tier": tier, "decision": decision, "rule": rule,
             "target": target, "args_sha256": args_digest(args), "result": result,

@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from clearance import airframe_plan as ap
-from clearance import policy
+from autopilot import airframe_plan as ap
+from clearance.packs import hangar
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / "src" / "clearance" / "vendor"
+VENDOR = ROOT / "src" / "clearance" / "packs" / "hangar" / "vendor"
 # CI clones glidepath under HANGAR_TECH (.github/workflows/test.yaml, GLIDEPATH_REF); locally it is ~/tech.
 GLIDEPATH = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech")) / "glidepath"
 VENDORED = {"cicd_scope.py": "tools/cicd_scope.py", "glidepath-contract.json": "contract/glidepath-contract.json"}
@@ -54,11 +54,11 @@ def test_vendored_file_matches_glidepath(vendored, upstream):
     if not src.exists():
         pytest.skip(f"no glidepath checkout with {upstream} at {GLIDEPATH} (CI clones it; set HANGAR_TECH)")
     assert (VENDOR / vendored).read_bytes() == src.read_bytes(), (
-        f"src/clearance/vendor/{vendored} drifted from glidepath's {upstream} - copy it over byte for byte")
+        f"src/clearance/packs/hangar/vendor/{vendored} drifted from glidepath's {upstream} - copy it over byte for byte")
 
 
 def test_policy_reads_the_vendored_contracts_scope_block():
-    rules = policy.CICD_SCOPE["rules"]
+    rules = hangar.CICD_SCOPE["rules"]
     assert {r["agentScope"] for r in rules} == {"open", "tighten", "human"}
     assert any(r["pattern"] == "/secrets" and r["agentScope"] == "human" for r in rules)
 
@@ -175,7 +175,7 @@ def test_an_unchanged_cicd_yaml_alongside_other_files_is_allowed(gw):
 
 
 def test_merge_patch_rfc7386():
-    assert policy.merge_patch({"a": {"b": 1, "c": 2}, "l": [1]}, {"a": {"b": None, "d": 3}, "l": [2]}) == \
+    assert hangar.merge_patch({"a": {"b": 1, "c": 2}, "l": [1]}, {"a": {"b": None, "d": 3}, "l": [2]}) == \
         {"a": {"c": 2, "d": 3}, "l": [2]}
 
 

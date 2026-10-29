@@ -226,7 +226,7 @@ def _after(steps: list[dict], pred) -> int:
 
 
 def ground_cicd(base: dict, spec: dict) -> dict:
-    """The part of the environment declaration an agent may write (Glidepath's GP-SCOPE rules, vendor/cicd_scope.py):
+    """The part of the environment declaration an agent may write (Glidepath's GP-SCOPE rules, clearance/packs/hangar/vendor/cicd_scope.py):
     Ground environments and their deploy steps, added to what the file already has.
 
     Nothing is removed or rewritten: every existing environment and step stays as it is, in place, so a check-ride

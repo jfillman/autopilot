@@ -2,7 +2,7 @@
 """Glidepath API spec phase 4, done when: an agent proposes a staging promotion, a human merges it, the release record
 reaches healthy, and the agent had no way to merge it.
 
-Runs Clearance's MCP server in process, with the real Glidepath backend (src/clearance/glidepath_api.py) pointed at a
+Runs Clearance's MCP server in process, with the real Glidepath backend (src/autopilot/glidepath_api.py) pointed at a
 live glidepath-api, opens a `release-proposer` session and, through MCP calls only: reads the app's release plan,
 checks the target is the Flight environment right after the source, dry-runs `glidepath.promote` (every read and
 check, and a server-side dry run of the release PipelineRun; nothing is stored), and, only with --propose, really
@@ -37,9 +37,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from clearance import profile  # noqa: E402
 from clearance.audit import AuditLog  # noqa: E402
-from clearance.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
-from clearance.dispatch import Gateway, Principal  # noqa: E402
-from clearance.glidepath_api import GlidepathAPI  # noqa: E402
+from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
+from autopilot.gateway import hangar_gateway  # noqa: E402
+from clearance.dispatch import Principal  # noqa: E402
+from autopilot.glidepath_api import GlidepathAPI  # noqa: E402
 from clearance.server import create_server  # noqa: E402
 from clearance.session import SessionStore  # noqa: E402
 from clearance.tiers import Tier  # noqa: E402
@@ -80,7 +81,7 @@ def main() -> int:
 
     api = GlidepathAPI(a.url, a.token_file, on_behalf_of=a.on_behalf_of)
     backends = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-    gw = Gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
+    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
                  lambda: datetime.now(timezone.utc))
     mcp = create_server(gw, lambda: "local")
 

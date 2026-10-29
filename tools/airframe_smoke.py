@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """AF-8a, done when: the airframe.* tools answer from a live cluster through MCP, read-only, and refuse a Secret.
 
-Runs Clearance's MCP server in process, with the real Airframe backend (src/clearance/airframe_tools.py over the
-GET-only adapter in src/clearance/airframe_api.py) pointed at a live API server as Clearance's own identity, opens an
+Runs Clearance's MCP server in process, with the real Airframe backend (src/autopilot/airframe_tools.py over the
+GET-only adapter in src/autopilot/airframe_api.py) pointed at a live API server as Clearance's own identity, opens an
 `airframe-operator` session and, through MCP calls only:
 
   1. airframe.plan for examples/parachute.appspec.yaml, on a cicd.yaml that already carries a check-ride step: the
@@ -36,12 +36,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from clearance import airframe_plan, policy, profile  # noqa: E402
-from clearance.airframe_api import KubeReader, PathRefused, _urlopen  # noqa: E402
-from clearance.airframe_tools import AirframeTools, ValidatorCommand  # noqa: E402
+from autopilot import airframe_plan  # noqa: E402
+from autopilot.airframe_api import KubeReader, PathRefused, _urlopen  # noqa: E402
+from autopilot.airframe_tools import AirframeTools, ValidatorCommand  # noqa: E402
+from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
+from autopilot.gateway import hangar_gateway  # noqa: E402
+from clearance import profile  # noqa: E402
 from clearance.audit import AuditLog  # noqa: E402
-from clearance.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
-from clearance.dispatch import Gateway, Principal  # noqa: E402
+from clearance.dispatch import Principal  # noqa: E402
+from clearance.packs import hangar  # noqa: E402
 from clearance.server import create_server  # noqa: E402
 from clearance.session import SessionStore  # noqa: E402
 from clearance.tiers import Tier  # noqa: E402
@@ -108,7 +111,7 @@ def main() -> int:
                           airframe_plan.Registry("hangar-dev", ("hangar-prod",), "gitops-hangar-dev-tenants"), cluster=a.cluster)
     git = FakeGit()
     backends = Backends(git, FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), None, tools)
-    gw = Gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
+    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
                  lambda: datetime.now(timezone.utc))
     mcp = create_server(gw, lambda: "local")
 
@@ -145,15 +148,15 @@ def main() -> int:
     print("  steps: " + ", ".join(f"{s['id']}({s['gate']})" for s in cs["steps"]))
     agent = next(f for f in steps["app-repo"]["files"] if f["path"] == "cicd.yaml")
     as_file = {"path": "cicd.yaml", "op": agent["op"], "before": yaml.safe_dump(agent["before"]), "content": agent["content"]}
-    check(policy.cicd_scope_problems([as_file]) == [], "app-repo cicd.yaml patch: no GP-SCOPE problem (R021)")
+    check(hangar.cicd_scope_problems([as_file]) == [], "app-repo cicd.yaml patch: no GP-SCOPE problem (R021)")
     coder = call("session_open", {"agent": "coding-agent"})["data"]["session"]
     pr = call("call", {"session": coder, "tool": "repo.pr.open",
                        "args": {"repo": "jfillman/parachute", "branch": "agent/plan", "title": "plan", "files": [as_file]}})
     check(pr["ok"] and git.names() == ["git.open_pr"], f"repo.pr.open with that patch through MCP: {'allowed' if pr['ok'] else pr['decision']}")
     human = steps["cicd-flight"]
-    hrules = sorted({p["rule"] for p in policy.cicd_scope_problems([{**human["files"][0], "before": yaml.safe_dump(human["files"][0]["before"])}])})
+    hrules = sorted({p["rule"] for p in hangar.cicd_scope_problems([{**human["files"][0], "before": yaml.safe_dump(human["files"][0]["before"])}])})
     check(human["gate"] == "human-merge" and "GP-SCOPE-003" in hrules, f"flight half is a human-merge step ({', '.join(hrules)} if an agent sent it)")
-    check({"stage": "test", "env": "dev", "role": "check-ride"} in policy.merge_patch(BASE_CICD, agent["content"])["pipelines"]["ci"]["steps"],
+    check({"stage": "test", "env": "dev", "role": "check-ride"} in hangar.merge_patch(BASE_CICD, agent["content"])["pipelines"]["ci"]["steps"],
           "the check-ride step survives the patch")
 
     # 2. status / describe against kubectl

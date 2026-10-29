@@ -1,12 +1,24 @@
-"""Backend interfaces Clearance delegates to, plus in-memory fakes for tests.
+"""Backend interfaces for the core tools, the handlers that call them, and in-memory fakes.
 
-None of the real adapters (GitHub via the token-review-interceptor, the ArgoCD API, the
-Kubernetes API for AgentRun XRs, Backstage MCP) are implemented yet. The interfaces are
-deliberately small so they can be built and verified one at a time.
+Clearance decides; a backend acts. The Gateway takes a handler per tool (tool name -> callable(session,
+args)); core_handlers() builds the core tools' handlers over these interfaces, and a deployment adds
+its packs' handlers next to them (autopilot.gateway does, for glidepath.* and airframe.*).
+
+RunBackend is the one interface the Gateway calls itself: run.spawn and run.close need the session
+store, so their handlers are core, but what a run IS (an AgentRun XR on Hangar) is the deployment's.
+
+None of the real adapters (GitHub via the token-review-interceptor, the ArgoCD API, Backstage MCP)
+are implemented yet. The interfaces are deliberately small so they can be built and verified one at a time.
 """
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from .profile import AgentDefinition
+    from .session import Session
+
+Handler = Callable[["Session", dict[str, Any]], Any]
 
 
 class GitBackend(Protocol):
@@ -20,8 +32,9 @@ class ArgoBackend(Protocol):
 
 
 class RunBackend(Protocol):
-    def create(self, manifest: dict[str, Any]) -> dict[str, Any]: ...
-    def delete(self, name: str) -> None: ...
+    """Starts and stops the workload behind a session. create returns the run's name."""
+    def create(self, session: "Session", definition: "AgentDefinition", run_input: dict[str, Any] | None) -> str: ...
+    def delete(self, session: "Session") -> None: ...
 
 
 class ReadBackend(Protocol):
@@ -29,34 +42,6 @@ class ReadBackend(Protocol):
     def promql(self, q: str) -> Any: ...
     def logql(self, q: str) -> Any: ...
     def app_api(self, service: str, path: str) -> Any: ...
-
-
-class GlidepathBackend(Protocol):
-    """glidepath-api (glidepath_api.py is the real one). `on_behalf_of` is the session's principal,
-    recorded in Glidepath's audit line next to Clearance's own identity."""
-    def runs(self, app: str, since_hours: int | None, limit: int | None, on_behalf_of: str) -> Any: ...
-    def run(self, app: str, result: str, on_behalf_of: str) -> Any: ...
-    def log(self, app: str, result: str, task_run: str, on_behalf_of: str) -> Any: ...
-    def explain(self, app: str, result: str, on_behalf_of: str) -> Any: ...
-    def releases(self, app: str, chain_id: str | None, on_behalf_of: str) -> Any: ...
-    def contract(self, on_behalf_of: str) -> Any: ...
-    def rerun(self, app: str, pipelinerun: str, idempotency_key: str, on_behalf_of: str) -> Any: ...
-    def cancel(self, app: str, pipelinerun: str, on_behalf_of: str) -> Any: ...
-    def environments(self, app: str, on_behalf_of: str) -> Any: ...
-    def rollback_plan(self, app: str, env: str, cluster: str, on_behalf_of: str) -> Any: ...
-    def promote(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
-    def rollback(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
-
-
-class AirframeBackend(Protocol):
-    """Airframe's contract, validator and planner, and read-only cluster state (airframe_tools.py is the real one)."""
-    def capabilities(self, kind: str | None, section: str | None) -> Any: ...
-    def validate(self, documents: list[dict], app: str | None, mode: str, render: bool) -> Any: ...
-    def explain(self, rule: str) -> Any: ...
-    def plan(self, spec: dict, base_cicd: Any) -> Any: ...
-    def status(self, app: str, env: str | None) -> Any: ...
-    def describe(self, app: str, env: str) -> Any: ...
-    def verify(self, app: str, kind: str, name: str, env: str | None) -> Any: ...
 
 
 class ArtifactBackend(Protocol):
@@ -70,10 +55,32 @@ class HumanBackend(Protocol):
     def send(self, session_id: str, text: str) -> dict[str, Any]: ...
 
 
-class Backends:
-    def __init__(self, git, argo, runs, read, human, artifacts=None, glidepath=None, airframe=None):
-        self.git, self.argo, self.runs, self.read, self.human = git, argo, runs, read, human
-        self.artifacts, self.glidepath, self.airframe = artifacts, glidepath, airframe
+def core_handlers(*, git: GitBackend | None = None, argo: ArgoBackend | None = None,
+                  read: ReadBackend | None = None, human: HumanBackend | None = None,
+                  artifacts: ArtifactBackend | None = None) -> dict[str, Handler]:
+    """Handlers for the core tools whose backend is given; a tool whose backend is left out has none,
+    so a call to it is refused as having no backend in this deployment."""
+    h: dict[str, Handler] = {}
+    if read is not None:
+        h["catalog.read"] = lambda s, a: read.catalog(a["query"])
+        h["metrics.query"] = lambda s, a: read.promql(a["promql"])
+        h["logs.query"] = lambda s, a: read.logql(a["logql"])
+        h["app.api.get"] = lambda s, a: read.app_api(a["service"], a["path"])
+    if argo is not None:
+        h["argo.app.get"] = lambda s, a: argo.get_app(a["app"])
+        h["argo.sync.lower"] = lambda s, a: argo.sync(a["app"], a["project"])
+    if artifacts is not None:
+        h["artifact.put"] = lambda s, a: artifacts.put(s.task_id, a["name"], a["content"])
+        h["artifact.get"] = lambda s, a: artifacts.get(s.task_id, a["name"])
+    if human is not None:
+        h["chat.recv"] = lambda s, a: human.recv(s.id)
+        h["chat.send"] = lambda s, a: human.send(s.id, a["text"])
+        h["human.request"] = lambda s, a: human.request(a["question"], a.get("options"))
+    if git is not None:
+        h["repo.pr.open"] = lambda s, a: git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main"))
+        h["repo.pr.open_upper"] = lambda s, a: git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main"))
+        h["xr.request"] = lambda s, a: git.commit_xr(a["app"], a["env"], a["kind"], a["spec"])
+    return h
 
 
 class Recorder:
@@ -108,19 +115,20 @@ class FakeArgo(Recorder):
         return {"app": app, "operation": "started"}
 
 
-class FakeRuns(Recorder):
+class FakeRunBackend(Recorder):
+    """A RunBackend that starts nothing: it names the run after the session and records the calls."""
     def __init__(self):
         super().__init__()
-        self.manifests: dict[str, dict] = {}
+        self.live: dict[str, str] = {}
 
-    def create(self, manifest):
-        self._rec("runs.create", manifest["metadata"]["name"])
-        self.manifests[manifest["metadata"]["name"]] = manifest
-        return {"name": manifest["metadata"]["name"]}
+    def create(self, session, definition, run_input):
+        name = "r-" + session.id.removeprefix("s-")
+        self._rec("runs.create", name)
+        self.live[session.id] = name
+        return name
 
-    def delete(self, name):
-        self._rec("runs.delete", name)
-        self.manifests.pop(name, None)
+    def delete(self, session):
+        self._rec("runs.delete", self.live.pop(session.id, None))
 
 
 class FakeRead(Recorder):
@@ -168,85 +176,3 @@ class FakeArtifacts(Recorder):
     def get(self, task_id, name):
         self._rec("artifacts.get", task_id, name)
         return self.store.get((task_id, name))
-
-
-class FakeGlidepath(Recorder):
-    def runs(self, app, since_hours, limit, on_behalf_of):
-        self._rec("glidepath.runs", app, since_hours, limit, on_behalf_of=on_behalf_of)
-        return {"runs": [{"result": "0b9d1a2e-1111-4c4c-9999-aaaaaaaaaaaa", "name": f"{app}-push-abc", "status": "failed"}]}
-
-    def run(self, app, result, on_behalf_of):
-        self._rec("glidepath.run", app, result, on_behalf_of=on_behalf_of)
-        return {"result": result, "pipelineRun": {}, "taskRuns": []}
-
-    def log(self, app, result, task_run, on_behalf_of):
-        self._rec("glidepath.log", app, result, task_run, on_behalf_of=on_behalf_of)
-        return {"log": "[build] error: no space left on device\n"}
-
-    def explain(self, app, result, on_behalf_of):
-        self._rec("glidepath.explain", app, result, on_behalf_of=on_behalf_of)
-        return {"result": result, "status": "failed", "failures": [
-            {"taskRun": f"{app}-push-abc-build", "step": "build", "log": "archived",
-             "knownFailure": {"id": "SourceVolumeFull", "hint": "Raise build.sourceVolume.size one step.",
-                              "field": "/build/sourceVolume/size"},
-             "evidence": "error: no space left on device"}]}
-
-    def releases(self, app, chain_id, on_behalf_of):
-        self._rec("glidepath.releases", app, chain_id, on_behalf_of=on_behalf_of)
-        return {"releases": []}
-
-    def contract(self, on_behalf_of):
-        self._rec("glidepath.contract", on_behalf_of=on_behalf_of)
-        return {"contractVersion": 1}
-
-    def rerun(self, app, pipelinerun, idempotency_key, on_behalf_of):
-        self._rec("glidepath.rerun", app, pipelinerun, idempotency_key, on_behalf_of=on_behalf_of)
-        replayed = sum(1 for c in self.calls if c[0] == "glidepath.rerun" and c[1][2] == idempotency_key) > 1
-        return {"name": f"{pipelinerun}-rerun-abcde", "replayed": replayed}
-
-    def cancel(self, app, pipelinerun, on_behalf_of):
-        self._rec("glidepath.cancel", app, pipelinerun, on_behalf_of=on_behalf_of)
-        return {"name": pipelinerun, "status": "cancelled"}
-
-    def environments(self, app, on_behalf_of):
-        self._rec("glidepath.environments", app, on_behalf_of=on_behalf_of)
-        return {"order": ["dev", "staging", "prod"], "orderSource": "promotionOrder", "lower": ["dev"],
-                "upper": [{"name": "staging", "cluster": "hangar-prod"},
-                          {"name": "prod", "cluster": "hangar-prod", "production": True}]}
-
-    def rollback_plan(self, app, env, cluster, on_behalf_of):
-        self._rec("glidepath.rollback_plan", app, env, cluster, on_behalf_of=on_behalf_of)
-        return {"current": {"releaseId": "rel-3", "image": f"ghcr.io/o/{app}:1.2.0-3333333", "state": "healthy"},
-                "targets": [{"releaseId": "rel-2", "image": f"ghcr.io/o/{app}:1.1.0-2222222", "gitRevision": "2222222",
-                             "gitUrl": f"https://github.com/o/{app}", "healthyAt": "2026-10-28T00:00:00Z",
-                             "state": "superseded"}]}
-
-    def _replayed(self, name, key, dry_run):
-        return not dry_run and sum(1 for c in self.calls if c[0] == name and c[1][3] == key and not c[1][4]) > 1
-
-    def promote(self, app, env, body, idempotency_key, dry_run, on_behalf_of):
-        self._rec("glidepath.promote", app, env, body, idempotency_key, dry_run, on_behalf_of=on_behalf_of)
-        out = {"mode": "pipeline", "pipelineRun": f"promote-{env}-3333333a-{idempotency_key[-6:]}"}
-        if self._replayed("glidepath.promote", idempotency_key, dry_run):
-            out["replayed"] = True
-        if dry_run:
-            out.update(dryRun=True, object={"kind": "PipelineRun"})
-        return out
-
-    def rollback(self, app, env, body, idempotency_key, dry_run, on_behalf_of):
-        self._rec("glidepath.rollback", app, env, body, idempotency_key, dry_run, on_behalf_of=on_behalf_of)
-        out = {"alreadyOpen": False, "pipelineRun": f"rollback-{env}-2222222b-{idempotency_key[-6:]}",
-               "target": {"releaseId": body["targetReleaseId"]}, "replaces": "rel-3"}
-        if self._replayed("glidepath.rollback", idempotency_key, dry_run):
-            out["replayed"] = True
-        if dry_run:
-            out.update(dryRun=True, object={"kind": "PipelineRun"})
-        return out
-
-
-def fake_backends() -> Backends:
-    # Airframe's fake is the real tool logic over an in-memory cluster and a fake validator (airframe_tools.py),
-    # imported here so the clearance core never imports it at module load.
-    from .airframe_tools import fake_airframe
-    return Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(),
-                    FakeGlidepath(), fake_airframe())
