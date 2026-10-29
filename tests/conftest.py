@@ -58,5 +58,6 @@ def gw(defs, backends, clock):
         "bob": Principal("user:bob", "user", Tier.T1),
         "readonly": Principal("user:ro", "user", Tier.T0),
         "holmes": Principal("holmesgpt/holmes", "workload", Tier.T1),
+        "triage": Principal("autopilot-runs/triage-agent", "workload", Tier.T1),
     })
     return hangar_gateway(defs, store, AuditLog(), backends, auth, clock)

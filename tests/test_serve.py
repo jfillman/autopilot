@@ -297,3 +297,52 @@ def test_the_sweep_pings_the_database_first(built):
 def test_ephemeral_ping_is_a_no_op(built):
     assert built.state is None
     built.ping()
+
+
+# -- P5: GitHub PRs, the model proxy, events ----------------------------------------------------------------------
+def test_p5_backends_are_off_by_default():
+    c = serve.config_from_env(EPH)
+    assert not c.github_pr_enabled and c.model_key_file is None and not c.events_enabled
+    h = serve.build_handlers(serve.build_backends(c))
+    assert not {"repo.pr.open", "repo.pr.open_upper", "xr.request"} & set(h)
+    gw, _ = serve.build_gateway(c)
+    assert gw.models is None
+
+
+def test_github_prs_register_repo_pr_open_only():
+    from autopilot.github_pr import GitHubPRs
+    c = serve.config_from_env({**EPH, "GITHUB_PR_ENABLED": "1", "AIRFRAME_ENABLED": "0"})
+    b = serve.build_backends(c)
+    assert isinstance(b.git, GitHubPRs) and str(b.git.token_file) == "/var/run/clearance/agent-installation-token"
+    h = serve.build_handlers(b)
+    assert "repo.pr.open" in h and not {"repo.pr.open_upper", "xr.request"} & set(h)
+
+
+def test_model_proxy_config(tmp_path):
+    key = tmp_path / "k"
+    c = serve.config_from_env({**EPH, "MODEL_KEY_FILE": str(key), "MODEL_ROUTES": "claude-sonnet-5-5=claude-sonnet-5-5, fast=claude-haiku-5-5"})
+    assert c.model_routes == {"claude-sonnet-5-5": "claude-sonnet-5-5", "fast": "claude-haiku-5-5"} and c.model_port == 8081
+    gw, _ = serve.build_gateway(c)
+    assert gw.models.routes["fast"].upstream_model == "claude-haiku-5-5" and gw.models.routes["fast"].backend == "anthropic"
+    assert "model-proxy=:8081" in serve.describe(c, gw) and str(key) not in serve.describe(c, gw)
+
+
+@pytest.mark.parametrize("env, match", [
+    ({"MODEL_KEY_FILE": "/k"}, "MODEL_ROUTES names no model"),
+    ({"MODEL_KEY_FILE": "/k", "MODEL_ROUTES": "a"}, "alias=upstream"),
+    ({"MODEL_KEY_FILE": "/k", "MODEL_ROUTES": "a=b", "MODEL_PORT": "8080"}, "must differ"),
+    ({"EVENTS_ENABLED": "1"}, "needs GLIDEPATH_API_URL"),
+])
+def test_p5_config_refusals(env, match):
+    with pytest.raises(serve.ConfigError, match=match):
+        serve.config_from_env({**EPH, **env})
+
+
+def test_model_calls_hold_the_gateway_lock(built):
+    done = threading.Event()
+    with built.lock:
+        t = threading.Thread(target=lambda: (built.model_usage("s-x", 1), done.set()))
+        t.start()
+        assert not done.wait(0.3)
+    t.join(5)
+    assert done.is_set()
