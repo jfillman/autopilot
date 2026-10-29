@@ -10,7 +10,7 @@ proposes it. It prints the release run (or the release PR already open) and the 
 Every other backend is a fake. The agent's definition holds no tool that reaches GitHub, so the merge is a person's.
 
     kubectl --context hangar-dev -n platform-system port-forward svc/glidepath-api 18080:8080 &
-    kubectl --context hangar-dev -n platform-system create token clearance --duration=10m > /tmp/clearance-token
+    kubectl --context hangar-dev -n autopilot-system create token clearance --duration=10m > /tmp/clearance-token
     tools/glidepath_release_smoke.py --url http://127.0.0.1:18080 --token-file /tmp/clearance-token            # dry run
     tools/glidepath_release_smoke.py --url http://127.0.0.1:18080 --token-file /tmp/clearance-token --propose  # for real
 

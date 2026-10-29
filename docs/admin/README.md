@@ -7,13 +7,16 @@ For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
 streamable-HTTP MCP app on `PORT` (8080) at `/mcp`, `GET /healthz` unauthenticated for probes. Every variable, and the
 RBAC each backend needs, is in the README's [Running the gateway](../../README.md#running-the-gateway). In short:
 - **One replica.** The Postgres store (`CLEARANCE_DSN`) takes an advisory lock; a second writer on the same database
-  exits at start. The gateway holds one connection and does not reconnect: if Postgres restarts, restart the gateway
-  (`/healthz` does not touch the database, so a probe will not notice).
+  exits at start. The gateway holds one connection and does not reconnect: a database error from any operation ends
+  the process (exit 70) and the kubelet restarts it, which reloads the sessions and re-verifies the chain. The expiry
+  sweep pings the database first, so a lost connection is found within `CLEARANCE_EXPIRE_SECONDS` with no traffic.
 - **Read-only root, uid 65532.** Nothing is written at runtime; no volume is needed.
-- **Identity.** One ServiceAccount (`platform-system/clearance`): `system:auth-delegator` (TokenReview, for every
+- **Identity.** One ServiceAccount (`autopilot-system/clearance`): `system:auth-delegator` (TokenReview, for every
   caller), Role `clearance-agentruns` in `autopilot-runs` (AgentRuns), ClusterRole `clearance-airframe-reader`
-  (Airframe reads), and glidepath-api's ClusterRoles when `GLIDEPATH_API_URL` is set.
-- **Only real backends.** git, Argo CD, the read backend, chat, artifacts and `airframe.validate` have no handler in the
+  (Airframe reads, and Argo CD Applications for `argo.app.get`), and glidepath-api's ClusterRoles when
+  `GLIDEPATH_API_URL` is set.
+- **Only real backends.** `argo.app.get`, `metrics.query` (`PROMETHEUS_URL`) and `logs.query` (`LOKI_URL`) are real;
+  git, Argo CD sync, `catalog.read`, `app.api.get`, chat, artifacts and `airframe.validate` have no handler in the
   image, so their calls are refused as "no backend"; nothing is faked.
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
   AgentRuns, each deletion a record in the same commit; a failed deletion is recorded and retried next sweep.
@@ -33,7 +36,7 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   `airframe-validate`: the script from an airframe checkout with python3, pyyaml, jsonschema and helm, or the
   `tools/validate.Containerfile` image run with the content directory mounted read-only.
 - **Live check**: `tools/airframe_smoke.py` drives the tools through MCP against a cluster with a 10-minute token
-  (`kubectl create token clearance -n platform-system --duration=10m`) and compares them with `kubectl get`.
+  (`kubectl create token clearance -n autopilot-system --duration=10m`) and compares them with `kubectl get`.
 - **provider-kubernetes RBAC** for the objects an `AgentRun` renders (Namespace, ResourceQuota, ServiceAccount,
   two NetworkPolicies, the agent-sandbox Sandbox): the cluster repo's `55-autopilot/agentrun-grants/` (apron
   template), shipped only with the ValidatingAdmissionPolicy that confines it to run namespaces (decision D15).

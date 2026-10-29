@@ -19,7 +19,7 @@ pins a tagged release in `pyproject.toml` and supplies what only Hangar has:
 | Part | Where | What it owns |
 |---|---|---|
 | Clearance (pinned) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.4.0` | tiers, scope, limits, CEL policy and packs, sessions and the run tree (`Gateway.expire`), the gateway, the MCP surface over stdio and streamable HTTP, authentication (TokenReview, OIDC), the Postgres store, model-access decisions, audit |
-| Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, and `gateway.py`, which builds the Hangar Gateway: Clearance's core + the Hangar pack + a handler per tool + AgentRun as the run backend |
+| Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, and `gateway.py`, which builds the Hangar Gateway: Clearance's core + the Hangar pack + a handler per tool + AgentRun as the run backend |
 
 ```python
 Gateway(definitions, store, audit, auth, clock, packs=(HANGAR,), handlers=hangar_handlers(backends),
@@ -60,6 +60,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | lives in airframe (`xrds/agentrun.yaml`, `compositions/agentrun/`, `functions/function-agentrun/`); `src/autopilot/vendor/agentrun_compose.py` and `schemas/agentrun.xrd.yaml` are byte-identical copies | the canary renders with the vendored `compose()`; Clearance's AgentRun manifests are validated against the vendored XRD; `tests/test_agentrun_vendor.py` fails on drift |
 | AgentRun store | `autopilot/kube_runs.py` | the real `AgentRunStore`: POST to `/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns` and DELETE of one named AgentRun there, nothing else (any other method, path, namespace, kind or a non-DNS-label name is refused before a request is built); a 404 on delete is success, a 409 on create an error; token and CA re-read every call |
+| Read adapters | `autopilot/reads.py` | `argo.app.get` over the Application objects (the GET-only Kubernetes reader), `metrics.query` on a Prometheus-compatible API, `logs.query` on Loki; summaries and bounds, a rejected query as an answer |
 | The deployable gateway | `autopilot/serve.py` (`autopilot-gateway`), `Dockerfile` | builds the Hangar Gateway from environment variables and serves Clearance's HTTP app with uvicorn; real backends only; the expiry sweep on a thread under the same lock as every gateway call. See [Running the gateway](#running-the-gateway) |
 | Network-policy canary (AP-A1) | `tools/netpol_canary.py` | renders a run's real policies with `compose()` on a live cluster and proves each denial against a no-policy control; its pass is what a person attests when setting the registry's `airframe.autopilotReady` |
 
@@ -95,12 +96,16 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `AIRFRAME_CLUSTER` | `hangar-dev` | the cluster the Airframe reader reads, and the planner's dev cluster |
 | `AIRFRAME_UPPER_CLUSTERS` | `hangar-prod` | comma-separated: the clusters the planner may put a Flight environment on |
 | `AIRFRAME_TENANTS_REPO` | `gitops-hangar-dev-tenants` | the dev cluster's tenants repo, where the planner commits XR requests |
+| `ARGO_ENABLED` | `1` | `0`: `argo.app.get` has no backend |
+| `ARGO_APP_NAMESPACES` | `argocd` | comma-separated: the namespaces `argo.app.get` looks for an Application in, in order |
+| `PROMETHEUS_URL` | unset | a Prometheus-compatible query API (e.g. `http://thanos-query.observability.svc:9090`); unset, `metrics.query` has no backend |
+| `LOKI_URL` | unset | Loki's query API (e.g. `http://loki-gateway.observability.svc`); unset, `logs.query` has no backend |
 | `LOG_LEVEL` | `info` | |
 
 The start line names what is enabled (store kind, agent and tool counts, auth, Glidepath URL, Airframe cluster, expiry
 interval) and never a DSN, token or file content.
 
-What each backend needs. The gateway runs as one ServiceAccount (`platform-system/clearance` on hangar-dev) with its
+What each backend needs. The gateway runs as one ServiceAccount (`autopilot-system/clearance` on hangar-dev) with its
 projected token and CA at the standard path; every adapter re-reads both on each call.
 
 | Backend | Tools | Needs |
@@ -109,16 +114,23 @@ projected token and CA at the standard path; every adapter re-reads both on each
 | AgentRuns (always) | `run.spawn`, `run.close`, the expiry sweep | Role `clearance-agentruns` in `autopilot-runs`: `create` and `delete` on `agentruns.catalog.hangar.io` (the adapter sends nothing else) |
 | Airframe reads (`AIRFRAME_ENABLED`) | `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify` | ClusterRole `clearance-airframe-reader`: get/list/watch on `catalog.hangar.io` and `argoproj.io` applications and rollouts, nothing else (gitops-hangar-dev#40). `airframe.validate` has no backend in the image |
 | Glidepath (`GLIDEPATH_API_URL`) | `glidepath.*` | network reach to glidepath-api and RBAC there for Clearance's identity: glidepath-api checks it with a SubjectAccessReview (ClusterRoles `glidepath-api-reader`, `-operator`, `-releaser` for reads, run control and release proposals) |
-| Postgres (`CLEARANCE_DSN`) | everything | a database the gateway owns; it creates its tables and verifies the evidence chain from genesis at start |
+| Argo CD reads (`ARGO_ENABLED`) | `argo.app.get` | the same `clearance-airframe-reader` ClusterRole: it reads the Application object through the Kubernetes API (no Argo CD account, no token) and returns a summary: sources, destination, sync, health, the last operation, conditions and the resources not synced or not healthy. Never the Helm values |
+| Prometheus (`PROMETHEUS_URL`) | `metrics.query` | network reach to the query API. An instant query; at most 200 series returned (`truncated` says when more matched) |
+| Loki (`LOKI_URL`) | `logs.query` | network reach to the query API. A range query over the last hour, newest first; at most 200 lines of at most 2000 characters. On hangar-dev the labels are the OpenTelemetry ones (`k8s_namespace_name`, `k8s_pod_name`, `service_name`) |
+| Postgres (`CLEARANCE_DSN`) | everything | a database the gateway owns; it creates its tables and verifies the evidence chain from genesis at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
 
-Everything else (`repo.pr.open*`, `xr.request`, `argo.*`, `catalog.read`, `metrics.query`, `logs.query`,
-`app.api.get`, `chat.*`, `human.request`, `artifact.*`) has no handler: a call is audited and refused with "no
-backend for this tool in this deployment", charged nothing. `tools_list` still lists them, with their policy.
+A query Prometheus or Loki rejects (a parse error, a timeout, too many samples) comes back as data with `error` and
+`message`, so the agent can fix it; any other failure is a "backend error".
+
+Everything else (`repo.pr.open*`, `xr.request`, `argo.sync.lower`, `catalog.read`, `app.api.get`, `chat.*`,
+`human.request`, `artifact.*`) has no handler: a call is audited and refused with "no backend for this tool in this
+deployment", charged nothing. `tools_list` still lists them, with their policy.
 
 ## What is NOT built
 
-* Real backends: GitHub through the token-review-interceptor, the ArgoCD API, the read backend (catalog, PromQL,
-  LogQL, app APIs), human chat, artifacts, Backstage MCP federation. `clearance/backends.py` (core tools) defines the
+* Real backends: GitHub through the token-review-interceptor, Argo CD sync, the Backstage catalog (`catalog.read`;
+  Backstage runs on hangar-prod only, and its catalog API needs a credential), allowlisted app APIs (`app.api.get`;
+  no definition uses it yet), human chat, artifacts, Backstage MCP federation. `clearance/backends.py` (core tools) defines the
   interfaces and fakes; the deployable gateway registers no handler for these, so their calls are refused as having no
   backend.
 * `airframe.validate` in the image: it needs airframe's `airframe-validate` (helm included), which the image does not

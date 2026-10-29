@@ -3,13 +3,20 @@
 Builds the Hangar Gateway (core Clearance, the Hangar pack, Autopilot's real backends) from environment variables
 and serves Clearance's streamable-HTTP MCP app with uvicorn. See README.md, "Running the gateway", for the variables.
 
-Only real backends are registered. A tool whose backend this deployment does not have (git, argo, read, human,
-artifacts today; glidepath.* without GLIDEPATH_API_URL; airframe.* with AIRFRAME_ENABLED=0; airframe.validate
-always, since the image carries no airframe-validate) has no handler, so a call to it is refused as having no
-backend. Nothing here registers a fake.
+Only real backends are registered. A tool whose backend this deployment does not have (git, human, artifacts,
+argo.sync.lower, catalog.read and app.api.get today; glidepath.* without GLIDEPATH_API_URL; metrics.query without
+PROMETHEUS_URL; logs.query without LOKI_URL; airframe.* with AIRFRAME_ENABLED=0; argo.app.get with ARGO_ENABLED=0;
+airframe.validate always, since the image carries no airframe-validate) has no handler, so a call to it is refused
+as having no backend. Nothing here registers a fake.
 
 Every gateway entry point, the MCP server's calls and the expiry sweep alike, runs under one lock
 (SerializedGateway.lock): the session store and the audit chain are single-writer.
+
+Losing Postgres ends the process (crash-only). After a failed commit the in-memory sessions are ahead of the
+database, and only a restart, which reloads them and re-verifies the chain, puts the two back in step; reconnecting
+in place would keep spending budget that was never recorded. The kubelet restarts the container, which fails at
+start (and backs off) until Postgres answers and the old session's writer lock is released. The expiry sweep pings
+the database first, so a lost connection is found within one interval even when no agent is calling.
 """
 from __future__ import annotations
 
@@ -35,6 +42,7 @@ from .backends import Backends
 from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
+from .reads import KubeArgo, LokiAPI, PrometheusAPI, Reads
 
 log = logging.getLogger("autopilot.gateway")
 
@@ -65,6 +73,10 @@ class Config:
     airframe_cluster: str
     airframe_upper_clusters: tuple[str, ...]
     airframe_tenants_repo: str
+    argo_enabled: bool
+    argo_namespaces: tuple[str, ...]
+    prometheus_url: str | None
+    loki_url: str | None
 
     @property
     def issuer_url(self) -> str:
@@ -112,6 +124,9 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     if not agents.is_dir():
         raise ConfigError(f"CLEARANCE_AGENTS_DIR {str(agents)!r} is not a directory")
     upper = tuple(c.strip() for c in get("AIRFRAME_UPPER_CLUSTERS", "hangar-prod").split(",") if c.strip())
+    argo_ns = tuple(n.strip() for n in get("ARGO_APP_NAMESPACES", "argocd").split(",") if n.strip())
+    if _flag(env, "ARGO_ENABLED", True) and not argo_ns:
+        raise ConfigError("ARGO_APP_NAMESPACES names no namespace (or set ARGO_ENABLED=0)")
     return Config(
         agents_dir=agents, dsn=None if ephemeral else dsn, ephemeral=ephemeral,
         resource_url=get("CLEARANCE_RESOURCE_URL", f"http://localhost:{port}/mcp"),
@@ -127,28 +142,41 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         airframe_cluster=get("AIRFRAME_CLUSTER", "hangar-dev"),
         airframe_upper_clusters=upper,
         airframe_tenants_repo=get("AIRFRAME_TENANTS_REPO", "gitops-hangar-dev-tenants"),
+        argo_enabled=_flag(env, "ARGO_ENABLED", True), argo_namespaces=argo_ns,
+        prometheus_url=get("PROMETHEUS_URL"), loki_url=get("LOKI_URL"),
     )
 
 
 # -- backends -------------------------------------------------------------------------------------------------------
 
 def build_backends(cfg: Config) -> Backends:
-    """Real backends only, in-cluster: glidepath-api if configured, Airframe reads unless disabled, AgentRuns always.
-    git, argo, read, human and artifacts are None: this deployment has no backend for them."""
+    """Real backends only, in-cluster: glidepath-api, Prometheus and Loki if configured, Airframe and Argo CD reads
+    unless disabled, AgentRuns always. git, human and artifacts are None: this deployment has no backend for them."""
     glidepath = (GlidepathAPI(cfg.glidepath_url, cfg.glidepath_token_file, on_behalf_of=cfg.glidepath_on_behalf_of)
                  if cfg.glidepath_url else None)
-    airframe = None
+    airframe = argo = None
+    reader = KubeReader(IN_CLUSTER_API, SA_DIR / "token", SA_DIR / "ca.crt")
+    if cfg.argo_enabled:
+        argo = KubeArgo(reader, cfg.argo_namespaces)
     if cfg.airframe_enabled:
-        reader = KubeReader(IN_CLUSTER_API, SA_DIR / "token", SA_DIR / "ca.crt")
         registry = airframe_plan.Registry(cfg.airframe_cluster, cfg.airframe_upper_clusters, cfg.airframe_tenants_repo)
         airframe = AirframeTools(reader, None, registry, cluster=cfg.airframe_cluster)
-    return Backends(None, None, KubeAgentRuns(), None, None, None, glidepath, airframe)
+    read = None
+    if cfg.prometheus_url or cfg.loki_url:
+        read = Reads(PrometheusAPI(cfg.prometheus_url) if cfg.prometheus_url else None,
+                     LokiAPI(cfg.loki_url) if cfg.loki_url else None)
+    return Backends(None, argo, KubeAgentRuns(), read, None, None, glidepath, airframe)
 
 
 def build_handlers(b: Backends) -> dict[str, Handler]:
     """hangar_handlers, less every tool whose backend is absent (so it is "no backend", not "backend error")."""
     h = hangar_handlers(b)
-    drop = set()
+    drop = {"argo.sync.lower", "catalog.read", "app.api.get"}   # no adapter yet: the Argo one is read-only
+    if b.read is not None:
+        if getattr(b.read, "prometheus", None) is None:
+            drop.add("metrics.query")
+        if getattr(b.read, "loki", None) is None:
+            drop.add("logs.query")
     if b.glidepath is None:
         drop |= {t for t in h if t.startswith("glidepath.")}
     if b.airframe is None:
@@ -166,33 +194,62 @@ def build_auth(cfg: Config) -> Authenticator:
     return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
 
 
+STORE_LOST_EXIT = 70
+
+
+def _exit_store_lost(e: BaseException) -> None:
+    log.critical("the session store's database connection failed (%s); exiting so a restart reloads from it",
+                 type(e).__name__)
+    logging.shutdown()
+    os._exit(STORE_LOST_EXIT)   # not sys.exit: uvicorn would catch it and keep serving
+
+
 class SerializedGateway(Gateway):
     """A Gateway whose every public operation holds one lock, so the expiry sweep and MCP calls never interleave.
-    (Clearance's server also serializes its own calls; that lock is always taken first, so the order is fixed.)"""
+    (Clearance's server also serializes its own calls; that lock is always taken first, so the order is fixed.)
 
-    def __init__(self, *a, **k):
+    `state` is the PgState (None when ephemeral); an error in `store_errors` raised by any operation means the
+    database connection is gone, and `on_store_lost` ends the process (see the module docstring)."""
+
+    def __init__(self, *a, state: Any = None, store_errors: tuple[type[BaseException], ...] = (),
+                 on_store_lost: Callable[[BaseException], None] = _exit_store_lost, **k):
         super().__init__(*a, **k)
         self.lock = threading.RLock()
+        self.state, self.store_errors, self.on_store_lost = state, store_errors, on_store_lost
+
+    def _locked(self, op: Callable[..., Any], *a, **k) -> Any:
+        with self.lock:
+            try:
+                return op(*a, **k)
+            except self.store_errors as e:
+                self.on_store_lost(e)
+                raise
 
     def open_session(self, *a, **k):
-        with self.lock:
-            return super().open_session(*a, **k)
+        return self._locked(super().open_session, *a, **k)
 
     def open_triggered(self, *a, **k):
-        with self.lock:
-            return super().open_triggered(*a, **k)
+        return self._locked(super().open_triggered, *a, **k)
 
     def launch(self, *a, **k):
-        with self.lock:
-            return super().launch(*a, **k)
+        return self._locked(super().launch, *a, **k)
 
     def call(self, *a, **k):
-        with self.lock:
-            return super().call(*a, **k)
+        return self._locked(super().call, *a, **k)
 
     def expire(self, *a, **k):
-        with self.lock:
-            return super().expire(*a, **k)
+        return self._locked(super().expire, *a, **k)
+
+    def ping(self) -> None:
+        """One round trip to the database, under the lock (a no-op when ephemeral)."""
+        if self.state is None:
+            return
+
+        def roundtrip():
+            with self.state.conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            self.state.commit()
+        self._locked(roundtrip)
 
 
 def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authenticator | None = None,
@@ -200,14 +257,17 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
     """The gateway and, for a durable store, its PgState (to close on exit; None when ephemeral)."""
     b = backends or build_backends(cfg)
     defs = profile.load_dir(cfg.agents_dir)
-    state = None
+    state, store_errors = None, ()
     if cfg.ephemeral:
         store, audit = SessionStore(), AuditLog()
     else:
-        from clearance.pg import open_durable   # psycopg only where it is used
+        import psycopg   # only where it is used
+        from clearance.pg import open_durable
         state, audit, store = open_durable(cfg.dsn)
+        store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
     gw = SerializedGateway(defs, store, audit, auth or build_auth(cfg), clock, packs=PACKS,
-                           handlers=build_handlers(b), runs=AgentRunBackend(b.runs))
+                           handlers=build_handlers(b), runs=AgentRunBackend(b.runs), state=state,
+                           store_errors=store_errors)
     return gw, state
 
 
@@ -234,6 +294,8 @@ class Expirer:
         self._thread.join(timeout=self.interval + 5)
 
     def sweep(self) -> list[str]:
+        if hasattr(self.gw, "ping"):
+            self.gw.ping()
         done = self.gw.expire()
         if done:
             log.info("expired %d session(s) and deleted their runs", len(done))
@@ -256,6 +318,8 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + f" resource={cfg.resource_url} glidepath={cfg.glidepath_url or 'off'}"
             + (f" on-behalf-of={'on' if cfg.glidepath_on_behalf_of else 'off'}" if cfg.glidepath_url else "")
             + f" airframe={'on (cluster ' + cfg.airframe_cluster + ', no validator)' if cfg.airframe_enabled else 'off'}"
+            + f" argo={'on (' + ','.join(cfg.argo_namespaces) + ')' if cfg.argo_enabled else 'off'}"
+            + f" prometheus={cfg.prometheus_url or 'off'} loki={cfg.loki_url or 'off'}"
             + f" agentruns=in-cluster expire-every={cfg.expire_seconds:g}s")
 
 
