@@ -1340,7 +1340,7 @@
   ],
   "api": {
     "spec": "api/openapi.yaml",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "actions": [
       {
         "operationId": "whoami",
@@ -1432,6 +1432,34 @@
         "path": "/v1/apps/{app}/pipelineruns/{name}/cancel",
         "tier": "T1",
         "summary": "Cancel a PipelineRun (CancelledRunFinally, so its finally tasks still report)"
+      },
+      {
+        "operationId": "listEnvironments",
+        "method": "GET",
+        "path": "/v1/apps/{app}/environments",
+        "tier": "T0",
+        "summary": "The app's environments, their tiers and their promotion order (Tower's release plan)"
+      },
+      {
+        "operationId": "getRollbackPlan",
+        "method": "GET",
+        "path": "/v1/apps/{app}/environments/{env}/rollback-plan",
+        "tier": "T0",
+        "summary": "The environment's current release and the earlier releases it may roll back to"
+      },
+      {
+        "operationId": "promoteEnvironment",
+        "method": "POST",
+        "path": "/v1/apps/{app}/environments/{env}/promote",
+        "tier": "T2",
+        "summary": "Propose a promotion to a Flight environment (start the app's release Pipeline; a human merges its PR)"
+      },
+      {
+        "operationId": "rollbackEnvironment",
+        "method": "POST",
+        "path": "/v1/apps/{app}/environments/{env}/rollback",
+        "tier": "T2",
+        "summary": "Propose a rollback of a Flight environment to an earlier release (the release Pipeline; a human merges)"
       }
     ]
   }
