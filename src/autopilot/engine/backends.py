@@ -42,6 +42,10 @@ class GlidepathBackend(Protocol):
     def contract(self, on_behalf_of: str) -> Any: ...
     def rerun(self, app: str, pipelinerun: str, idempotency_key: str, on_behalf_of: str) -> Any: ...
     def cancel(self, app: str, pipelinerun: str, on_behalf_of: str) -> Any: ...
+    def environments(self, app: str, on_behalf_of: str) -> Any: ...
+    def rollback_plan(self, app: str, env: str, cluster: str, on_behalf_of: str) -> Any: ...
+    def promote(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
+    def rollback(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
 
 
 class AirframeBackend(Protocol):
@@ -203,6 +207,41 @@ class FakeGlidepath(Recorder):
     def cancel(self, app, pipelinerun, on_behalf_of):
         self._rec("glidepath.cancel", app, pipelinerun, on_behalf_of=on_behalf_of)
         return {"name": pipelinerun, "status": "cancelled"}
+
+    def environments(self, app, on_behalf_of):
+        self._rec("glidepath.environments", app, on_behalf_of=on_behalf_of)
+        return {"order": ["dev", "staging", "prod"], "orderSource": "promotionOrder", "lower": ["dev"],
+                "upper": [{"name": "staging", "cluster": "hangar-prod"},
+                          {"name": "prod", "cluster": "hangar-prod", "production": True}]}
+
+    def rollback_plan(self, app, env, cluster, on_behalf_of):
+        self._rec("glidepath.rollback_plan", app, env, cluster, on_behalf_of=on_behalf_of)
+        return {"current": {"releaseId": "rel-3", "image": f"ghcr.io/o/{app}:1.2.0-3333333", "state": "healthy"},
+                "targets": [{"releaseId": "rel-2", "image": f"ghcr.io/o/{app}:1.1.0-2222222", "gitRevision": "2222222",
+                             "gitUrl": f"https://github.com/o/{app}", "healthyAt": "2026-10-28T00:00:00Z",
+                             "state": "superseded"}]}
+
+    def _replayed(self, name, key, dry_run):
+        return not dry_run and sum(1 for c in self.calls if c[0] == name and c[1][3] == key and not c[1][4]) > 1
+
+    def promote(self, app, env, body, idempotency_key, dry_run, on_behalf_of):
+        self._rec("glidepath.promote", app, env, body, idempotency_key, dry_run, on_behalf_of=on_behalf_of)
+        out = {"mode": "pipeline", "pipelineRun": f"promote-{env}-3333333a-{idempotency_key[-6:]}"}
+        if self._replayed("glidepath.promote", idempotency_key, dry_run):
+            out["replayed"] = True
+        if dry_run:
+            out.update(dryRun=True, object={"kind": "PipelineRun"})
+        return out
+
+    def rollback(self, app, env, body, idempotency_key, dry_run, on_behalf_of):
+        self._rec("glidepath.rollback", app, env, body, idempotency_key, dry_run, on_behalf_of=on_behalf_of)
+        out = {"alreadyOpen": False, "pipelineRun": f"rollback-{env}-2222222b-{idempotency_key[-6:]}",
+               "target": {"releaseId": body["targetReleaseId"]}, "replaces": "rel-3"}
+        if self._replayed("glidepath.rollback", idempotency_key, dry_run):
+            out["replayed"] = True
+        if dry_run:
+            out.update(dryRun=True, object={"kind": "PipelineRun"})
+        return out
 
 
 def fake_backends() -> Backends:
