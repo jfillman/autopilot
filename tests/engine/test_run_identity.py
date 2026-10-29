@@ -145,3 +145,9 @@ def test_refusals_never_reach_the_provider(g, proxy, headers, body, status, rule
     assert r.status_code == status, r.text
     assert r.json()["type"] == "error" and r.json()["error"].get("rule") == rule
     assert sent == []
+
+
+def test_the_run_sees_its_sessions_tools_and_another_run_does_not(g):
+    sid = launched(g)
+    assert g.session_tools("run-a", sid) == ["argo.app.get", "metrics.query"]   # catalog.read has no handler here
+    assert g.session_tools("run-b", sid) is None

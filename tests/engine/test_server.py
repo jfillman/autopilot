@@ -48,3 +48,17 @@ def test_tools_list_reports_tiers(srv):
     by = {t["name"]: t for t in r}
     assert by["catalog.read"]["tier"] == "T0" and by["repo.pr.open_upper"]["propose_only"] is True
     assert "k8s.exec" not in by, "T3 tripwires are never advertised"
+
+
+def test_tools_list_for_a_session_is_its_grant_that_this_deployment_runs(gw, srv):
+    sid = gw.open_session("alice", "researcher").data["session"]
+    r = payload(run(srv.call_tool("tools_list", {"session": sid})))
+    names = {t["name"] for t in r}
+    assert names == {"catalog.read", "metrics.query", "logs.query", "argo.app.get"} & set(gw._handlers)
+    assert names and "repo.pr.open" not in names
+
+
+def test_tools_list_refuses_someone_elses_session(gw):
+    sid = gw.open_session("bob", "researcher").data["session"]
+    assert gw.session_tools("alice", sid) is None and gw.session_tools("alice", "s-nope") is None
+    assert gw.session_tools("bob", sid)

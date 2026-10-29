@@ -66,11 +66,18 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
         "Governed access to Hangar. Open a session, then call tools inside it. Every call is checked "
         "and audited. A denial names a rule id and a hint; do not retry a denied call unchanged."))
 
-    @mcp.tool(description="List the tools this deployment offers, with their tier and required arguments.")
-    def tools_list() -> list[dict[str, Any]]:
+    @mcp.tool(description="List the tools this deployment offers, with their tier and required arguments. With "
+                          "`session` (one of your own), only the tools that session may call and this deployment runs.")
+    def tools_list(session: str | None = None) -> list[dict[str, Any]]:
+        names = None
+        if session:
+            with lock:
+                names = gateway.session_tools(token(), session)
+            if names is None:
+                raise ValueError("no such session of yours")
         return [{"name": t.name, "tier": t.tier.name, "description": t.description,
                  "required_args": list(t.required_args), "propose_only": t.propose_only}
-                for t in gateway.tools.values()]
+                for t in gateway.tools.values() if names is None or t.name in names]
 
     @mcp.tool(description="Open a session for an agent definition. `limits` may only narrow the definition's limits.")
     def session_open(agent: str, limits: dict[str, Any] | None = None) -> dict[str, Any]:

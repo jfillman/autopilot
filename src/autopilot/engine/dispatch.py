@@ -236,6 +236,17 @@ class Gateway:
         rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "ok")
         return Result(True, decision.as_dict(), data, audit_seq=rec["seq"], session=s.id)
 
+    def session_tools(self, token: str, session_id: str) -> list[str] | None:
+        """The tools a caller may use in its own session that this deployment can run: the session's granted tools
+        (its definition's, narrowed at open), less any without a handler here. None when the session is unknown or
+        not the caller's. A read of the caller's own grant: no record, nothing spent, and every call is still decided
+        on its own; this only spares an agent tools it would be refused or find unbacked."""
+        principal = self.auth.authenticate(token)
+        s = self.store.get(session_id)
+        if s is None or s.closed or self._acting(s, principal.id) != s.principal:
+            return None
+        return sorted(t for t in s.limits.tools if t in self.tools and t in self._handlers)
+
     def _acting(self, s: Session, principal_id: str) -> str:
         """Who the caller acts as in session `s`: the session's principal when the caller is the session's own run
         (RunBackend.principal), else the caller. Records always name the caller itself."""
