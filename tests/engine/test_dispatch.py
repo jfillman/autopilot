@@ -221,9 +221,18 @@ def test_repo_file_get_is_scoped_to_the_definitions_repos(gw, backends):
     assert not r.ok and r.decision["rule"] == "R014"
 
 
-@pytest.mark.parametrize("path", ["/etc/passwd", "../x", "a/../../b", "", "a\\b"])
+@pytest.mark.parametrize("path", ["/etc/passwd", "../x", "a/../../b", "a\\b", 7])
 def test_repo_file_get_refuses_a_path_outside_the_repo(gw, path):
     _with_file_get(gw)
     sid = gw.open_session("alice", "coding-agent").data["session"]
     r = gw.call("alice", sid, "repo.file.get", {"repo": "jfillman/flight-api", "path": path})
     assert not r.ok and r.decision["rule"] == "R008", r.as_dict()
+
+
+@pytest.mark.parametrize("args, expect", [({}, ""), ({"path": ""}, ""), ({"path": "."}, ""), ({"path": "src"}, "src")])
+def test_repo_file_get_lists_the_root_without_a_path(gw, backends, args, expect):
+    _with_file_get(gw)
+    sid = gw.open_session("alice", "coding-agent").data["session"]
+    r = gw.call("alice", sid, "repo.file.get", {"repo": "jfillman/flight-api", **args})
+    assert r.ok, r.as_dict()
+    assert backends.git.calls[-1][1][1] == expect

@@ -61,6 +61,11 @@ class HumanBackend(Protocol):
     def send(self, session_id: str, text: str) -> dict[str, Any]: ...
 
 
+def _root(path: str | None) -> str:
+    """repo.file.get's path: empty, None or "." is the repo root."""
+    return "" if path in (None, "", ".") else path
+
+
 def core_handlers(*, git: GitBackend | None = None, argo: ArgoBackend | None = None,
                   read: ReadBackend | None = None, human: HumanBackend | None = None,
                   artifacts: ArtifactBackend | None = None) -> dict[str, Handler]:
@@ -83,7 +88,7 @@ def core_handlers(*, git: GitBackend | None = None, argo: ArgoBackend | None = N
         h["chat.send"] = lambda s, a: human.send(s.id, a["text"])
         h["human.request"] = lambda s, a: human.request(a["question"], a.get("options"))
     if git is not None and hasattr(git, "read_file"):
-        h["repo.file.get"] = lambda s, a: git.read_file(a["repo"], a["path"], a.get("ref", "main"))
+        h["repo.file.get"] = lambda s, a: git.read_file(a["repo"], _root(a.get("path")), a.get("ref", "main"))
     if git is not None:
         h["repo.pr.open"] = lambda s, a: git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main"))
         h["repo.pr.open_upper"] = lambda s, a: git.open_pr(a["repo"], a["branch"], a["title"], a["files"], a.get("base", "main"))
