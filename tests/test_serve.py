@@ -11,6 +11,7 @@ from autopilot.airframe_tools import AirframeTools
 from autopilot.backends import Backends
 from autopilot.glidepath_api import GlidepathAPI
 from autopilot.kube_runs import KubeAgentRuns
+from autopilot.reads import KubeArgo
 from clearance.auth import CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
 from clearance.dispatch import Principal
 from clearance.tiers import Tier
@@ -69,18 +70,20 @@ def test_refuses_an_environment_that_cannot_start(env, match):
 
 
 # -- backends ---------------------------------------------------------------------------------------------------------
-def test_default_backends_are_airframe_and_agentruns_only():
+def test_default_backends_are_airframe_argo_reads_and_agentruns_only():
     b = serve.build_backends(serve.config_from_env(EPH))
     assert isinstance(b.runs, KubeAgentRuns) and isinstance(b.airframe, AirframeTools) and b.glidepath is None
-    assert (b.git, b.argo, b.read, b.human, b.artifacts) == (None,) * 5
+    assert isinstance(b.argo, KubeArgo) and b.argo.namespaces == ("argocd",)
+    assert (b.git, b.read, b.human, b.artifacts) == (None,) * 4
     assert b.airframe.kube.server == "https://kubernetes.default.svc" and b.airframe.validator is None
     h = serve.build_handlers(b)
     assert sorted(h) == sorted({"airframe.capabilities", "airframe.explain", "airframe.plan", "airframe.status",
-                                "airframe.describe", "airframe.verify"})
+                                "airframe.describe", "airframe.verify", "argo.app.get"})
 
 
 def test_glidepath_only_when_its_url_is_set():
-    cfg = serve.config_from_env({**EPH, "GLIDEPATH_API_URL": "http://gp:8080/", "AIRFRAME_ENABLED": "0"})
+    cfg = serve.config_from_env({**EPH, "GLIDEPATH_API_URL": "http://gp:8080/", "AIRFRAME_ENABLED": "0",
+                                 "ARGO_ENABLED": "0"})
     b = serve.build_backends(cfg)
     assert isinstance(b.glidepath, GlidepathAPI) and b.glidepath.base == "http://gp:8080" and b.airframe is None
     h = serve.build_handlers(b)
@@ -234,3 +237,63 @@ def test_ephemeral_server_refuses_mcp_without_a_valid_bearer(client, bearer):
     r = client.post("/mcp", headers=h, content=json.dumps(body))
     assert r.status_code == 401
     assert client.gw.audit.records == [], "nothing reached the gateway"
+
+
+# -- losing the store -------------------------------------------------------------------------------------------------
+class StoreLost(Exception):
+    pass
+
+
+def test_a_store_error_ends_the_process_and_others_do_not(built):
+    lost = []
+    built.store_errors, built.on_store_lost = (StoreLost,), lost.append
+
+    def boom(*a, **k):
+        raise StoreLost("server closed the connection")
+    built.store.flush = boom
+    with pytest.raises(StoreLost):
+        built.open_session("t", "coding-agent")
+    assert len(lost) == 1 and isinstance(lost[0], StoreLost)
+    assert not built.lock._is_owned(), "the lock is released on the way out"
+
+    def other(*a, **k):
+        raise ValueError("not the database")
+    built.store.flush = other
+    with pytest.raises(ValueError):
+        built.open_session("t", "coding-agent")
+    assert len(lost) == 1
+
+
+def test_the_sweep_pings_the_database_first(built):
+    order = []
+
+    class Conn:
+        def cursor(self):
+            class Cur:
+                def __enter__(s):
+                    return s
+
+                def __exit__(s, *a):
+                    return False
+
+                def execute(s, q):
+                    order.append(q)
+                    raise StoreLost("connection is closed")
+            return Cur()
+
+    class State:
+        conn = Conn()
+
+        def commit(self):
+            order.append("commit")
+    lost = []
+    built.state, built.store_errors, built.on_store_lost = State(), (StoreLost,), lost.append
+    built.expire = lambda *a, **k: order.append("expire") or []
+    with pytest.raises(StoreLost):
+        serve.Expirer(built, 60).sweep()
+    assert order == ["SELECT 1"] and len(lost) == 1
+
+
+def test_ephemeral_ping_is_a_no_op(built):
+    assert built.state is None
+    built.ping()
