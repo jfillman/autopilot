@@ -51,6 +51,9 @@ log = logging.getLogger("autopilot.gateway")
 
 ANTHROPIC_API = "https://api.anthropic.com"
 REPO_AGENTS = Path(__file__).resolve().parents[2] / "agents"   # /app/agents in the image (editable install)
+# The agents' GitHub App (D4) as GitHub shows it on the PRs it opens; a PR by it that Clearance has no record of
+# fails agent-identity (clearance.provenance, AI002).
+AGENT_LOGIN = "hangar-autopilot-agents[bot]"
 
 
 class ConfigError(ValueError):
@@ -89,6 +92,8 @@ class Config:
     model_routes: dict[str, str]
     model_audience: str
     events_enabled: bool
+    verifiers: tuple[str, ...] = ()
+    agent_logins: tuple[str, ...] = ()
 
     @property
     def issuer_url(self) -> str:
@@ -116,6 +121,10 @@ def _number(env: Mapping[str, str], name: str, default: float, kind: Callable[[s
     if n <= 0:
         raise ConfigError(f"{name} must be positive")
     return n
+
+
+def _list(v: str) -> tuple[str, ...]:
+    return tuple(x.strip() for x in v.split(",") if x.strip())
 
 
 def config_from_env(env: Mapping[str, str] | None = None) -> Config:
@@ -177,6 +186,8 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         broker_url=get("BROKER_URL", BROKER_URL),
         model_key_file=Path(model_key) if model_key else None, model_port=model_port, model_routes=routes,
         model_audience=get("MODEL_TOKEN_AUDIENCE", "model-proxy"), events_enabled=events,
+        verifiers=_list(get("CLEARANCE_VERIFIERS", "")),
+        agent_logins=_list(get("AGENT_LOGINS", AGENT_LOGIN)),
     )
 
 
@@ -278,6 +289,9 @@ class SerializedGateway(Gateway):
     def model_authorize(self, *a, **k):
         return self._locked(super().model_authorize, *a, **k)
 
+    def provenance(self, *a, **k):
+        return self._locked(super().provenance, *a, **k)
+
     def model_usage(self, *a, **k):
         return self._locked(super().model_usage, *a, **k)
 
@@ -312,7 +326,8 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         model_auth = CachingAuthenticator(WorkloadAuthenticator(cfg.model_audience))
     gw = SerializedGateway(defs, store, audit, auth or build_auth(cfg), clock, packs=PACKS,
                            handlers=build_handlers(b), runs=AgentRunBackend(b.runs), state=state,
-                           store_errors=store_errors, models=models, model_auth=model_auth)
+                           store_errors=store_errors, models=models, model_auth=model_auth,
+                           verifiers=cfg.verifiers, agent_logins=cfg.agent_logins)
     return gw, state
 
 
