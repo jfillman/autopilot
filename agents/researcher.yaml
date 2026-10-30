@@ -1,4 +1,5 @@
 name: researcher
+owner: group:default/team-platform
 kind: task
 identity: { type: delegated }
 profile:

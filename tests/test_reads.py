@@ -247,3 +247,24 @@ def test_catalog_refusals(tmp_path):
     assert _catalog(tmp_path, status=400)[0].catalog("kind=")["error"] == "bad-query"
     with pytest.raises(ReadError):
         _catalog(tmp_path, status=500)[0].catalog("gate")
+
+
+def test_directory_reads_memberof_and_caches_and_fails_closed(tmp_path):
+    from autopilot.reads import BackstageCatalog, BackstageDirectory
+    calls, t = [], [0.0]
+    user = {"relations": [{"type": "memberOf", "targetRef": "group:default/team-platform"},
+                          {"type": "ownerOf", "targetRef": "component:default/x"}]}
+
+    def opener(req, timeout):
+        calls.append(req.full_url)
+        return (200, json.dumps(user).encode()) if req.full_url.endswith("/user/default/jfillman") else (404, b"{}")
+    tok = tmp_path / "t"
+    tok.write_text("tok")
+    d = BackstageDirectory(BackstageCatalog("http://bs", tok, opener=opener), ttl=60, clock=lambda: t[0])
+    assert d.groups("user:jfillman") == {"group:default/team-platform"}
+    assert d.groups("user:jfillman") == {"group:default/team-platform"} and len(calls) == 1, "cached"
+    t[0] = 61
+    d.groups("user:jfillman")
+    assert len(calls) == 2
+    assert d.groups("user:nobody") == set() and d.groups("ns/sa") == set() and d.groups("user:../x") == set()
+    assert calls[0] == "http://bs/api/catalog/entities/by-name/user/default/jfillman"

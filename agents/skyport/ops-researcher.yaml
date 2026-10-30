@@ -1,5 +1,6 @@
 # TEAM worker. Finds which flights, gates and bags a disruption touches.
 name: ops-researcher
+owner: group:default/team-skyport
 kind: task
 identity: { type: delegated }
 profile:

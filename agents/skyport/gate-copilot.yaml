@@ -1,6 +1,7 @@
 # SESSION agent. A gate agent opens a chat in Tower; the agent answers questions and drafts
 # announcements. It never acts on its own: anything consequential goes through human.request.
 name: gate-copilot
+owner: group:default/team-skyport
 kind: session
 identity: { type: delegated }
 profile:

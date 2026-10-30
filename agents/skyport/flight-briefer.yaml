@@ -1,6 +1,7 @@
 # TASK agent. Run to completion. A person asks for a brief on one flight; the agent reads the
 # three Skyport APIs and writes a structured brief. Read-only: T0.
 name: flight-briefer
+owner: group:default/team-skyport
 kind: task
 identity: { type: delegated }
 profile:

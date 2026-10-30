@@ -1,4 +1,5 @@
 name: cicd-explainer
+owner: group:default/team-platform
 kind: task
 identity: { type: delegated }
 profile:

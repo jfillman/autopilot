@@ -19,7 +19,7 @@ from clearance.tiers import Tier
 EPH = {"CLEARANCE_EPHEMERAL": "1"}
 CORE_WITHOUT_BACKEND = ["catalog.read", "metrics.query", "logs.query", "app.api.get", "argo.app.get",
                         "argo.sync.lower", "artifact.put", "artifact.get", "chat.recv", "chat.send",
-                        "human.request", "repo.pr.open", "repo.pr.open_upper", "xr.request"]
+                        "repo.pr.open", "repo.pr.open_upper", "xr.request"]
 
 
 # -- configuration ----------------------------------------------------------------------------------------------------
@@ -122,7 +122,8 @@ def built(tmp_path, opener, clock):
 
 def test_no_core_tool_has_a_handler(built):
     assert not set(CORE_WITHOUT_BACKEND) & set(built._handlers)
-    assert {"run.spawn", "run.close"} <= set(built._handlers)
+    # The Gateway's own: runs, and the human inbox (in memory here, ephemeral; PgInbox with a DSN).
+    assert {"run.spawn", "run.close", "human.request", "human.request.get"} <= set(built._handlers)
 
 
 PR = {"repo": "jfillman/flight-api", "branch": "agent/t-1", "title": "fix probe",
@@ -382,3 +383,17 @@ def test_catalog_read_only_with_backstage_url():
     assert str(on.read.backstage.token_file) == "/var/run/clearance/backstage-token"
     h = serve.build_handlers(on)
     assert "catalog.read" in h and not {"metrics.query", "logs.query"} & set(h)
+
+
+def test_tower_issuer_and_delegates(tmp_path):
+    from clearance.auth import ForeignWorkloadAuthenticator
+    with pytest.raises(serve.ConfigError, match="TOWER_SERVICE_ACCOUNTS"):
+        serve.config_from_env({**EPH, "TOWER_ISSUER": "https://hangarplatform.dev/oidc/hangar-prod"})
+    c = serve.config_from_env({**EPH, "TOWER_ISSUER": "https://hangarplatform.dev/oidc/hangar-prod/",
+                               "TOWER_CLUSTER": "hangar-prod", "TOWER_SERVICE_ACCOUNTS": "app-backstage-prod/backstage",
+                               "CLEARANCE_DELEGATES": "hangar-prod/app-backstage-prod/backstage"})
+    assert c.tower_jwks_url == "https://hangarplatform.dev/oidc/hangar-prod/jwks.json"
+    assert c.delegates == ("hangar-prod/app-backstage-prod/backstage",)
+    tower = serve.build_auth(c).inner.oidc["https://hangarplatform.dev/oidc/hangar-prod"]
+    assert isinstance(tower, ForeignWorkloadAuthenticator) and tower.allowed == ("app-backstage-prod/backstage",)
+    assert tower.name == "hangar-prod" and tower.audience == "clearance"

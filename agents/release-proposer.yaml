@@ -1,4 +1,5 @@
 name: release-proposer
+owner: group:default/team-platform
 kind: task
 identity: { type: delegated }
 # Glidepath API spec phase 4, done when: an agent proposes a staging promotion, a human merges it, the release

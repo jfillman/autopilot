@@ -1,4 +1,5 @@
 name: nightly-reviewer
+owner: group:default/team-platform
 kind: scheduled
 identity: { type: workload, serviceAccount: autopilot-runs/nightly-reviewer }
 profile:
