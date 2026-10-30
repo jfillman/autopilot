@@ -38,7 +38,8 @@ def test_full_environment(tmp_path):
     c = serve.config_from_env({
         "CLEARANCE_DSN": "postgresql://clearance@pg/clearance", "CLEARANCE_AGENTS_DIR": str(tmp_path),
         "CLEARANCE_RESOURCE_URL": "https://clearance.hangar.io/mcp", "CLEARANCE_OIDC_ISSUER": "https://dex.example/dex/",
-        "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_AUDIENCE": "clearance-dev", "PORT": "9000",
+        "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_OIDC_ALLOWED_USERS": "jfillman",
+        "CLEARANCE_AUDIENCE": "clearance-dev", "PORT": "9000",
         "CLEARANCE_EXPIRE_SECONDS": "15", "GLIDEPATH_API_URL": "http://glidepath-api.platform-system:8080",
         "GLIDEPATH_TOKEN_FILE": "/var/run/glidepath/token", "GLIDEPATH_ON_BEHALF_OF": "1", "AIRFRAME_ENABLED": "0",
         "AIRFRAME_UPPER_CLUSTERS": "a, b,", "AIRFRAME_TENANTS_REPO": "t"})
@@ -57,6 +58,7 @@ def test_ephemeral_ignores_a_dsn():
     ({"CLEARANCE_EPHEMERAL": "0", "CLEARANCE_DSN": ""}, "CLEARANCE_DSN is required"),
     ({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex"}, "set together"),
     ({**EPH, "CLEARANCE_OIDC_AUDIENCE": "tower"}, "set together"),
+    ({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex", "CLEARANCE_OIDC_AUDIENCE": "c"}, "needs CLEARANCE_OIDC_ALLOWED_USERS"),
     ({**EPH, "PORT": "http"}, "PORT must be a number"),
     ({**EPH, "PORT": "0"}, "PORT must be positive"),
     ({**EPH, "PORT": "70000"}, "at most 65535"),
@@ -194,9 +196,11 @@ def test_auth_is_workload_only_without_oidc():
 
 def test_auth_routes_the_oidc_issuer():
     a = serve.build_auth(serve.config_from_env({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex/dex",
-                                                "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_AUDIENCE": "aud2"}))
+                                                "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_AUDIENCE": "aud2",
+                                                "CLEARANCE_OIDC_ALLOWED_USERS": "jfillman, ops-*"}))
     o = a.inner.oidc["https://dex/dex"]
     assert isinstance(o, OIDCAuthenticator) and o.audience == "tower" and o.keys.url == "https://dex/dex/keys"
+    assert o.allowed == ("jfillman", "ops-*")
     assert a.inner.workload.audience == "aud2"
 
 
