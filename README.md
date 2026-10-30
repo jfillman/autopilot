@@ -100,6 +100,8 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `AIRFRAME_TENANTS_REPO` | `gitops-hangar-dev-tenants` | the dev cluster's tenants repo, where the planner commits XR requests |
 | `ARGO_ENABLED` | `1` | `0`: `argo.app.get` has no backend |
 | `ARGO_APP_NAMESPACES` | `argocd` | comma-separated: the namespaces `argo.app.get` and `argo.sync.lower` look for an Application in, in order |
+| `BACKSTAGE_URL` | unset | Tower's Backstage, e.g. `http://backstage.hangar-prod.local`: `catalog.read` searches its catalog |
+| `BACKSTAGE_TOKEN_FILE` | `/var/run/clearance/backstage-token` | a projected token for audience `backstage`, re-read per call |
 | `ARGO_SYNC_ENABLED` | `0` | `1`: `argo.sync.lower` starts a sync of a lower Application (needs the grant below) |
 | `PROMETHEUS_URL` | unset | a Prometheus-compatible query API (e.g. `http://thanos-query.observability.svc:9090`); unset, `metrics.query` has no backend |
 | `LOKI_URL` | unset | Loki's query API (e.g. `http://loki-gateway.observability.svc`); unset, `logs.query` has no backend |
@@ -129,6 +131,7 @@ projected token and CA at the standard path; every adapter re-reads both on each
 | Glidepath (`GLIDEPATH_API_URL`) | `glidepath.*` | network reach to glidepath-api and RBAC there for Clearance's identity: glidepath-api checks it with a SubjectAccessReview (ClusterRoles `glidepath-api-reader`, `-operator`, `-releaser` for reads, run control and release proposals) |
 | Argo CD reads (`ARGO_ENABLED`) | `argo.app.get` | the same `clearance-airframe-reader` ClusterRole: it reads the Application object through the Kubernetes API (no Argo CD account, no token) and returns a summary: sources, destination, sync, health, the last operation, conditions and the resources not synced or not healthy. Never the Helm values |
 | Argo CD syncs (`ARGO_SYNC_ENABLED`) | `argo.sync.lower` | Role `autopilot-clearance-argo-sync` in `argocd-apps` (get, patch applications) and the ValidatingAdmissionPolicy of the same name: for this identity an Application update must be in a `-lower` project, change only `operation`, start a sync and never override its source. The adapter checks first that the Application's own project is the `project` argument and ends in `-lower` and that nothing is in flight, then sends one merge PATCH with the resourceVersion it read (`argo_sync.py`). The operation's `initiatedBy` is `clearance:<agent>`, its `info` the task, session and principal |
+| Backstage catalog (`BACKSTAGE_URL`) | `catalog.read` | a projected service-account token for audience `backstage` at `BACKSTAGE_TOKEN_FILE`, which Backstage verifies against this cluster's public issuer (`backend.auth.externalAccess` type `jwks`, `accessRestrictions` catalog `catalog.entity.read`); no stored secret. A full-text search, or a Backstage filter when the query has `=`; at most 25 entities, each a summary (ref, kind, title, description, type, owner, lifecycle, system), never annotations |
 | Prometheus (`PROMETHEUS_URL`) | `metrics.query` | network reach to the query API. An instant query; at most 200 series returned (`truncated` says when more matched) |
 | Loki (`LOKI_URL`) | `logs.query` | network reach to the query API. A range query over the last hour, newest first; at most 200 lines of at most 2000 characters. On hangar-dev the labels are the OpenTelemetry ones (`k8s_namespace_name`, `k8s_pod_name`, `service_name`) |
 | Postgres (`CLEARANCE_DSN`) | everything, and `artifact.put`/`artifact.get` (clearance `PgArtifacts`: per task, 256 KiB each, 32 and 2 MiB per task, 7 days) | a database the gateway owns; it creates its tables and verifies the evidence chain from genesis at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
@@ -143,7 +146,7 @@ caller act as the run's session, and only that one (`AgentRunBackend.principal`)
 A query Prometheus or Loki rejects (a parse error, a timeout, too many samples) comes back as data with `error` and
 `message`, so the agent can fix it; any other failure is a "backend error".
 
-Everything else (`xr.request`, `catalog.read`, `app.api.get`, `chat.*`, `human.request`) has no handler: a call is audited and refused with "no backend for this tool in this
+Everything else (`xr.request`, `app.api.get`, `chat.*`, `human.request`) has no handler: a call is audited and refused with "no backend for this tool in this
 deployment", charged nothing. `tools_list` still lists them, with their policy.
 
 ## The agent runtime

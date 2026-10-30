@@ -198,3 +198,52 @@ def test_read_calls_through_the_gateway_are_charged_and_audited(tmp_path, clock)
     assert not r.ok and r.error == "no backend for this tool in this deployment"
     assert [x["result"] for x in gw.audit.records[-3:]] == ["ok", "ok", "error:NoHandler"]
     assert gw.store.get(sid).used["tool_calls"] == 2
+
+
+# -- catalog.read ---------------------------------------------------------------------------------------------------
+
+def _catalog(tmp_path, status=200, doc=None):
+    from autopilot.reads import BackstageCatalog
+    sent = []
+
+    def opener(req, timeout):
+        sent.append(req)
+        return status, json.dumps(doc if doc is not None else {"items": [], "totalItems": 0}).encode()
+    tok = tmp_path / "backstage-token"
+    tok.write_text("projected\n")
+    return BackstageCatalog("http://backstage.test/", tok, opener=opener), sent
+
+
+def test_catalog_searches_by_text_or_filter_with_the_projected_token(tmp_path):
+    import urllib.parse
+    entity = {"kind": "Component", "metadata": {"namespace": "default", "name": "gate-api", "title": "Gate API",
+                                                 "description": "gates", "annotations": {"secret-ish": "x"}},
+              "spec": {"type": "service", "owner": "group:default/skyport", "lifecycle": "production", "values": {}}}
+    c, sent = _catalog(tmp_path, doc={"items": [entity], "totalItems": 1, "pageInfo": {}})
+    r = c.catalog("gate")
+    assert r == {"entities": [{"ref": "component:default/gate-api", "kind": "Component", "title": "Gate API",
+                               "description": "gates", "type": "service", "owner": "group:default/skyport",
+                               "lifecycle": "production"}], "totalItems": 1, "truncated": False}
+    url = urllib.parse.urlsplit(sent[0].full_url)
+    q = urllib.parse.parse_qs(url.query)
+    assert url.path == "/api/catalog/entities/by-query" and q["fullTextFilterTerm"] == ["gate"] and "filter" not in q
+    assert "metadata.annotations" not in q["fields"] and q["limit"] == ["25"]
+    assert sent[0].headers["Authorization"] == "Bearer projected" and sent[0].get_method() == "GET"
+    c.catalog("kind=component,spec.owner=group:default/skyport")
+    q = urllib.parse.parse_qs(urllib.parse.urlsplit(sent[1].full_url).query)
+    assert q["filter"] == ["kind=component,spec.owner=group:default/skyport"] and "fullTextFilterTerm" not in q
+
+
+def test_catalog_refusals(tmp_path):
+    from autopilot.reads import ReadError
+    c, sent = _catalog(tmp_path)
+    for bad in ("", "  ", "x" * 501):
+        with pytest.raises(Denied):
+            c.catalog(bad)
+    assert sent == []
+    with pytest.raises(Denied) as e:
+        _catalog(tmp_path, status=403)[0].catalog("gate")
+    assert e.value.rule == "READ-CATALOG-403"
+    assert _catalog(tmp_path, status=400)[0].catalog("kind=")["error"] == "bad-query"
+    with pytest.raises(ReadError):
+        _catalog(tmp_path, status=500)[0].catalog("gate")
