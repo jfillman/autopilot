@@ -189,6 +189,7 @@ class LokiAPI(_HTTPRead):
 MAX_ENTITIES = 25
 CATALOG_FIELDS = ("kind", "metadata.namespace", "metadata.name", "metadata.title", "metadata.description",
                   "spec.type", "spec.owner", "spec.lifecycle", "spec.system")
+SEARCH_FIELDS = ("metadata.name", "metadata.title", "metadata.description")
 
 
 class BackstageCatalog:
@@ -205,7 +206,11 @@ class BackstageCatalog:
         if len(query) > 500:
             raise Denied("READ-QUERY", "catalog query longer than 500 characters", "Shorten the query.")
         q: list[tuple[str, str]] = [("limit", str(MAX_ENTITIES))] + [("fields", f) for f in CATALOG_FIELDS]
-        q.append(("filter", query.strip()) if "=" in query else ("fullTextFilterTerm", query.strip()))
+        if "=" in query:
+            q.append(("filter", query.strip()))
+        else:
+            # Without fullTextFilterFields, Backstage's full-text search matches nothing (live, 2026-10-30).
+            q += [("fullTextFilterTerm", query.strip())] + [("fullTextFilterFields", f) for f in SEARCH_FIELDS]
         token = self.token_file.read_text().strip()
         req = urllib.request.Request(f"{self.base}/api/catalog/entities/by-query?{urllib.parse.urlencode(q)}",
                                      method="GET", headers={"Authorization": f"Bearer {token}",
