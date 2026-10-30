@@ -94,6 +94,7 @@ class Config:
     events_enabled: bool
     verifiers: tuple[str, ...] = ()
     agent_logins: tuple[str, ...] = ()
+    oidc_allowed: tuple[str, ...] = ()
 
     @property
     def issuer_url(self) -> str:
@@ -141,6 +142,10 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     if bool(issuer) != bool(audience):
         raise ConfigError("CLEARANCE_OIDC_ISSUER and CLEARANCE_OIDC_AUDIENCE are set together or not at all")
     issuer = issuer.rstrip("/") if issuer else None
+    allowed = _list(get("CLEARANCE_OIDC_ALLOWED_USERS", ""))
+    if issuer and not allowed:
+        raise ConfigError("CLEARANCE_OIDC_ISSUER needs CLEARANCE_OIDC_ALLOWED_USERS: an issuer that federates GitHub "
+                          "signs in anyone with a GitHub account")
     agents = Path(get("CLEARANCE_AGENTS_DIR", str(REPO_AGENTS)))
     if not agents.is_dir():
         raise ConfigError(f"CLEARANCE_AGENTS_DIR {str(agents)!r} is not a directory")
@@ -187,7 +192,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         model_key_file=Path(model_key) if model_key else None, model_port=model_port, model_routes=routes,
         model_audience=get("MODEL_TOKEN_AUDIENCE", "model-proxy"), events_enabled=events,
         verifiers=_list(get("CLEARANCE_VERIFIERS", "")),
-        agent_logins=_list(get("AGENT_LOGINS", AGENT_LOGIN)),
+        agent_logins=_list(get("AGENT_LOGINS", AGENT_LOGIN)), oidc_allowed=allowed,
     )
 
 
@@ -236,7 +241,7 @@ def build_auth(cfg: Config) -> Authenticator:
     oidc: dict[str, Authenticator] = {}
     if cfg.oidc_issuer:
         oidc[cfg.oidc_issuer] = OIDCAuthenticator(cfg.oidc_issuer, cfg.oidc_audience, JWKS(cfg.oidc_jwks_url),
-                                                  user_claim=cfg.oidc_user_claim)
+                                                  user_claim=cfg.oidc_user_claim, allowed=cfg.oidc_allowed)
     return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
 
 

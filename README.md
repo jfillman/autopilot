@@ -87,6 +87,7 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `CLEARANCE_OIDC_ISSUER`, `CLEARANCE_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
 | `CLEARANCE_OIDC_JWKS_URL` | `$CLEARANCE_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
 | `CLEARANCE_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
+| `CLEARANCE_OIDC_ALLOWED_USERS` | (none) | comma-separated globs on that claim: who may sign in at all. Required with `CLEARANCE_OIDC_ISSUER`, because an issuer that federates GitHub signs in anyone with a GitHub account |
 | `CLEARANCE_AUDIENCE` | `clearance` | the audience a workload's service-account token must carry (TokenReview) |
 | `PORT` | `8080` | listen port, all interfaces |
 | `CLEARANCE_EXPIRE_SECONDS` | `60` | how often `Gateway.expire()` closes sessions past their deadline and deletes their AgentRuns (and their children's), on a background thread under the gateway lock; a failed sweep is logged and retried |
@@ -207,6 +208,18 @@ SDK only) installed from the hashed `runtime/requirements.lock`, uid 65532, noth
 ```shell
 container build --arch arm64 -t autopilot-agent-runtime:dev runtime   # or --arch amd64
 ```
+
+## Signing in as a person
+
+On hangar-dev, people sign in through people-dex (apron `55-autopilot/people-dex`), a Dex whose only connector is GitHub. This is Hangar D19's interim answer until an IdP issues ID-JAG. Clearance accepts its ID tokens for audience `clearance`, as `user:<GitHub login>`, and only for the logins in cluster.yaml `autopilot.people`. ID tokens last an hour, and no refresh token is issued.
+
+```shell
+python3 tools/hangar_login.py login        # opens the sign-in page; the token goes to the macOS Keychain
+claude mcp add-json clearance '{"type":"http","url":"http://clearance.hangar-dev.local/mcp",
+  "headersHelper":"python3 '"$PWD"'/tools/hangar_login.py headers"}'
+```
+
+`headers` never signs in: Claude Code gives a headersHelper 10 seconds. When the hour is up, a call fails 401, and you run `login` again.
 
 ## What is NOT built
 
