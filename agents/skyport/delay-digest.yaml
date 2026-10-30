@@ -1,5 +1,6 @@
 # SCHEDULED agent. Once a day, summarise delays and gate changes into a report.
 name: delay-digest
+owner: group:default/team-skyport
 kind: scheduled
 identity: { type: workload, serviceAccount: autopilot-runs/delay-digest }
 profile:

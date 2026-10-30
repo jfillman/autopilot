@@ -1,4 +1,5 @@
 name: orchestrator
+owner: group:default/team-platform
 kind: team
 identity: { type: delegated }
 profile:

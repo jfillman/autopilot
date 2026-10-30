@@ -2,6 +2,7 @@
 # application (PythonApplication + Redis), so it has no AgentRun: the airframe-application chart's
 # `agent:` block gives its pods the same runtime contract and identity a run gets.
 name: passenger-assistant
+owner: group:default/team-skyport
 kind: service
 identity: { type: workload, serviceAccount: app-passenger-assistant-dev/passenger-assistant }
 profile:

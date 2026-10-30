@@ -3,8 +3,8 @@
 Builds the Hangar Gateway (core Clearance, the Hangar pack, Autopilot's real backends) from environment variables
 and serves Clearance's streamable-HTTP MCP app with uvicorn. See README.md, "Running the gateway", for the variables.
 
-Only real backends are registered. A tool whose backend this deployment does not have (human, app.api.get and
-xr.request today; catalog.read without BACKSTAGE_URL; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
+Only real backends are registered (human.request and human.request.get are the Gateway's own inbox, durable on
+Postgres). A tool whose backend this deployment does not have (chat.*, app.api.get and xr.request today; catalog.read without BACKSTAGE_URL; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
 repo.pr.open and repo.pr.open_upper without GITHUB_PR_ENABLED; glidepath.* without GLIDEPATH_API_URL; metrics.query without
 PROMETHEUS_URL; logs.query without LOKI_URL; airframe.* with AIRFRAME_ENABLED=0; argo.app.get with ARGO_ENABLED=0;
 airframe.validate always, since the image carries no airframe-validate) has no handler, so a call to it is refused
@@ -31,9 +31,11 @@ from typing import Any, Callable, Mapping
 
 from clearance import profile
 from clearance.audit import AuditLog
-from clearance.auth import JWKS, CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
+from clearance.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
+                            RoutingAuthenticator, WorkloadAuthenticator)
 from clearance.backends import Handler
 from clearance.dispatch import Authenticator, Gateway
+from clearance.inbox import MemoryInbox
 from clearance.modelproxy import ModelRoute
 from clearance.session import SessionStore
 
@@ -45,7 +47,7 @@ from .backends import Backends
 from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
-from .reads import BackstageCatalog, KubeArgo, LokiAPI, PrometheusAPI, Reads
+from .reads import BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 
 log = logging.getLogger("autopilot.gateway")
@@ -99,6 +101,13 @@ class Config:
     verifiers: tuple[str, ...] = ()
     agent_logins: tuple[str, ...] = ()
     oidc_allowed: tuple[str, ...] = ()
+    # Tower (another cluster): its backend's service-account tokens, verified against that cluster's public issuer,
+    # and the delegates that may answer human requests for a person they name.
+    tower_cluster: str | None = None
+    tower_issuer: str | None = None
+    tower_jwks_url: str | None = None
+    tower_service_accounts: tuple[str, ...] = ()
+    delegates: tuple[str, ...] = ()
 
     @property
     def issuer_url(self) -> str:
@@ -170,6 +179,11 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     model_port = _number(env, "MODEL_PORT", 8081, int)
     if model_key and model_port == port:
         raise ConfigError("MODEL_PORT must differ from PORT")
+    tower_issuer = (get("TOWER_ISSUER") or "").rstrip("/") or None
+    tower_cluster, tower_sas = get("TOWER_CLUSTER"), _list(get("TOWER_SERVICE_ACCOUNTS", ""))
+    if tower_issuer and not (tower_cluster and tower_sas):
+        raise ConfigError("TOWER_ISSUER needs TOWER_CLUSTER and TOWER_SERVICE_ACCOUNTS (namespace/name globs): the "
+                          "issuer signs a token for every pod of that cluster")
     events = _flag(env, "EVENTS_ENABLED", False)
     if events and not get("GLIDEPATH_API_URL"):
         raise ConfigError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
@@ -199,6 +213,9 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         model_audience=get("MODEL_TOKEN_AUDIENCE", "model-proxy"), events_enabled=events,
         verifiers=_list(get("CLEARANCE_VERIFIERS", "")),
         agent_logins=_list(get("AGENT_LOGINS", AGENT_LOGIN)), oidc_allowed=allowed,
+        tower_cluster=tower_cluster if tower_issuer else None, tower_issuer=tower_issuer,
+        tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
+        tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("CLEARANCE_DELEGATES", "")),
     )
 
 
@@ -206,8 +223,8 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
 
 def build_backends(cfg: Config) -> Backends:
     """Real backends only, in-cluster: glidepath-api, Prometheus and Loki if configured, Airframe and Argo CD reads
-    unless disabled (and Argo CD syncs of lower Applications with ARGO_SYNC_ENABLED), AgentRuns always. human is None:
-    this deployment has no backend for it. artifacts is set by build_gateway, on the durable store's connection."""
+    unless disabled (and Argo CD syncs of lower Applications with ARGO_SYNC_ENABLED), AgentRuns always. human (chat.*) is None:
+    this deployment has no backend for it; human.request is the Gateway's inbox (build_gateway). artifacts is set by build_gateway, on the durable store's connection."""
     glidepath = (GlidepathAPI(cfg.glidepath_url, cfg.glidepath_token_file, on_behalf_of=cfg.glidepath_on_behalf_of)
                  if cfg.glidepath_url else None)
     airframe = argo = None
@@ -255,6 +272,10 @@ def build_auth(cfg: Config) -> Authenticator:
     if cfg.oidc_issuer:
         oidc[cfg.oidc_issuer] = OIDCAuthenticator(cfg.oidc_issuer, cfg.oidc_audience, JWKS(cfg.oidc_jwks_url),
                                                   user_claim=cfg.oidc_user_claim, allowed=cfg.oidc_allowed)
+    if cfg.tower_issuer:
+        oidc[cfg.tower_issuer] = ForeignWorkloadAuthenticator(cfg.tower_cluster, cfg.tower_issuer, cfg.audience,
+                                                              JWKS(cfg.tower_jwks_url),
+                                                              allowed=cfg.tower_service_accounts)
     return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
 
 
@@ -333,14 +354,16 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
     state, store_errors = None, ()
     if cfg.ephemeral:
         store, audit = SessionStore(), AuditLog()
+        inbox = MemoryInbox()
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
-        from clearance.pg import PgArtifacts
+        from clearance.pg import PgArtifacts, PgInbox
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
             b.artifacts = PgArtifacts(state)   # on the store's connection: a put commits with its call's evidence
+        inbox = PgInbox(state)                 # human.request's questions and answers, in the same transactions
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
@@ -348,7 +371,9 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
     gw = SerializedGateway(defs, store, audit, auth or build_auth(cfg), clock, packs=PACKS,
                            handlers=build_handlers(b), runs=AgentRunBackend(b.runs), state=state,
                            store_errors=store_errors, models=models, model_auth=model_auth,
-                           verifiers=cfg.verifiers, agent_logins=cfg.agent_logins)
+                           verifiers=cfg.verifiers, agent_logins=cfg.agent_logins, inbox=inbox,
+                           directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
+                           delegates=cfg.delegates)
     return gw, state
 
 

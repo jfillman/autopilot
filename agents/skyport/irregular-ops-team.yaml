@@ -2,6 +2,7 @@
 # narrower workers. It cannot do anything its parent could not, and a parent must itself hold every
 # tool it delegates: a child's tools are its own list intersected with its parent's.
 name: irregular-ops-team
+owner: group:default/team-skyport
 kind: team
 identity: { type: delegated }
 profile:

@@ -2,6 +2,7 @@
 # RabbitMQ attach) starts one run per unique message. It drafts notices and never sends them. For a
 # major disruption it hands off to the irregular-ops team.
 name: disruption-responder
+owner: group:default/team-skyport
 kind: event
 identity: { type: workload, serviceAccount: autopilot-runs/disruption-responder }
 profile:

@@ -1,4 +1,5 @@
 name: triage-agent
+owner: group:default/team-platform
 kind: event
 # A Glidepath pipeline failure starts it (the event bridge, src/autopilot/event_bridge.py); it reads the failed run
 # through glidepath.* and proposes a fix as one PR on the app's own repo, opened as the agents' GitHub App (D4). A

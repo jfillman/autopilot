@@ -235,6 +235,45 @@ def _entity(e: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in out.items() if v is not None}
 
 
+class BackstageDirectory:
+    """clearance.inbox.Directory on Tower's catalog: a person's groups are their User entity's memberOf relations.
+    A Clearance person `user:<login>` is the catalog's `user:default/<login>` (Tower signs people in by GitHub login,
+    usernameMatchingUserEntityName). Same token as catalog.read. Cached for `ttl` seconds; any failure, or an unknown
+    person, is no groups (so only a request's session owner may answer it), never an error."""
+
+    def __init__(self, catalog: BackstageCatalog, ttl: float = 60.0, clock: Callable[[], float] | None = None):
+        import time
+        self.catalog, self.ttl, self.clock = catalog, ttl, clock or time.monotonic
+        self._cache: dict[str, tuple[float, set[str]]] = {}
+
+    def groups(self, principal: str) -> set[str]:
+        name = principal.removeprefix("user:") if isinstance(principal, str) and principal.startswith("user:") else None
+        if not name or not _NAME.match(name.lower()):
+            return set()
+        hit = self._cache.get(name)
+        if hit and self.clock() - hit[0] < self.ttl:
+            return hit[1]
+        groups = self._fetch(name)
+        self._cache[name] = (self.clock(), groups)
+        return groups
+
+    def _fetch(self, name: str) -> set[str]:
+        c = self.catalog
+        try:
+            token = c.token_file.read_text().strip()
+            req = urllib.request.Request(f"{c.base}/api/catalog/entities/by-name/user/default/{urllib.parse.quote(name)}",
+                                         method="GET", headers={"Authorization": f"Bearer {token}",
+                                                                "Accept": "application/json"})
+            status, body = c._open(req, c.timeout)
+            if status != 200:
+                return set()
+            rels = json.loads(body).get("relations") or []
+        except (OSError, ValueError):
+            return set()
+        return {r["targetRef"] for r in rels
+                if r.get("type") == "memberOf" and str(r.get("targetRef", "")).startswith("group:")}
+
+
 class Reads:
     """ReadBackend for the core read tools: PromQL, LogQL and the catalog, each when configured. app_api has no
     adapter (serve.build_handlers drops app.api.get, so it is never called)."""

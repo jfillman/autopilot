@@ -1,5 +1,6 @@
 # TEAM worker. Drafts passenger and crew notices. Drafts only.
 name: ops-drafter
+owner: group:default/team-skyport
 kind: task
 identity: { type: delegated }
 profile:

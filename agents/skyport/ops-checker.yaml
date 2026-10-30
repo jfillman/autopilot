@@ -1,5 +1,6 @@
 # TEAM worker. Checks every fact in a draft against the APIs.
 name: ops-checker
+owner: group:default/team-skyport
 kind: task
 identity: { type: delegated }
 profile:

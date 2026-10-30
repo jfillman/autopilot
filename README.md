@@ -102,6 +102,9 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `ARGO_APP_NAMESPACES` | `argocd` | comma-separated: the namespaces `argo.app.get` and `argo.sync.lower` look for an Application in, in order |
 | `BACKSTAGE_URL` | unset | Tower's Backstage, e.g. `http://backstage.hangar-prod.local`: `catalog.read` searches its catalog |
 | `BACKSTAGE_TOKEN_FILE` | `/var/run/clearance/backstage-token` | a projected token for audience `backstage`, re-read per call |
+| `TOWER_ISSUER` | unset | another cluster's public service-account issuer (Tower's, e.g. `https://hangarplatform.dev/oidc/hangar-prod`): its tokens for audience `CLEARANCE_AUDIENCE` are verified against `TOWER_JWKS_URL` (default `<issuer>/jwks.json`) as `<TOWER_CLUSTER>/<ns>/<sa>` |
+| `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS` | unset | required with `TOWER_ISSUER`: the name prefix, and the `namespace/name` globs that may call (the issuer signs a token for every pod there) |
+| `CLEARANCE_DELEGATES` | unset | comma-separated principal globs that may answer human requests for a person they name (`X-Hangar-On-Behalf-Of`), e.g. Tower's backend |
 | `ARGO_SYNC_ENABLED` | `0` | `1`: `argo.sync.lower` starts a sync of a lower Application (needs the grant below) |
 | `PROMETHEUS_URL` | unset | a Prometheus-compatible query API (e.g. `http://thanos-query.observability.svc:9090`); unset, `metrics.query` has no backend |
 | `LOKI_URL` | unset | Loki's query API (e.g. `http://loki-gateway.observability.svc`); unset, `logs.query` has no backend |
@@ -146,7 +149,13 @@ caller act as the run's session, and only that one (`AgentRunBackend.principal`)
 A query Prometheus or Loki rejects (a parse error, a timeout, too many samples) comes back as data with `error` and
 `message`, so the agent can fix it; any other failure is a "backend error".
 
-Everything else (`xr.request`, `app.api.get`, `chat.*`, `human.request`) has no handler: a call is audited and refused with "no backend for this tool in this
+`human.request` and `human.request.get` are Clearance's own inbox (clearance `inbox.py`), durable on Postgres
+(`PgInbox`). A request is answered by the session's owner or a member of the definition's `owner` group, whose
+membership is the person's Tower catalog `memberOf` (`reads.BackstageDirectory`, the catalog.read token), either signed in
+themselves or through a `CLEARANCE_DELEGATES` principal (Tower) at `GET/POST /v1/human/requests`. Every definition in
+`agents/` names its `owner` (team-platform; the Skyport ones team-skyport).
+
+Everything else (`xr.request`, `app.api.get`, `chat.*`) has no handler: a call is audited and refused with "no backend for this tool in this
 deployment", charged nothing. `tools_list` still lists them, with their policy.
 
 ## The agent runtime
