@@ -371,3 +371,14 @@ def test_provenance_verifiers_and_agent_logins():
     assert c.agent_logins == ("a[bot]", "b[bot]")
     gw, _ = serve.build_gateway(c)
     assert gw.verifiers == c.verifiers and gw.agent_logins == c.agent_logins
+
+
+def test_catalog_read_only_with_backstage_url():
+    off = serve.build_backends(serve.config_from_env({**EPH, "AIRFRAME_ENABLED": "0"}))
+    assert "catalog.read" not in serve.build_handlers(off)
+    on = serve.build_backends(serve.config_from_env({**EPH, "AIRFRAME_ENABLED": "0",
+                                                      "BACKSTAGE_URL": "http://backstage.hangar-prod.local"}))
+    assert on.read.backstage.base == "http://backstage.hangar-prod.local"
+    assert str(on.read.backstage.token_file) == "/var/run/clearance/backstage-token"
+    h = serve.build_handlers(on)
+    assert "catalog.read" in h and not {"metrics.query", "logs.query"} & set(h)

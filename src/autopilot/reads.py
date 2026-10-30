@@ -12,7 +12,13 @@ lab (the observability Services take no credential), and bounded here: the query
 lines returned, and each line's length. A query the server rejects (bad syntax, a timeout) is an answer the agent
 can fix, so it comes back as data with an `error`, not as a backend failure.
 
-catalog.read and app.api.get have no adapter yet; serve.build_handlers drops them.
+catalog.read searches Tower's Backstage catalog (GET /api/catalog/entities/by-query) as Clearance's own workload
+identity: a projected service-account token for the `backstage` audience, re-read on every call, that Backstage checks
+against this cluster's public issuer (backend.auth.externalAccess type jwks, restricted to catalog.entity.read). No
+stored secret. Only a summary of each entity is returned (kind, ref, title, description, type, owner, lifecycle,
+system), at most MAX_ENTITIES of them, never annotations or the rest of spec.
+
+app.api.get has no adapter yet; serve.build_handlers drops it.
 """
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable
 
 from clearance.dispatch import Denied
@@ -177,12 +184,64 @@ class LokiAPI(_HTTPRead):
         return {"resultType": rtype, "result": out, "lines": lines, "truncated": truncated}
 
 
-class Reads:
-    """ReadBackend for the core read tools: PromQL and LogQL when configured. catalog and app_api have no adapter
-    (serve.build_handlers drops catalog.read and app.api.get, so these are never called)."""
+# -- Backstage ------------------------------------------------------------------------------------------------------
 
-    def __init__(self, prometheus: PrometheusAPI | None = None, loki: LokiAPI | None = None):
-        self.prometheus, self.loki = prometheus, loki
+MAX_ENTITIES = 25
+CATALOG_FIELDS = ("kind", "metadata.namespace", "metadata.name", "metadata.title", "metadata.description",
+                  "spec.type", "spec.owner", "spec.lifecycle", "spec.system")
+
+
+class BackstageCatalog:
+    """catalog.read: a full-text search, or (a query with `=`) a Backstage filter such as
+    `kind=component,spec.owner=group:default/skyport`."""
+
+    def __init__(self, base_url: str, token_file: str | Path, timeout: float = 30.0, opener: Opener = _urlopen):
+        self.base, self.token_file = base_url.rstrip("/"), Path(token_file)
+        self.timeout, self._open = timeout, opener
+
+    def catalog(self, query: str) -> dict[str, Any]:
+        if not isinstance(query, str) or not query.strip():
+            raise Denied("READ-QUERY", "empty catalog query", "Pass search words, or a filter like kind=component.")
+        if len(query) > 500:
+            raise Denied("READ-QUERY", "catalog query longer than 500 characters", "Shorten the query.")
+        q: list[tuple[str, str]] = [("limit", str(MAX_ENTITIES))] + [("fields", f) for f in CATALOG_FIELDS]
+        q.append(("filter", query.strip()) if "=" in query else ("fullTextFilterTerm", query.strip()))
+        token = self.token_file.read_text().strip()
+        req = urllib.request.Request(f"{self.base}/api/catalog/entities/by-query?{urllib.parse.urlencode(q)}",
+                                     method="GET", headers={"Authorization": f"Bearer {token}",
+                                                            "Accept": "application/json"})
+        try:
+            status, body = self._open(req, self.timeout)
+        except OSError as e:
+            raise ReadError(f"catalog unreachable: {type(e).__name__}") from e
+        if status in (401, 403):
+            raise Denied("READ-CATALOG-403", f"Backstage refused Clearance's identity ({status})",
+                         "Clearance may read the catalog only; ask a human to check Backstage's externalAccess.")
+        if status == 400:
+            return {"error": "bad-query", "message": _clip(body.decode(errors="replace"))}
+        if status != 200:
+            raise ReadError(f"catalog {status}")
+        doc = json.loads(body)
+        items = doc.get("items") or []
+        return {"entities": [_entity(e) for e in items[:MAX_ENTITIES]], "totalItems": doc.get("totalItems"),
+                "truncated": bool((doc.get("pageInfo") or {}).get("nextCursor")) or len(items) > MAX_ENTITIES}
+
+
+def _entity(e: dict[str, Any]) -> dict[str, Any]:
+    md, spec = e.get("metadata") or {}, e.get("spec") or {}
+    out = {"ref": f"{str(e.get('kind', '')).lower()}:{md.get('namespace', 'default')}/{md.get('name')}",
+           "kind": e.get("kind"), "title": md.get("title"), "description": _clip(md.get("description")),
+           **{k: spec.get(k) for k in ("type", "owner", "lifecycle", "system")}}
+    return {k: v for k, v in out.items() if v is not None}
+
+
+class Reads:
+    """ReadBackend for the core read tools: PromQL, LogQL and the catalog, each when configured. app_api has no
+    adapter (serve.build_handlers drops app.api.get, so it is never called)."""
+
+    def __init__(self, prometheus: PrometheusAPI | None = None, loki: LokiAPI | None = None,
+                 backstage: BackstageCatalog | None = None):
+        self.prometheus, self.loki, self.backstage = prometheus, loki, backstage
 
     def promql(self, q: str) -> Any:
         return self.prometheus.promql(q)
@@ -191,7 +250,7 @@ class Reads:
         return self.loki.logql(q)
 
     def catalog(self, query: str) -> Any:
-        raise NotImplementedError("catalog.read has no adapter")
+        return self.backstage.catalog(query)
 
     def app_api(self, service: str, path: str) -> Any:
         raise NotImplementedError("app.api.get has no adapter")
