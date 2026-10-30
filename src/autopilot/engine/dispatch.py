@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import policy, provenance
+from . import inbox as hr, policy, provenance
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -87,7 +87,8 @@ class Gateway:
                  packs: Sequence[Pack] = (), handlers: Mapping[str, Handler] | None = None,
                  runs: RunBackend | None = None, models: Mapping[str, ModelRoute] | None = None,
                  model_auth: Authenticator | None = None, verifiers: Sequence[str] = (),
-                 agent_logins: Sequence[str] = ()):
+                 agent_logins: Sequence[str] = (), inbox: hr.InboxStore | None = None,
+                 directory: hr.Directory | None = None, delegates: Sequence[str] = ()):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
         # The session store and the audit chain are single-writer: every transport (the MCP server, the model proxy)
         # takes this lock around a gateway operation.
@@ -113,6 +114,11 @@ class Gateway:
         self._handlers: dict[str, Handler] = handlers
         if runs is not None:
             self._handlers.update({"run.spawn": self._spawn, "run.close": self._close})
+        # human.request's inbox (inbox.py): the Gateway's own handlers, since a request needs its session. delegates are
+        # the principals (globs) that may answer for a person they name, e.g. Tower's backend.
+        self.inbox, self.directory, self.delegates = inbox, directory, tuple(delegates)
+        if inbox is not None:
+            self._handlers.update({"human.request": self._human_request, "human.request.get": self._human_get})
 
     # -- sessions --------------------------------------------------------
     @_durable
@@ -280,6 +286,73 @@ class Gateway:
             "target": f"{req.repo}#{req.pr}", "args_sha256": args_digest(body),
             "result": f"identity:{verdict['identity']['status']} scope:{verdict['scope']['status']}"})
         return {**verdict, "audit_seq": rec["seq"]}
+
+    # -- human.request (inbox.py) ------------------------------------------
+    def _human_request(self, s: Session, a: dict[str, Any]) -> dict[str, Any]:
+        try:
+            question, options = hr.check_question(a.get("question"), a.get("options"))
+        except hr.InboxError as e:
+            raise Denied(e.rule, e.message, e.hint) from e
+        now = self.now()
+        if self.inbox.count_pending(s.id, now) >= hr.MAX_PENDING:
+            raise Denied("HR-FLOOD", f"this session already has {hr.MAX_PENDING} unanswered requests",
+                         "Read their answers with human.request.get before asking more.")
+        r = hr.HumanRequest(hr.new_id(), s.task_id, s.id, s.agent, s.principal,
+                            getattr(self.defs.get(s.agent), "owner", None), question, options, now, s.expires_at)
+        self.inbox.add(r)
+        return {"request": r.id, "status": "pending", "expires_at": r.expires_at.isoformat(),
+                "hint": "Not answered yet. Read the answer with human.request.get whenever you choose; "
+                        "this call does not wait."}
+
+    def _human_get(self, s: Session, a: dict[str, Any]) -> dict[str, Any]:
+        rid = a.get("request")
+        r = self.inbox.get(rid) if isinstance(rid, str) and hr.REQUEST_ID.match(rid) else None
+        if r is None or r.task_id != s.task_id:
+            raise Denied("HR-UNKNOWN", f"no request {rid!r} in this task", "Pass an id human.request returned.")
+        return r.view(self.now())
+
+    def _person(self, token: str, on_behalf_of: str | None) -> tuple[str, str | None]:
+        """Who is answering, and through which delegate: a person signed in themselves, or a delegate naming one."""
+        principal = self.auth.authenticate(token)
+        if on_behalf_of:
+            if not any(fnmatchcase(principal.id, g) for g in self.delegates):
+                raise hr.InboxError("HR-DELEGATE", f"{principal.id} may not act for a person", "", 403)
+            if not on_behalf_of.startswith("user:") or len(on_behalf_of) > 200:
+                raise hr.InboxError("HR-PERSON", "on-behalf-of must name a person (user:<name>)", "", 400)
+            return on_behalf_of, principal.id
+        if principal.kind != "user":
+            raise hr.InboxError("HR-PERSON", f"{principal.id} is not a person", "", 403)
+        return principal.id, None
+
+    def human_requests(self, token: str, on_behalf_of: str | None = None) -> list[dict[str, Any]]:
+        """The pending requests this person may answer, oldest first."""
+        if self.inbox is None:
+            return []
+        person, _ = self._person(token, on_behalf_of)
+        groups = self.directory.groups(person) if self.directory is not None else set()
+        now = self.now()
+        return [r.view(now) for r in self.inbox.pending(now) if hr.may_answer(r, person, groups)]
+
+    @_durable
+    def human_answer(self, token: str, request_id: str, answer: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """Answer one request, as the person (or a delegate naming them). Recorded as human.answer."""
+        if self.inbox is None:
+            raise hr.InboxError("HR-OFF", "this deployment has no human inbox", "", 404)
+        person, via = self._person(token, on_behalf_of)
+        r = self.inbox.get(request_id) if isinstance(request_id, str) and hr.REQUEST_ID.match(request_id) else None
+        groups = self.directory.groups(person) if self.directory is not None else set()
+        if r is None or not hr.may_answer(r, person, groups):
+            raise hr.InboxError("HR-UNKNOWN", "no such request for you", "", 404)
+        now = self.now()
+        text = hr.check_answer(r, answer, now)
+        r.status, r.answer, r.answered_by, r.answered_via, r.answered_at = "answered", text, person, via, now
+        self.inbox.save(r)
+        rec = self.audit.append({
+            "ts": iso(now), "task_id": r.task_id, "session": r.session, "parent": None, "principal": person,
+            "agent": r.agent, "tool": "human.answer", "tier": None, "decision": "allow", "rule": None,
+            "target": r.id, "args_sha256": args_digest({"answer": text}),
+            "result": "answered" + (f" via {via}" if via else "")})
+        return {**r.view(now), "audit_seq": rec["seq"]}
 
     # -- model calls (the proxy's half lives in server.create_model_app) ---
     @_durable

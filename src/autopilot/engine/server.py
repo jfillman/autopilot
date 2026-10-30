@@ -14,6 +14,7 @@ serialized: the session store and the audit chain are single-writer.
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 from typing import Any, Callable
@@ -27,7 +28,7 @@ from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import provenance
+from . import inbox, provenance
 from .dispatch import AuthError, Authenticator, Gateway
 from .modelproxy import charged_tokens
 
@@ -130,6 +131,42 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
         except provenance.BadRequest as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         return JSONResponse(out)
+
+    def _bearer(request: Request) -> str | None:
+        auth = request.headers.get("authorization", "")
+        return auth[7:].strip() if auth.lower().startswith("bearer ") and auth[7:].strip() else None
+
+    async def _people(request: Request, op, *args) -> JSONResponse:
+        """A person's human-inbox call (inbox.py): their own token, or a delegate's with X-Hangar-On-Behalf-Of."""
+        token = _bearer(request)
+        if token is None:
+            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
+        who = request.headers.get("x-hangar-on-behalf-of") or None
+        try:
+            out = await anyio.to_thread.run_sync(_locked(gateway, functools.partial(op, on_behalf_of=who)), token, *args)
+        except AuthError:
+            return JSONResponse({"error": "token not accepted"}, status_code=401)
+        except inbox.InboxError as e:
+            return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
+        return JSONResponse(out)
+
+    @mcp.custom_route("/v1/human/requests", methods=["GET"], include_in_schema=False)
+    async def human_list(request: Request) -> JSONResponse:
+        """The pending human.request questions the person may answer."""
+        return await _people(request, gateway.human_requests)
+
+    @mcp.custom_route("/v1/human/requests/{request_id}/answer", methods=["POST"], include_in_schema=False)
+    async def human_answer(request: Request) -> JSONResponse:
+        """Answer one: {"answer": "..."}."""
+        raw = await request.body()
+        if len(raw) > 64 << 10:
+            return JSONResponse({"error": "body too large"}, status_code=413)
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return JSONResponse({"error": "the body is not JSON"}, status_code=400)
+        answer = body.get("answer") if isinstance(body, dict) else None
+        return await _people(request, gateway.human_answer, request.path_params["request_id"], answer)
 
     return mcp.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
 

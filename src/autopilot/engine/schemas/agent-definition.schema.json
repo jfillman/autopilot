@@ -15,6 +15,11 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{1,40}$"
     },
+    "owner": {
+      "type": "string",
+      "pattern": "^group:[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$",
+      "description": "The team that owns this agent: a Backstage group ref (group:<namespace>/<name>). Its members may answer the agent's human.request questions, as the session's owner may (clearance inbox.py)."
+    },
     "kind": {
       "enum": [
         "task",
