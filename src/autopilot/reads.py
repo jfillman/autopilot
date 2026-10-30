@@ -83,10 +83,11 @@ def app_summary(obj: dict[str, Any]) -> dict[str, Any]:
 
 
 class KubeArgo:
-    """ArgoBackend over the Application objects: get only. argo.sync.lower is a T1 write and has no adapter here."""
+    """ArgoBackend over the Application objects. get reads; sync (argo.sync.lower, T1) is argo_sync.ArgoSync's, and
+    only when one is given (serve: ARGO_SYNC_ENABLED), else the tool has no handler."""
 
-    def __init__(self, reader: KubeReader, namespaces: tuple[str, ...] = ("argocd",)):
-        self.kube, self.namespaces = reader, namespaces
+    def __init__(self, reader: KubeReader, namespaces: tuple[str, ...] = ("argocd",), syncer: Any = None):
+        self.kube, self.namespaces, self.syncer = reader, namespaces, syncer
 
     def get_app(self, app: str) -> dict[str, Any]:
         if not isinstance(app, str) or not _NAME.match(app):
@@ -98,8 +99,10 @@ class KubeArgo:
                 return app_summary(obj)
         return {"app": app, "found": False, "searched": list(self.namespaces)}
 
-    def sync(self, app: str, project: str) -> dict[str, Any]:
-        raise NotImplementedError("argo.sync.lower has no adapter")
+    def sync(self, app: str, project: str, who: dict[str, str] | None = None) -> dict[str, Any]:
+        if self.syncer is None:
+            raise NotImplementedError("argo.sync.lower has no adapter in this deployment")
+        return self.syncer.sync(app, project, who or {})
 
 
 # -- Prometheus and Loki ----------------------------------------------------------------------------------------------

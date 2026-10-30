@@ -3,9 +3,9 @@
 Builds the Hangar Gateway (core Clearance, the Hangar pack, Autopilot's real backends) from environment variables
 and serves Clearance's streamable-HTTP MCP app with uvicorn. See README.md, "Running the gateway", for the variables.
 
-Only real backends are registered. A tool whose backend this deployment does not have (human, artifacts,
-argo.sync.lower, catalog.read, app.api.get, xr.request and repo.pr.open_upper today; repo.pr.open without
-GITHUB_PR_ENABLED; glidepath.* without GLIDEPATH_API_URL; metrics.query without
+Only real backends are registered. A tool whose backend this deployment does not have (human, catalog.read,
+app.api.get and xr.request today; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
+repo.pr.open and repo.pr.open_upper without GITHUB_PR_ENABLED; glidepath.* without GLIDEPATH_API_URL; metrics.query without
 PROMETHEUS_URL; logs.query without LOKI_URL; airframe.* with AIRFRAME_ENABLED=0; argo.app.get with ARGO_ENABLED=0;
 airframe.validate always, since the image carries no airframe-validate) has no handler, so a call to it is refused
 as having no backend. Nothing here registers a fake.
@@ -40,6 +40,7 @@ from clearance.session import SessionStore
 from . import airframe_plan
 from .airframe_api import KubeReader
 from .airframe_tools import AirframeTools
+from .argo_sync import ArgoSync
 from .backends import Backends
 from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
@@ -82,6 +83,7 @@ class Config:
     airframe_tenants_repo: str
     argo_enabled: bool
     argo_namespaces: tuple[str, ...]
+    argo_sync_enabled: bool
     prometheus_url: str | None
     loki_url: str | None
     github_pr_enabled: bool
@@ -185,6 +187,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         airframe_upper_clusters=upper,
         airframe_tenants_repo=get("AIRFRAME_TENANTS_REPO", "gitops-hangar-dev-tenants"),
         argo_enabled=_flag(env, "ARGO_ENABLED", True), argo_namespaces=argo_ns,
+        argo_sync_enabled=_flag(env, "ARGO_SYNC_ENABLED", False),
         prometheus_url=get("PROMETHEUS_URL"), loki_url=get("LOKI_URL"),
         github_pr_enabled=_flag(env, "GITHUB_PR_ENABLED", False),
         agent_token_file=Path(get("AGENT_TOKEN_FILE", "/var/run/clearance/agent-installation-token")),
@@ -200,13 +203,15 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
 
 def build_backends(cfg: Config) -> Backends:
     """Real backends only, in-cluster: glidepath-api, Prometheus and Loki if configured, Airframe and Argo CD reads
-    unless disabled, AgentRuns always. git, human and artifacts are None: this deployment has no backend for them."""
+    unless disabled (and Argo CD syncs of lower Applications with ARGO_SYNC_ENABLED), AgentRuns always. human is None:
+    this deployment has no backend for it. artifacts is set by build_gateway, on the durable store's connection."""
     glidepath = (GlidepathAPI(cfg.glidepath_url, cfg.glidepath_token_file, on_behalf_of=cfg.glidepath_on_behalf_of)
                  if cfg.glidepath_url else None)
     airframe = argo = None
     reader = KubeReader(IN_CLUSTER_API, SA_DIR / "token", SA_DIR / "ca.crt")
     if cfg.argo_enabled:
-        argo = KubeArgo(reader, cfg.argo_namespaces)
+        syncer = ArgoSync(reader, cfg.argo_namespaces) if cfg.argo_sync_enabled else None
+        argo = KubeArgo(reader, cfg.argo_namespaces, syncer=syncer)
     if cfg.airframe_enabled:
         registry = airframe_plan.Registry(cfg.airframe_cluster, cfg.airframe_upper_clusters, cfg.airframe_tenants_repo)
         airframe = AirframeTools(reader, None, registry, cluster=cfg.airframe_cluster)
@@ -221,8 +226,10 @@ def build_backends(cfg: Config) -> Backends:
 def build_handlers(b: Backends) -> dict[str, Handler]:
     """hangar_handlers, less every tool whose backend is absent (so it is "no backend", not "backend error")."""
     h = hangar_handlers(b)
-    # No adapter yet: the Argo one is read-only, and the GitHub one opens lower PRs only.
-    drop = {"argo.sync.lower", "catalog.read", "app.api.get", "xr.request", "repo.pr.open_upper"}
+    # No adapter yet. (argo.sync.lower and repo.pr.open_upper have a handler only when hangar_handlers wired one.)
+    drop = {"catalog.read", "app.api.get", "xr.request"}
+    if getattr(b.argo, "syncer", None) is None:
+        drop.add("argo.sync.lower")   # core_handlers registers it for any Argo backend; only ArgoSync can sync
     if b.read is not None:
         if getattr(b.read, "prometheus", None) is None:
             drop.add("metrics.query")
@@ -323,8 +330,11 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
+        from clearance.pg import PgArtifacts
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
+        if b.artifacts is None:
+            b.artifacts = PgArtifacts(state)   # on the store's connection: a put commits with its call's evidence
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}

@@ -97,6 +97,12 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
         # The real adapter (github_pr.GitHubPRs) records who opened the PR in its commit trailer and body.
         h["repo.pr.open"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
                                                        a.get("base", "main"), meta=pr_meta(s))
+        h["repo.pr.open_upper"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
+                                                             a.get("base", "main"), meta=pr_meta(s))
+    if b.argo is not None and getattr(b.argo, "syncer", None) is not None:
+        # The operation names the agent, task, session and principal, so Argo CD's history shows who asked.
+        h["argo.sync.lower"] = lambda s, a: b.argo.sync(a["app"], a["project"],
+                                                        who={**pr_meta(s), "principal": s.principal})
     h.update({
         "glidepath.runs.list": lambda s, a: b.glidepath.runs(a["app"], a.get("sinceHours"), a.get("limit"), s.principal),
         "glidepath.run.get": lambda s, a: b.glidepath.run(a["app"], a["result"], s.principal),

@@ -313,13 +313,23 @@ def test_p5_backends_are_off_by_default():
     assert gw.models is None
 
 
-def test_github_prs_register_repo_pr_open_only():
+def test_github_prs_register_repo_pr_open_and_open_upper_not_xr_request():
     from autopilot.github_pr import GitHubPRs
     c = serve.config_from_env({**EPH, "GITHUB_PR_ENABLED": "1", "AIRFRAME_ENABLED": "0"})
     b = serve.build_backends(c)
     assert isinstance(b.git, GitHubPRs) and str(b.git.token_file) == "/var/run/clearance/agent-installation-token"
     h = serve.build_handlers(b)
-    assert "repo.pr.open" in h and not {"repo.pr.open_upper", "xr.request"} & set(h)
+    assert {"repo.pr.open", "repo.pr.open_upper"} <= set(h) and "xr.request" not in h
+
+
+def test_argo_sync_lower_only_with_argo_sync_enabled():
+    from autopilot.argo_sync import ArgoSync
+    off = serve.build_backends(serve.config_from_env({**EPH, "AIRFRAME_ENABLED": "0"}))
+    assert off.argo.syncer is None and "argo.sync.lower" not in serve.build_handlers(off)
+    on = serve.build_backends(serve.config_from_env({**EPH, "AIRFRAME_ENABLED": "0", "ARGO_SYNC_ENABLED": "1",
+                                                      "ARGO_APP_NAMESPACES": "argocd,argocd-apps"}))
+    assert isinstance(on.argo.syncer, ArgoSync) and on.argo.syncer.namespaces == ("argocd", "argocd-apps")
+    assert "argo.sync.lower" in serve.build_handlers(on)
 
 
 def test_model_proxy_config(tmp_path):

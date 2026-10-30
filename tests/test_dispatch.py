@@ -162,3 +162,41 @@ def test_triggered_workload_agents_run_as_their_own_identity(gw):
 def test_delegated_and_task_agents_cannot_be_triggered(gw):
     assert not gw.open_triggered("coding-agent", "cron").ok
     assert not gw.open_triggered("nope", "cron").ok
+
+
+def test_the_t1_write_handlers_carry_the_sessions_identity():
+    """repo.pr.open_upper gets the same trailers as repo.pr.open, and argo.sync.lower names who asked."""
+    from types import SimpleNamespace
+
+    from autopilot.backends import Backends
+    from autopilot.gateway import hangar_handlers
+
+    seen = {}
+
+    class Git:
+        takes_meta = True
+
+        def open_pr(self, repo, branch, title, files, base="main", meta=None):
+            seen["pr"] = (repo, meta)
+            return {"pr": 1}
+
+        def commit_xr(self, *a):
+            raise AssertionError
+
+    class Argo:
+        syncer = object()
+
+        def get_app(self, app):
+            return {}
+
+        def sync(self, app, project, who=None):
+            seen["sync"] = (app, project, who)
+            return {"requested": True}
+
+    s = SimpleNamespace(agent="release-proposer", task_id="t-9", id="s-9", run=None, principal="user:alice")
+    h = hangar_handlers(Backends(Git(), Argo(), None, None, None))
+    h["repo.pr.open_upper"](s, {"repo": "jfillman/gitops-gate-api", "branch": "b", "title": "t", "files": []})
+    h["argo.sync.lower"](s, {"app": "gate-api-dev", "project": "gate-api-lower"})
+    meta = {"agent": "release-proposer", "task": "t-9", "session": "s-9"}
+    assert seen["pr"] == ("jfillman/gitops-gate-api", meta)
+    assert seen["sync"] == ("gate-api-dev", "gate-api-lower", {**meta, "principal": "user:alice"})
