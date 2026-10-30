@@ -158,6 +158,26 @@ themselves or through a `CLEARANCE_DELEGATES` principal (Tower) at `GET/POST /v1
 Everything else (`xr.request`, `app.api.get`, `chat.*`) has no handler: a call is audited and refused with "no backend for this tool in this
 deployment", charged nothing. `tools_list` still lists them, with their policy.
 
+## Running the read API
+
+`autopilot-gateway api` is clearance-api (clearance `docs/clearance-api.md`): Clearance's read API as a separate
+Deployment from the same image. It reads the gateway's tables through its own read-only DSN, never the writer lock,
+so Tower's reads never queue behind agents and it can run several replicas. Writes (answering a human request) stay
+on the gateway.
+
+| Variable | Default | |
+|---|---|---|
+| `CLEARANCE_API_DSN` | (required) | the read-only role's DSN (connections are forced read-only, 5 s statement timeout) |
+| `CLEARANCE_API_POOL` | `5` | connections per replica |
+| `CLEARANCE_API_AUDITORS` | unset | principal globs that read everything (and the chain check) |
+| `CLEARANCE_API_NOTIFIERS` | unset | principal globs that read the human-inbox feed only (Tower's poller) |
+| `CLEARANCE_DELEGATES` | unset | as for the gateway: may read for the person named in `X-Hangar-On-Behalf-Of` |
+| `CLEARANCE_GATEWAY_URL` | unset | where writes go, named in `/v1/contract` |
+
+Auth (`CLEARANCE_AUDIENCE`, `CLEARANCE_OIDC_*`, `TOWER_*`) and the catalog (`BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`)
+are the gateway's variables. A person sees their own sessions, their teams' agents' sessions (`BackstageDirectory`),
+and the evidence on apps they own (`BackstageOwnership`: Components whose `spec.owner` is them or their team).
+
 ## The agent runtime
 
 `hangar-agent` (`runtime/src/hangar_agent/`, its own package in `runtime/pyproject.toml`) is the generic program an
