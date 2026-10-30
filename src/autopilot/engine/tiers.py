@@ -36,6 +36,7 @@ class ToolSpec:
     propose_only: bool = False    # T2: opens a PR, never applies anything
     writes_files: bool = False    # args carry a `files` list subject to path scope
     reads_repo: bool = False      # args name a `repo` the definition's repos.allow must admit
+    receipt: tuple[str, ...] = () # result keys recorded as the call's `effect` (with the repo and paths it wrote)
     extra: dict = field(default_factory=dict)
 
 
@@ -50,7 +51,7 @@ _TOOLS = [
     ToolSpec("repo.file.get", Tier.T0, "Read a file, or list a directory (path empty: the repo root), in an allowed repo "
              "at a ref (default main)", ("repo",), github_cost=2, reads_repo=True),
     ToolSpec("repo.pr.open", Tier.T1, "Open a PR on an app repo", ("repo", "branch", "title", "files"),
-             github_cost=4, target="lower", writes_files=True),
+             github_cost=4, target="lower", writes_files=True, receipt=("pr", "commit", "branch")),
     ToolSpec("xr.request", Tier.T1, "Commit an XR request for a lower environment", ("app", "env", "kind", "spec"),
              github_cost=3, target="lower"),
     ToolSpec("argo.sync.lower", Tier.T1, "Sync a lower-environment application", ("app", "project"),
@@ -62,7 +63,7 @@ _TOOLS = [
     ToolSpec("human.request", Tier.T1, "Ask a human to decide something", ("question",)),
     ToolSpec("repo.pr.open_upper", Tier.T2, "Open a PR against an upper environment (a human merges)",
              ("repo", "branch", "title", "files"), github_cost=4, target="upper",
-             propose_only=True, writes_files=True),
+             propose_only=True, writes_files=True, receipt=("pr", "commit", "branch")),
 ]
 
 
