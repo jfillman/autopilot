@@ -27,6 +27,7 @@ from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from . import provenance
 from .dispatch import AuthError, Authenticator, Gateway
 from .modelproxy import charged_tokens
 
@@ -106,6 +107,29 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
     @mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)
     async def healthz(_: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "tools": len(gateway.tools)})
+
+    @mcp.custom_route("/v1/provenance", methods=["POST"], include_in_schema=False)
+    async def prov(request: Request) -> JSONResponse:
+        """A PR's agent-identity and agent-scope verdicts (provenance.py), for a CI gate with a verifier's token."""
+        auth = request.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer ") or not auth[7:].strip():
+            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            return JSONResponse({"error": "body too large"}, status_code=413)
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return JSONResponse({"error": "the body is not JSON"}, status_code=400)
+        try:
+            out = await anyio.to_thread.run_sync(_locked(gateway, gateway.provenance), auth[7:].strip(), body)
+        except AuthError:
+            return JSONResponse({"error": "token not accepted"}, status_code=401)
+        except provenance.NotVerifier as e:
+            return JSONResponse({"error": str(e)}, status_code=403)
+        except provenance.BadRequest as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse(out)
 
     return mcp.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
 

@@ -16,7 +16,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
-from . import policy
+from fnmatch import fnmatchcase
+
+from . import policy, provenance
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -84,7 +86,8 @@ class Gateway:
                  audit: AuditLog, auth: Authenticator, clock: Callable[[], datetime], *,
                  packs: Sequence[Pack] = (), handlers: Mapping[str, Handler] | None = None,
                  runs: RunBackend | None = None, models: Mapping[str, ModelRoute] | None = None,
-                 model_auth: Authenticator | None = None):
+                 model_auth: Authenticator | None = None, verifiers: Sequence[str] = (),
+                 agent_logins: Sequence[str] = ()):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
         # The session store and the audit chain are single-writer: every transport (the MCP server, the model proxy)
         # takes this lock around a gateway operation.
@@ -94,6 +97,9 @@ class Gateway:
         # the run's model-proxy token (its own audience); without models, no model call is ever allowed.
         self.models = ModelProxy(dict(models), store, audit, clock) if models else None
         self.model_auth = model_auth
+        # Who may ask for a PR's provenance (principal globs, e.g. "app-*-cicd/pipeline-runner"), and the GitHub
+        # logins agents open PRs as (an agents' App's bot login): provenance.py.
+        self.verifiers, self.agent_logins = tuple(verifiers), tuple(agent_logins)
         self.policy = policy.Policy(packs)
         self.tools = self.policy.tools
         self.runs = runs
@@ -233,7 +239,7 @@ class Gateway:
         except Exception as e:  # noqa: BLE001 - never leak backend internals to the agent
             rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, f"error:{type(e).__name__}")
             return Result(False, decision.as_dict(), error="backend error", audit_seq=rec["seq"], session=s.id)
-        rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "ok")
+        rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "ok", effect=_effect(spec, args, data))
         return Result(True, decision.as_dict(), data, audit_seq=rec["seq"], session=s.id)
 
     def session_tools(self, token: str, session_id: str) -> list[str] | None:
@@ -254,6 +260,26 @@ class Gateway:
         if s.run and run_principal is not None and principal_id != s.principal and run_principal(s) == principal_id:
             return s.principal
         return principal_id
+
+    # -- PR provenance (provenance.py) ---------------------------------------
+    @_durable
+    def provenance(self, token: str, body: Any) -> dict[str, Any]:
+        """The agent-identity and agent-scope verdicts for one PR, for a CI gate. The caller must be a verifier;
+        each verdict is recorded. Raises AuthError (unauthenticated), provenance.NotVerifier, provenance.BadRequest."""
+        principal = self.auth.authenticate(token)
+        if not any(fnmatchcase(principal.id, g) for g in self.verifiers):
+            raise provenance.NotVerifier(f"{principal.id} is not a provenance verifier")
+        req = provenance.Request.from_dict(body)
+        verdict = provenance.verify(req, self.audit.receipts(req.repo, req.pr, provenance.PR_TOOLS), self.defs,
+                                    self.agent_logins)
+        r = verdict["record"] or {}
+        rec = self.audit.append({
+            "ts": iso(self.now()), "task_id": r.get("task_id"), "session": r.get("session"), "parent": None,
+            "principal": principal.id, "agent": r.get("agent"), "tool": "provenance.verify", "tier": None,
+            "decision": "allow", "rule": verdict["identity"]["rule"] or verdict["scope"]["rule"],
+            "target": f"{req.repo}#{req.pr}", "args_sha256": args_digest(body),
+            "result": f"identity:{verdict['identity']['status']} scope:{verdict['scope']['status']}"})
+        return {**verdict, "audit_seq": rec["seq"]}
 
     # -- model calls (the proxy's half lives in server.create_model_app) ---
     @_durable
@@ -346,12 +372,29 @@ class Gateway:
         return out
 
     # -- audit -----------------------------------------------------------
-    def _audit(self, s: Session, principal: Principal, tool: str, tier, decision: str, rule, args, result: str) -> dict:
+    def _audit(self, s: Session, principal: Principal, tool: str, tier, decision: str, rule, args, result: str,
+               effect: dict[str, Any] | None = None) -> dict:
         spec = self.tools.get(tool)
         target = policy.env_tier_of(spec, args) if spec and isinstance(args, dict) else None
-        return self.audit.append({
+        event = {
             "ts": iso(self.now()), "task_id": s.task_id, "session": s.id,
             "parent": s.parent_id, "principal": principal.id, "agent": s.agent,
             "tool": tool, "tier": tier, "decision": decision, "rule": rule,
             "target": target, "args_sha256": args_digest(args), "result": result,
-        })
+        }
+        if effect:
+            event["effect"] = effect
+        return self.audit.append(event)
+
+
+def _effect(spec, args: dict[str, Any], data: Any) -> dict[str, Any] | None:
+    """What a successful write made, from its result (spec.receipt), with the repo and the paths it wrote: the
+    receipt a PR's provenance is checked against. None for a tool without a receipt."""
+    if not spec.receipt or not isinstance(data, dict):
+        return None
+    e: dict[str, Any] = {k: data[k] for k in spec.receipt if k in data}
+    if spec.writes_files:
+        e["repo"] = str(args.get("repo", "")).lower()
+        e["paths"] = sorted({provenance.normal(f.get("path", "")) for f in args.get("files") or []
+                             if isinstance(f, dict)})
+    return e

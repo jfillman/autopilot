@@ -115,7 +115,8 @@ class FakeGit(Recorder):
 
     def open_pr(self, repo, branch, title, files, base="main"):
         self._rec("git.open_pr", repo, branch, title, files, base=base)
-        return {"pr": len([c for c in self.calls if c[0] == "git.open_pr"]), "url": f"https://github.com/{repo}/pull/1"}
+        n = len([c for c in self.calls if c[0] == "git.open_pr"])
+        return {"pr": n, "url": f"https://github.com/{repo}/pull/{n}", "branch": branch, "commit": f"{n:040x}"}
 
     def commit_xr(self, app, env, kind, spec):
         self._rec("git.commit_xr", app, env, kind, spec)
