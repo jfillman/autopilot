@@ -227,6 +227,7 @@ def test_catalog_searches_by_text_or_filter_with_the_projected_token(tmp_path):
     url = urllib.parse.urlsplit(sent[0].full_url)
     q = urllib.parse.parse_qs(url.query)
     assert url.path == "/api/catalog/entities/by-query" and q["fullTextFilterTerm"] == ["gate"] and "filter" not in q
+    assert q["fullTextFilterFields"] == ["metadata.name", "metadata.title", "metadata.description"]
     assert "metadata.annotations" not in q["fields"] and q["limit"] == ["25"]
     assert sent[0].headers["Authorization"] == "Bearer projected" and sent[0].get_method() == "GET"
     c.catalog("kind=component,spec.owner=group:default/skyport")
