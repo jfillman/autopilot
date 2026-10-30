@@ -346,3 +346,14 @@ def test_model_calls_hold_the_gateway_lock(built):
         assert not done.wait(0.3)
     t.join(5)
     assert done.is_set()
+
+
+def test_provenance_verifiers_and_agent_logins():
+    c = serve.config_from_env(EPH)
+    assert c.verifiers == () and c.agent_logins == (serve.AGENT_LOGIN,)
+    c = serve.config_from_env({**EPH, "CLEARANCE_VERIFIERS": "app-*-cicd/pipeline-runner, gitops-*/pipeline-runner",
+                               "AGENT_LOGINS": "a[bot],b[bot]"})
+    assert c.verifiers == ("app-*-cicd/pipeline-runner", "gitops-*/pipeline-runner")
+    assert c.agent_logins == ("a[bot]", "b[bot]")
+    gw, _ = serve.build_gateway(c)
+    assert gw.verifiers == c.verifiers and gw.agent_logins == c.agent_logins

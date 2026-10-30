@@ -109,6 +109,8 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `MODEL_ROUTES` | unset | comma-separated `alias=upstream-model`, e.g. `claude-sonnet-5-5=claude-sonnet-5-5`: the models a definition may name (`profile.models`), all on Anthropic's API |
 | `MODEL_TOKEN_AUDIENCE` | `model-proxy` | the audience of a run's model-proxy token (TokenReview) |
 | `EVENTS_ENABLED` | `0` | `1`: the event trigger bridge holds glidepath-api's `/v1/events` stream and launches each agent whose Glidepath event trigger matches (needs `GLIDEPATH_API_URL`) |
+| `CLEARANCE_VERIFIERS` | (none) | comma-separated principal globs that may call `POST /v1/provenance` (the agent-identity and agent-scope gates' pipelines, e.g. `app-*-cicd/pipeline-runner`); with none, every caller is refused 403 |
+| `AGENT_LOGINS` | `hangar-autopilot-agents[bot]` | the GitHub logins agents open PRs as; such a PR with no Clearance record fails agent-identity (AI002) |
 | `LOG_LEVEL` | `info` | |
 
 The start line names what is enabled (store kind, agent and tool counts, auth, Glidepath URL, Airframe cluster, expiry
