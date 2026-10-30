@@ -71,6 +71,8 @@ class AgentDefinition:
     # What a run starts with (runtime.instructions), passed in its input; None for agents that take their task from
     # whoever opens the session.
     instructions: str | None = None
+    # The owning team (a Backstage group ref): its members may answer this agent's human.request (inbox.py).
+    owner: str | None = None
     # The profile as written. Core reads only the fields above; a pack reads its own sections from
     # here (clearance.packs.hangar: profile.glidepath.apps, profile.airframe.apps).
     raw_profile: dict[str, Any] = field(default_factory=dict, compare=False)
@@ -92,7 +94,9 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         tier_ceiling=Tier[p["tierCeiling"]], ttl_minutes=lim["ttlMinutes"],
         tool_calls=lim["toolCalls"], github_calls=lim["githubCalls"], open_prs=lim["openPrs"],
         model_tokens=lim["modelTokens"], children=lim["children"],
-        tools=frozenset(p["tools"]), models=frozenset(p.get("models", [])),
+        # human.request grants human.request.get with it: an agent that may ask may read its own answers.
+        tools=frozenset(p["tools"]) | ({"human.request.get"} if "human.request" in p["tools"] else set()),
+        models=frozenset(p.get("models", [])),
         network=Network.parse(p.get("network", "clearance")),
         compute=ComputeClass.parse(p.get("compute", "small")),
     )
@@ -111,7 +115,7 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         image=rt.get("image"), framework=rt.get("framework", "generic"),
         sandbox=rt.get("sandbox", "standard"), sidecars=tuple(rt.get("sidecars", [])),
         triggers=tuple(doc.get("triggers", [{"type": "manual"}])),
-        instructions=rt.get("instructions"),
+        instructions=rt.get("instructions"), owner=doc.get("owner"),
         raw_profile=p,
     )
 
