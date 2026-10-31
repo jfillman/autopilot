@@ -18,7 +18,8 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import control as ctl, definitions as defn, events as evh, gate, inbox as hr, policy, provenance
+from . import control as ctl, definitions as defn, events as evh, gate, inbox as hr, policy, provenance, review
+from . import runtimes as runtimes_mod
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -98,11 +99,16 @@ class Gateway:
                  events: evh.EventsStore | None = None, holds: ctl.HoldStore | None = None,
                  admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None,
                  changes: gate.ChangeStore | None = None, gate_policy: gate.GatePolicy | None = None,
-                 owners: "AppOwners | None" = None):
+                 owners: "AppOwners | None" = None, runtime_images: Sequence[str] = (),
+                 runtimes: Sequence[Any] = ()):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
         # The deployment gate (gate.py): the changes registered by the clearance-gate check, the platform's tier
         # table, and where an app's owner group comes from when the check does not say. None = the gate is off.
         self.changes, self.gate_policy, self.owners = changes, gate_policy or gate.GatePolicy(), owners
+        # Where a definition's runtime.image may come from (review.validate: prefix globs; empty = any digest pin).
+        # The deployment's runtime catalog (runtimes.py): its available runtimes' exact images are allowed too.
+        self.runtimes = tuple(runtimes)
+        self.runtime_images = tuple(runtime_images) + tuple(runtimes_mod.allowed_images(self.runtimes))
         # Cluster-pinned definitions (definitions.py): where the loaded set is kept for the read API and restarts.
         self.definitions_store = definitions_store
         # Person controls (control.py): the holds on agents' triggers, and the platform admins (principal globs) who
@@ -428,8 +434,9 @@ class Gateway:
         existing = store.get(req.id)
         if existing is not None and existing.state != "holding":
             return existing.view(now)
+        problems = self._definition_problems(req) if req.definition is not None else []
         try:
-            c = gate.classify(req, self.gate_policy)
+            c = gate.classify(req, self.gate_policy, self.tools, problems)
         except gate.GateError as e:
             # A clearance.yaml that loosens the baseline: the change is denied, not the file ignored.
             ch = existing or gate.Change.open(req, gate.Classification(3, (gate.Reason("clearance.yaml", "policy:loosens", 3),), "deny", e.rule, e.message, None, self.gate_policy), now, principal.id)
@@ -459,6 +466,46 @@ class Gateway:
             self._gate_record("policy", None, "deploy.clear", ch, "allow", None, c.why, {"tier": c.tier})
         store.put(ch)
         return ch.view(now)
+
+    def _models(self) -> list[str] | None:
+        return sorted(self.models.routes) if self.models is not None else None
+
+    def _definition_problems(self, req: gate.ChangeRequest) -> list[review.Problem]:
+        new = req.definition.get("new")
+        if new is None:
+            return []
+        return review.validate(new, self.tools, name=req.definition["name"], owner=req.owner or None,
+                               models=self._models(), image_allow=self.runtime_images, path=req.definition.get("path"))
+
+    def review_definition(self, token: str, body: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """A CI check's (or a person's, through a delegate) review of an agent definition, before it is live: would
+        Clearance load it (review.validate), and how much more may the agent do than at `old` (review.classify).
+        Stateless and unrecorded: the release that makes it live is recorded (gate.py). Body: {doc, old?, name?,
+        owner?, path?}. Raises AuthError, review-shaped BadChange (400), provenance.NotVerifier (403)."""
+        principal = self.auth.authenticate(token)
+        allowed = any(fnmatchcase(principal.id, g) for g in self.verifiers) or principal.kind == "user" or \
+            (on_behalf_of is not None and any(fnmatchcase(principal.id, g) for g in self.delegates))
+        if not allowed:
+            raise provenance.NotVerifier(f"{principal.id} may not review definitions")
+        if not isinstance(body, dict):
+            raise gate.BadChange("the body is a JSON object")
+        doc, old = body.get("doc"), body.get("old")
+        for k, v in (("name", body.get("name")), ("owner", body.get("owner")), ("path", body.get("path"))):
+            if v is not None and not isinstance(v, str):
+                raise gate.BadChange(f"{k} is a string")
+        if doc is not None and not isinstance(doc, dict):
+            raise gate.BadChange("doc is the definition document, or null for a removal")
+        if old is not None and not isinstance(old, dict):
+            raise gate.BadChange("old is the previous definition document, or null for a new agent")
+        if doc is None and old is None:
+            raise gate.BadChange("doc or old is required")
+        problems = review.validate(doc, self.tools, name=body.get("name"), owner=body.get("owner"), models=self._models(),
+                                   image_allow=self.runtime_images, path=body.get("path")) if doc is not None else []
+        out: dict[str, Any] = {"ok": not problems, "problems": [p.view() for p in problems]}
+        if not problems:
+            tier, changes = review.classify(old, doc, self.tools)
+            out.update({"tier": tier, "changes": [c.view() for c in changes]})
+        return out
 
     def _gate_person(self, token: str, on_behalf_of: str | None) -> tuple[str, str | None, set[str]]:
         try:
