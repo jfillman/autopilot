@@ -457,7 +457,21 @@ class Gateway:
         }
         if effect:
             event["effect"] = effect
+        app = self._app_of(tool, args)
+        if app:
+            event["app"] = app
         return self.audit.append(event)
+
+    def _app_of(self, tool: str, args: Any) -> str | None:
+        """The application this call acts on, from the first pack that names one (Pack.app_of)."""
+        if not isinstance(args, dict):
+            return None
+        for p in self.policy.packs:
+            fn = getattr(p, "app_of", None)
+            app = fn(tool, args) if fn else None
+            if isinstance(app, str) and app:
+                return app.lower()[:100]
+        return None
 
 
 def _effect(spec, args: dict[str, Any], data: Any) -> dict[str, Any] | None:
