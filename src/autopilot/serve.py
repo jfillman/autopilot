@@ -49,6 +49,7 @@ from .backends import Backends
 from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
+from clearance.definitions import Definitions, MemoryDefinitions
 from .reads import BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 
@@ -100,6 +101,8 @@ class Config:
     model_routes: dict[str, str]
     model_audience: str
     events_enabled: bool
+    agent_xrs_enabled: bool
+    agent_xrs_interval: float
     verifiers: tuple[str, ...] = ()
     agent_logins: tuple[str, ...] = ()
     oidc_allowed: tuple[str, ...] = ()
@@ -192,6 +195,15 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     events = _flag(env, "EVENTS_ENABLED", False)
     if events and not get("GLIDEPATH_API_URL"):
         raise ConfigError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
+    github_prs = _flag(env, "GITHUB_PR_ENABLED", False)
+    # Agent XR pins (agent_xrs.py) read definition files through the same broker token repo.pr.open uses, so they are
+    # on exactly when GitHub PRs are, unless said otherwise; on without GitHub there is nothing to read with.
+    agent_xrs = _flag(env, "AGENT_XRS_ENABLED", github_prs)
+    if agent_xrs and not github_prs:
+        raise ConfigError("AGENT_XRS_ENABLED needs GITHUB_PR_ENABLED=1 (pinned definitions are read through the agents' App)")
+    agent_xrs_interval = _number(env, "AGENT_XRS_INTERVAL", 60.0, float)
+    if agent_xrs_interval < 5:
+        raise ConfigError("AGENT_XRS_INTERVAL is at least 5 seconds")
     return Config(
         agents_dir=agents, dsn=None if ephemeral else dsn, ephemeral=ephemeral,
         resource_url=get("CLEARANCE_RESOURCE_URL", f"http://localhost:{port}/mcp"),
@@ -211,7 +223,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         argo_sync_enabled=_flag(env, "ARGO_SYNC_ENABLED", False),
         prometheus_url=get("PROMETHEUS_URL"), loki_url=get("LOKI_URL"), backstage_url=get("BACKSTAGE_URL"),
         backstage_token_file=Path(get("BACKSTAGE_TOKEN_FILE", "/var/run/clearance/backstage-token")),
-        github_pr_enabled=_flag(env, "GITHUB_PR_ENABLED", False),
+        github_pr_enabled=github_prs, agent_xrs_enabled=agent_xrs, agent_xrs_interval=agent_xrs_interval,
         agent_token_file=Path(get("AGENT_TOKEN_FILE", "/var/run/clearance/agent-installation-token")),
         broker_url=get("BROKER_URL", BROKER_URL),
         model_key_file=Path(model_key) if model_key else None, model_port=model_port, model_routes=routes,
@@ -356,17 +368,20 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                   clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> tuple[SerializedGateway, Any]:
     """The gateway and, for a durable store, its PgState (to close on exit; None when ephemeral)."""
     b = backends or build_backends(cfg)
-    defs = profile.load_dir(cfg.agents_dir)
+    # The bundled definitions (the image's agents/) plus, as the loader finds them, the ones Agent XRs pin
+    # (clearance definitions.py; agent_xrs.py). A bundled name is never shadowed.
+    defs = Definitions(profile.load_dir(cfg.agents_dir))
     state, store_errors = None, ()
     if cfg.ephemeral:
         store, audit = SessionStore(), AuditLog()
         inbox = MemoryInbox()
         events = MemoryEvents()
         holds = MemoryHolds()
+        pins = MemoryDefinitions()
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
-        from clearance.pg import PgArtifacts, PgEvents, PgHolds, PgInbox
+        from clearance.pg import PgArtifacts, PgDefinitions, PgEvents, PgHolds, PgInbox
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
@@ -374,6 +389,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         inbox = PgInbox(state)                 # human.request's questions and answers, in the same transactions
         events = PgEvents(state)               # the trigger bridge's event history (clearance-api /v1/events)
         holds = PgHolds(state)                 # people's holds on agents' triggers (control.py)
+        pins = PgDefinitions(state)            # the cluster-pinned definitions, for restarts and clearance-api
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
@@ -383,7 +399,8 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            store_errors=store_errors, models=models, model_auth=model_auth,
                            verifiers=cfg.verifiers, agent_logins=cfg.agent_logins, inbox=inbox,
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
-                           delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins)
+                           delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
+                           definitions_store=pins)
     return gw, state
 
 
@@ -440,6 +457,7 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + (f" model-proxy=:{cfg.model_port} routes={','.join(sorted(cfg.model_routes))}" if cfg.model_key_file
                else " model-proxy=off")
             + f" events={'on' if cfg.events_enabled else 'off'}"
+            + f" agent-pins={'on (every ' + format(cfg.agent_xrs_interval, 'g') + 's)' if cfg.agent_xrs_enabled else 'off'}"
             + f" agentruns=in-cluster expire-every={cfg.expire_seconds:g}s")
 
 
@@ -462,10 +480,14 @@ def main() -> int:
     app = build_app(cfg, gw)
     log.info(describe(cfg, gw))
     expirer = Expirer(gw, cfg.expire_seconds).start()
-    bridge = None
+    bridge = pins = None
     if cfg.events_enabled:
         from .event_bridge import EventBridge
         bridge = EventBridge(gw, cfg.glidepath_url, cfg.glidepath_token_file).start()
+    if cfg.agent_xrs_enabled:
+        from .agent_xrs import AgentXRs
+        pins = AgentXRs(gw, KubeReader(IN_CLUSTER_API, SA_DIR / "token", SA_DIR / "ca.crt"),
+                        GitHubPRs(cfg.agent_token_file, broker_url=cfg.broker_url), interval=cfg.agent_xrs_interval).start()
     level = os.environ.get("LOG_LEVEL", "info").lower()
     servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=cfg.port, log_level=level,
                                              proxy_headers=False, server_header=False))]
@@ -480,6 +502,8 @@ def main() -> int:
     try:
         asyncio.run(serve_all())
     finally:
+        if pins is not None:
+            pins.stop()
         if bridge is not None:
             bridge.stop()
         expirer.stop()
