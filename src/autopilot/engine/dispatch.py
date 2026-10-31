@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from fnmatch import fnmatchcase
 
 from . import control as ctl, definitions as defn, events as evh, gate, inbox as hr, policy, provenance, review
+from . import runtimes as runtimes_mod
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -98,13 +99,16 @@ class Gateway:
                  events: evh.EventsStore | None = None, holds: ctl.HoldStore | None = None,
                  admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None,
                  changes: gate.ChangeStore | None = None, gate_policy: gate.GatePolicy | None = None,
-                 owners: "AppOwners | None" = None, runtime_images: Sequence[str] = ()):
+                 owners: "AppOwners | None" = None, runtime_images: Sequence[str] = (),
+                 runtimes: Sequence[Any] = ()):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
         # The deployment gate (gate.py): the changes registered by the clearance-gate check, the platform's tier
         # table, and where an app's owner group comes from when the check does not say. None = the gate is off.
         self.changes, self.gate_policy, self.owners = changes, gate_policy or gate.GatePolicy(), owners
         # Where a definition's runtime.image may come from (review.validate: prefix globs; empty = any digest pin).
-        self.runtime_images = tuple(runtime_images)
+        # The deployment's runtime catalog (runtimes.py): its available runtimes' exact images are allowed too.
+        self.runtimes = tuple(runtimes)
+        self.runtime_images = tuple(runtime_images) + tuple(runtimes_mod.allowed_images(self.runtimes))
         # Cluster-pinned definitions (definitions.py): where the loaded set is kept for the read API and restarts.
         self.definitions_store = definitions_store
         # Person controls (control.py): the holds on agents' triggers, and the platform admins (principal globs) who
