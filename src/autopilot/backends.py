@@ -36,6 +36,7 @@ class GlidepathBackend(Protocol):
     def rollback_plan(self, app: str, env: str, cluster: str, on_behalf_of: str) -> Any: ...
     def promote(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
     def rollback(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
+    def validate_cicd(self, app: str, body: dict, on_behalf_of: str) -> Any: ...
 
 
 
@@ -123,6 +124,40 @@ class FakeGlidepath(Recorder):
                 "targets": [{"releaseId": "rel-2", "image": f"ghcr.io/o/{app}:1.1.0-2222222", "gitRevision": "2222222",
                              "gitUrl": f"https://github.com/o/{app}", "healthyAt": "2026-10-28T00:00:00Z",
                              "state": "superseded"}]}
+
+    # glidepath-api's POST /v1/apps/{app}/cicd/validations, as its validator answers it for a small cicd.yaml: the
+    # patch applied to CICD_BASE, every changed field listed with its scope, and (agent) GP-SCOPE-002 when a gate is
+    # turned off. Enough for the propose handler's three paths: clean, refused, nothing to change.
+    CICD_BASE = {"apiVersion": "platform/v1", "kind": "PipelineConfig",
+                 "build": {"agent": "nodejs-22", "cache": {"enabled": False, "size": "small"}},
+                 "governance": {"sast": True, "imageScan": True},
+                 "pipelines": {"ci": {"trigger": {"source": "git", "event": "push", "branch": "main"}, "steps": [{"stage": "build"}]}}}
+
+    def validate_cicd(self, app, body, on_behalf_of):
+        self._rec("glidepath.validate_cicd", app, body, on_behalf_of=on_behalf_of)
+        from clearance.packs.hangar.cicd import merge_patch
+        from clearance.packs.hangar.vendor.cicd_scope import MISSING, changes
+        import yaml
+        head = merge_patch(self.CICD_BASE, body.get("patch") or {})
+        out_changes = []
+        for ptr, b, h in changes(self.CICD_BASE, head):
+            c = {"pointer": ptr, "change": "removed" if h is MISSING else "added" if b is MISSING else "changed",
+                 "agentScope": "tighten" if ptr.startswith("/governance/") else "open"}
+            if b is not MISSING:
+                c["before"] = b
+            if h is not MISSING:
+                c["after"] = h
+            out_changes.append(c)
+        problems = []
+        if body.get("agent") and head.get("governance", {}).get("sast") is False:
+            problems.append({"pointer": "/governance/sast", "rule": "GP-SCOPE-002", "severity": "error",
+                             "message": "/governance/sast loosened (true -> false)",
+                             "hint": "An agent may turn a gate on or make it stricter, never the other way."})
+        summary = ("valid" if not problems else f"{len(problems)} error(s): GP-SCOPE-002") + \
+            ("; no change" if not out_changes else f"; {len(out_changes)} change(s)")
+        return {"valid": not problems, "problems": problems, "changes": out_changes, "summary": summary,
+                "base": {"repo": f"jfillman/{app}", "ref": body.get("baseRef") or "HEAD", "sha": "a" * 40, "present": True},
+                "resulting": yaml.safe_dump(head, sort_keys=True), "contractVersion": 1}
 
     def _replayed(self, name, key, dry_run):
         return not dry_run and sum(1 for c in self.calls if c[0] == name and c[1][3] == key and not c[1][4]) > 1

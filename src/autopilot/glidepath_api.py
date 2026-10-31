@@ -167,6 +167,15 @@ class GlidepathAPI:
         return self._post(f"/v1/apps/{self._seg(app)}/environments/{self._seg(env)}/{op}", on_behalf_of, headers, body,
                           hint_422=self._RELEASE_422)
 
+    # cicd.yaml changes (glidepath-api 0.7.0, docs/admin/api.md "Validate a cicd.yaml change"): what a merge patch
+    # would mean, as the cicd-validate check will judge it. T0: nothing is written. The verdict on the change (valid,
+    # problems, changes, resulting) is the 200 body; a 400 about the request itself comes back as data.
+    def validate_cicd(self, app, body, on_behalf_of):
+        status, raw = self._get(f"/v1/apps/{self._seg(app)}/cicd/validations", on_behalf_of, method="POST", body=body)
+        if status == 200:
+            return json.loads(raw)
+        return self._refusal(status, raw)
+
     def promote(self, app, env, body, idempotency_key, dry_run, on_behalf_of):
         return self._release("promote", app, env, body, idempotency_key, dry_run, on_behalf_of)
 

@@ -21,7 +21,7 @@ from clearance.profile import AgentDefinition
 from clearance.session import Session, SessionStore
 from clearance.tiers import ToolSpec
 
-from . import manifests
+from . import cicd_propose, manifests
 from .backends import AgentRunStore, Backends
 
 PACKS = (HANGAR,)
@@ -119,6 +119,9 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
         # promotion (or rollback), so an agent retrying it replays the first answer instead of starting another.
         "glidepath.promote": lambda s, a: _promote(b, s, a),
         "glidepath.rollback": lambda s, a: _rollback(b, s, a),
+        # A cicd.yaml change (cicd_propose.py): the verdict glidepath-api gives it, and the PR a clean one becomes.
+        "glidepath.cicd.validate": lambda s, a: cicd_propose.validate(b.glidepath, s.principal, a),
+        "glidepath.cicd.propose": lambda s, a: cicd_propose.propose(b.git, b.glidepath, s, pr_meta(s), a),
         "airframe.capabilities": lambda s, a: b.airframe.capabilities(a.get("kind"), a.get("section")),
         "airframe.validate": lambda s, a: b.airframe.validate(a["documents"], a.get("app"), a.get("mode", "values"),
                                                               a.get("render", True)),
