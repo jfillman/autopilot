@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import control as ctl, events as evh, inbox as hr, policy, provenance
+from . import control as ctl, definitions as defn, events as evh, inbox as hr, policy, provenance
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -90,8 +90,10 @@ class Gateway:
                  agent_logins: Sequence[str] = (), inbox: hr.InboxStore | None = None,
                  directory: hr.Directory | None = None, delegates: Sequence[str] = (),
                  events: evh.EventsStore | None = None, holds: ctl.HoldStore | None = None,
-                 admins: Sequence[str] = ()):
+                 admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
+        # Cluster-pinned definitions (definitions.py): where the loaded set is kept for the read API and restarts.
+        self.definitions_store = definitions_store
         # Person controls (control.py): the holds on agents' triggers, and the platform admins (principal globs) who
         # may freeze, end, hold and release beside each agent's owner group.
         self.holds, self.admins = holds, tuple(admins)
@@ -379,6 +381,39 @@ class Gateway:
             "parent": s.parent_id if s else None, "principal": person, "agent": agent, "tool": tool, "tier": None,
             "decision": "allow", "rule": None, "target": target, "args_sha256": args_digest(args),
             "result": result + (f" via {via}" if via else "")})
+
+    # -- cluster-pinned definitions (definitions.py) -----------------------------------------------------------
+    def _definition_record(self, tool: str, name: str, source: defn.Source, decision: str, rule: str | None,
+                           result: str) -> dict[str, Any]:
+        principal = f"pin:{source.namespace}/{source.xr}" if source.kind == "cluster" else "platform"
+        return self.audit.append({
+            "ts": iso(self.now()), "task_id": None, "session": None, "parent": None, "principal": principal,
+            "agent": name, "tool": tool, "tier": None, "decision": decision, "rule": rule, "target": source.pin,
+            "args_sha256": args_digest(source.view()), "result": result})
+
+    @_durable
+    def apply_cluster_definitions(self, loaded: Sequence[defn.Loaded], rejected: Sequence[defn.Rejected] = ()) -> defn.Changes:
+        """The loader's hand-off: make `loaded` + `rejected` the cluster set (definitions.Definitions.replace_cluster),
+        record what changed as evidence (definition.load for a new or re-pinned definition, definition.unload for a
+        pin that is gone, definition.reject for a pin that did not load, once each), and persist the set for the read
+        API. Nothing is recorded when the poll found the same set."""
+        if not isinstance(self.defs, defn.Definitions):
+            raise TypeError("cluster definitions need a definitions.Definitions mapping")
+        with self.lock:
+            ch = self.defs.replace_cluster(list(loaded), list(rejected))
+            if not ch:
+                return ch
+            for n in ch.added:
+                self._definition_record("definition.load", n, ch.sources[n], "allow", None, f"loaded {ch.sources[n].pin}")
+            for n in ch.changed:
+                self._definition_record("definition.load", n, ch.sources[n], "allow", None, f"re-pinned {ch.sources[n].pin}")
+            for n in ch.removed:
+                self._definition_record("definition.unload", n, ch.sources[n], "allow", None, f"pin removed {ch.sources[n].pin}")
+            for r in ch.rejected:
+                self._definition_record("definition.reject", r.name, r.source, "deny", "DF-PIN", r.reason)
+            if self.definitions_store is not None:
+                self.definitions_store.replace(self.defs.records())
+            return ch
 
     @_durable
     def freeze_session(self, token: str, session_id: str, reason: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
