@@ -119,7 +119,19 @@ class EventBridge:
                          "session": r.session, "run": (launched.data or {}).get("run")})
         for d in done:
             log.info("event %s %s: %s %s", eid, envelope.get("routingKey"), d["agent"], d["result"])
+        self._record(envelope, done)
         return done
+
+    def _record(self, envelope: dict[str, Any], done: list[dict[str, Any]]) -> None:
+        """Keep the event and what was done with it (clearance events.py, Gateway.record_event: history, not evidence),
+        every event, matched or not, so a trigger dry run can replay them. Best effort: history never stops a run."""
+        record = getattr(self.gw, "record_event", None)
+        if record is None:
+            return
+        try:
+            record(summarize(envelope), done)
+        except Exception as e:  # noqa: BLE001 - history is best effort
+            log.warning("event %s: history not recorded: %s", envelope.get("id"), e)
 
     # -- the stream -----------------------------------------------------------------------------------------------
     def _request(self) -> urllib.request.Request:
