@@ -20,8 +20,10 @@ import os
 from typing import Mapping
 
 from clearance import api, profile
+from clearance.policy import Policy
 
 from . import serve
+from .gateway import PACKS
 from .reads import BackstageCatalog, BackstageDirectory, BackstageOwnership
 
 log = logging.getLogger("autopilot.api")
@@ -45,7 +47,8 @@ def build(env: Mapping[str, str] | None = None):
                         notifiers=serve._list(get("CLEARANCE_API_NOTIFIERS", "")),
                         auditors=serve._list(get("CLEARANCE_API_AUDITORS", "")), directory=directory, ownership=ownership)
     store = api.PgReadStore(api.Pool(dsn, size=int(get("CLEARANCE_API_POOL", "5"))))
-    app = api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"))
+    # The same policy the gateway runs (core + the Hangar pack), for /v1/policy and the dry-run explainer.
+    app = api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"), policy=Policy(PACKS))
     return cfg, access, app
 
 
