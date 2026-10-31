@@ -105,7 +105,9 @@ class EventBridge:
                 continue
             r = self.gw.open_triggered(agent, f"glidepath:{eid}", task_id=triggers.event_task_id(agent, eid))
             if not r.ok:
-                done.append({"agent": agent, "result": "refused", "rule": r.decision.get("rule")})
+                # R024: a person holds this agent's triggers (clearance control.py); the event is history, not a run.
+                rule = r.decision.get("rule")
+                done.append({"agent": agent, "result": "held" if rule == "R024" else "refused", "rule": rule})
                 continue
             if r.data.get("deduped"):
                 done.append({"agent": agent, "result": "deduped", "session": r.session})
