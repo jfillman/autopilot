@@ -35,6 +35,7 @@ from clearance.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthentic
                             RoutingAuthenticator, WorkloadAuthenticator)
 from clearance.backends import Handler
 from clearance.dispatch import Authenticator, Gateway
+from clearance.control import MemoryHolds
 from clearance.events import MemoryEvents
 from clearance.inbox import MemoryInbox
 from clearance.modelproxy import ModelRoute
@@ -109,6 +110,9 @@ class Config:
     tower_jwks_url: str | None = None
     tower_service_accounts: tuple[str, ...] = ()
     delegates: tuple[str, ...] = ()
+    # Platform admins (principal globs, user:<login>) who may freeze, end, hold and release beside each agent's owner
+    # group (clearance control.py).
+    admins: tuple[str, ...] = ()
 
     @property
     def issuer_url(self) -> str:
@@ -217,6 +221,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         tower_cluster=tower_cluster if tower_issuer else None, tower_issuer=tower_issuer,
         tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
         tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("CLEARANCE_DELEGATES", "")),
+        admins=_list(get("CLEARANCE_ADMINS", "")),
     )
 
 
@@ -357,16 +362,18 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         store, audit = SessionStore(), AuditLog()
         inbox = MemoryInbox()
         events = MemoryEvents()
+        holds = MemoryHolds()
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
-        from clearance.pg import PgArtifacts, PgEvents, PgInbox
+        from clearance.pg import PgArtifacts, PgEvents, PgHolds, PgInbox
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
             b.artifacts = PgArtifacts(state)   # on the store's connection: a put commits with its call's evidence
         inbox = PgInbox(state)                 # human.request's questions and answers, in the same transactions
         events = PgEvents(state)               # the trigger bridge's event history (clearance-api /v1/events)
+        holds = PgHolds(state)                 # people's holds on agents' triggers (control.py)
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
@@ -376,7 +383,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            store_errors=store_errors, models=models, model_auth=model_auth,
                            verifiers=cfg.verifiers, agent_logins=cfg.agent_logins, inbox=inbox,
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
-                           delegates=cfg.delegates, events=events)
+                           delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins)
     return gw, state
 
 

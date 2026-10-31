@@ -136,3 +136,17 @@ def test_every_event_is_kept_as_history_with_what_was_done(gw, clock):
     # A gateway without history (an older Clearance, or none configured) changes nothing.
     g.events = None
     assert [d["result"] for d in bridge.handle(failed(eid="3"))] == ["launched"]
+
+
+def test_a_held_agent_is_not_started_and_the_event_says_so(gw, clock):
+    """clearance control.py: a person's hold on the agent's triggers (R024) shows as the outcome `held`."""
+    from datetime import timedelta
+    from clearance.control import Hold
+    g, runs = gw
+    g.holds.put(Hold(agent="triage-agent", by="user:root", via=None, reason="it opens bad PRs", since=clock(), until=clock() + timedelta(hours=1)))
+    done = EventBridge(g, "http://gp", "/dev/null", clock=clock).handle(failed(eid="held-1"))
+    assert [(d["agent"], d["result"], d["rule"]) for d in done] == [("triage-agent", "held", "R024")]
+    assert runs.manifests == {}
+    assert g.events.recent()[0].outcomes[0]["result"] == "held"
+    clock.advance(hours=2)
+    assert [d["result"] for d in EventBridge(g, "http://gp", "/dev/null", clock=clock).handle(failed(eid="held-2"))] == ["launched"], "the hold expired"
