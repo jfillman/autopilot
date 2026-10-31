@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import events as evh, inbox as hr, policy, provenance
+from . import control as ctl, events as evh, inbox as hr, policy, provenance
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -89,8 +89,12 @@ class Gateway:
                  model_auth: Authenticator | None = None, verifiers: Sequence[str] = (),
                  agent_logins: Sequence[str] = (), inbox: hr.InboxStore | None = None,
                  directory: hr.Directory | None = None, delegates: Sequence[str] = (),
-                 events: evh.EventsStore | None = None):
+                 events: evh.EventsStore | None = None, holds: ctl.HoldStore | None = None,
+                 admins: Sequence[str] = ()):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
+        # Person controls (control.py): the holds on agents' triggers, and the platform admins (principal globs) who
+        # may freeze, end, hold and release beside each agent's owner group.
+        self.holds, self.admins = holds, tuple(admins)
         # The trigger bridge's event history (events.py): what it received and did, for the read API. None = not kept.
         self.events = events
         # The session store and the audit chain are single-writer: every transport (the MCP server, the model proxy)
@@ -163,6 +167,9 @@ class Gateway:
             return self._deny_open(p, agent, "R003", "unknown agent definition")
         if d.identity_type != "workload" or d.kind not in ("scheduled", "event", "service"):
             return self._deny_open(p, agent, "R001", "only workload agents of kind scheduled, event or service can be triggered")
+        held = self.hold_for(agent)
+        if held is not None:
+            return self._deny_open(p, agent, "R024", f"triggers held by {held.by} until {iso(held.until)}: {held.reason}")
         if task_id:
             # At-least-once delivery: the same task id must not start a second run.
             live = self.store.find_live(agent, task_id, self.now())
@@ -336,6 +343,103 @@ class Gateway:
             return False
         self.events.record(evh.from_summary(summary, outcomes, self.now()))
         return True
+
+    # -- person controls (control.py): freeze or end a run, hold or release an agent's triggers ---------------------
+    def hold_for(self, agent: str) -> ctl.Hold | None:
+        """The active hold on an agent's triggers, if any; an expired one is dropped."""
+        if self.holds is None:
+            return None
+        h = self.holds.get(agent)
+        if h is None:
+            return None
+        if not h.active(self.now()):
+            self.holds.delete(agent)
+            return None
+        return h
+
+    def _manager(self, token: str, on_behalf_of: str | None, agent: str, session: Session | None = None) -> tuple[str, str | None]:
+        """Who is acting (person, via), and that they may: the agent's owner group, a platform admin, or for a
+        session, the person whose session it is."""
+        try:
+            person, via = self._person(token, on_behalf_of)
+        except hr.InboxError as e:
+            raise ctl.ControlError(e.rule.replace("HR-", "CT-"), e.message, e.hint, e.status) from None
+        d = self.defs.get(agent)
+        groups = self.directory.groups(person) if self.directory is not None else set()
+        own = session is not None and session.principal == person
+        if not own and not ctl.may_manage(person, getattr(d, "owner", None), groups, self.admins):
+            raise ctl.ControlError("CT-FORBIDDEN", f"{person} may not manage {agent}",
+                                   "Only the agent's owner group, a platform admin, or the person whose session it is may.", 403)
+        return person, via
+
+    def _control_record(self, person: str, via: str | None, tool: str, s: Session | None, agent: str, target: str,
+                        args: dict[str, Any], result: str) -> dict[str, Any]:
+        return self.audit.append({
+            "ts": iso(self.now()), "task_id": s.task_id if s else None, "session": s.id if s else None,
+            "parent": s.parent_id if s else None, "principal": person, "agent": agent, "tool": tool, "tier": None,
+            "decision": "allow", "rule": None, "target": target, "args_sha256": args_digest(args),
+            "result": result + (f" via {via}" if via else "")})
+
+    @_durable
+    def freeze_session(self, token: str, session_id: str, reason: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """Trip a live session's breaker by hand: every further call of the run (and its children) is refused; the
+        run stays for a person to read. Recorded as session.freeze."""
+        s = self.store.get(session_id)
+        if s is None:
+            raise ctl.ControlError("CT-UNKNOWN", "no such session", "", 404)
+        person, via = self._manager(token, on_behalf_of, s.agent, s)
+        text = ctl.check_reason(reason)
+        if s.closed:
+            raise ctl.ControlError("CT-CLOSED", "this session is already closed", "", 409)
+        if s.tripped:
+            raise ctl.ControlError("CT-TRIPPED", f"this session is already frozen: {s.trip_reason}", "", 409)
+        self.store.trip(s.id, f"frozen by {person}: {text}")
+        rec = self._control_record(person, via, "session.freeze", s, s.agent, s.id, {"reason": text}, f"frozen: {text}")
+        return {"session": s.id, "agent": s.agent, "tripped": True, "trip_reason": s.trip_reason, "audit_seq": rec["seq"]}
+
+    @_durable
+    def end_session(self, token: str, session_id: str, reason: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """Close a session (and its children) by hand: its budget is settled, every further call is refused. The run's
+        own pod ends with its AgentRun's TTL. Recorded as session.end."""
+        s = self.store.get(session_id)
+        if s is None:
+            raise ctl.ControlError("CT-UNKNOWN", "no such session", "", 404)
+        person, via = self._manager(token, on_behalf_of, s.agent, s)
+        text = ctl.check_reason(reason)
+        if s.closed:
+            raise ctl.ControlError("CT-CLOSED", "this session is already closed", "", 409)
+        self.store.close(s.id)
+        rec = self._control_record(person, via, "session.end", s, s.agent, s.id, {"reason": text}, f"ended: {text}")
+        return {"session": s.id, "agent": s.agent, "closed": True, "audit_seq": rec["seq"]}
+
+    @_durable
+    def hold_triggers(self, token: str, agent: str, reason: Any, hours: Any = None, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """Stop an agent's triggers starting runs, for `hours` (24 by default, 336 at most); renewing replaces the
+        hold. open_triggered refuses with R024 while it lasts. Recorded as trigger.hold."""
+        if self.holds is None:
+            raise ctl.ControlError("CT-OFF", "this deployment keeps no holds", "", 404)
+        if agent not in self.defs:
+            raise ctl.ControlError("CT-UNKNOWN", "no such agent", "", 404)
+        person, via = self._manager(token, on_behalf_of, agent)
+        text, n = ctl.check_reason(reason), ctl.check_hours(hours)
+        now = self.now()
+        hold = ctl.Hold(agent=agent, by=person, via=via, reason=text, since=now, until=ctl.hold_until(now, n))
+        self.holds.put(hold)
+        rec = self._control_record(person, via, "trigger.hold", None, agent, agent, {"reason": text, "hours": n},
+                                   f"held until {iso(hold.until)}: {text}")
+        return {**hold.view(), "audit_seq": rec["seq"]}
+
+    @_durable
+    def release_triggers(self, token: str, agent: str, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """Lift a hold before it expires. Recorded as trigger.release."""
+        hold = self.hold_for(agent)
+        if hold is None:
+            raise ctl.ControlError("CT-NOHOLD", f"{agent} is not held", "", 404)
+        person, via = self._manager(token, on_behalf_of, agent)
+        self.holds.delete(agent)
+        rec = self._control_record(person, via, "trigger.release", None, agent, agent, {},
+                                   f"released (held by {hold.by} since {iso(hold.since)}: {hold.reason})")
+        return {"agent": agent, "released": True, "audit_seq": rec["seq"]}
 
     def human_requests(self, token: str, on_behalf_of: str | None = None) -> list[dict[str, Any]]:
         """The pending requests this person may answer, oldest first."""

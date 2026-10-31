@@ -28,7 +28,7 @@ from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import inbox, provenance
+from . import control, inbox, provenance
 from .dispatch import AuthError, Authenticator, Gateway
 from .modelproxy import charged_tokens
 
@@ -146,9 +146,21 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
             out = await anyio.to_thread.run_sync(_locked(gateway, functools.partial(op, on_behalf_of=who)), token, *args)
         except AuthError:
             return JSONResponse({"error": "token not accepted"}, status_code=401)
-        except inbox.InboxError as e:
+        except (inbox.InboxError, control.ControlError) as e:
             return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
         return JSONResponse(out)
+
+    async def _body(request: Request) -> dict | JSONResponse:
+        raw = await request.body()
+        if len(raw) > 64 << 10:
+            return JSONResponse({"error": "body too large"}, status_code=413)
+        if not raw:
+            return {}
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return JSONResponse({"error": "the body is not JSON"}, status_code=400)
+        return body if isinstance(body, dict) else {}
 
     @mcp.custom_route("/v1/human/requests", methods=["GET"], include_in_schema=False)
     async def human_list(request: Request) -> JSONResponse:
@@ -167,6 +179,37 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
             return JSONResponse({"error": "the body is not JSON"}, status_code=400)
         answer = body.get("answer") if isinstance(body, dict) else None
         return await _people(request, gateway.human_answer, request.path_params["request_id"], answer)
+
+    # Person controls (control.py, decided 2026-10-31: the delegate model for writes too): a person's own token, or a
+    # delegate's naming them. Each is an evidence record.
+    @mcp.custom_route("/v1/sessions/{session_id}/freeze", methods=["POST"], include_in_schema=False)
+    async def freeze(request: Request) -> JSONResponse:
+        """Trip a live session's breaker: {"reason": "..."}."""
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        return await _people(request, gateway.freeze_session, request.path_params["session_id"], body.get("reason"))
+
+    @mcp.custom_route("/v1/sessions/{session_id}/end", methods=["POST"], include_in_schema=False)
+    async def end(request: Request) -> JSONResponse:
+        """Close a session and its children: {"reason": "..."}."""
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        return await _people(request, gateway.end_session, request.path_params["session_id"], body.get("reason"))
+
+    @mcp.custom_route("/v1/agents/{agent}/hold", methods=["POST"], include_in_schema=False)
+    async def hold(request: Request) -> JSONResponse:
+        """Hold an agent's triggers: {"reason": "...", "hours": 24}."""
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        return await _people(request, gateway.hold_triggers, request.path_params["agent"], body.get("reason"), body.get("hours"))
+
+    @mcp.custom_route("/v1/agents/{agent}/hold", methods=["DELETE"], include_in_schema=False)
+    async def release(request: Request) -> JSONResponse:
+        """Lift a hold before it expires."""
+        return await _people(request, gateway.release_triggers, request.path_params["agent"])
 
     return mcp.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
 

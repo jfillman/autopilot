@@ -94,8 +94,11 @@ def test_verify_chain_streams_and_finds_the_first_bad_record():
 class MemStore:
     """Just enough of ReadStore for the HTTP layer (the SQL is the pg test's)."""
 
-    def __init__(self, sessions, evidence, human, events=()):
-        self.s, self.e, self.h, self.ev = sessions, evidence, human, list(events)
+    def __init__(self, sessions, evidence, human, events=(), holds=None):
+        self.s, self.e, self.h, self.ev, self.hd = sessions, evidence, human, list(events), dict(holds or {})
+
+    def holds(self, now):
+        return dict(self.hd)
 
     def _sees(self, r, v):
         return v.all or r.get("principal") == v.person or r.get("agent") in v.agents or r.get("app") in v.apps
