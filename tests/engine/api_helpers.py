@@ -94,11 +94,26 @@ def test_verify_chain_streams_and_finds_the_first_bad_record():
 class MemStore:
     """Just enough of ReadStore for the HTTP layer (the SQL is the pg test's)."""
 
-    def __init__(self, sessions, evidence, human):
-        self.s, self.e, self.h = sessions, evidence, human
+    def __init__(self, sessions, evidence, human, events=()):
+        self.s, self.e, self.h, self.ev = sessions, evidence, human, list(events)
 
     def _sees(self, r, v):
         return v.all or r.get("principal") == v.person or r.get("agent") in v.agents or r.get("app") in v.apps
+
+    def events(self, f, v, limit, after):
+        # Postgres compares timestamps; this fake compares ISO strings, so Z and +00:00 are made alike first.
+        t = lambda s: s.replace("Z", "+00:00") if s else s  # noqa: E731
+
+        def sees(e):
+            return v.all or e.get("app") in v.apps or any(o.get("agent") in v.agents for o in e["outcomes"])
+
+        def matches(e):
+            return (all(e.get({"key": "routing_key"}.get(k, k)) == x for k, x in f.items() if k not in ("agent", "subject", "since", "until"))
+                    and (not f.get("agent") or any(o.get("agent") == f["agent"] for o in e["outcomes"]))
+                    and (not f.get("subject") or e["subject"].get("id") == f["subject"])
+                    and (not f.get("since") or e["received_at"] >= t(f["since"])) and (not f.get("until") or e["received_at"] < t(f["until"])))
+        out = sorted((e for e in self.ev if sees(e) and matches(e)), key=lambda e: e["received_at"], reverse=True)
+        return [e for e in out if not after or e["received_at"] < t(after)][:limit]
 
     def sessions(self, f, v, limit, after):
         out = [dict(s, state="live") for s in self.s if self._sees(s, v) and all(s.get({"task": "task_id"}.get(k, k)) == x for k, x in f.items() if k != "state")]
