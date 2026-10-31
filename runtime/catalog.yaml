@@ -1,0 +1,29 @@
+# The runtime catalog (Autopilot's runtime image library, decided 2026-10-31): the agent images Hangar offers.
+# The gateway hands it to Clearance (clearance runtimes.py): an available `runtime` image is what a definition's
+# runtime.image may pin (beside RUNTIME_IMAGES_EXTRA globs for images Glidepath builds for an agent's own repo), a
+# `base` image is a FROM image for code agents, and clearance-api lists all of it at GET /v1/runtimes for the New
+# agent picker. Every image speaks the same contract (README "The agent runtime": the HANGAR_* environment, the
+# projected tokens, /run/output/result.json). Each is built multi-arch by .github/workflows/runtime-image.yaml from
+# a tag `runtime-<name>-v*` (generic keeps its `runtime-v*` tags) and pinned here by its index digest.
+runtimes:
+  - name: generic
+    image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:628e623ce1f24032d9622c3fad2368a337190708e5deb63b5c4b02b896db2f1b
+    kind: runtime
+    framework: generic
+    summary: "The generic loop (runtime/src/hangar_agent): the definition's instructions to the model through Clearance's model proxy, its tools through Clearance, result.json at the end. Prompt-only agents. runtime-v0.1.2."
+    status: available
+  - name: base-python
+    kind: base
+    framework: generic
+    summary: "FROM image for a Python code agent: python 3.13-slim, non-root, read-only-root ready, with hangar_agent installed as a library (env, the Clearance client, the model-proxy client, result.json). Your entrypoint, our contract."
+    status: planned          # available once runtime-base-python-v0.1.0 is built and its digest pinned here
+  - name: claude-agent-sdk
+    kind: runtime
+    framework: claude-agent-sdk
+    summary: "The Claude Agent SDK's loop with Clearance as its MCP server. Waits on the model proxy speaking streaming Messages, which the SDK needs."
+    status: planned
+  - name: langgraph
+    kind: runtime
+    framework: langgraph
+    summary: "A LangGraph graph whose tool nodes call Clearance and whose model node calls the model proxy."
+    status: planned

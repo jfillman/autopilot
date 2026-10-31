@@ -5,7 +5,7 @@ name: runtime-image
 # give the cluster a pull secret). Pin agent definitions' runtime.image by digest.
 on:
   push:
-    tags: ["runtime-v*"]
+    tags: ["runtime-v*", "runtime-base-python-v*"]
 permissions:
   contents: read
   packages: write
@@ -21,13 +21,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Which image the tag names (runtime/catalog.yaml): runtime-v* is the generic runtime, runtime-<name>-v* another.
+      - id: which
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            runtime-base-python-v*) echo "file=runtime/base-python/Dockerfile" >> "$GITHUB_OUTPUT"; echo "repo=ghcr.io/jfillman/autopilot-agent-base-python" >> "$GITHUB_OUTPUT" ;;
+            runtime-v*)             echo "file=runtime/Dockerfile" >> "$GITHUB_OUTPUT"; echo "repo=ghcr.io/jfillman/autopilot-agent-runtime" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown runtime tag ${GITHUB_REF_NAME}" >&2; exit 1 ;;
+          esac
       - id: build
         uses: docker/build-push-action@v6
         with:
           context: runtime
-          file: runtime/Dockerfile
+          file: ${{ steps.which.outputs.file }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/jfillman/autopilot-agent-runtime:${{ github.ref_name }}
+          tags: ${{ steps.which.outputs.repo }}:${{ github.ref_name }}
           provenance: false
-      - run: echo "ghcr.io/jfillman/autopilot-agent-runtime:${{ github.ref_name }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+      - run: echo "${{ steps.which.outputs.repo }}:${{ github.ref_name }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
