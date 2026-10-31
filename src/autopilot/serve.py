@@ -434,6 +434,10 @@ def describe(cfg: Config, gw: Gateway) -> str:
 
 
 def main() -> int:
+    import sys
+    if sys.argv[1:2] == ["api"]:   # `autopilot-gateway api`: clearance-api, the read-only process (api_serve.py)
+        from .api_serve import main as api_main
+        return api_main()
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:

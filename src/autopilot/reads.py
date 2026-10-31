@@ -279,6 +279,41 @@ class BackstageDirectory:
                 if r.get("type") == "memberOf" and str(r.get("targetRef", "")).startswith("group:")}
 
 
+class BackstageOwnership:
+    """clearance.api.Ownership on Tower's catalog: the apps a person owns are the Components whose spec.owner is the
+    person (user:default/<login>) or one of their groups (BackstageDirectory). On Hangar a Component's name is its
+    app's. Cached like the Directory; a failure is no apps, never an error."""
+
+    def __init__(self, catalog: BackstageCatalog, directory: "BackstageDirectory", ttl: float = 60.0,
+                 clock: Callable[[], float] | None = None):
+        import time
+        self.catalog, self.directory, self.ttl, self.clock = catalog, directory, ttl, clock or time.monotonic
+        self._cache: dict[str, tuple[float, set[str]]] = {}
+
+    def apps(self, principal: str) -> set[str]:
+        name = principal.removeprefix("user:") if isinstance(principal, str) and principal.startswith("user:") else None
+        if not name or not _NAME.match(name.lower()):
+            return set()
+        hit = self._cache.get(name)
+        if hit and self.clock() - hit[0] < self.ttl:
+            return hit[1]
+        owners = sorted({f"user:default/{name}"} | self.directory.groups(principal))
+        apps: set[str] = set()
+        try:
+            c = self.catalog
+            token = c.token_file.read_text().strip()
+            q = [("filter", f"kind=component,spec.owner={o}") for o in owners] + [("fields", "metadata.name"), ("limit", "500")]
+            req = urllib.request.Request(f"{c.base}/api/catalog/entities/by-query?{urllib.parse.urlencode(q)}",
+                                         method="GET", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+            status, body = c._open(req, c.timeout)
+            if status == 200:
+                apps = {e["metadata"]["name"].lower() for e in json.loads(body).get("items") or [] if e.get("metadata")}
+        except (OSError, ValueError, KeyError):
+            apps = set()
+        self._cache[name] = (self.clock(), apps)
+        return apps
+
+
 class Reads:
     """ReadBackend for the core read tools: PromQL, LogQL and the catalog, each when configured. app_api has no
     adapter (serve.build_handlers drops app.api.get, so it is never called)."""
