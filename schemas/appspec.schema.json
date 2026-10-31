@@ -1757,6 +1757,48 @@
                 "if": {
                   "properties": {
                     "type": {
+                      "const": "agentrepository"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "Desired state of the AgentRepository. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply).",
+                      "properties": {
+                        "devCluster": {
+                          "type": "string",
+                          "description": "The dev (control-plane) cluster whose Glidepath runs this repo's checks and whose Clearance loads its agents - the same cluster-registry gate as every application kind's spec.devCluster.",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Free-text description - used as the gitops-infra-<name> repo's GitHub description. Optional; omitted renders a generic placeholder instead.",
+                          "minLength": 1
+                        },
+                        "visibility": {
+                          "type": "string",
+                          "description": "GitHub visibility for the gitops-infra-<name> repo.",
+                          "enum": [
+                            "private",
+                            "public"
+                          ],
+                          "default": "private"
+                        }
+                      },
+                      "required": [
+                        "devCluster"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
                       "const": "agentrun"
                     }
                   }

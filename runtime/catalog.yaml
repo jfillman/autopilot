@@ -13,10 +13,11 @@ runtimes:
     summary: "The generic loop (runtime/src/hangar_agent): the definition's instructions to the model through Clearance's model proxy, its tools through Clearance, result.json at the end. Prompt-only agents. runtime-v0.1.2."
     status: available
   - name: base-python
+    image: ghcr.io/jfillman/autopilot-agent-base-python@sha256:7456258bf281ad469a26ac5c2b181e0323206e6899e285dcd374403fa84d8f77
     kind: base
     framework: generic
     summary: "FROM image for a Python code agent: python 3.13-slim, non-root, read-only-root ready, with hangar_agent installed as a library (env, the Clearance client, the model-proxy client, result.json). Your entrypoint, our contract."
-    status: planned          # available once runtime-base-python-v0.1.0 is built and its digest pinned here
+    status: available        # runtime-base-python-v0.1.0
   - name: claude-agent-sdk
     kind: runtime
     framework: claude-agent-sdk
