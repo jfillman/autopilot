@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import inbox as hr, policy, provenance
+from . import events as evh, inbox as hr, policy, provenance
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -88,8 +88,11 @@ class Gateway:
                  runs: RunBackend | None = None, models: Mapping[str, ModelRoute] | None = None,
                  model_auth: Authenticator | None = None, verifiers: Sequence[str] = (),
                  agent_logins: Sequence[str] = (), inbox: hr.InboxStore | None = None,
-                 directory: hr.Directory | None = None, delegates: Sequence[str] = ()):
+                 directory: hr.Directory | None = None, delegates: Sequence[str] = (),
+                 events: evh.EventsStore | None = None):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
+        # The trigger bridge's event history (events.py): what it received and did, for the read API. None = not kept.
+        self.events = events
         # The session store and the audit chain are single-writer: every transport (the MCP server, the model proxy)
         # takes this lock around a gateway operation.
         self.lock = threading.RLock()
@@ -323,6 +326,16 @@ class Gateway:
         if principal.kind != "user":
             raise hr.InboxError("HR-PERSON", f"{principal.id} is not a person", "", 403)
         return principal.id, None
+
+    @_durable
+    def record_event(self, summary: dict[str, Any], outcomes: list[dict[str, Any]]) -> bool:
+        """What the trigger bridge received and did with one event (events.py), for the read API's history. Not a
+        decision and not evidence: nothing is denied or spent, so it is not in the chain. False when this deployment
+        keeps no history."""
+        if self.events is None:
+            return False
+        self.events.record(evh.from_summary(summary, outcomes, self.now()))
+        return True
 
     def human_requests(self, token: str, on_behalf_of: str | None = None) -> list[dict[str, Any]]:
         """The pending requests this person may answer, oldest first."""
