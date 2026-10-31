@@ -1671,6 +1671,92 @@
                 "if": {
                   "properties": {
                     "type": {
+                      "const": "agent"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "spec": {
+                      "type": "object",
+                      "description": "The pin: which app's repository, which file, which commit, and who owns the agent.",
+                      "required": [
+                        "app",
+                        "owner",
+                        "source"
+                      ],
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "self.source.repo.endsWith('/' + self.app) || self.source.repo.endsWith('/gitops-' + self.app) || self.source.repo.endsWith('/gitops-infra-' + self.app)",
+                          "message": "source.repo must be the app's own repository: <owner>/<app>, <owner>/gitops-<app> or <owner>/gitops-infra-<app> (the rule the agents' GitHub App broker enforces)"
+                        }
+                      ],
+                      "properties": {
+                        "app": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+                          "description": "The onboarded app (tenants/<app>) whose repository holds the definition. The pin lives in that app's xr-requests folder and namespace (app-<app>-cicd). Fixed at creation.",
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "self == oldSelf",
+                              "message": "app can't change after creation: the tenants folder and the namespace derive from it; make a new Agent instead"
+                            }
+                          ]
+                        },
+                        "owner": {
+                          "type": "string",
+                          "pattern": "^group:[a-z0-9-]+/[a-z0-9._-]+$",
+                          "description": "The owner group, as a catalog entity reference (group:default/<team>). Clearance loads the definition only when its `owner` is this group; the group's members may freeze, end and hold the agent."
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200,
+                          "description": "One line for people: what the agent does. The definition's instructions are the agent's; this is the catalog's."
+                        },
+                        "source": {
+                          "type": "object",
+                          "description": "Where the definition is: a file in the app's own repository, at one commit.",
+                          "required": [
+                            "repo",
+                            "path",
+                            "commit"
+                          ],
+                          "properties": {
+                            "repo": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+                              "description": "The GitHub repository, <owner>/<name>. Must be the app's own: <app>, gitops-<app> or gitops-infra-<app>, which is what the agents' GitHub App broker will issue a read token for."
+                            },
+                            "path": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\\.ya?ml$",
+                              "maxLength": 512,
+                              "description": "The definition file's path in the repository (agents/<name>.yaml by convention). A relative path to a .yaml or .yml file; no leading slash.",
+                              "x-kubernetes-validations": [
+                                {
+                                  "rule": "!self.contains('/../') && !self.startsWith('../')",
+                                  "message": "path stays inside the repository"
+                                }
+                              ]
+                            },
+                            "commit": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{40}$",
+                              "description": "The full commit SHA (40 hex) the file is read at. A branch or a tag is not a pin: the point of this XR is that what Clearance loads cannot change without a reviewed change here."
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
                       "const": "agentrun"
                     }
                   }

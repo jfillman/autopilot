@@ -956,6 +956,61 @@
   },
   "generated_by": "tools/gen_contract.py",
   "kinds": {
+    "agent": {
+      "agentNotes": [
+        "Nothing is composed: the composition only writes status and AgentPinned. Ready=True means the pin is well-formed, not that Clearance loaded it; read clearance-api GET /v1/agents.",
+        "A pin names a commit, never a branch. To move an agent to a new definition, re-pin (the Pin agent template): change spec.source.commit in tenants/<app>/xr-requests/<name>.yaml.",
+        "The definition file's `name` must equal the XR's metadata.name and its `owner` must equal spec.owner, or Clearance rejects the pin (visible under `rejected`).",
+        "spec.app is fixed at creation; the repository must be the app's own (<app>, gitops-<app>, gitops-infra-<app>): the broker refuses a read token for any other."
+      ],
+      "conditions": [
+        {
+          "reasons": [
+            {
+              "meaning": "The XR is a well-formed pin and status carries repo, path, commit and shortCommit. It says nothing about whether Clearance loaded the definition; that is clearance-api GET /v1/agents (each agent's `source`, and `rejected` for pins it could not load, with the reason).",
+              "reason": "AgentPinned",
+              "status": "True"
+            }
+          ],
+          "type": "AgentPinned"
+        }
+      ],
+      "kind": "Agent",
+      "outputs": {},
+      "owner": "human",
+      "role": "platform",
+      "sources": [],
+      "summary": "The durable half of an Autopilot agent, as a pin: which commit of the agent definition in the app's own repository (agents/<name>.yaml) is live. Clearance lists these XRs, fetches each pinned file through the agents' GitHub App and loads it beside the platform's bundled definitions. The XR composes nothing and carries no definition content or credential; it is requested through the Autopilot templates in Backstage (New agent, Pin agent) into tenants/<app>/xr-requests/.",
+      "verify": [
+        {
+          "check": "AgentPinned is True and status.commit is spec.source.commit.",
+          "id": "pinned",
+          "run": {
+            "kind": "condition",
+            "reasons": [
+              "AgentPinned"
+            ],
+            "type": "AgentPinned"
+          }
+        },
+        {
+          "check": "status.commit equals the pinned commit.",
+          "id": "commit-published",
+          "run": {
+            "equals": "{spec.source.commit}",
+            "kind": "xrField",
+            "path": "status.commit"
+          }
+        },
+        {
+          "check": "clearance-api GET /v1/agents lists {name} with source.commit equal to spec.source.commit (and it is not in `rejected`). A pin Clearance could not load (file missing at that commit, schema error, name or owner mismatch, repository not the app's own) is listed under `rejected` with the reason; fix the file or the pin.",
+          "id": "loaded-by-clearance",
+          "run": {
+            "kind": "manual"
+          }
+        }
+      ]
+    },
     "agentrun": {
       "agentNotes": [
         "Rendered by function-agentrun (Python, functions/function-agentrun; unit tests in CI, in the compositions job). Build and push per its README; the Function package is installed per cluster, with HANGAR_CLUSTER_NAME in its DeploymentRuntimeConfig.",
@@ -3238,6 +3293,15 @@
     }
   },
   "xrds": {
+    "Agent": {
+      "agentSummary": "Pins one commit of an agent definition in the app's own repository as the live definition Clearance loads; composes nothing.",
+      "apiVersion": "catalog.hangar.io/v1alpha1",
+      "fieldsDescribed": 8,
+      "fieldsTotal": 8,
+      "file": "agent.yaml",
+      "group": "catalog.hangar.io",
+      "plural": "agents"
+    },
     "AgentRun": {
       "agentSummary": "One bounded, disposable run of an Autopilot agent in its own sandboxed namespace, with a hard deadline that needs no gateway to enforce.",
       "apiVersion": "catalog.hangar.io/v1alpha1",
