@@ -111,7 +111,7 @@ class GitHubPRs:
 
     # -- GitBackend -----------------------------------------------------------------------------------------------
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
-                meta: dict[str, str] | None = None) -> dict[str, Any]:
+                meta: dict[str, str] | None = None, body: str | None = None) -> dict[str, Any]:
         owner, name = _split(repo)
         for b in (branch, base):
             if not _BRANCH.match(b or "") or ".." in b or b.startswith("/") or b.endswith((".lock", "/")):
@@ -149,8 +149,11 @@ class GitHubPRs:
                          "Use a new branch name; Clearance never pushes to an existing branch.")
         if status != 201:
             raise GitHubError(f"ref: {status}")
-        body = "Opened by a Hangar agent through Clearance.\n\n" + "\n".join(f"- {k}: `{v}`" for k, v in sorted(meta.items()))
-        status, pr = self._gh(token, "POST", f"{root}/pulls", {"title": title, "head": branch, "base": base, "body": body})
+        text = "Opened by a Hangar agent through Clearance.\n\n" + "\n".join(f"- {k}: `{v}`" for k, v in sorted(meta.items()))
+        if body:
+            # What the tool has to say about the change (glidepath.cicd.propose: the verdict and the fields it touches).
+            text += "\n\n" + body[:60000]
+        status, pr = self._gh(token, "POST", f"{root}/pulls", {"title": title, "head": branch, "base": base, "body": text})
         if status != 201:
             raise GitHubError(f"pull: {status}")
         return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch, "commit": new["sha"]}

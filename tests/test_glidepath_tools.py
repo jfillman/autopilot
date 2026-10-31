@@ -13,6 +13,7 @@ from autopilot.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeH
 from autopilot.gateway import TOOLS, hangar_gateway, release_key
 from autopilot.glidepath_api import GlidepathAPI, GlidepathError
 from clearance.dispatch import Denied
+from clearance.provenance import PR_TOOLS
 from clearance.server import create_server
 from clearance.tiers import TRIPWIRES, Tier
 
@@ -25,16 +26,20 @@ def open_(gw, agent="cicd-explainer", token="alice"):
     return r.data["session"]
 
 
-WRITES = {"glidepath.run.rerun", "glidepath.run.cancel"}
+WRITES = {"glidepath.run.rerun", "glidepath.run.cancel", "glidepath.cicd.propose"}
 PROPOSALS = {"glidepath.promote", "glidepath.rollback"}
 
 
 def test_glidepath_tools_are_reads_except_run_control_and_release_proposals():
     gp = {t.name: t for t in TOOLS.values() if t.name.startswith("glidepath.")}
-    assert len(gp) == 12 and "pipeline.rerun" not in TOOLS, "pipeline.rerun is retired for glidepath.run.rerun"
-    assert {"glidepath.environments.list", "glidepath.environments.rollbackPlan"} <= set(gp)
+    assert len(gp) == 14 and "pipeline.rerun" not in TOOLS, "pipeline.rerun is retired for glidepath.run.rerun"
+    assert {"glidepath.environments.list", "glidepath.environments.rollbackPlan", "glidepath.cicd.validate"} <= set(gp)
     assert all(t.tier == Tier.T0 for n, t in gp.items() if n not in WRITES | PROPOSALS)
     assert all(gp[n].tier == Tier.T1 and gp[n].target == "lower" and not gp[n].writes_files for n in WRITES)
+    # The PR tool: budgeted and receipted like repo.pr.open, scoped by the definition's repos.allow.
+    pr = gp["glidepath.cicd.propose"]
+    assert pr.reads_repo and pr.receipt == ("pr", "commit", "branch") and pr.github_cost == 4
+    assert "glidepath.cicd.propose" in PR_TOOLS
     for n in PROPOSALS:  # T2 is propose only: a human merge applies it, and Clearance spends no GitHub call on it
         t = gp[n]
         assert t.tier == Tier.T2 and t.propose_only and t.target == "upper", n
@@ -401,7 +406,9 @@ GITHUB_WRITERS = {n for n, t in TOOLS.items() if (t.github_cost > 0 and t.tier >
 
 
 def test_the_registry_has_no_tool_that_merges_or_approves():
-    assert GITHUB_WRITERS == {"repo.pr.open", "repo.pr.open_upper", "xr.request"}, \
+    # glidepath.cicd.propose (2026-10-31) opens one PR of cicd.yaml on the app repo, as repo.pr.open does; release-proposer
+    # does not list it (the test below holds that), and like every PR tool it cannot merge, approve or push to a branch.
+    assert GITHUB_WRITERS == {"repo.pr.open", "repo.pr.open_upper", "xr.request", "glidepath.cicd.propose"}, \
         "a new GitHub-writing tool: decide whether release-proposer may ever see it"
     for name in TOOLS:
         assert not re.search(r"merge|approv|push|review|branch", name), f"{name}: a tool that can merge or approve needs review here"
@@ -511,3 +518,114 @@ def test_an_agent_proposes_a_staging_promotion_using_only_mcp(defs, clock, token
         assert posts[0][2] == {"cluster": "hangar-prod", "sourceEnv": "dev", "sourceCluster": "hangar-dev"}
     finally:
         srv.shutdown()
+
+
+# --- cicd.yaml changes: glidepath.cicd.validate and glidepath.cicd.propose --------------------------------------
+
+CACHE_ON = {"build": {"cache": {"enabled": True}}}
+
+
+def test_cicd_validate_is_a_read_with_the_agents_rules_on(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    r = gw.call("alice", sid, "glidepath.cicd.validate", {"app": "gate-api", "patch": CACHE_ON, "baseRef": "main"})
+    assert r.ok and r.data["valid"] and [c["pointer"] for c in r.data["changes"]] == ["/build/cache/enabled"]
+    assert "enabled: true" in r.data["resulting"]
+    name, args, kw = backends.glidepath.calls[-1]
+    assert (name, args, kw) == ("glidepath.validate_cicd", ("gate-api", {"patch": CACHE_ON, "agent": True, "baseRef": "main"}),
+                                {"on_behalf_of": "user:alice"})
+    assert backends.git.calls == []
+
+
+def test_cicd_propose_opens_the_pr_with_the_validated_file(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api", "patch": CACHE_ON,
+                                                          "title": "Turn the build cache on", "body": "Builds take 9 minutes."})
+    assert r.ok, r.as_dict()
+    assert r.data["pr"] == 1 and r.data["paths"] == ["cicd.yaml"] and r.data["repo"] == "jfillman/gate-api"
+    assert r.data["summary"].startswith("valid; 1 change(s)")
+    (name, args, kw), = backends.git.calls
+    assert name == "git.open_pr" and args[0] == "jfillman/gate-api" and args[1].startswith("agent/cicd-")
+    assert args[2] == "Turn the build cache on" and kw == {"base": "main"}
+    # The file committed is glidepath-api's `resulting`: the patch applied to the file as it is, nothing else.
+    import yaml
+    expected = yaml.safe_dump({**backends.glidepath.CICD_BASE,
+                               "build": {"agent": "nodejs-22", "cache": {"enabled": True, "size": "small"}}}, sort_keys=True)
+    assert args[3] == [{"path": "cicd.yaml", "content": expected}]
+    validated = [c for c in backends.glidepath.calls if c[0] == "glidepath.validate_cicd"]
+    assert validated == [("glidepath.validate_cicd", ("gate-api", {"patch": CACHE_ON, "agent": True}), {"on_behalf_of": "user:alice"})]
+    # The receipt the agent gates read: the PR, its commit and the path the commit carried, as for repo.pr.open.
+    last = gw.audit.records[-1]
+    assert last["tool"] == "glidepath.cicd.propose" and last["decision"] == "allow"
+    assert last["effect"] == {"pr": 1, "commit": "0" * 39 + "1", "branch": args[1], "repo": "jfillman/gate-api", "paths": ["cicd.yaml"]}
+    # A chosen branch name is used as given.
+    again = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api", "patch": CACHE_ON,
+                                                              "title": "again", "branch": "agent/cicd-two"})
+    assert again.ok and backends.git.calls[-1][1][1] == "agent/cicd-two"
+
+
+def test_cicd_propose_refuses_what_glidepath_api_refuses(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api",
+                                                          "patch": {"governance": {"sast": False}}, "title": "Turn SAST off"})
+    assert not r.ok and r.decision["rule"] == "GP-SCOPE-002" and "never the other way" in r.decision["hint"]
+    assert backends.git.calls == [], "no PR for a refused change"
+    assert gw.audit.records[-1]["decision"] == "deny" and gw.audit.records[-1]["rule"] == "GP-SCOPE-002"
+
+
+def test_cicd_propose_needs_the_apps_own_repo_and_a_real_change(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/boarding-api", "patch": CACHE_ON, "title": "t"})
+    assert r.decision["rule"] == "GP-CICD-REPO"
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api", "patch": {}, "title": "t"})
+    assert r.decision["rule"] == "GP-CICD-NOOP"
+    # A repo the definition does not allow is refused before any call, like every repo tool.
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "evil/gate-api", "patch": CACHE_ON, "title": "t"})
+    assert not r.ok and r.decision["rule"] != "GP-CICD-REPO"
+    assert backends.git.calls == [] and all(c[0] != "glidepath.validate_cicd" or c[1][0] == "gate-api" for c in backends.glidepath.calls)
+
+
+@pytest.mark.parametrize("bad", [
+    {"patch": "not an object"}, {"patch": CACHE_ON, "title": ""}, {"patch": CACHE_ON, "title": "t", "branch": "a..b"},
+    {"patch": CACHE_ON, "title": "t", "body": "x" * 4001},
+])
+def test_cicd_arguments_are_checked_before_any_call(gw, backends, bad):
+    sid = open_(gw, agent="coding-agent")
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api", **bad})
+    assert r.decision["rule"] == "R008", r.as_dict()
+    assert backends.glidepath.calls == [] and backends.git.calls == []
+
+
+def test_adapter_posts_a_validation_and_reads_400_as_an_answer(token):
+    o = Opener(200, b'{"valid":true,"problems":[],"changes":[],"summary":"valid; no change"}')
+    api = GlidepathAPI("http://gp", token, on_behalf_of=True, opener=o)
+    out = api.validate_cicd("gate-api", {"patch": CACHE_ON, "agent": True}, "user:alice")
+    assert out["valid"] is True
+    req = o.reqs[0]
+    assert req.get_method() == "POST" and req.full_url == "http://gp/v1/apps/gate-api/cicd/validations"
+    assert json.loads(req.data) == {"patch": CACHE_ON, "agent": True}
+    assert req.get_header("X-glidepath-on-behalf-of") == "user:alice" and req.get_header("Content-type") == "application/json"
+    bad = GlidepathAPI("http://gp", token, opener=Opener(400, b'{"error":"send exactly one of patch or content","rule":"GP-API-400"}'))
+    assert bad.validate_cicd("a", {}, "p")["error"]["rule"] == "GP-API-400"
+    with pytest.raises(Denied):
+        GlidepathAPI("http://gp", token, opener=Opener(403, b'{"error":"no","rule":"GP-AUTHZ-001"}')).validate_cicd("a", {}, "p")
+
+
+def test_a_proposed_cicd_pr_is_vouched_for_by_the_agent_gates(gw, backends):
+    # The receipt glidepath.cicd.propose leaves is what the agent gates read (clearance provenance): the same
+    # confirmed/in-scope verdict a repo.pr.open PR gets, and an extra path the commit did not carry fails scope.
+    from clearance.dispatch import Principal
+    bot = "hangar-autopilot-agents[bot]"
+    gw.auth.table["gate"] = Principal("app-gate-api-cicd/pipeline-runner", "workload", Tier.T0)
+    gw.verifiers, gw.agent_logins = ("app-*-cicd/pipeline-runner",), (bot,)
+    sid = open_(gw, agent="coding-agent")
+    r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api", "patch": CACHE_ON, "title": "cache on"})
+    assert r.ok, r.as_dict()
+    s = gw.store.get(sid)
+    trailers = {"Task": s.task_id, "Session": sid, "Agent": "coding-agent"}
+    v = gw.provenance("gate", {"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
+                               "paths": ["cicd.yaml"], "author": bot, "trailers": trailers})
+    assert v["agent_pr"] and v["identity"]["status"] == "confirmed" and v["scope"]["status"] == "in-scope"
+    assert v["record"]["tool"] == "glidepath.cicd.propose"
+    v = gw.provenance("gate", {"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
+                               "paths": ["cicd.yaml", ".tekton/flow-ci.yaml"], "author": bot, "trailers": trailers})
+    assert v["identity"]["ok"] and not v["scope"]["ok"] and v["scope"]["rule"] == "AS001"

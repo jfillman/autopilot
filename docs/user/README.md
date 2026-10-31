@@ -42,6 +42,15 @@ For people who **define and run agents**. The runtime is not deployed yet (see t
   lists no tool that reaches GitHub, so the merge is always a person's. `tools/glidepath_release_smoke.py` runs it
   against a live glidepath-api (dry run unless `--propose`).
 
+- **Change an app's `cicd.yaml` through Glidepath.** `glidepath.cicd.validate` (T0) takes a JSON merge patch and asks
+  glidepath-api what it would mean: valid or not, each finding with its `GP-*` rule and fix, every field the change
+  touches with its scope (`open`, `tighten`, `human`), and the resulting file. `glidepath.cicd.propose` (T1,
+  `agents/coding-agent.yaml`) asks the same and, when the change is clean, opens the pull request: one commit of
+  `cicd.yaml` on the app's own repo (`repo: owner/<app>`), as the agents' App, with the verdict and the changed fields
+  in the PR body; a person merges it. A change an agent may not make (a `human` field, a gate turned off, a Flight
+  environment) is refused with the same `GP-SCOPE` rule the PR's `cicd-validate` check would post, before anything
+  exists on GitHub. The PR counts against `openPrs` and carries the agent gates' receipt like `repo.pr.open`.
+
 ## Coming (roadmap M2 to M4)
 Running a definition as an `AgentRun` XR, sessions with parent and child budgets, and the Tower Agent tab.
 
