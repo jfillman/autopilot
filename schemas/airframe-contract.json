@@ -1011,6 +1011,109 @@
         }
       ]
     },
+    "agentrepository": {
+      "agentNotes": [
+        "Prompt-only agents only. A code agent (its own source and image) is an app: onboard it with an application kind; its agents/ definitions get the same checks and release.",
+        "The scaffold is create-once: after the first write the files are the team's.",
+        "The pins this repo's releases open land in tenants/<name>/xr-requests/ (the broker's /agent-pin), namespace app-<name>-cicd."
+      ],
+      "conditions": [
+        {
+          "reasons": [
+            {
+              "meaning": "The dev cluster named in spec.devCluster is registered with type dev and cicdReady true.",
+              "reason": "DevClusterReady",
+              "status": "True"
+            },
+            {
+              "meaning": "The dev cluster is not in the cluster registry, not type dev, or not cicdReady yet; nothing is composed until it is.",
+              "reason": "DevClusterNotReady",
+              "status": "False"
+            }
+          ],
+          "type": "DevClusterReady"
+        },
+        {
+          "reasons": [
+            {
+              "meaning": "The tenants repo carries this repo's identity.yaml, so Glidepath onboards it (its checks run).",
+              "reason": "CicdOnboarded",
+              "status": "True"
+            },
+            {
+              "meaning": "identity.yaml has not been observed Ready yet (normal for a minute after creation).",
+              "reason": "CicdOnboardingPending",
+              "status": "False"
+            }
+          ],
+          "type": "CicdOnboarded"
+        }
+      ],
+      "kind": "AgentRepository",
+      "outputs": {
+        "repo": {
+          "at": {
+            "field": "spec.forProvider.name",
+            "kind": "Repository"
+          },
+          "description": "The GitHub repository the agent definitions live in (agents/<name>.yaml).",
+          "kind": "literal",
+          "value": "{name}"
+        },
+        "tektonCicd": {
+          "at": {
+            "field": "metadata.name",
+            "kind": "TektonCICD"
+          },
+          "description": "The composed TektonCICD child XR; DevClusterReady and CicdOnboarded are copied from it.",
+          "kind": "literal",
+          "value": "{name}-tektoncicd"
+        }
+      },
+      "owner": "human",
+      "role": "bootstrap",
+      "sources": [
+        {
+          "createdBy": "composition",
+          "object": {
+            "kind": "Repository",
+            "name": "{name}-repo"
+          }
+        },
+        {
+          "createdBy": "composition",
+          "object": {
+            "kind": "TektonCICD",
+            "name": "{name}-tektoncicd"
+          }
+        }
+      ],
+      "summary": "A team's repository of prompt-only Autopilot agent definitions: the repo <name> with its scaffold (README, agents/, preflight/cases/, a checks-only cicd.yaml) and the TektonCICD child that registers it with Glidepath.",
+      "verify": [
+        {
+          "check": "The XR's DevClusterReady condition is True (DevClusterReady).",
+          "id": "dev-cluster-ready",
+          "run": {
+            "kind": "condition",
+            "reasons": [
+              "DevClusterReady"
+            ],
+            "type": "DevClusterReady"
+          }
+        },
+        {
+          "check": "The XR's CicdOnboarded condition is True (CicdOnboarded).",
+          "id": "cicd-onboarded",
+          "run": {
+            "kind": "condition",
+            "reasons": [
+              "CicdOnboarded"
+            ],
+            "type": "CicdOnboarded"
+          }
+        }
+      ]
+    },
     "agentrun": {
       "agentNotes": [
         "Rendered by function-agentrun (Python, functions/function-agentrun; unit tests in CI, in the compositions job). Build and push per its README; the Function package is installed per cluster, with HANGAR_CLUSTER_NAME in its DeploymentRuntimeConfig.",
@@ -3301,6 +3404,15 @@
       "file": "agent.yaml",
       "group": "catalog.hangar.io",
       "plural": "agents"
+    },
+    "AgentRepository": {
+      "agentSummary": "A team's repository of prompt-only Autopilot agent definitions (agents/<name>.yaml), registered with Glidepath for its PR checks and the agent release; it builds and deploys nothing.",
+      "apiVersion": "catalog.hangar.io/v1alpha1",
+      "fieldsDescribed": 4,
+      "fieldsTotal": 4,
+      "file": "agentrepository.yaml",
+      "group": "catalog.hangar.io",
+      "plural": "agentrepositories"
     },
     "AgentRun": {
       "agentSummary": "One bounded, disposable run of an Autopilot agent in its own sandboxed namespace, with a hard deadline that needs no gateway to enforce.",
