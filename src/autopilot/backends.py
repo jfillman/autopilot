@@ -138,7 +138,21 @@ class FakeGlidepath(Recorder):
         from clearance.packs.hangar.cicd import merge_patch
         from clearance.packs.hangar.vendor.cicd_scope import MISSING, changes
         import yaml
-        head = merge_patch(self.CICD_BASE, body.get("patch") or {})
+        base_info = {"repo": f"jfillman/{app}", "ref": body.get("baseRef") or "HEAD", "sha": "a" * 40, "present": True}
+        if app == "unknown-app":   # not onboarded: glidepath-api knows no such app
+            return {"error": {"rule": "GP-API-404", "message": f"no app named {app}", "hint": ""}}
+        if "content" in body:      # repo.pr.open's whole file
+            try:
+                head = yaml.safe_load(body["content"])
+            except yaml.YAMLError:
+                head = None
+            if not isinstance(head, dict):
+                return {"valid": False, "changes": [], "summary": "1 error(s): GP-YAML-001; no change", "base": base_info,
+                        "resulting": body["content"], "contractVersion": 1, "problems": [
+                            {"pointer": "/", "rule": "GP-YAML-001", "severity": "error", "message": "cicd.yaml is not a mapping",
+                             "hint": "a cicd.yaml is a YAML mapping starting with apiVersion: platform/v1"}]}
+        else:
+            head = merge_patch(self.CICD_BASE, body.get("patch") or {})
         out_changes = []
         for ptr, b, h in changes(self.CICD_BASE, head):
             c = {"pointer": ptr, "change": "removed" if h is MISSING else "added" if b is MISSING else "changed",
@@ -149,15 +163,19 @@ class FakeGlidepath(Recorder):
                 c["after"] = h
             out_changes.append(c)
         problems = []
+        # The schema, as the validator reads it: an agent the contract does not list.
+        if head.get("build", {}).get("agent") not in (None, "nodejs-22", "nodejs-20", "python-3.12", "go-1.23"):
+            problems.append({"pointer": "/build/agent", "rule": "GP-SCHEMA-002", "severity": "error",
+                             "message": f"/build/agent: {head['build']['agent']!r} is not one of the build agents",
+                             "hint": "see docs/user/cicd-yaml-reference.md"})
         if body.get("agent") and head.get("governance", {}).get("sast") is False:
             problems.append({"pointer": "/governance/sast", "rule": "GP-SCOPE-002", "severity": "error",
                              "message": "/governance/sast loosened (true -> false)",
                              "hint": "An agent may turn a gate on or make it stricter, never the other way."})
-        summary = ("valid" if not problems else f"{len(problems)} error(s): GP-SCOPE-002") + \
+        summary = ("valid" if not problems else f"{len(problems)} error(s): " + ", ".join(sorted({p['rule'] for p in problems}))) + \
             ("; no change" if not out_changes else f"; {len(out_changes)} change(s)")
-        return {"valid": not problems, "problems": problems, "changes": out_changes, "summary": summary,
-                "base": {"repo": f"jfillman/{app}", "ref": body.get("baseRef") or "HEAD", "sha": "a" * 40, "present": True},
-                "resulting": yaml.safe_dump(head, sort_keys=True), "contractVersion": 1}
+        return {"valid": not problems, "problems": problems, "changes": out_changes, "summary": summary, "base": base_info,
+                "resulting": body["content"] if "content" in body else yaml.safe_dump(head, sort_keys=True), "contractVersion": 1}
 
     def _replayed(self, name, key, dry_run):
         return not dry_run and sum(1 for c in self.calls if c[0] == name and c[1][3] == key and not c[1][4]) > 1

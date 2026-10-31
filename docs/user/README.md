@@ -49,7 +49,10 @@ For people who **define and run agents**. The runtime is not deployed yet (see t
   `cicd.yaml` on the app's own repo (`repo: owner/<app>`), as the agents' App, with the verdict and the changed fields
   in the PR body; a person merges it. A change an agent may not make (a `human` field, a gate turned off, a Flight
   environment) is refused with the same `GP-SCOPE` rule the PR's `cicd-validate` check would post, before anything
-  exists on GitHub. The PR counts against `openPrs` and carries the agent gates' receipt like `repo.pr.open`.
+  exists on GitHub. The PR counts against `openPrs` and carries the agent gates' receipt like `repo.pr.open`. A
+  `repo.pr.open` whose files include the app's root `cicd.yaml` (a code change with its pipeline step, say) gets the
+  same verdict first, so no `cicd.yaml` reaches GitHub through Clearance without it; R021 still runs on every
+  `cicd.yaml`, at any depth.
 
 ## Coming (roadmap M2 to M4)
 Running a definition as an `AgentRun` XR, sessions with parent and child budgets, and the Tower Agent tab.
