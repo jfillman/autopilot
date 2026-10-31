@@ -22,6 +22,7 @@ from typing import Mapping
 
 from clearance import api, profile
 from clearance.definitions import Definitions
+from clearance.gate import GatePolicy
 from clearance.policy import Policy
 
 from . import serve
@@ -53,7 +54,9 @@ def build(env: Mapping[str, str] | None = None):
     # The cluster-pinned definitions the gateway loaded, from its store: this process fetches and decides nothing.
     DefinitionsRefresher(defs, store, interval=float(get("CLEARANCE_API_DEFINITIONS_INTERVAL", "30"))).start()
     # The same policy the gateway runs (core + the Hangar pack), for /v1/policy and the dry-run explainer.
-    app = api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"), policy=Policy(PACKS))
+    # The deployment gate's baseline (clearance gate.py), the same the gateway classifies with: /v1/clearance-policy.
+    app = api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"), policy=Policy(PACKS),
+                             gate_policy=GatePolicy())
     return cfg, access, app
 
 

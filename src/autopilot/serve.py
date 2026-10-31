@@ -50,7 +50,8 @@ from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from clearance.definitions import Definitions, MemoryDefinitions
-from .reads import BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
+from clearance.gate import GatePolicy, MemoryChanges
+from .reads import BackstageAppOwners, BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 
 log = logging.getLogger("autopilot.gateway")
@@ -378,10 +379,11 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         events = MemoryEvents()
         holds = MemoryHolds()
         pins = MemoryDefinitions()
+        changes = MemoryChanges()
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
-        from clearance.pg import PgArtifacts, PgDefinitions, PgEvents, PgHolds, PgInbox
+        from clearance.pg import PgArtifacts, PgChanges, PgDefinitions, PgEvents, PgHolds, PgInbox
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
@@ -390,6 +392,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         events = PgEvents(state)               # the trigger bridge's event history (clearance-api /v1/events)
         holds = PgHolds(state)                 # people's holds on agents' triggers (control.py)
         pins = PgDefinitions(state)            # the cluster-pinned definitions, for restarts and clearance-api
+        changes = PgChanges(state)             # the deployment gate's changes (clearance gate.py)
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
@@ -400,7 +403,8 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            verifiers=cfg.verifiers, agent_logins=cfg.agent_logins, inbox=inbox,
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
-                           definitions_store=pins)
+                           definitions_store=pins, changes=changes, gate_policy=GatePolicy(),
+                           owners=BackstageAppOwners(b.read.backstage) if getattr(b.read, "backstage", None) else None)
     return gw, state
 
 

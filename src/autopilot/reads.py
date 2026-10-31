@@ -314,6 +314,41 @@ class BackstageOwnership:
         return apps
 
 
+class BackstageAppOwners:
+    """clearance.dispatch.AppOwners on Tower's catalog, for the deployment gate: an app's owner group is its Component's
+    spec.owner (`component:default/<app>`). A bare owner name is the catalog's group:default/<name>. Cached like the
+    Directory; a failure or an unknown app is None (the gate then lets the outside group clear), never an error."""
+
+    def __init__(self, catalog: BackstageCatalog, ttl: float = 300.0, clock: Callable[[], float] | None = None):
+        import time
+        self.catalog, self.ttl, self.clock = catalog, ttl, clock or time.monotonic
+        self._cache: dict[str, tuple[float, str | None]] = {}
+
+    def owner_of(self, app: str) -> str | None:
+        if not isinstance(app, str) or not _NAME.match(app.lower()):
+            return None
+        hit = self._cache.get(app)
+        if hit and self.clock() - hit[0] < self.ttl:
+            return hit[1]
+        owner = None
+        try:
+            c = self.catalog
+            token = c.token_file.read_text().strip()
+            req = urllib.request.Request(f"{c.base}/api/catalog/entities/by-name/component/default/{urllib.parse.quote(app)}",
+                                         method="GET", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+            status, body = c._open(req, c.timeout)
+            if status == 200:
+                raw = str((json.loads(body).get("spec") or {}).get("owner") or "")
+                if raw:
+                    owner = raw if raw.startswith("group:") else (None if ":" in raw else f"group:default/{raw}")
+                    if owner and "/" not in owner:
+                        owner = owner.replace("group:", "group:default/", 1)
+        except (OSError, ValueError):
+            owner = None
+        self._cache[app] = (self.clock(), owner)
+        return owner
+
+
 class Reads:
     """ReadBackend for the core read tools: PromQL, LogQL and the catalog, each when configured. app_api has no
     adapter (serve.build_handlers drops app.api.get, so it is never called)."""
