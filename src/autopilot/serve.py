@@ -24,6 +24,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
+
+import yaml
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +60,21 @@ log = logging.getLogger("autopilot.gateway")
 
 ANTHROPIC_API = "https://api.anthropic.com"
 REPO_AGENTS = Path(__file__).resolve().parents[2] / "agents"   # /app/agents in the image (editable install)
+# The runtime catalog (runtime/catalog.yaml): the agent images Hangar offers, handed to Clearance (runtimes.py).
+REPO_RUNTIMES = REPO_AGENTS.parent / "runtime" / "catalog.yaml"
+
+
+def load_runtimes(path: Path | None = None) -> tuple:
+    """The catalog's entries, parsed by Clearance (a malformed catalog is a ConfigError: fail at start, not later)."""
+    from clearance import runtimes as rt
+    p = path or REPO_RUNTIMES
+    if not p.is_file():
+        return ()
+    try:
+        return rt.load((yaml.safe_load(p.read_text()) or {}).get("runtimes") or [])
+    except ValueError as e:
+        raise ConfigError(f"runtime catalog {p}: {e}") from e
+
 # The agents' GitHub App (D4) as GitHub shows it on the PRs it opens; a PR by it that Clearance has no record of
 # fails agent-identity (clearance.provenance, AI002).
 AGENT_LOGIN = "hangar-autopilot-agents[bot]"
@@ -104,6 +121,7 @@ class Config:
     events_enabled: bool
     agent_xrs_enabled: bool
     agent_xrs_interval: float
+    runtime_images_extra: tuple[str, ...] = ()
     verifiers: tuple[str, ...] = ()
     agent_logins: tuple[str, ...] = ()
     oidc_allowed: tuple[str, ...] = ()
@@ -235,6 +253,9 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
         tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("CLEARANCE_DELEGATES", "")),
         admins=_list(get("CLEARANCE_ADMINS", "")),
+        # Images a definition may pin beyond the runtime catalog: the registries Glidepath builds agents' own images
+        # into (code agents), as globs, e.g. ghcr.io/jfillman/*@sha256:*.
+        runtime_images_extra=tuple(_list(get("RUNTIME_IMAGES_EXTRA", ""))),
     )
 
 
@@ -404,7 +425,8 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
                            definitions_store=pins, changes=changes, gate_policy=GatePolicy(),
-                           owners=BackstageAppOwners(b.read.backstage) if getattr(b.read, "backstage", None) else None)
+                           owners=BackstageAppOwners(b.read.backstage) if getattr(b.read, "backstage", None) else None,
+                           runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra)
     return gw, state
 
 

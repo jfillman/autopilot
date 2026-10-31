@@ -14,6 +14,7 @@ COPY pyproject.toml ./
 COPY src/ src/
 COPY agents/ agents/
 COPY schemas/ schemas/
+COPY runtime/catalog.yaml runtime/catalog.yaml
 # Editable, so the package resolves /app/schemas and /app/agents from its own location (airframe_tools, serve).
 RUN /opt/venv/bin/pip install -e /app \
     && /opt/venv/bin/python -m compileall -q /app/src /opt/venv/lib

@@ -245,6 +245,25 @@ SDK only) installed from the hashed `runtime/requirements.lock`, uid 65532, noth
 container build --arch arm64 -t autopilot-agent-runtime:dev runtime   # or --arch amd64
 ```
 
+### The runtime image library
+
+`runtime/catalog.yaml` lists the agent images Hangar offers (decided 2026-10-31). Every one speaks the contract
+above, so any fits any definition. The gateway hands the catalog to Clearance (clearance `runtimes.py`): an
+**available `runtime`** image is what a definition's `runtime.image` may pin (with `RUNTIME_IMAGES_EXTRA` globs for
+images Glidepath builds for a code agent's own repo); a **`base`** image is a `FROM` image for code agents, never run
+as is; clearance-api lists all of it at `GET /v1/runtimes` for the New agent picker.
+
+| Name | Kind | State |
+|---|---|---|
+| `generic` | runtime | available: this loop, `runtime-v0.1.2` |
+| `base-python` | base | built from `runtime/base-python/Dockerfile` on a `runtime-base-python-v*` tag; available once its digest is pinned |
+| `claude-agent-sdk` | runtime | planned: needs the model proxy to speak streaming Messages |
+| `langgraph` | runtime | planned |
+
+The `runtime-image` workflow builds each multi-arch from its tag. A code agent: `FROM` the base, add its code and an
+entrypoint, `from hangar_agent import env, clearance, model` for the contract, and let its own Glidepath build publish
+the image its definition pins.
+
 ## Signing in as a person
 
 On hangar-dev, people sign in through people-dex (apron `55-autopilot/people-dex`), a Dex whose only connector is GitHub. This is Hangar D19's interim answer until an IdP issues ID-JAG. Clearance accepts its ID tokens for audience `clearance`, as `user:<GitHub login>`, and only for the logins in cluster.yaml `autopilot.people`. ID tokens last an hour, and no refresh token is issued.
