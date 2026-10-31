@@ -121,6 +121,13 @@ class MemStore:
     def by_pr(self, tools, repo, pr, v):
         return [r for r in self.e if r["tool"] in tools and (r.get("effect") or {}).get("repo") == repo]
 
+    def counts(self, f, v, by):
+        out: dict = {}
+        for r in self.e:
+            if self._sees(r, v) and all(r.get(k) == x for k, x in f.items() if k not in ("since", "until")):
+                out[r.get(by)] = out.get(r.get(by), 0) + 1
+        return [{"key": k, "count": n} for k, n in sorted(out.items(), key=lambda kv: -kv[1])]
+
     def chain(self, batch):
         yield list(self.e)
 
@@ -143,7 +150,9 @@ def client(access):
                  "expires_at": "2099-01-01T00:00:00+00:00", "closed": False, "used": {"tool_calls": i}}
                 for i, (p, a) in enumerate([("user:alice", "coding-agent"), ("user:bob", "orchestrator"), ("user:dave", "coding-agent")])]
     human = [{"id": "h-000000000001", "owner": "user:alice", "group": None}, {"id": "h-000000000002", "owner": "user:x", "group": "group:default/platform"}]
-    app = api.create_api_app(MemStore(sessions, log.records, human), access, gateway_url="http://clearance.example")
+    from clearance.policy import Policy
+    app = api.create_api_app(MemStore(sessions, log.records, human), access, gateway_url="http://clearance.example",
+                             policy=Policy((HANGAR,)))
     with TestClient(app) as c:
         yield c
 
@@ -226,5 +235,48 @@ def test_pg_reads_are_scoped_and_read_only(pg, defs):
     assert api.verify_chain(store.chain(2))["ok"] and api.verify_chain(store.chain(2))["count"] == len(pg.audit.records)
     [h] = store.human_pending(pg.now(), None)
     assert h["owner"] == "user:bob" and store.human_pending(pg.now(), pg.now() + timedelta(days=1)) == []
+    assert store.counts({}, everyone, "tool")[0]["count"] >= 1 and sum(i["count"] for i in store.counts({}, everyone, "decision")) == len(pg.audit.records)
+    assert store.counts({"decision": "allow"}, carol, "app") == [{"key": "flight-api", "count": 1}]
     with pytest.raises(Exception, match="read-only"):
         pool.run("DELETE FROM clearance_evidence")
+
+
+def test_counts_are_scoped_and_grouped(client):
+    assert get(client, "/v1/evidence/counts?by=agent", "audit").json() == {
+        "by": "agent", "items": [{"key": "coding-agent", "count": 3}, {"key": "orchestrator", "count": 1}], "total": 4}
+    assert get(client, "/v1/evidence/counts?by=tool", "alice").json()["total"] == 2
+    assert get(client, "/v1/evidence/counts?by=nope", "alice").status_code == 400
+
+
+def test_policy_is_served_as_data(client):
+    p = get(client, "/v1/policy", "alice").json()
+    ids = [r["id"] for r in p["rules"]]
+    assert ids == sorted(ids, key=lambda i: next(r["order"] for r in p["rules"] if r["id"] == i)), "evaluation order"
+    assert "R001" in ids and "R021" in ids
+    by_id = {r["id"]: r for r in p["rules"]}
+    assert by_id["R001"]["pack"] == "core" and by_id["R021"]["pack"] == "hangar" and by_id["R001"]["expression"] == "!ctx.owns_session"
+    tools = {t["name"]: t for t in p["tools"]}
+    assert tools["repo.pr.open_upper"]["tier"] == "T2" and tools["repo.pr.open_upper"]["propose_only"] is True
+    assert tools["glidepath.run.rerun"]["tier"] == "T1" and p["packs"] == ["core", "hangar"]
+    assert get(client, "/v1/policy", "tower").status_code == 403, "a notifier reads the inbox feed only"
+
+
+def test_explain_is_a_dry_run_with_the_path_through_the_rules(client):
+    ok = get(client, "/v1/policy/explain?agent=coding-agent&tool=metrics.query&args=" + '{"promql":"up"}', "alice").json()
+    assert ok["decision"]["allow"] is True and ok["dry_run"] is True and ok["known_tool"] is True
+    assert all(not r["matched"] for r in ok["path"]) and len(ok["path"]) == len(ok["all_rules"])
+    deny = get(client, "/v1/policy/explain?agent=orchestrator&tool=repo.pr.open&args=" + '{"repo":"jfillman/x","branch":"b","title":"t","files":[{"path":"a","content":"c"}]}', "alice").json()
+    assert deny["decision"]["allow"] is False and deny["decision"]["rule"] == "R006", "orchestrator has no repo.pr.open"
+    assert deny["path"][-1]["id"] == "R006" and deny["path"][-1]["matched"] is True
+    assert all(not r["matched"] for r in deny["path"][:-1])
+    for q, status in (("agent=nope&tool=metrics.query", 404), ("agent=coding-agent", 400),
+                      ("agent=coding-agent&tool=metrics.query&args=[1]", 400), ("agent=coding-agent&tool=metrics.query&args=nope", 400)):
+        assert get(client, f"/v1/policy/explain?{q}", "alice").status_code == status, q
+    # Nothing was recorded or spent.
+    assert len(get(client, "/v1/evidence", "audit").json()["items"]) == 4
+
+
+def test_explain_without_a_policy_is_404(access):
+    app = api.create_api_app(MemStore([], [], []), access)
+    with TestClient(app) as c:
+        assert get(c, "/v1/policy", "alice").status_code == 404
