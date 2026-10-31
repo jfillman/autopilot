@@ -238,6 +238,26 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
             return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
         return JSONResponse(out)
 
+    @mcp.custom_route("/v1/definitions/review", methods=["POST"], include_in_schema=False)
+    async def review_definition(request: Request) -> JSONResponse:
+        """Validate an agent definition and tier its change (review.py): {doc, old?, name?, owner?, path?}."""
+        token = _bearer(request)
+        if token is None:
+            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        try:
+            out = await anyio.to_thread.run_sync(functools.partial(gateway.review_definition, token, body,
+                                                                   on_behalf_of=request.headers.get("x-hangar-on-behalf-of") or None))
+        except AuthError:
+            return JSONResponse({"error": "token not accepted"}, status_code=401)
+        except provenance.NotVerifier as e:
+            return JSONResponse({"error": str(e)}, status_code=403)
+        except gate.BadChange as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse(out)
+
     @mcp.custom_route("/v1/clearances/{change_id}/clear", methods=["POST"], include_in_schema=False)
     async def clear_change(request: Request) -> JSONResponse:
         """A person clears a holding change."""
