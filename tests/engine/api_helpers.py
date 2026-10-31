@@ -103,6 +103,15 @@ class MemStore:
     def definitions(self):
         return []
 
+    def changes(self, f, v, limit, after):
+        return []
+
+    def change(self, change_id):
+        return None
+
+    def change_counts(self, f, v, by):
+        return []
+
     def _sees(self, r, v):
         return v.all or r.get("principal") == v.person or r.get("agent") in v.agents or r.get("app") in v.apps
 

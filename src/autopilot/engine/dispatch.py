@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import control as ctl, definitions as defn, events as evh, inbox as hr, policy, provenance
+from . import control as ctl, definitions as defn, events as evh, gate, inbox as hr, policy, provenance
 from .audit import AuditLog, args_digest, iso
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
@@ -49,6 +49,12 @@ class Denied(Exception):
     def __init__(self, rule: str, message: str, hint: str = ""):
         self.rule, self.message, self.hint = rule, message, hint
         super().__init__(message)
+
+
+class AppOwners(Protocol):
+    """Who owns an app (a group ref), for the deployment gate when the check does not say: on Hangar, the Backstage
+    Component's spec.owner."""
+    def owner_of(self, app: str) -> str | None: ...
 
 
 @dataclass
@@ -90,8 +96,13 @@ class Gateway:
                  agent_logins: Sequence[str] = (), inbox: hr.InboxStore | None = None,
                  directory: hr.Directory | None = None, delegates: Sequence[str] = (),
                  events: evh.EventsStore | None = None, holds: ctl.HoldStore | None = None,
-                 admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None):
+                 admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None,
+                 changes: gate.ChangeStore | None = None, gate_policy: gate.GatePolicy | None = None,
+                 owners: "AppOwners | None" = None):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
+        # The deployment gate (gate.py): the changes registered by the clearance-gate check, the platform's tier
+        # table, and where an app's owner group comes from when the check does not say. None = the gate is off.
+        self.changes, self.gate_policy, self.owners = changes, gate_policy or gate.GatePolicy(), owners
         # Cluster-pinned definitions (definitions.py): where the loaded set is kept for the read API and restarts.
         self.definitions_store = definitions_store
         # Person controls (control.py): the holds on agents' triggers, and the platform admins (principal globs) who
@@ -382,6 +393,149 @@ class Gateway:
             "decision": "allow", "rule": None, "target": target, "args_sha256": args_digest(args),
             "result": result + (f" via {via}" if via else "")})
 
+    # -- the deployment gate (gate.py) ---------------------------------------------------------------------------
+    def _gate_record(self, principal: str, via: str | None, tool: str, c: gate.Change, decision: str, rule: str | None,
+                     result: str, args: Any) -> dict[str, Any]:
+        return self.audit.append({
+            "ts": iso(self.now()), "task_id": None, "session": None, "parent": None, "principal": principal,
+            "agent": c.agent, "tool": tool, "tier": None, "decision": decision, "rule": rule, "target": c.target,
+            "args_sha256": args_digest(args), "result": result + (f" via {via}" if via else ""), "app": c.app,
+            "boundary": "deployment", "change": c.summary()})
+
+    def _gate_on(self) -> gate.ChangeStore:
+        if self.changes is None:
+            raise gate.GateError("DG-OFF", "this Clearance keeps no changes (the deployment gate is off)", "", 404)
+        return self.changes
+
+    @_durable
+    def register_change(self, token: str, body: Any) -> dict[str, Any]:
+        """The clearance-gate check registers (or re-evaluates) a change to a protected environment. The caller must
+        be a verifier. The change is classified (gate.classify); tiers 0 and 1 are cleared by policy at once, 2 and 3
+        hold for people, an unknown proposer is denied, and a loosening clearance.yaml is denied too. Idempotent by
+        (repo, pr, head): a second call with new check results re-evaluates a holding change; a decided one is
+        returned as it stands. A new head on the same PR supersedes the heads still holding. Every step is a
+        deployment-boundary record. Raises AuthError, provenance.NotVerifier, gate.BadChange."""
+        principal = self.auth.authenticate(token)
+        if not any(fnmatchcase(principal.id, g) for g in self.verifiers):
+            raise provenance.NotVerifier(f"{principal.id} is not a verifier")
+        store = self._gate_on()
+        req = gate.ChangeRequest.from_dict(body)
+        if not req.owner and self.owners is not None:
+            req = gate.ChangeRequest(**{**req.__dict__, "owner": self.owners.owner_of(req.app) or ""})
+        if not req.owner:
+            req = gate.ChangeRequest(**{**req.__dict__, "owner": (self.gate_policy.outside_groups or ("group:default/admins",))[0]})
+        now = self.now()
+        existing = store.get(req.id)
+        if existing is not None and existing.state != "holding":
+            return existing.view(now)
+        try:
+            c = gate.classify(req, self.gate_policy)
+        except gate.GateError as e:
+            # A clearance.yaml that loosens the baseline: the change is denied, not the file ignored.
+            ch = existing or gate.Change.open(req, gate.Classification(3, (gate.Reason("clearance.yaml", "policy:loosens", 3),), "deny", e.rule, e.message, None, self.gate_policy), now, principal.id)
+            ch.state, ch.deny_reason, ch.denied_by, ch.decided_at, ch.updated_at = "denied", e.message, "policy", now, now
+            store.put(ch)
+            if existing is None:
+                self._gate_record(principal.id, None, "deploy.request", ch, "allow", None, f"tier {ch.tier}: denied ({e.rule})", body)
+            self._gate_record("policy", None, "deploy.deny", ch, "deny", e.rule, e.message, {"rule": e.rule})
+            return ch.view(now)
+        if existing is None:
+            for old in store.for_pr(req.repo, req.pr):
+                if old.state == "holding" and old.head != req.head:
+                    old.state, old.superseded_by, old.decided_at, old.updated_at = "superseded", req.head, now, now
+                    store.put(old)
+                    self._gate_record("policy", None, "deploy.expire", old, "allow", None, f"superseded by {req.head[:7]}", {"by": req.head})
+            ch = gate.Change.open(req, c, now, principal.id)
+            self._gate_record(principal.id, None, "deploy.request", ch, "allow", None, c.why, body)
+        else:
+            ch = existing
+            ch.checks, ch.tier, ch.reasons, ch.updated_at = dict(req.checks), c.tier, [r.view() for r in c.reasons], now
+            ch.requirement = c.requirement.view() if c.requirement else None
+        if c.decision == "deny":
+            ch.state, ch.deny_reason, ch.denied_by, ch.decided_at = "denied", c.why, "policy", now
+            self._gate_record("policy", None, "deploy.deny", ch, "deny", c.rule, c.why, {"rule": c.rule})
+        elif c.decision == "clear":
+            ch.state, ch.cleared_by, ch.decided_at = "cleared", "policy", now
+            self._gate_record("policy", None, "deploy.clear", ch, "allow", None, c.why, {"tier": c.tier})
+        store.put(ch)
+        return ch.view(now)
+
+    def _gate_person(self, token: str, on_behalf_of: str | None) -> tuple[str, str | None, set[str]]:
+        try:
+            person, via = self._person(token, on_behalf_of)
+        except hr.InboxError as e:
+            raise gate.GateError(e.rule.replace("HR-", "DG-"), e.message, e.hint, e.status) from None
+        groups = self.directory.groups(person) if self.directory is not None else set()
+        return person, via, set(groups)
+
+    @_durable
+    def clear_change(self, token: str, change_id: str, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """A person clears a holding change: one approval in the role they qualify for (gate.role_for). The change is
+        cleared when the requirement is met. Recorded as deploy.clear naming person and delegate."""
+        store = self._gate_on()
+        c = store.get(change_id)
+        if c is None:
+            raise gate.GateError("DG-UNKNOWN", "no such change", "", 404)
+        person, via, groups = self._gate_person(token, on_behalf_of)
+        now = self.now()
+        if c.state == "holding" and now >= c.expires_at:
+            self._expire_change(c, now)
+            raise gate.GateError("DG-STATE", "this change has expired; a new push registers it again", "", 409)
+        role = gate.role_for(person, groups, c)
+        c.approvals.append({"person": person, "via": via, "role": role, "at": iso(now)})
+        c.updated_at = now
+        req = c.requirement_obj()
+        done = req is not None and req.satisfied(c.approvals)
+        if done:
+            c.state, c.cleared_by, c.decided_at = "cleared", "people", now
+        store.put(c)
+        rec = self._gate_record(person, via, "deploy.clear", c, "allow", None,
+                                f"cleared as {role}" + (" (requirement met)" if done else f" ({len(c.approvals)} of the people needed)"),
+                                {"role": role})
+        return {**c.view(now), "audit_seq": rec["seq"]}
+
+    @_durable
+    def deny_change(self, token: str, change_id: str, reason: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """A person who could clear a holding change denies it instead, with a reason. Recorded as deploy.deny."""
+        store = self._gate_on()
+        c = store.get(change_id)
+        if c is None:
+            raise gate.GateError("DG-UNKNOWN", "no such change", "", 404)
+        person, via, groups = self._gate_person(token, on_behalf_of)
+        text = gate.check_reason(reason)
+        if c.state != "holding":
+            raise gate.GateError("DG-STATE", f"this change is {c.state}", "", 409)
+        req = c.requirement_obj()
+        eligible = req is not None and (req.owner_group in groups or any(g in groups for g in req.outside_groups)
+                                        or any(fnmatchcase(person, g) for g in self.admins))
+        if not eligible:
+            raise gate.GateError("DG-FORBIDDEN", f"{person} may not decide this change", "Only the owner group, the outside group or a platform admin may.", 403)
+        now = self.now()
+        c.state, c.deny_reason, c.denied_by, c.decided_at, c.updated_at = "denied", text, person, now, now
+        store.put(c)
+        rec = self._gate_record(person, via, "deploy.deny", c, "deny", "DG-DENIED", text, {"reason": text})
+        return {**c.view(now), "audit_seq": rec["seq"]}
+
+    def _expire_change(self, c: gate.Change, now: datetime) -> None:
+        c.state, c.decided_at, c.updated_at = "expired", now, now
+        self.changes.put(c)
+        self._gate_record("policy", None, "deploy.expire", c, "allow", None, f"not cleared within {self.gate_policy.ttl_days} days", {"expires_at": iso(c.expires_at)})
+
+    def expire_changes(self, now: datetime | None = None) -> list[str]:
+        """Holding changes past their TTL expire, each a deploy.expire record. Called from expire()."""
+        if self.changes is None:
+            return []
+        now = now or self.now()
+        done = []
+        for c in self.changes.holding(now):
+            if now >= c.expires_at:
+                self._expire_change(c, now)
+                done.append(c.id)
+        return done
+
+    def gate_policy_view(self) -> dict[str, Any]:
+        return self.gate_policy.view()
+
     # -- cluster-pinned definitions (definitions.py) -----------------------------------------------------------
     def _definition_record(self, tool: str, name: str, source: defn.Source, decision: str, rule: str | None,
                            result: str) -> dict[str, Any]:
@@ -563,6 +717,7 @@ class Gateway:
         session. A deletion that fails is recorded and retried by the next sweep, because the session keeps its run."""
         now = now or self.now()
         self.store.sweep(now)
+        self.expire_changes(now)
         pending = [s for s in self.store.all() if s.run and s.closed]
         done = []
         for s in pending:

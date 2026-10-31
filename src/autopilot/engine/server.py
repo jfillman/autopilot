@@ -28,7 +28,7 @@ from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import control, inbox, provenance
+from . import control, gate, inbox, provenance
 from .dispatch import AuthError, Authenticator, Gateway
 from .modelproxy import charged_tokens
 
@@ -146,7 +146,7 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
             out = await anyio.to_thread.run_sync(_locked(gateway, functools.partial(op, on_behalf_of=who)), token, *args)
         except AuthError:
             return JSONResponse({"error": "token not accepted"}, status_code=401)
-        except (inbox.InboxError, control.ControlError) as e:
+        except (inbox.InboxError, control.ControlError, gate.GateError) as e:
             return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
         return JSONResponse(out)
 
@@ -210,6 +210,46 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
     async def release(request: Request) -> JSONResponse:
         """Lift a hold before it expires."""
         return await _people(request, gateway.release_triggers, request.path_params["agent"])
+
+    # The deployment gate (gate.py). Registering a change is the clearance-gate check's call, with a verifier's
+    # token (like /v1/provenance); clearing and denying are people's, through the delegate model.
+    @mcp.custom_route("/v1/clearances", methods=["POST"], include_in_schema=False)
+    async def register_change(request: Request) -> JSONResponse:
+        """Register or re-evaluate a change to a protected environment (gate.ChangeRequest)."""
+        token = _bearer(request)
+        if token is None:
+            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            return JSONResponse({"error": "body too large"}, status_code=413)
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return JSONResponse({"error": "the body is not JSON"}, status_code=400)
+        try:
+            out = await anyio.to_thread.run_sync(_locked(gateway, gateway.register_change), token, body)
+        except AuthError:
+            return JSONResponse({"error": "token not accepted"}, status_code=401)
+        except provenance.NotVerifier as e:
+            return JSONResponse({"error": str(e)}, status_code=403)
+        except gate.BadChange as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        except gate.GateError as e:
+            return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
+        return JSONResponse(out)
+
+    @mcp.custom_route("/v1/clearances/{change_id}/clear", methods=["POST"], include_in_schema=False)
+    async def clear_change(request: Request) -> JSONResponse:
+        """A person clears a holding change."""
+        return await _people(request, gateway.clear_change, request.path_params["change_id"])
+
+    @mcp.custom_route("/v1/clearances/{change_id}/deny", methods=["POST"], include_in_schema=False)
+    async def deny_change(request: Request) -> JSONResponse:
+        """A person denies a holding change: {"reason": "..."}."""
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        return await _people(request, gateway.deny_change, request.path_params["change_id"], body.get("reason"))
 
     return mcp.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
 
