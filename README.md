@@ -117,6 +117,7 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `MODEL_ROUTES` | unset | comma-separated `alias=upstream-model`, e.g. `claude-sonnet-5-5=claude-sonnet-5-5`: the models a definition may name (`profile.models`), all on Anthropic's API |
 | `MODEL_TOKEN_AUDIENCE` | `model-proxy` | the audience of a run's model-proxy token (TokenReview) |
 | `EVENTS_ENABLED` | `0` | `1`: the event trigger bridge holds glidepath-api's `/v1/events` stream and launches each agent whose Glidepath event trigger matches (needs `GLIDEPATH_API_URL`) |
+| `AGENT_XRS_ENABLED` | = `GITHUB_PR_ENABLED` | `1`: Agent XR pins become definitions (`agent_xrs.py`, Autopilot M4): every `AGENT_XRS_INTERVAL` s (60) the gateway lists `Agent` XRs (airframe `xrds/agent.yaml`), fetches each pinned definition file once through the agents' App (the broker's repository rule applies) and loads it beside the bundled `agents/` (clearance `definitions.py`: a bundled name is never shadowed; every change is `definition.*` evidence once). Needs `GITHUB_PR_ENABLED=1` |
 | `CLEARANCE_VERIFIERS` | (none) | comma-separated principal globs that may call `POST /v1/provenance` (the agent-identity and agent-scope gates' pipelines, e.g. `app-*-cicd/pipeline-runner`); with none, every caller is refused 403 |
 | `AGENT_LOGINS` | `hangar-autopilot-agents[bot]` | the GitHub logins agents open PRs as; such a PR with no Clearance record fails agent-identity (AI002) |
 | `LOG_LEVEL` | `info` | |
@@ -174,6 +175,7 @@ on the gateway.
 | `CLEARANCE_API_NOTIFIERS` | unset | principal globs that read the human-inbox feed only (Tower's poller) |
 | `CLEARANCE_DELEGATES` | unset | as for the gateway: may read for the person named in `X-Hangar-On-Behalf-Of` |
 | `CLEARANCE_GATEWAY_URL` | unset | where writes go, named in `/v1/contract` |
+| `CLEARANCE_API_DEFINITIONS_INTERVAL` | `30` | how often the cluster-pinned definitions are re-read from the gateway's store (`clearance_definitions`); this process fetches nothing. `GET /v1/agents` carries each agent's `source` and the `rejected` pins |
 
 Auth (`CLEARANCE_AUDIENCE`, `CLEARANCE_OIDC_*`, `TOWER_*`) and the catalog (`BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`)
 are the gateway's variables. A person sees their own sessions, their teams' agents' sessions (`BackstageDirectory`),
