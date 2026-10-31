@@ -116,3 +116,23 @@ def test_the_stream_resumes_with_last_event_id(gw, clock, tmp_path):
     b.run_once()
     assert seen == [("http://gp/v1/events", None, "Bearer sa"), ("http://gp/v1/events", "1-z", "Bearer sa")]
     assert len(runs.manifests) == 2
+
+
+def test_every_event_is_kept_as_history_with_what_was_done(gw, clock):
+    """clearance events.py: the dry run, the trigger statistics and Tower's run marks read this; a miss is kept too."""
+    g, _ = gw
+    bridge = EventBridge(g, "http://gp", "/dev/null", clock=clock)
+    bridge.handle(failed())
+    bridge.handle(failed(eid="2", outcome="success"))
+    kept = {e.id: e for e in g.events.recent()}
+    assert set(kept) == {"1793291758385806-7dd8657e1c25", "2"}
+    hit = kept["1793291758385806-7dd8657e1c25"]
+    assert hit.app == "gate-api" and hit.routing_key == "gate-api.pipelinerun.finished"
+    assert hit.subject["id"] == "gate-api-push-abc" and "big" not in hit.subject["content"]
+    assert [(o["agent"], o["result"]) for o in hit.outcomes] == [("triage-agent", "launched")]
+    assert hit.outcomes[0]["session"] and hit.outcomes[0]["run"]
+    assert kept["2"].outcomes == [], "an event no trigger matched is history too"
+    assert len(g.audit.records) == len([r for r in g.audit.records]), "and none of it is evidence"
+    # A gateway without history (an older Clearance, or none configured) changes nothing.
+    g.events = None
+    assert [d["result"] for d in bridge.handle(failed(eid="3"))] == ["launched"]

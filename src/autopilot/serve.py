@@ -35,6 +35,7 @@ from clearance.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthentic
                             RoutingAuthenticator, WorkloadAuthenticator)
 from clearance.backends import Handler
 from clearance.dispatch import Authenticator, Gateway
+from clearance.events import MemoryEvents
 from clearance.inbox import MemoryInbox
 from clearance.modelproxy import ModelRoute
 from clearance.session import SessionStore
@@ -355,15 +356,17 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
     if cfg.ephemeral:
         store, audit = SessionStore(), AuditLog()
         inbox = MemoryInbox()
+        events = MemoryEvents()
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
-        from clearance.pg import PgArtifacts, PgInbox
+        from clearance.pg import PgArtifacts, PgEvents, PgInbox
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
             b.artifacts = PgArtifacts(state)   # on the store's connection: a put commits with its call's evidence
         inbox = PgInbox(state)                 # human.request's questions and answers, in the same transactions
+        events = PgEvents(state)               # the trigger bridge's event history (clearance-api /v1/events)
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
@@ -373,7 +376,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            store_errors=store_errors, models=models, model_auth=model_auth,
                            verifiers=cfg.verifiers, agent_logins=cfg.agent_logins, inbox=inbox,
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
-                           delegates=cfg.delegates)
+                           delegates=cfg.delegates, events=events)
     return gw, state
 
 
