@@ -5,6 +5,7 @@ call path (Gateway.call -> policy -> backend), so an allowed change reaches the 
 denied one never does. The vendored files are checked against a glidepath checkout when there is one.
 """
 import copy
+import json
 import os
 from pathlib import Path
 
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VENDOR = Path(hangar.__file__).resolve().parent / "vendor"
 # CI clones glidepath under HANGAR_TECH (.github/workflows/test.yaml, GLIDEPATH_REF); locally it is ~/tech.
 GLIDEPATH = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech")) / "glidepath"
-VENDORED = {"cicd_scope.py": "tools/cicd_scope.py", "glidepath-contract.json": "contract/glidepath-contract.json"}
+VENDORED = {"cicd_scope.py": "tools/cicd_scope.py"}
 
 # glidepath's Scope BASE, verbatim
 BASE = yaml.safe_load("""
@@ -57,6 +58,17 @@ def test_vendored_file_matches_glidepath(vendored, upstream):
     assert (VENDOR / vendored).read_bytes() == src.read_bytes(), (
         f"clearance's packs/hangar/vendor/{vendored} drifted from glidepath's {upstream}: re-vendor it in the clearance "
         "repo, tag a release and bump the pin in pyproject.toml")
+
+
+def test_vendored_scope_matches_glidepaths_contract():
+    """Clearance vendors only the contract's `scope` section (clearance v0.20.3): compare that, as parsed JSON, so a
+    glidepath-api change elsewhere in the contract never needs a Clearance release."""
+    src = GLIDEPATH / "contract" / "glidepath-contract.json"
+    if not src.exists():
+        pytest.skip(f"no glidepath checkout at {GLIDEPATH} (CI clones it; set HANGAR_TECH)")
+    assert json.loads((VENDOR / "glidepath-scope.json").read_text()) == json.loads(src.read_text())["scope"], (
+        "clearance's packs/hangar/vendor/glidepath-scope.json drifted from the scope section of glidepath's contract: "
+        "re-vendor it in the clearance repo, tag a release and bump the pin in pyproject.toml")
 
 
 def test_policy_reads_the_vendored_contracts_scope_block():

@@ -78,7 +78,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'test'", specifier = ">=0.40,<3" },
-    { name = "clearance", extras = ["serve", "pg"], git = "https://github.com/jfillman/clearance?rev=v0.20.2" },
+    { name = "clearance", extras = ["serve", "pg"], git = "https://github.com/jfillman/clearance?rev=v0.20.3" },
     { name = "jsonschema", specifier = ">=4.20" },
     { name = "mcp", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
@@ -202,8 +202,8 @@ wheels = [
 
 [[package]]
 name = "clearance"
-version = "0.20.2"
-source = { git = "https://github.com/jfillman/clearance?rev=v0.20.2#626cc9890b9ed43fe7867bd6df8b5d10d0f8953c" }
+version = "0.20.3"
+source = { git = "https://github.com/jfillman/clearance?rev=v0.20.3#d74813fdacd27257198b4ed2ab761774fda7a6d3" }
 dependencies = [
     { name = "cel-python" },
     { name = "jsonschema" },
