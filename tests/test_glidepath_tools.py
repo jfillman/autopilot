@@ -629,3 +629,64 @@ def test_a_proposed_cicd_pr_is_vouched_for_by_the_agent_gates(gw, backends):
     v = gw.provenance("gate", {"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
                                "paths": ["cicd.yaml", ".tekton/flow-ci.yaml"], "author": bot, "trailers": trailers})
     assert v["identity"]["ok"] and not v["scope"]["ok"] and v["scope"]["rule"] == "AS001"
+
+
+# --- repo.pr.open carrying the app's cicd.yaml: the same verdict first --------------------------------------------
+
+def _cicd(backends, **build):
+    import yaml
+    base = backends.glidepath.CICD_BASE
+    head = {**base, "build": {**base["build"], **build}}
+    return yaml.safe_dump(base, sort_keys=True), yaml.safe_dump(head, sort_keys=True)
+
+
+def test_repo_pr_open_asks_glidepath_api_about_the_apps_cicd_yaml(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    before, after = _cicd(backends, cache={"enabled": True, "size": "small"})
+    files = [{"path": "src/app.js", "content": "x"}, {"path": "./cicd.yaml", "before": before, "content": after}]
+    r = gw.call("alice", sid, "repo.pr.open", {"repo": "jfillman/gate-api", "branch": "agent/t-1", "title": "cache on", "files": files})
+    assert r.ok, r.as_dict()
+    validated = [c for c in backends.glidepath.calls if c[0] == "glidepath.validate_cicd"]
+    assert validated == [("glidepath.validate_cicd", ("gate-api", {"content": after, "agent": True, "baseRef": "main"}), {"on_behalf_of": "user:alice"})]
+    assert backends.git.names() == ["git.open_pr"]
+    # A PR with no cicd.yaml asks nothing.
+    r = gw.call("alice", sid, "repo.pr.open", {"repo": "jfillman/gate-api", "branch": "agent/t-2", "title": "code", "files": files[:1]})
+    assert r.ok and len([c for c in backends.glidepath.calls if c[0] == "glidepath.validate_cicd"]) == 1
+
+
+def test_repo_pr_open_is_refused_when_glidepath_api_finds_an_error(gw, backends):
+    # build.agent is an open field, so R021 lets the change through; the schema does not, and the PR check would fail it.
+    sid = open_(gw, agent="coding-agent")
+    before, after = _cicd(backends, agent="cobol-85")
+    r = gw.call("alice", sid, "repo.pr.open", {"repo": "jfillman/gate-api", "branch": "agent/t-1", "title": "t",
+                                               "files": [{"path": "cicd.yaml", "before": before, "content": after}]})
+    assert not r.ok and r.decision["rule"] == "GP-SCHEMA-002" and "cobol-85" in r.decision["message"]
+    assert backends.git.calls == [], "no PR for a cicd.yaml the check would fail"
+    assert gw.audit.records[-1]["decision"] == "deny" and gw.audit.records[-1]["rule"] == "GP-SCHEMA-002"
+
+
+def test_repo_pr_open_validates_only_the_apps_root_cicd_yaml(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    before, after = _cicd(backends, cache={"enabled": True, "size": "small"})
+    # A nested cicd.yaml: R021 scoped it; glidepath-api's base would be the root file's, so it is not asked.
+    r = gw.call("alice", sid, "repo.pr.open", {"repo": "jfillman/gate-api", "branch": "agent/nested", "title": "t",
+                                               "files": [{"path": "apps/x/cicd.yaml", "before": before, "content": after}]})
+    assert r.ok, r.as_dict()
+    assert [c[0] for c in backends.glidepath.calls] == []
+    # A gitops-<app> release repo's cicd.yaml is not the app's config (and R012 keeps repo.pr.open off it anyway).
+    from autopilot.cicd_propose import check_files
+    assert check_files(backends.glidepath, "user:alice", "jfillman/gitops-gate-api", [{"path": "cicd.yaml", "content": after}]) is None
+    assert [c[0] for c in backends.glidepath.calls] == []
+    # An InfraService's gitops-infra-<app> repo holds its cicd.yaml: that one is asked about (R012 makes it an upper
+    # target for repo.pr.open, so through the gateway it takes repo.pr.open_upper, which is guarded the same way).
+    verdict = check_files(backends.glidepath, "user:alice", "jfillman/gitops-infra-skyport-auth", [{"path": "cicd.yaml", "content": after}])
+    assert verdict["valid"] and backends.glidepath.calls[-1][1][0] == "skyport-auth"
+
+
+def test_repo_pr_open_goes_ahead_on_r021_alone_when_the_app_is_not_onboarded(gw, backends):
+    sid = open_(gw, agent="coding-agent")
+    before, after = _cicd(backends, cache={"enabled": True, "size": "small"})
+    r = gw.call("alice", sid, "repo.pr.open", {"repo": "jfillman/unknown-app", "branch": "agent/t-1", "title": "t",
+                                               "files": [{"path": "cicd.yaml", "before": before, "content": after}]})
+    assert r.ok and backends.git.names() == ["git.open_pr"]
+    assert backends.glidepath.calls[-1][0] == "glidepath.validate_cicd"

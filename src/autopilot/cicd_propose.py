@@ -13,10 +13,13 @@ like any repo.pr.open. Clearance holds no copy of the rules here: glidepath-api 
 """
 from __future__ import annotations
 
+import posixpath
 import re
 from typing import Any
 
 from clearance.dispatch import Denied
+
+from .github_pr import app_of
 
 MAX_BODY_CHANGES = 30
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -64,6 +67,50 @@ def _cell(c: dict[str, Any], k: str) -> str:
         return ""
     s = str(c[k]).replace("|", "\\|").replace("\n", " ")
     return f"`{s[:60]}`" if s else "`\"\"`"
+
+
+def root_cicd_file(files: Any) -> dict[str, Any] | None:
+    """The repo-root cicd.yaml among a PR's files, if any. A nested one (apps/x/cicd.yaml) is not the app's config
+    glidepath-api reads; R021 still scopes it."""
+    for f in files or []:
+        if isinstance(f, dict) and isinstance(f.get("path"), str) and isinstance(f.get("content"), str):
+            if posixpath.normpath(f["path"].strip("/")) == "cicd.yaml":
+                return f
+    return None
+
+
+def check_files(glidepath: Any, principal: str, repo: str, files: Any, base: str = "main") -> Any:
+    """repo.pr.open with the app's cicd.yaml among its files: glidepath-api's verdict first, the one propose gets, so
+    every cicd.yaml that reaches GitHub through Clearance has had the schema and convention rules too (R021 ran the
+    scope rules already). Only the repo-root file of the app's own repo (<app>, or gitops-infra-<app>) is the app's
+    config; a gitops-<app> release repo's is not. An app glidepath-api doesn't know (404: not onboarded) has no
+    cicd-validate check either, so its PR goes ahead on R021 alone. Returns the verdict, or None when nothing applied."""
+    f = root_cicd_file(files)
+    if f is None:
+        return None
+    app = app_of(repo.rsplit("/", 1)[-1])
+    if not repo_is_apps(repo, app):
+        return None
+    verdict = glidepath.validate_cicd(app, {"content": f["content"], "agent": True, "baseRef": base or "main"}, principal)
+    if isinstance(verdict, dict) and "error" in verdict:
+        e = verdict["error"]
+        if e.get("rule") == "GP-API-404":
+            return None
+        raise Denied(e.get("rule") or "GP-API-400", e.get("message") or "glidepath-api refused the cicd.yaml", e.get("hint", ""))
+    errors = [p for p in verdict.get("problems") or [] if p.get("severity") == "error"]
+    if errors:
+        first = errors[0]
+        raise Denied(first.get("rule") or "GP-SCHEMA-001", "cicd.yaml: " + "; ".join(p.get("message", "") for p in errors),
+                     first.get("hint") or "Fix cicd.yaml (glidepath.cicd.validate shows the verdict before you open a PR).")
+    return verdict
+
+
+def guarded(inner: Any, glidepath: Any) -> Any:
+    """A PR handler that asks glidepath-api about the app's cicd.yaml before opening the PR (check_files)."""
+    def handler(session: Any, a: dict[str, Any]) -> Any:
+        check_files(glidepath, session.principal, a["repo"], a.get("files"), a.get("base", "main"))
+        return inner(session, a)
+    return handler
 
 
 def validate(glidepath: Any, principal: str, a: dict[str, Any]) -> Any:

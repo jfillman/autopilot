@@ -99,6 +99,12 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
                                                        a.get("base", "main"), meta=pr_meta(s))
         h["repo.pr.open_upper"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
                                                              a.get("base", "main"), meta=pr_meta(s))
+    if b.glidepath is not None:
+        # A PR carrying the app's cicd.yaml gets glidepath-api's verdict first, whichever tool carries it, so the file
+        # that reaches GitHub through Clearance has had the check glidepath.cicd.propose gives (cicd_propose.check_files).
+        for name in ("repo.pr.open", "repo.pr.open_upper"):
+            if name in h:
+                h[name] = cicd_propose.guarded(h[name], b.glidepath)
     if b.argo is not None and getattr(b.argo, "syncer", None) is not None:
         # The operation names the agent, task, session and principal, so Argo CD's history shows who asked.
         h["argo.sync.lower"] = lambda s, a: b.argo.sync(a["app"], a["project"],
