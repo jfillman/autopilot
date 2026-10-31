@@ -8,7 +8,7 @@ version = "0.1.0.dev0"
 description = "Autopilot: Hangar's AI agent runtime (agent definitions, Preflight, tool backends) on Clearance"
 requires-python = ">=3.11"
 # Clearance is its own product and repo (Hangar D16), pinned by tag; bump it here when clearance releases.
-dependencies = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.20.2", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2"]
+dependencies = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.20.3", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2"]
 
 [project.scripts]
 # The deployable gateway (src/autopilot/serve.py; README "Running the gateway").
