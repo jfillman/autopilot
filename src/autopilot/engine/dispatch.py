@@ -497,4 +497,9 @@ def _effect(spec, args: dict[str, Any], data: Any) -> dict[str, Any] | None:
         e["repo"] = str(args.get("repo", "")).lower()
         e["paths"] = sorted({provenance.normal(f.get("path", "")) for f in args.get("files") or []
                              if isinstance(f, dict)})
+    elif isinstance(data.get("paths"), list):
+        # A tool whose files are its own, not an argument (glidepath.cicd.propose writes cicd.yaml): its result says
+        # which repo and paths its commit carried, and the receipt records them the same way.
+        e["repo"] = str(data.get("repo") or args.get("repo", "")).lower()
+        e["paths"] = sorted({provenance.normal(p) for p in data["paths"] if isinstance(p, str)})
     return e
