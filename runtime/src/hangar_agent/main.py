@@ -1,6 +1,6 @@
 """The entrypoint, `hangar-agent`: read the pod's environment, run the loop, write result.json, exit.
 
-result.json is written in every case the process can still write it, a bad environment included, because it is
+result.json is written (and then handed to Clearance, run_finish) in every case the process can still write it, a bad environment included, because it is
 what the run leaves behind: {status, turns, final_text, tool_calls: [{tool, ok, rule}], reason}. It is written to a
 temporary file in the same directory and renamed, so a reader never sees half of one.
 
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import loop
-from .clearance import Clearance
+from .clearance import Clearance, ClearanceError
 from .env import ConfigError, config_from_env
 from .model import ModelProxy
 
@@ -60,6 +60,13 @@ def main(env: Mapping[str, str] | None = None) -> int:
                    ids={"task id": cfg.task_id, "run id": cfg.run_id, "session": cfg.session_id},
                    grant=[t for t in grant if isinstance(t, str)] if isinstance(grant, list) else None, log=say)
     write_result(cfg.output_dir, out.as_dict())
+    # The pod's volume goes with its namespace: Clearance keeps the result for Tower. A failure here is logged and
+    # changes nothing else (Clearance's sweep closes a session whose run ended without one).
+    try:
+        done = gateway.finish(out.as_dict())
+        say("result handed to Clearance" if done.get("ok") else f"Clearance did not take the result: {done.get('rule')}")
+    except ClearanceError as e:
+        say(f"Clearance did not take the result: {e}")
     calls = len(out.tool_calls)
     refused = sum(1 for c in out.tool_calls if not c["ok"])
     say(f"end: status={out.status} turns={out.turns} tool_calls={calls} not_ok={refused}"

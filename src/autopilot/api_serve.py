@@ -56,7 +56,8 @@ def build(env: Mapping[str, str] | None = None):
     # The same policy the gateway runs (core + the Hangar pack), for /v1/policy and the dry-run explainer.
     # The deployment gate's baseline (clearance gate.py), the same the gateway classifies with: /v1/clearance-policy.
     app = api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"), policy=Policy(PACKS),
-                             gate_policy=GatePolicy(), runtimes=serve.load_runtimes())
+                             gate_policy=GatePolicy(), runtimes=serve.load_runtimes(),
+                             custom_images=cfg.runtime_images_extra)
     return cfg, access, app
 
 

@@ -1,4 +1,4 @@
-"""kube_runs: the AgentRun store over the Kubernetes API. Two requests only; a 404 delete is success, a 409 create
+"""kube_runs: the AgentRun store over the Kubernetes API. Three requests only; a 404 delete is success, a 409 create
 is an error; anything outside the allowlist is refused before a request exists. No network: a fake opener."""
 import json
 
@@ -104,11 +104,47 @@ def test_delete_refuses_a_name_that_is_not_a_dns_label(token, name):
     assert op.reqs == []
 
 
-def test_allowlist_is_exactly_two_requests():
+def test_allowlist_is_exactly_three_requests():
     assert allowed("POST", COLLECTION)
     assert allowed("DELETE", COLLECTION + "/r-1")
-    for method, path in [("GET", COLLECTION), ("GET", COLLECTION + "/r-1"), ("PATCH", COLLECTION + "/r-1"),
+    assert allowed("GET", COLLECTION + "/r-1")
+    for method, path in [("GET", COLLECTION), ("GET", COLLECTION + "/r-1/status"), ("PATCH", COLLECTION + "/r-1"),
                          ("PUT", COLLECTION + "/r-1"), ("DELETE", COLLECTION), ("POST", COLLECTION + "/r-1"),
                          ("DELETE", COLLECTION + "/r-1/status"), ("POST", "/api/v1/namespaces/autopilot-runs/secrets"),
                          ("DELETE", "/apis/catalog.hangar.io/v1alpha1/namespaces/other/agentruns/r-1")]:
         assert not allowed(method, path), (method, path)
+
+
+@pytest.mark.parametrize("answer,outcome", [
+    ((200, json.dumps({"status": {"phase": "Running"}}).encode()), None),
+    ((200, json.dumps({"status": {"outcome": "Succeeded", "phase": "Succeeded"}}).encode()), "Succeeded"),
+    ((200, json.dumps({"status": {"outcome": "Failed"}}).encode()), "Failed"),
+    ((404, b""), "Gone"),
+])
+def test_outcome_reads_how_one_run_ended(token, answer, outcome):
+    op = Opener(answer)
+    assert store(token, op).outcome("r-00002a") == outcome
+    assert op.reqs[0].get_method() == "GET" and op.reqs[0].full_url.endswith(f"{COLLECTION}/r-00002a")
+
+
+def test_outcome_failure_is_an_error_and_a_bad_name_is_refused(token):
+    with pytest.raises(KubeRunError):
+        store(token, Opener((403, b""))).outcome("r-00002a")
+    op = Opener()
+    with pytest.raises(RunRefused):
+        store(token, op).outcome("../x")
+    assert op.reqs == []
+
+
+def test_the_run_backend_says_how_a_sessions_run_ended():
+    from types import SimpleNamespace
+    from autopilot.gateway import AgentRunBackend
+
+    class Store:
+        def outcome(self, name):
+            return {"r-000001": "Succeeded"}.get(name)
+
+    b = AgentRunBackend(Store())
+    assert b.ended(SimpleNamespace(id="s-000001", run="r-000001")) == "Succeeded"
+    assert b.ended(SimpleNamespace(id="s-000002", run=None)) is None
+    assert AgentRunBackend(object()).ended(SimpleNamespace(id="s-000001", run="r-000001")) is None

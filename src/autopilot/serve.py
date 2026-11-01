@@ -53,6 +53,7 @@ from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from clearance.definitions import Definitions, MemoryDefinitions
 from clearance.gate import GatePolicy, MemoryChanges
+from clearance.results import MemoryResults
 from .reads import BackstageAppOwners, BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 
@@ -428,10 +429,11 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         holds = MemoryHolds()
         pins = MemoryDefinitions()
         changes = MemoryChanges()
+        results = MemoryResults()
     else:
         import psycopg   # only where it is used
         from clearance.pg import open_durable
-        from clearance.pg import PgArtifacts, PgChanges, PgDefinitions, PgEvents, PgHolds, PgInbox
+        from clearance.pg import PgArtifacts, PgChanges, PgDefinitions, PgEvents, PgHolds, PgInbox, PgResults
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
@@ -441,6 +443,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         holds = PgHolds(state)                 # people's holds on agents' triggers (control.py)
         pins = PgDefinitions(state)            # the cluster-pinned definitions, for restarts and clearance-api
         changes = PgChanges(state)             # the deployment gate's changes (clearance gate.py)
+        results = PgResults(state)             # finished runs' answers, 30 days (clearance results.py)
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
@@ -453,7 +456,8 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
                            definitions_store=pins, changes=changes, gate_policy=GatePolicy(),
                            owners=BackstageAppOwners(b.read.backstage) if getattr(b.read, "backstage", None) else None,
-                           runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra)
+                           runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra,
+                           results=results)
     return gw, state
 
 
