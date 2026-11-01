@@ -410,3 +410,16 @@ def test_the_github_app_is_all_or_nothing(tmp_path):
     c = serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1", "CLEARANCE_GITHUB_APP_KEY_FILE": "/k",
                                "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE": "/s", "CLEARANCE_GITHUB_APP_COMMENTS": "agent-failures"})
     assert (c.github_app_id, c.github_app_comments) == ("1", "agent-failures")
+
+
+def test_github_actions_oidc_is_off_until_an_audience_is_set():
+    base = {"CLEARANCE_EPHEMERAL": "1"}
+    assert serve.config_from_env(base).github_oidc_audience is None
+    c = serve.config_from_env({**base, "CLEARANCE_GITHUB_OIDC_AUDIENCE": "clearance",
+                               "CLEARANCE_GITHUB_OIDC_ALLOWED": "repo:jfillman/*"})
+    assert (c.github_oidc_audience, c.github_oidc_allowed) == ("clearance", ("repo:jfillman/*",))
+    clearance_auth = pytest.importorskip("clearance.auth")
+    if not hasattr(clearance_auth, "GitHubActionsAuthenticator"):
+        pytest.skip("needs clearance v0.23.0")
+    routing = serve.build_auth(c).inner
+    assert clearance_auth.GITHUB_ACTIONS_ISSUER in routing.oidc

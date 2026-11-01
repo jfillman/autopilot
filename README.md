@@ -88,6 +88,8 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `CLEARANCE_OIDC_ISSUER`, `CLEARANCE_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
 | `CLEARANCE_GITHUB_APP_ID`, `CLEARANCE_GITHUB_APP_KEY_FILE`, `CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE` | unset | set all three to run the Clearance GitHub App (clearance `docs/provenance-app.md`): `POST /v1/github/webhook` accepts signed webhooks and posts `Clearance / agent-identity` and `Clearance / agent-scope` check runs. The key and the secret are files, never env values |
 | `CLEARANCE_GITHUB_APP_COMMENTS` | `off` | `agent-failures`: also comment on an agent PR that fails a check |
+| `CLEARANCE_GITHUB_OIDC_AUDIENCE` | unset | set to accept GitHub Actions workflows' OIDC ID tokens for this audience (clearance v0.23.0 `GitHubActionsAuthenticator`, `clearance register`): principal `github:<sub>`, registering only when `CLEARANCE_VERIFIERS` lists it, and only for its own repository (DG-REPO) |
+| `CLEARANCE_GITHUB_OIDC_ALLOWED` | `repo:*` | which workflows' tokens are accepted at all (globs on the token's `sub`, e.g. `repo:jfillman/*`) |
 | `CLEARANCE_OIDC_JWKS_URL` | `$CLEARANCE_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
 | `CLEARANCE_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
 | `CLEARANCE_OIDC_ALLOWED_USERS` | (none) | comma-separated globs on that claim: who may sign in at all. Required with `CLEARANCE_OIDC_ISSUER`, because an issuer that federates GitHub signs in anyone with a GitHub account |
