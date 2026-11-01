@@ -5,6 +5,9 @@ what the run leaves behind: {status, turns, final_text, tool_calls: [{tool, ok, 
 temporary file in the same directory and renamed, so a reader never sees half of one.
 
 Exit codes: 0 when the status is done, 1 for budget, expired or error, 2 when the environment is unusable.
+
+run_pod is the same steps around any loop: the generic loop (generic_runner), and the LangGraph and Claude Agent SDK
+runtimes (runtime/langgraph, runtime/claude-agent-sdk), which bring their own runner and keep this pod contract.
 """
 from __future__ import annotations
 
@@ -13,11 +16,11 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from . import loop
 from .clearance import Clearance, ClearanceError
-from .env import ConfigError, config_from_env
+from .env import Config, ConfigError, config_from_env
 from .model import ModelProxy
 
 RESULT = "result.json"
@@ -38,7 +41,31 @@ def say(line: str) -> None:
     print(f"hangar-agent: {line}", flush=True)
 
 
+# A runner: (the run's config, its Clearance client, the log) -> how the loop ended.
+Runner = Callable[[Config, Clearance, Callable[[str], None]], loop.Outcome]
+
+
+def grant_of(cfg: Config) -> list[str] | None:
+    grant = cfg.limits.get("tools")
+    return [t for t in grant if isinstance(t, str)] if isinstance(grant, list) else None
+
+
+def run_ids(cfg: Config) -> dict[str, str]:
+    return {"task id": cfg.task_id, "run id": cfg.run_id, "session": cfg.session_id}
+
+
+def generic_runner(cfg: Config, gateway: Clearance, log: Callable[[str], None]) -> loop.Outcome:
+    model = ModelProxy(cfg.model_proxy_url, cfg.model_proxy_token_file, cfg.session_id)
+    return loop.run(model, gateway, agent=cfg.agent, task=cfg.task, model_name=cfg.model, max_turns=cfg.max_turns,
+                    max_tokens=cfg.max_tokens, expires_at=cfg.expires_at, ids=run_ids(cfg), grant=grant_of(cfg),
+                    log=log)
+
+
 def main(env: Mapping[str, str] | None = None) -> int:
+    return run_pod(env, generic_runner)
+
+
+def run_pod(env: Mapping[str, str] | None, runner: Runner) -> int:
     env = os.environ if env is None else env
     try:
         cfg = config_from_env(env)
@@ -53,12 +80,7 @@ def main(env: Mapping[str, str] | None = None) -> int:
     say(f"run={cfg.run_id} task={cfg.task_id} agent={cfg.agent} session={cfg.session_id} "
         f"expires={cfg.expires_at.isoformat()}")
     gateway = Clearance(cfg.clearance_url, cfg.clearance_token_file, cfg.session_id)
-    model = ModelProxy(cfg.model_proxy_url, cfg.model_proxy_token_file, cfg.session_id)
-    grant = cfg.limits.get("tools")
-    out = loop.run(model, gateway, agent=cfg.agent, task=cfg.task, model_name=cfg.model, max_turns=cfg.max_turns,
-                   max_tokens=cfg.max_tokens, expires_at=cfg.expires_at,
-                   ids={"task id": cfg.task_id, "run id": cfg.run_id, "session": cfg.session_id},
-                   grant=[t for t in grant if isinstance(t, str)] if isinstance(grant, list) else None, log=say)
+    out = runner(cfg, gateway, say)
     write_result(cfg.output_dir, out.as_dict())
     # The pod's volume goes with its namespace: Clearance keeps the result for Tower. A failure here is logged and
     # changes nothing else (Clearance's sweep closes a session whose run ended without one).

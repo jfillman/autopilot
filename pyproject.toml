@@ -18,8 +18,9 @@ autopilot-gateway = "autopilot.serve:main"
 allow-direct-references = true
 
 [project.optional-dependencies]
-# anthropic: the agent runtime's model client (runtime/, tests/test_runtime_*.py).
-test = ["pytest>=8", "anthropic>=0.40,<3"]
+# anthropic: the agent runtime's model client (runtime/, tests/test_runtime_*.py). langgraph: the LangGraph runtime
+# (runtime/langgraph). The Claude Agent SDK runtime's tests use a fake SDK, so the 140 MB SDK is not a test dependency.
+test = ["pytest>=8", "anthropic>=0.40,<3", "langgraph>=1.2,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/autopilot"]
@@ -27,5 +28,6 @@ packages = ["src/autopilot"]
 [tool.pytest.ini_options]
 # function-agentrun's tests live with it in airframe (functions/function-agentrun, CI's compositions job).
 testpaths = ["tests"]
-# runtime/src: the agent runtime (runtime/pyproject.toml), its own package and image.
-pythonpath = ["src", "runtime/src"]
+# runtime/src: the agent runtime (runtime/pyproject.toml), its own package and image; runtime/langgraph/src and
+# runtime/claude-agent-sdk/src: the other runtimes, each its own image on top of hangar_agent.
+pythonpath = ["src", "runtime/src", "runtime/langgraph/src", "runtime/claude-agent-sdk/src"]
