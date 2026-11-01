@@ -119,6 +119,9 @@ class Gateway:
         # The session store and the audit chain are single-writer: every transport (the MCP server, the model proxy)
         # takes this lock around a gateway operation.
         self.lock = threading.RLock()
+        # Called (with no arguments, non-blocking) when a waiting GitHub deployment gets its answer: the Clearance
+        # GitHub App registers its delivery poke here (github_app.py).
+        self.deployment_listeners: list[Callable[[], None]] = []
         # The model proxy's decisions (modelproxy.py), on this Gateway's store and audit chain, so a model call is
         # charged to the same session budget and recorded in the same chain as the tool calls. model_auth verifies
         # the run's model-proxy token (its own audience); without models, no model call is ever allowed.
@@ -471,6 +474,7 @@ class Gateway:
             for old in store.for_pr(req.repo, req.pr):
                 if old.state == "holding" and old.head != req.head:
                     old.state, old.superseded_by, old.decided_at, old.updated_at = "superseded", req.head, now, now
+                    self._settle_deployments(old, now)
                     store.put(old)
                     self._gate_record("policy", None, "deploy.expire", old, "allow", None, f"superseded by {req.head[:7]}", {"by": req.head})
             ch = gate.Change.open(req, c, now, principal.id)
@@ -485,6 +489,7 @@ class Gateway:
         elif c.decision == "clear":
             ch.state, ch.cleared_by, ch.decided_at = "cleared", "policy", now
             self._gate_record("policy", None, "deploy.clear", ch, "allow", None, c.why, {"tier": c.tier})
+        self._settle_deployments(ch, now)
         store.put(ch)
         return ch.view(now)
 
@@ -556,6 +561,7 @@ class Gateway:
         done = req is not None and req.satisfied(c.approvals)
         if done:
             c.state, c.cleared_by, c.decided_at = "cleared", "people", now
+            self._settle_deployments(c, now)
         store.put(c)
         rec = self._gate_record(person, via, "deploy.clear", c, "allow", None,
                                 f"cleared as {role}" + (" (requirement met)" if done else f" ({len(c.approvals)} of the people needed)"),
@@ -580,12 +586,14 @@ class Gateway:
             raise gate.GateError("DG-FORBIDDEN", f"{person} may not decide this change", "Only the owner group, the outside group or a platform admin may.", 403)
         now = self.now()
         c.state, c.deny_reason, c.denied_by, c.decided_at, c.updated_at = "denied", text, person, now, now
+        self._settle_deployments(c, now)
         store.put(c)
         rec = self._gate_record(person, via, "deploy.deny", c, "deny", "DG-DENIED", text, {"reason": text})
         return {**c.view(now), "audit_seq": rec["seq"]}
 
     def _expire_change(self, c: gate.Change, now: datetime) -> None:
         c.state, c.decided_at, c.updated_at = "expired", now, now
+        self._settle_deployments(c, now)
         self.changes.put(c)
         self._gate_record("policy", None, "deploy.expire", c, "allow", None, f"not cleared within {self.gate_policy.ttl_days} days", {"expires_at": iso(c.expires_at)})
 
@@ -600,6 +608,98 @@ class Gateway:
                 self._expire_change(c, now)
                 done.append(c.id)
         return done
+
+    # -- GitHub deployments held by the gate (github_app.py: a custom deployment protection rule) -------------------
+    def _settle_deployments(self, c: gate.Change, now: datetime) -> None:
+        if gate.answer_deployments(c, now):
+            for poke in self.deployment_listeners:
+                poke()
+
+    @_durable
+    def deployment_requested(self, installation: str, repo: str, head: str, environment: str, run_id: int,
+                             callback_url: str) -> dict[str, Any]:
+        """GitHub asks whether a GitHub Actions deployment of `head` from `repo` to `environment` may go. The answer is
+        the deployment gate's: the change registered for that commit and environment (by Glidepath's clearance-gate
+        check, or `clearance register` in the customer's CI), matched on repo, head and env (the GitHub environment's
+        name, lowercased). Cleared: approved. Holding: it waits, and is answered when people decide. Denied, expired
+        or superseded: rejected. No change at all: rejected (DG-UNREGISTERED), so an environment protected by
+        Clearance never deploys an unregistered commit. Each request is a deploy.request record by app:<installation>."""
+        with self.lock:
+            now, repo, env = self.now(), repo.lower(), environment.lower()
+            principal = f"app:{installation}"
+            found = [c for c in (self.changes.for_head(repo, head) if self.changes is not None else [])
+                     if c.env == env and c.state != "superseded"]
+            c = found[-1] if found else None
+            if c is None:
+                why = (f"no change is registered for {head[:7]} to {environment}; register it first (Glidepath's "
+                       f"clearance-gate check, or `clearance register` in this workflow before the deploy job)")
+                rec = self.audit.append({
+                    "ts": iso(now), "task_id": None, "session": None, "parent": None, "principal": principal,
+                    "agent": None, "tool": "deploy.request", "tier": None, "decision": "deny", "rule": "DG-UNREGISTERED",
+                    "target": f"{repo}@{head[:7]}", "args_sha256": args_digest({"run": run_id, "environment": environment}),
+                    "result": f"deployment run {run_id} to {environment}: rejected", "boundary": "deployment"})
+                return {"answer": "rejected", "rule": "DG-UNREGISTERED", "comment": why, "change": None,
+                        "audit_seq": rec["seq"]}
+            entry = next((d for d in c.deployments if d.get("run_id") == run_id and d.get("environment") == environment), None)
+            if entry is None:
+                entry = {"run_id": run_id, "environment": environment, "installation": str(installation),
+                         "callback_url": callback_url, "requested_at": iso(now), "answer": None, "answered_at": None,
+                         "delivered": False, "delivered_at": None}
+                c.deployments.append(entry)
+            answer = gate.deployment_answer(c.state)
+            if answer is not None and entry.get("answer") is None:
+                entry.update(answer=answer, answered_at=iso(now), delivered=False)
+            c.updated_at = now
+            self.changes.put(c)
+            rec = self._gate_record(principal, None, "deploy.request", c, "allow", None,
+                                    f"deployment run {run_id} to {environment}: {entry.get('answer') or 'waiting'}",
+                                    {"run": run_id, "environment": environment})
+            return {"answer": entry.get("answer"), "rule": None, "comment": self._deployment_comment(c, entry.get("answer")),
+                    "change": c.id, "audit_seq": rec["seq"]}
+
+    def _deployment_comment(self, c: gate.Change, answer: str | None) -> str:
+        if answer == "approved":
+            return f"Cleared by {c.cleared_by or 'policy'} (tier {c.tier}). Clearance change `{c.id}`."
+        if answer == "rejected":
+            why = {"denied": f"denied by {c.denied_by}: {c.deny_reason}", "expired": "it expired before it was cleared",
+                   "superseded": f"a newer commit ({(c.superseded_by or '')[:7]}) replaced it"}.get(c.state, c.state)
+            return f"Not cleared: {why}. Clearance change `{c.id}`."
+        req = c.requirement_obj()
+        return (f"Held for people (tier {c.tier}): {req.words() if req else 'a person must clear it'}. "
+                f"Clearance change `{c.id}`; this deployment goes as soon as it is cleared.")
+
+    def undelivered_deployments(self) -> list[dict[str, Any]]:
+        """Deployments answered but not yet taken by GitHub, oldest first: what the App delivers (and retries)."""
+        if self.changes is None:
+            return []
+        with self.lock:
+            out = []
+            for c in self.changes.undelivered():
+                for d in c.deployments:
+                    if d.get("answer") and not d.get("delivered"):
+                        out.append({**d, "change": c.id, "repo": c.repo, "comment": self._deployment_comment(c, d["answer"])})
+            self.store.flush()
+            return sorted(out, key=lambda d: d.get("answered_at") or "")
+
+    @_durable
+    def deployment_delivered(self, change_id: str, run_id: int, environment: str) -> dict[str, Any] | None:
+        """GitHub took the answer: the entry is delivered, and the answer is a deploy.answer record (app:<installation>)."""
+        with self.lock:
+            c = self.changes.get(change_id) if self.changes is not None else None
+            if c is None:
+                return None
+            for d in c.deployments:
+                if d.get("run_id") == run_id and d.get("environment") == environment and not d.get("delivered"):
+                    now = self.now()
+                    d.update(delivered=True, delivered_at=iso(now))
+                    c.updated_at = now
+                    self.changes.put(c)
+                    return self._gate_record(f"app:{d.get('installation')}", None, "deploy.answer", c,
+                                             "allow" if d["answer"] == "approved" else "deny",
+                                             None if d["answer"] == "approved" else "DG-NOT-CLEARED",
+                                             f"deployment run {run_id} to {environment}: {d['answer']}",
+                                             {"run": run_id, "environment": environment, "answer": d["answer"]})
+            return None
 
     def gate_policy_view(self) -> dict[str, Any]:
         return self.gate_policy.view()
