@@ -136,6 +136,11 @@ class Config:
     tower_jwks_url: str | None = None
     tower_service_accounts: tuple[str, ...] = ()
     delegates: tuple[str, ...] = ()
+    # GitHub Actions workflows (clearance register, provenance-app.md phase 2b): their OIDC ID tokens for this
+    # audience, from the workflows `github_oidc_allowed` names (globs on the token's sub). Off when the audience is
+    # unset. Registering still needs CLEARANCE_VERIFIERS to list the principal (github:<sub>).
+    github_oidc_audience: str | None = None
+    github_oidc_allowed: tuple[str, ...] = ("repo:*",)
     # Platform admins (principal globs, user:<login>) who may freeze, end, hold and release beside each agent's owner
     # group (clearance control.py).
     admins: tuple[str, ...] = ()
@@ -262,6 +267,8 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
         tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("CLEARANCE_DELEGATES", "")),
         admins=_list(get("CLEARANCE_ADMINS", "")),
+        github_oidc_audience=get("CLEARANCE_GITHUB_OIDC_AUDIENCE") or None,
+        github_oidc_allowed=_list(get("CLEARANCE_GITHUB_OIDC_ALLOWED", "repo:*")),
         # Images a definition may pin beyond the runtime catalog: the registries Glidepath builds agents' own images
         # into (code agents), as globs, e.g. ghcr.io/jfillman/*@sha256:*.
         runtime_images_extra=tuple(_list(get("RUNTIME_IMAGES_EXTRA", ""))),
@@ -329,6 +336,10 @@ def build_auth(cfg: Config) -> Authenticator:
         oidc[cfg.tower_issuer] = ForeignWorkloadAuthenticator(cfg.tower_cluster, cfg.tower_issuer, cfg.audience,
                                                               JWKS(cfg.tower_jwks_url),
                                                               allowed=cfg.tower_service_accounts)
+    if cfg.github_oidc_audience:
+        from clearance.auth import GITHUB_ACTIONS_ISSUER, GitHubActionsAuthenticator
+        oidc[GITHUB_ACTIONS_ISSUER] = GitHubActionsAuthenticator(
+            cfg.github_oidc_audience, JWKS(f"{GITHUB_ACTIONS_ISSUER}/.well-known/jwks"), allowed=cfg.github_oidc_allowed)
     return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
 
 
@@ -506,6 +517,7 @@ def describe(cfg: Config, gw: Gateway) -> str:
                else " model-proxy=off")
             + f" events={'on' if cfg.events_enabled else 'off'}"
             + f" agent-pins={'on (every ' + format(cfg.agent_xrs_interval, 'g') + 's)' if cfg.agent_xrs_enabled else 'off'}"
+            + f" github-oidc={'on (aud ' + cfg.github_oidc_audience + ')' if cfg.github_oidc_audience else 'off'}"
             + f" github-app={'on (app ' + str(cfg.github_app_id) + ', comments ' + cfg.github_app_comments + ')' if cfg.github_app_id else 'off'}"
             + f" agentruns=in-cluster expire-every={cfg.expire_seconds:g}s")
 
