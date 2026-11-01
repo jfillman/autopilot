@@ -82,6 +82,13 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
                  "required_args": list(t.required_args), "propose_only": t.propose_only}
                 for t in gateway.tools.values() if names is None or t.name in names]
 
+    @mcp.tool(description="List the agent definitions: what each is for (description), where it runs (runs_in: "
+                          "\"client\" means your session is the agent, \"cluster\" means it also runs in-cluster), its kind, "
+                          "tier ceiling and tools. Open a session on one with can_open_session true.")
+    def agents_list() -> list[dict[str, Any]]:
+        with lock:
+            return gateway.agents_for(token())
+
     @mcp.tool(description="Open a session for an agent definition. `limits` may only narrow the definition's limits.")
     def session_open(agent: str, limits: dict[str, Any] | None = None) -> dict[str, Any]:
         with lock:
@@ -205,6 +212,17 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
         if isinstance(body, JSONResponse):
             return body
         return await _people(request, gateway.hold_triggers, request.path_params["agent"], body.get("reason"), body.get("hours"))
+
+    @mcp.custom_route("/v1/agents/{agent}/runs", methods=["POST"], include_in_schema=False)
+    async def run(request: Request) -> JSONResponse:
+        """Start an in-cluster run of a task agent as the person: {"input": "..."} (optional). 201 on success."""
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        res = await _people(request, gateway.run_agent, request.path_params["agent"], body.get("input"))
+        if res.status_code == 200:
+            res.status_code = 201
+        return res
 
     @mcp.custom_route("/v1/agents/{agent}/hold", methods=["DELETE"], include_in_schema=False)
     async def release(request: Request) -> JSONResponse:
