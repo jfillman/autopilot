@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import functools
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -35,6 +35,9 @@ class Principal:
     id: str
     kind: str                 # "user" (delegated agent) or "workload"
     tier_ceiling: Tier = Tier.T1
+    # Verified facts an authenticator vouches for beyond the id, e.g. a GitHub Actions token's `repository`
+    # (auth.GitHubActionsAuthenticator): register_change binds such a caller to its own repository (DG-REPO).
+    attrs: Mapping[str, str] = field(default_factory=dict, compare=False)
 
 
 class Authenticator(Protocol):
@@ -450,6 +453,11 @@ class Gateway:
             raise provenance.NotVerifier(f"{principal.id} is not a verifier")
         store = self._gate_on()
         req = gate.ChangeRequest.from_dict(body)
+        bound = principal.attrs.get("repository")
+        if bound is not None and req.repo != bound.lower():
+            # A workflow's OIDC token registers changes for its own repository only (`clearance register`).
+            raise gate.GateError("DG-REPO", f"{principal.id} may register changes for {bound} only, not {req.repo}",
+                                 "Register from a workflow in the repository the change deploys.", 403)
         if not req.owner and self.owners is not None:
             req = gate.ChangeRequest(**{**req.__dict__, "owner": self.owners.owner_of(req.app) or ""})
         if not req.owner:
