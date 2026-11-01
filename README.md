@@ -269,8 +269,24 @@ as is; clearance-api lists all of it at `GET /v1/runtimes` for the New agent pic
 |---|---|---|
 | `generic` | runtime | available: this loop, `runtime-v0.1.3` (hands its result to Clearance) |
 | `base-python` | base | available: `runtime-base-python-v0.1.1` (its Clearance client has `finish()`; call it after `result.json`), from `runtime/base-python/Dockerfile` |
-| `claude-agent-sdk` | runtime | planned: needs the model proxy to speak streaming Messages |
-| `langgraph` | runtime | planned |
+| `claude-agent-sdk` | runtime | available: `runtime-claude-agent-sdk-v0.1.0`, from `runtime/claude-agent-sdk/` (needs clearance v0.26.0's streaming model proxy) |
+| `langgraph` | runtime | available: `runtime-langgraph-v0.1.0`, from `runtime/langgraph/` |
+
+**`langgraph`** (`hangar_langgraph`) is this loop as a LangGraph graph: a `model` node (the model proxy) and a `tools`
+node (Clearance), looping until the model ends its turn or the turns or the session's time run out. The tests run
+every scenario through both and require the same outcome. It is the image to `FROM` for a graph of your own
+(`hangar_langgraph.graph.build`).
+
+**`claude-agent-sdk`** (`hangar_claude`) runs the Claude Agent SDK's bundled Claude Code CLI as the loop, with **no
+built-in tools** (`tools=[]`: no Bash, no file edits, no web), no settings files and no MCP config but its own: each
+tool the session may call is an in-process MCP tool (`mcp__clearance__<name>`) that forwards to Clearance, so every
+action is decided and recorded there. The CLI's API is the model proxy (`ANTHROPIC_BASE_URL`), with the run's
+model-proxy token as its key and `x-hangar-session` as a custom header; every model alias is pinned to the run's model
+and nonessential traffic is off. The CLI streams, and its requests carry betas their bodies depend on, which is why it
+needs clearance v0.26.0 (streaming relay, `anthropic-beta` forwarded less OAuth). Checked against a logging fake API:
+it calls only `POST /v1/messages`.
+
+Both use `hangar_agent.main.run_pod`, so `result.json`, `run_finish` and the exit codes are the generic runtime's.
 
 The `runtime-image` workflow builds each multi-arch from its tag. A code agent: `FROM` the base, add its code and an
 entrypoint, `from hangar_agent import env, clearance, model` for the contract, and let its own Glidepath build publish

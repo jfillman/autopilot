@@ -19,12 +19,14 @@ runtimes:
     summary: "FROM image for a Python code agent: python 3.13-slim, non-root, read-only-root ready, with hangar_agent installed as a library (env, the Clearance client with finish() for run_finish, the model-proxy client, result.json). Your entrypoint, our contract."
     status: available        # runtime-base-python-v0.1.1
   - name: claude-agent-sdk
+    image: ghcr.io/jfillman/autopilot-agent-claude-agent-sdk@sha256:1057c0532f1ef0bdba95ea47e6dc06914f8bcfe7fc12cd3d58617ff003372310
     kind: runtime
     framework: claude-agent-sdk
-    summary: "The Claude Agent SDK's loop with Clearance as its MCP server. Waits on the model proxy speaking streaming Messages, which the SDK needs."
-    status: planned
+    summary: "Claude Code's agent loop (the Claude Agent SDK's bundled CLI) with no built-in tools: Clearance's tools as in-process MCP tools, the model proxy as its API (streaming, clearance v0.26.0). Prompt-only agents. runtime-claude-agent-sdk-v0.1.0."
+    status: available
   - name: langgraph
+    image: ghcr.io/jfillman/autopilot-agent-langgraph@sha256:6ea5c23344dad7948ae32b1459eb5a488e53e72a5050c641411dcf00a5828aa7
     kind: runtime
     framework: langgraph
-    summary: "A LangGraph graph whose tool nodes call Clearance and whose model node calls the model proxy."
-    status: planned
+    summary: "The generic loop as a LangGraph graph: a model node (the model proxy) and a tools node (Clearance). Prompt-only agents, or FROM it for a graph of your own. runtime-langgraph-v0.1.0."
+    status: available
