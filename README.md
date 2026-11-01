@@ -272,7 +272,7 @@ Clearance's own check runs (`Clearance / agent-identity`, `Clearance / agent-sco
 `docs/provenance-app.md`) run on hangar-dev beside Glidepath's `agent-gates-` check until their verdicts agree.
 Setting it up:
 
-1. **Register the App** from clearance `contract/github-app-manifest.json`, with the webhook URL
+1. **Register the App** as `Hangar Clearance` (GitHub reserves `Clearance`) from clearance `contract/github-app-manifest.json`, with the webhook URL
    `https://clearance-webhook.hangarplatform.dev/v1/github/webhook`. It asks only for checks write and contents,
    pull requests and metadata read. Install it on the repos agents open PRs on.
 2. **Store its id, private key (PEM) and webhook secret** in hangar-dev's Infisical project as
