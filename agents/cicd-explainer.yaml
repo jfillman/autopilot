@@ -5,7 +5,9 @@ kind: task
 identity: { type: delegated }
 profile:
   tierCeiling: T0
-  tools: [glidepath.runs.list, glidepath.run.get, glidepath.logs.get, glidepath.explain, glidepath.releases.get, glidepath.contract]
+  tools: [glidepath.runs.list, glidepath.run.get, glidepath.logs.get, glidepath.explain, glidepath.releases.get, glidepath.contract,
+          glidepath.live.list, glidepath.live.logs.get, glidepath.tests.list, glidepath.tests.report,
+          glidepath.evidence.get, glidepath.events.recent, glidepath.previews.list]
   glidepath: { apps: ["*"] }
   models: [claude-sonnet-5-5]
   network: clearance+model

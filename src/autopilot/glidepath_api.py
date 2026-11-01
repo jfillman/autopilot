@@ -25,6 +25,8 @@ from typing import Any, Callable
 
 from clearance.dispatch import Denied
 
+from . import glidepath_live
+
 # Every refusal glidepath-api can give that is about who is asking, not what was asked.
 _AUTH_STATUSES = (401, 403)
 
@@ -44,14 +46,48 @@ def _urlopen(req: urllib.request.Request, timeout: float) -> tuple[int, bytes]:
         return e.code, e.read(64 << 10)
 
 
+# A log or report bigger than this is cut to its last LOG_TAIL bytes (an agent reads the end of a failing step).
+LOG_TAIL = 256 << 10
+WATCH_DEFAULT, WATCH_MAX = 60, 120
+
+
+def _stream_open(req: urllib.request.Request, timeout: float) -> tuple[int, Any]:
+    """Open a server-sent event stream: (200, its lines) or (status, the error body). `timeout` bounds each read, so a
+    silent connection fails; glidepath-api's 15 s heartbeat keeps a healthy one talking."""
+    try:
+        res = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310 - the URL is configuration
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(64 << 10)
+    def lines():
+        with res:
+            for line in res:
+                yield line
+    return res.status, lines()
+
+
+def _tail(body: bytes, key: str) -> dict:
+    text = body.decode("utf-8", "replace")
+    if len(body) <= LOG_TAIL:
+        return {key: text}
+    return {key: body[-LOG_TAIL:].decode("utf-8", "replace"), "truncated": True, "bytes": len(body)}
+
+
 class GlidepathAPI:
     def __init__(self, base_url: str, token_file: str | Path, on_behalf_of: bool = False,
-                 timeout: float = 30.0, opener: Opener = _urlopen):
+                 timeout: float = 30.0, opener: Opener = _urlopen, stream_opener=_stream_open):
         self.base = base_url.rstrip("/")
         self.token_file = Path(token_file)
         self.send_on_behalf_of = on_behalf_of
         self.timeout = timeout
         self._open = opener
+        self._stream = stream_opener
+
+    def _request(self, path: str, on_behalf_of: str, accept: str) -> urllib.request.Request:
+        token = self.token_file.read_text().strip()
+        headers = {"Authorization": f"Bearer {token}", "X-Glidepath-Authorization": f"Bearer {token}", "Accept": accept}
+        if self.send_on_behalf_of and on_behalf_of:
+            headers["X-Glidepath-On-Behalf-Of"] = on_behalf_of
+        return urllib.request.Request(self.base + path, headers=headers, method="GET")
 
     def _get(self, path: str, on_behalf_of: str, accept: str = "application/json",
              query: dict[str, Any] | None = None, method: str = "GET",
@@ -129,6 +165,63 @@ class GlidepathAPI:
 
     def contract(self, on_behalf_of):
         return self._json("/v1/contract", on_behalf_of)
+
+    # What is happening now (glidepath-api 0.8.0+). Results holds finished runs only; these read the cluster.
+    def live(self, app, on_behalf_of):
+        body = self._json(f"/v1/apps/{self._seg(app)}/live", on_behalf_of)
+        return body if "error" in body else glidepath_live.summarize(body)
+
+    def live_log(self, app, task_run, container, on_behalf_of):
+        status, body = self._get(f"/v1/apps/{self._seg(app)}/live/taskruns/{self._seg(task_run)}/logs/{self._seg(container)}",
+                                 on_behalf_of, accept="text/plain")
+        if status == 200:
+            return _tail(body, "log")
+        return self._refusal(status, body)
+
+    def watch(self, app, pipelinerun, timeout_seconds, on_behalf_of):
+        """GET .../live/stream until `pipelinerun` finishes or timeout_seconds pass (glidepath_live.watch)."""
+        timeout = float(min(WATCH_MAX, timeout_seconds or WATCH_DEFAULT))
+        path = f"/v1/apps/{self._seg(app)}/live/stream"
+
+        def open_stream(t):
+            try:
+                return self._stream(self._request(path, on_behalf_of, "text/event-stream"), min(t, 30.0))
+            except OSError as e:
+                return 599, str(e).encode()
+
+        def poll():
+            return self._json(f"/v1/apps/{self._seg(app)}/live", on_behalf_of)
+
+        status, first = open_stream(timeout)
+        if status in (401, 403, 404, 400):
+            return self._refusal(status, first)
+        return glidepath_live.watch(pipelinerun, timeout, lambda _t: (status, first), poll)
+
+    # A promote or rollback release run (glidepath-api 0.8.0): its tasks in order, the PR, the change request.
+    def release_run(self, app, name, on_behalf_of):
+        return self._json(f"/v1/apps/{self._seg(app)}/releases/runs/{self._seg(name)}", on_behalf_of)
+
+    # Supply-chain evidence and tests (phase 2).
+    def evidence(self, app, image, on_behalf_of):
+        return self._json(f"/v1/apps/{self._seg(app)}/evidence", on_behalf_of, {"image": image})
+
+    def tests(self, app, limit, on_behalf_of):
+        return self._json(f"/v1/apps/{self._seg(app)}/tests", on_behalf_of, {"limit": limit})
+
+    def test_report(self, app, test_id, on_behalf_of):
+        status, body = self._get(f"/v1/apps/{self._seg(app)}/tests/{self._seg(test_id)}/report", on_behalf_of,
+                                 accept="application/xml")
+        if status == 200:
+            return _tail(body, "report")
+        return self._refusal(status, body)
+
+    # The app's recent CDEvents from glidepath-api's buffer (phase 5; best-effort, at most 24 h).
+    def events(self, app, type_prefix, since, limit, on_behalf_of):
+        return self._json("/v1/events/recent", on_behalf_of, {"app": app, "type": type_prefix, "since": since, "limit": limit})
+
+    # Preview environments (0.10.0), read only.
+    def previews(self, app, on_behalf_of):
+        return self._json(f"/v1/apps/{self._seg(app)}/previews", on_behalf_of)
 
     # Writes (spec phase 3). glidepath-api requires a delegate's write to name the person, so Clearance must be
     # configured with on_behalf_of=True for these; the Idempotency-Key makes a retried re-run start no second run.
