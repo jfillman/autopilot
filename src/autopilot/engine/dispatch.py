@@ -19,8 +19,8 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from fnmatch import fnmatchcase
 
 from . import control as ctl, definitions as defn, events as evh, gate, inbox as hr, policy, provenance, review
-from . import runtimes as runtimes_mod
-from .audit import AuditLog, args_digest, iso
+from . import results as res, runtimes as runtimes_mod
+from .audit import AuditLog, args_digest, iso, sha256_hex
 from .backends import Handler, RunBackend
 from .limits import LimitRequest, WideningError
 from .modelproxy import ModelDecision, ModelProxy, ModelRoute
@@ -106,7 +106,7 @@ class Gateway:
                  admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None,
                  changes: gate.ChangeStore | None = None, gate_policy: gate.GatePolicy | None = None,
                  owners: "AppOwners | None" = None, runtime_images: Sequence[str] = (),
-                 runtimes: Sequence[Any] = ()):
+                 runtimes: Sequence[Any] = (), results: res.ResultStore | None = None):
         self.defs, self.store, self.audit, self.auth, self.now = definitions, store, audit, auth, clock
         # The deployment gate (gate.py): the changes registered by the clearance-gate check, the platform's tier
         # table, and where an app's owner group comes from when the check does not say. None = the gate is off.
@@ -139,6 +139,8 @@ class Gateway:
         self.policy = policy.Policy(packs)
         self.tools = self.policy.tools
         self.runs = runs
+        # Finished runs' answers (results.py), kept results.RETENTION for the read API. None = only the outcome is kept.
+        self.results = results
         handlers = dict(handlers or {})
         unknown = sorted(set(handlers) - set(self.tools))
         if unknown:
@@ -233,6 +235,7 @@ class Gateway:
                           error="this deployment has no run backend")
         run = self.runs.create(s, d, run_input)
         s.run = run
+        s.input = _input_view(run_input)
         rec = self._audit(s, Principal(s.principal, "workload"), "run.launch", None, "allow", None,
                           {"run": run}, "created")
         return Result(True, {"allow": True}, {"run": run, "session": s.id},
@@ -288,6 +291,73 @@ class Gateway:
             return Result(False, decision.as_dict(), error="backend error", audit_seq=rec["seq"], session=s.id)
         rec = self._audit(s, principal, tool, int(spec.tier), "allow", None, args, "ok", effect=_effect(spec, args, data))
         return Result(True, decision.as_dict(), data, audit_seq=rec["seq"], session=s.id)
+
+    @_durable
+    def finish_run(self, token: str, session_id: str, body: Any) -> dict[str, Any]:
+        """A run hands back its result as it exits (the MCP tool run_finish; autopilot's runtime calls it after writing
+        result.json): the answer goes to the result store for results.RETENTION, the outcome onto the session, a
+        run.finish record into the chain (the status, never the text), and the session closes, so Tower shows the run
+        finished and the next sweep deletes its run. Only the session's own run, or its principal, may finish it, and
+        only once. Raises ControlError."""
+        principal = self.auth.authenticate(token)
+        s = self.store.get(session_id)
+        if s is None or s.closed:
+            raise ctl.ControlError("R004", "no live session", "The session already ended: its outcome is kept.", 409)
+        if not s.run or self._acting(s, principal.id) != s.principal:
+            raise ctl.ControlError("R001", "only this session's own run may finish it", "", 403)
+        b = body if isinstance(body, dict) else {}
+        status = b.get("status")
+        if status not in res.STATUSES:
+            raise ctl.ControlError("R008", f"status is one of {', '.join(res.STATUSES)}", "", 400)
+        text = b.get("final_text") or ""
+        reason = b.get("reason") or ""
+        turns = b.get("turns") or 0
+        if not isinstance(text, str) or not isinstance(reason, str) or not isinstance(turns, int) or isinstance(turns, bool):
+            raise ctl.ControlError("R008", "final_text and reason are strings, turns an integer", "", 400)
+        text, truncated = res.clip_text(text)
+        calls = res.tool_call_summary(b.get("tool_calls"))
+        now = self.now()
+        kept = None
+        if self.results is not None:
+            expires = now + res.RETENTION
+            self.results.put({"session": s.id, "task_id": s.task_id, "agent": s.agent, "principal": s.principal,
+                              "status": status, "final_text": text, "truncated": truncated, "turns": turns,
+                              "tool_calls": calls, "reason": reason[:res.MAX_REASON], "written_at": iso(now),
+                              "expires_at": iso(expires)}, now)
+            kept = {"bytes": len(text.encode()), "sha256": sha256_hex(text.encode()), "truncated": truncated,
+                    "expires_at": iso(expires)}
+        s.outcome = {"status": status, "finished_at": iso(now), "turns": turns, "tool_calls": len(calls),
+                     "not_ok": sum(1 for c in calls if not c["ok"]), "reason": reason[:res.MAX_REASON],
+                     "result": kept, "via": "runtime"}
+        rec = self._audit(s, principal, "run.finish", None, "allow", None, {"status": status, "turns": turns},
+                          status)
+        self.store.close(s.id)
+        return {"session": s.id, "status": status, "closed": True, "kept": kept, "audit_seq": rec["seq"]}
+
+    def _backstop_outcomes(self, now: datetime) -> None:
+        """Sessions whose run ended without run_finish (an older runtime, or a crash): the run backend says how the
+        workload ended (RunBackend.ended, optional), and the session closes with that as its outcome. Sessions that
+        reach their deadline first are given the outcome "expired"."""
+        ended = getattr(self.runs, "ended", None)
+        for s in self.store.all():
+            if s.closed or s.outcome is not None:
+                continue
+            if now >= s.expires_at:
+                s.outcome = {"status": "expired", "finished_at": iso(s.expires_at), "result": None, "via": "deadline"}
+                continue
+            if not s.run or ended is None:
+                continue
+            try:
+                phase = ended(s)
+            except Exception:  # noqa: BLE001 - asked again on the next sweep
+                continue
+            if phase is None:
+                continue
+            s.outcome = {"status": "no-result", "run_phase": str(phase)[:40], "finished_at": iso(now), "result": None,
+                         "via": "run"}
+            self._audit(s, Principal(s.principal, "workload"), "run.finish", None, "allow", None,
+                        {"run": s.run, "phase": str(phase)[:40]}, "no-result")
+            self.store.close(s.id)
 
     def session_tools(self, token: str, session_id: str) -> list[str] | None:
         """The tools a caller may use in its own session that this deployment can run: the session's granted tools
@@ -947,13 +1017,14 @@ class Gateway:
         cleanup after the evidence is written: the record of the deletion is in the same commit as the closed
         session. A deletion that fails is recorded and retried by the next sweep, because the session keeps its run."""
         now = now or self.now()
+        self._backstop_outcomes(now)
         self.store.sweep(now)
         self.expire_changes(now)
         pending = [s for s in self.store.all() if s.run and s.closed]
         done = []
         for s in pending:
             if s.run and self.runs is not None:
-                self._delete_runs(s, s, "expired")
+                self._delete_runs(s, s, "finished" if (s.outcome or {}).get("via") in ("runtime", "run") else "expired")
                 done.append(s.id)
         return done
 
@@ -1010,6 +1081,15 @@ class Gateway:
             if isinstance(app, str) and app:
                 return app.lower()[:100]
         return None
+
+
+def _input_view(run_input: Any) -> dict[str, Any] | None:
+    """What a run was asked, kept on its session for the read API: the prompt (clipped to MAX_RUN_INPUT) and who
+    started it. Never the definition's instructions (the definition has them) or an event's payload."""
+    if not isinstance(run_input, dict):
+        return None
+    out = {k: run_input[k][:MAX_RUN_INPUT] for k in ("prompt", "started_by") if isinstance(run_input.get(k), str)}
+    return out or None
 
 
 def _effect(spec, args: dict[str, Any], data: Any) -> dict[str, Any] | None:

@@ -99,6 +99,19 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
         with lock:
             return gateway.call(token(), session, tool, args or {}).as_dict()
 
+    @mcp.tool(description="For an in-cluster run only: hand back the run's result as it exits and close its session. "
+                          "status is done, budget, expired or error; final_text is the answer (kept 30 days); "
+                          "tool_calls is [{tool, ok, rule}].")
+    def run_finish(session: str, status: str, final_text: str = "", turns: int = 0,
+                   tool_calls: list[dict[str, Any]] | None = None, reason: str = "") -> dict[str, Any]:
+        body = {"status": status, "final_text": final_text, "turns": turns, "tool_calls": tool_calls or [],
+                "reason": reason}
+        try:
+            with lock:
+                return {"ok": True, **gateway.finish_run(token(), session, body)}
+        except control.ControlError as e:
+            return {"ok": False, "rule": e.rule, "error": e.message}
+
     return mcp
 
 
