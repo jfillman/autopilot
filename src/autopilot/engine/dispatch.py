@@ -440,6 +440,8 @@ class Gateway:
                                    "Open a session from your MCP client (session_open), or give the definition a runtime image.", 409)
         if run_input is not None and (not isinstance(run_input, str) or len(run_input) > MAX_RUN_INPUT):
             raise ctl.ControlError("R008", f"input is a string of at most {MAX_RUN_INPUT} characters", "", 400)
+        if not (run_input or "").strip() and not d.instructions:
+            raise ctl.ControlError("R008", f"{agent} has no instructions of its own: say what it should do", "", 400)
         held = self.hold_for(agent)
         if held is not None:
             raise ctl.ControlError("R024", f"{agent} is held until {iso(held.until)}: {held.reason}", "Release the hold first.", 409)
@@ -449,7 +451,12 @@ class Gateway:
             raise ctl.ControlError("R008", str(e), "", 409) from None
         self._audit(s, Principal(person, "user"), "session.open", None, "allow", None, {"via": via},
                     "opened to run" + (f" via {via}" if via else ""))
-        out = self.launch(s.id, {"task": run_input or "", "started_by": person})
+        # The runtime's input (autopilot runtime hangar_agent.loop): the person's words are the prompt, the
+        # definition's instructions its system prompt, as the trigger bridge passes them for an event.
+        task = {"prompt": (run_input or "").strip() or "Carry out your instructions.", "started_by": person}
+        if d.instructions:
+            task["instructions"] = d.instructions
+        out = self.launch(s.id, task)
         if not out.ok:
             raise ctl.ControlError(out.decision.get("rule", "R001"), out.error or "the run was not launched", "", 409)
         return {"agent": agent, "session": s.id, "task_id": s.task_id, "run": out.data.get("run"), "by": person, "via": via}

@@ -11,6 +11,7 @@ from clearance import control as ctl
 from clearance import inbox as hr
 from clearance import profile, review
 from clearance.audit import AuditLog
+from clearance.backends import FakeRunBackend
 from clearance.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
 from clearance.server import create_http_app
@@ -41,9 +42,19 @@ def doc(name="researcher"):
     return yaml.safe_load((AGENTS / f"{name}.yaml").read_text())
 
 
+class Runs(FakeRunBackend):
+    def __init__(self):
+        super().__init__()
+        self.inputs = []
+
+    def create(self, session, definition, run_input):
+        self.inputs.append(run_input)
+        return super().create(session, definition, run_input)
+
+
 @pytest.fixture
 def g(defs, backends, clock):
-    return Gateway(defs, SessionStore(), AuditLog(), Auth(), clock, packs=(HANGAR,), runs=backends.runs,
+    return Gateway(defs, SessionStore(), AuditLog(), Auth(), clock, packs=(HANGAR,), runs=Runs(),
                    inbox=hr.MemoryInbox(), directory=Groups(), delegates=(TOWER,), admins=("user:root",),
                    holds=ctl.MemoryHolds())
 
@@ -85,6 +96,13 @@ def test_an_admin_runs_a_task_agent_through_the_delegate(g, backends):
     assert s.principal == "user:root" and s.run == out["run"]
     tools = [r["tool"] for r in g.audit.records]
     assert tools[-2:] == ["session.open", "run.launch"]
+    assert g.runs.inputs[-1] == {"prompt": "why is gate-api slow?", "started_by": "user:root"}
+
+
+def test_an_agent_without_instructions_needs_an_input(g):
+    with pytest.raises(ctl.ControlError) as e:
+        g.run_agent("root", "researcher", "  ")
+    assert e.value.rule == "R008" and "say what it should do" in e.value.message
 
 
 def test_who_may_run_and_what_may_be_run(g):
@@ -102,7 +120,7 @@ def test_who_may_run_and_what_may_be_run(g):
     assert e.value.rule == "R008"
     g.hold_triggers("root", "researcher", "maintenance", 1)
     with pytest.raises(ctl.ControlError) as e:
-        g.run_agent("root", "researcher")
+        g.run_agent("root", "researcher", "look")
     assert e.value.rule == "R024"
 
 
@@ -113,7 +131,7 @@ def test_a_client_only_agent_is_not_run(defs, backends, clock):
     g = Gateway(defs, SessionStore(), AuditLog(), Auth(), clock, packs=(HANGAR,), runs=backends.runs,
                 directory=Groups(), delegates=(TOWER,), admins=("user:root",))
     with pytest.raises(ctl.ControlError) as e:
-        g.run_agent("root", "researcher")
+        g.run_agent("root", "researcher", "look")
     assert e.value.rule == "R001" and "MCP client" in e.value.message
 
 
@@ -123,5 +141,5 @@ def test_the_route(g):
     r = c.post("/v1/agents/researcher/runs", json={"input": "look"},
                headers={"Authorization": "Bearer tower", "X-Hangar-On-Behalf-Of": "user:root"})
     assert r.status_code == 201 and r.json()["agent"] == "researcher"
-    r = c.post("/v1/agents/researcher/runs", json={}, headers={"Authorization": "Bearer sam"})
+    r = c.post("/v1/agents/researcher/runs", json={"input": "x"}, headers={"Authorization": "Bearer sam"})
     assert r.status_code == 403 and r.json()["rule"] == "CT-FORBIDDEN"
