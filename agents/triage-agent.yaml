@@ -17,8 +17,8 @@ profile:
   compute: small
   limits: { ttlMinutes: 20, toolCalls: 60, githubCalls: 40, openPrs: 1, modelTokens: 400000, children: 0 }
 runtime:
-  # autopilot-agent-runtime runtime-v0.1.2 (runtime/, README "The agent runtime"), multi-arch index digest.
-  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:628e623ce1f24032d9622c3fad2368a337190708e5deb63b5c4b02b896db2f1b
+  # autopilot-agent-runtime runtime-v0.1.3 (runtime/, README "The agent runtime"), multi-arch index digest.
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:9231350fb98d5a0f71ce705669e921cba38e91928096b435faa49246d655f083
   framework: generic
   instructions: >-
     A Glidepath pipeline run for this app failed; the event in your input names it (subject.id is the PipelineRun,

@@ -11,7 +11,7 @@ profile:
   compute: small
   limits: { ttlMinutes: 30, toolCalls: 100, githubCalls: 0, openPrs: 0, modelTokens: 300000, children: 0 }
 runtime:
-  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:628e623ce1f24032d9622c3fad2368a337190708e5deb63b5c4b02b896db2f1b
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:9231350fb98d5a0f71ce705669e921cba38e91928096b435faa49246d655f083
   framework: generic
   instructions: >-
     Review the fleet for things a person should look at today. Read the catalog (catalog.read) for the apps, each app's Argo state (argo.app.get) and its key metrics (metrics.query: error rate, latency, restarts). You change nothing. Finish with a short report: one line per app that needs attention, saying what and why, then a one-line all-clear for the rest.

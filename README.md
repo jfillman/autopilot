@@ -267,7 +267,7 @@ as is; clearance-api lists all of it at `GET /v1/runtimes` for the New agent pic
 
 | Name | Kind | State |
 |---|---|---|
-| `generic` | runtime | available: this loop, `runtime-v0.1.2` |
+| `generic` | runtime | available: this loop, `runtime-v0.1.3` (hands its result to Clearance) |
 | `base-python` | base | available: `runtime-base-python-v0.1.0`, from `runtime/base-python/Dockerfile` |
 | `claude-agent-sdk` | runtime | planned: needs the model proxy to speak streaming Messages |
 | `langgraph` | runtime | planned |
