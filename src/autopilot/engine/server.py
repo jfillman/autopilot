@@ -17,7 +17,7 @@ from __future__ import annotations
 import functools
 import json
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import anyio
 import jwt
@@ -26,7 +26,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from . import control, gate, inbox, provenance
 from .dispatch import AuthError, Authenticator, Gateway
@@ -321,18 +321,83 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
 
 ANTHROPIC_VERSION = "2023-06-01"
 MAX_BODY = 4 << 20
+STREAM_CHUNK = 16 << 10
 
 
-def _anthropic_post(url: str, key: str, version: str, body: bytes, timeout: float) -> tuple[int, bytes]:
+def _upstream_headers(key: str, version: str, betas: str | None) -> dict[str, str]:
+    h = {"x-api-key": key, "anthropic-version": version, "content-type": "application/json"}
+    if betas:
+        h["anthropic-beta"] = betas
+    return h
+
+
+def _anthropic_post(url: str, key: str, version: str, body: bytes, timeout: float,
+                    betas: str | None = None) -> tuple[int, bytes]:
     import urllib.error
     import urllib.request
-    req = urllib.request.Request(url, method="POST", data=body, headers={
-        "x-api-key": key, "anthropic-version": version, "content-type": "application/json"})
+    req = urllib.request.Request(url, method="POST", data=body, headers=_upstream_headers(key, version, betas))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - the URL is configuration
             return r.status, r.read(MAX_BODY)
     except urllib.error.HTTPError as e:
         return e.code, e.read(64 << 10)
+
+
+def _anthropic_stream(url: str, key: str, version: str, body: bytes, timeout: float,
+                      betas: str | None = None) -> tuple[int, Iterator[bytes]]:
+    """A streaming Messages call: (status, the response body's chunks as they arrive). An error answer is one
+    chunk of JSON. The connection closes when the chunks are exhausted or the iterator is closed."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, method="POST", data=body, headers={
+        **_upstream_headers(key, version, betas), "accept": "text/event-stream"})
+    try:
+        r = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310 - the URL is configuration
+    except urllib.error.HTTPError as e:
+        return e.code, iter([e.read(64 << 10)])
+
+    def chunks() -> Iterator[bytes]:
+        with r:
+            while True:
+                b = r.read1(STREAM_CHUNK)
+                if not b:
+                    return
+                yield b
+    return r.status, chunks()
+
+
+class StreamUsage:
+    """The usage of a streaming Messages answer, read from its server-sent events as they pass: message_start
+    carries the input side (input, cache write, cache read), message_delta the output so far (cumulative, and on
+    newer APIs the input side again). Only `data:` lines are parsed; a line split across chunks is joined first."""
+
+    def __init__(self):
+        self.usage: dict[str, Any] = {}
+        self._buf = b""
+
+    def feed(self, chunk: bytes) -> None:
+        self._buf += chunk
+        *lines, self._buf = self._buf.split(b"\n")
+        for line in lines:
+            if not line.startswith(b"data:"):
+                continue
+            try:
+                ev = json.loads(line[5:])
+            except ValueError:
+                continue
+            if not isinstance(ev, dict):
+                continue
+            u = (ev.get("message") or {}).get("usage") if ev.get("type") == "message_start" else ev.get("usage")
+            if ev.get("type") in ("message_start", "message_delta") and isinstance(u, dict):
+                self.usage.update({k: v for k, v in u.items() if isinstance(v, (int, float))})
+
+
+def _betas(header: str | None) -> str | None:
+    """The client's anthropic-beta values the provider is sent: every one but OAuth's, since the proxy calls with
+    the deployment's API key, never a person's OAuth token. The one client header that is forwarded: Claude Code
+    and the Agent SDK send betas their request bodies depend on."""
+    keep = [b.strip() for b in (header or "").split(",") if b.strip() and not b.strip().startswith("oauth-")]
+    return ",".join(keep) or None
 
 
 def _estimate(payload: dict[str, Any], raw: bytes) -> int:
@@ -356,18 +421,23 @@ def _locked(gateway: Gateway, fn: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
-                     post: Callable[[str, str, str, bytes, float], tuple[int, bytes]] = _anthropic_post):
-    """The model proxy over HTTP: Anthropic's Messages API (`POST /v1/messages`, non-streaming) for runs, which hold
+                     post: Callable[..., tuple[int, bytes]] = _anthropic_post,
+                     stream: Callable[..., tuple[int, Iterator[bytes]]] = _anthropic_stream):
+    """The model proxy over HTTP: Anthropic's Messages API (`POST /v1/messages`, plain or streaming) for runs, which hold
     no model key. A run sends its model-proxy service-account token as `x-api-key` (what the Anthropic SDKs send
     for `api_key`) and its session in `x-hangar-session`. Each call is decided by Gateway.model_authorize (the
     session's model allowlist, network mode, breaker and token budget, recorded in the evidence chain), forwarded
     to the route's upstream with the provider key read from `key_file` on every call (never logged, never
     returned), and its actual usage charged back with Gateway.model_usage, weighted by modelproxy.USAGE_WEIGHTS (a
-    prompt-cache read costs a tenth of an input token). Only the request body is forwarded: no
-    client header reaches the provider, and `model` is rewritten to the route's upstream model.
+    prompt-cache read costs a tenth of an input token). Only the request body is forwarded, with `model` rewritten
+    to the route's upstream model, and of the client's headers only anthropic-beta (less OAuth's, _betas).
+
+    Streaming (v0.26.0, `"stream": true`, which Claude Code and the Agent SDK always send): decided the same way,
+    the provider's server-sent events relayed as they arrive, and the usage they carry charged when the stream ends,
+    however it ends (StreamUsage).
 
     Refusals are Anthropic-shaped errors with the Clearance rule: 401 for a bad token, 403 for a policy denial, 429
-    for the token budget (M007), 400 for a request the proxy does not take (streaming, no model)."""
+    for the token budget (M007), 400 for a request the proxy does not take (no model)."""
     from pathlib import Path
 
     from starlette.applications import Starlette
@@ -389,8 +459,6 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
             return _error(400, "invalid_request_error", "body is not JSON")
         if not isinstance(payload, dict) or not isinstance(payload.get("model"), str):
             return _error(400, "invalid_request_error", "a Messages API body with a model is required")
-        if payload.get("stream"):
-            return _error(400, "invalid_request_error", "streaming is not supported by this proxy")
         if not token or not session_id:
             return _error(401, "authentication_error", "x-api-key (the run's model-proxy token) and x-hangar-session are required")
         try:
@@ -405,9 +473,14 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
             return _error(501, "api_error", f"backend {d.route.backend!r} is not forwarded by this proxy")
         body = json.dumps({**payload, "model": d.route.upstream_model}).encode()
         version = request.headers.get("anthropic-version") or ANTHROPIC_VERSION
+        betas = _betas(request.headers.get("anthropic-beta"))
+        extra = {"betas": betas} if betas else {}
+        url, key = d.route.upstream.rstrip("/") + "/v1/messages", key_path.read_text().strip()
+        if payload.get("stream"):
+            return await _relay(session_id, url, key, version, body, extra)
         try:
             status, out = await anyio.to_thread.run_sync(
-                post, d.route.upstream.rstrip("/") + "/v1/messages", key_path.read_text().strip(), version, body, timeout)
+                functools.partial(post, url, key, version, body, timeout, **extra))
         except OSError:
             return _error(502, "api_error", "the model provider is unreachable")
         try:
@@ -419,6 +492,36 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
             used = charged_tokens(usage)
             await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
         return JSONResponse(doc, status_code=status)
+
+    async def _relay(session_id: str, url: str, key: str, version: str, body: bytes, extra: dict) -> Response:
+        try:
+            status, chunks = await anyio.to_thread.run_sync(
+                functools.partial(stream, url, key, version, body, timeout, **extra))
+        except OSError:
+            return _error(502, "api_error", "the model provider is unreachable")
+        if status != 200:
+            out = b"".join(chunks)
+            return Response(out, status_code=status, media_type="application/json")
+        meter = StreamUsage()
+
+        async def events():
+            try:
+                while True:
+                    chunk = await anyio.to_thread.run_sync(next, chunks, None)
+                    if chunk is None:
+                        return
+                    meter.feed(chunk)
+                    yield chunk
+            finally:
+                close = getattr(chunks, "close", None)
+                if close:
+                    close()
+                if meter.usage:
+                    used = charged_tokens(meter.usage)
+                    with anyio.CancelScope(shield=True):
+                        await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={"cache-control": "no-cache"})
 
     async def healthz(_: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "routes": sorted(gateway.models.routes) if gateway.models else []})
