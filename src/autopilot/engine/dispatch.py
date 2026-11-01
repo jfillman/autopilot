@@ -304,13 +304,34 @@ class Gateway:
         principal = self.auth.authenticate(token)
         if not any(fnmatchcase(principal.id, g) for g in self.verifiers):
             raise provenance.NotVerifier(f"{principal.id} is not a provenance verifier")
-        req = provenance.Request.from_dict(body)
+        return self._provenance(principal.id, provenance.Request.from_dict(body), body)
+
+    @_durable
+    def provenance_from_app(self, installation: str, req: provenance.Request) -> dict[str, Any]:
+        """The same verdicts for the Clearance GitHub App (github_app.py): the webhook's signature is its
+        authentication, and the record names the installation (app:<id>)."""
+        with self.lock:
+            return self._provenance(f"app:{installation}", req, {"repo": req.repo, "pr": req.pr, "head": req.head,
+                                                                 "author": req.author, "paths": list(req.paths),
+                                                                 "trailers": dict(req.trailers)})
+
+    @_durable
+    def record_app_installation(self, installation: str, action: str, account: str, repos: list[str]) -> dict[str, Any]:
+        """An App installation created, changed or removed: one app.installation record."""
+        with self.lock:
+            return self.audit.append({
+                "ts": iso(self.now()), "task_id": None, "session": None, "parent": None,
+                "principal": f"app:{installation}", "agent": None, "tool": "app.installation", "tier": None,
+                "decision": "allow", "rule": None, "target": account or None, "args_sha256": args_digest(repos),
+                "result": f"{action}: {len(repos)} repositories"})
+
+    def _provenance(self, principal: str, req: provenance.Request, body: Any) -> dict[str, Any]:
         verdict = provenance.verify(req, self.audit.receipts(req.repo, req.pr, provenance.PR_TOOLS), self.defs,
                                     self.agent_logins)
         r = verdict["record"] or {}
         rec = self.audit.append({
             "ts": iso(self.now()), "task_id": r.get("task_id"), "session": r.get("session"), "parent": None,
-            "principal": principal.id, "agent": r.get("agent"), "tool": "provenance.verify", "tier": None,
+            "principal": principal, "agent": r.get("agent"), "tool": "provenance.verify", "tier": None,
             "decision": "allow", "rule": verdict["identity"]["rule"] or verdict["scope"]["rule"],
             "target": f"{req.repo}#{req.pr}", "args_sha256": args_digest(body),
             "result": f"identity:{verdict['identity']['status']} scope:{verdict['scope']['status']}"})

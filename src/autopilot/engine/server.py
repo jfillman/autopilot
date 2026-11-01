@@ -96,7 +96,7 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
 
 
 def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, path: str = "/mcp",
-                    host: str = "0.0.0.0"):
+                    host: str = "0.0.0.0", github_app: Any = None):
     """The streamable-HTTP app: bearer auth on every MCP request (401 without a token the gateway accepts),
     the caller's own token per call, and an unauthenticated GET /healthz for probes.
 
@@ -237,6 +237,18 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
         except gate.GateError as e:
             return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
         return JSONResponse(out)
+
+    # The Clearance GitHub App (github_app.py): GitHub's webhooks, authenticated by their signature, never a token.
+    @mcp.custom_route("/v1/github/webhook", methods=["POST"], include_in_schema=False)
+    async def github_webhook(request: Request) -> JSONResponse:
+        if github_app is None:
+            return JSONResponse({"error": "this Clearance runs no GitHub App"}, status_code=404)
+        raw = await request.body()
+        if len(raw) > 25 << 20:
+            return JSONResponse({"error": "body too large"}, status_code=413)
+        status, word = github_app.accept(request.headers.get("x-github-event", ""), raw,
+                                         request.headers.get("x-hub-signature-256"))
+        return JSONResponse({"result": word}, status_code=status)
 
     @mcp.custom_route("/v1/definitions/review", methods=["POST"], include_in_schema=False)
     async def review_definition(request: Request) -> JSONResponse:
