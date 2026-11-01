@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "name",
+    "description",
     "kind",
     "identity",
     "profile"
@@ -14,6 +15,13 @@
     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{1,40}$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\n\\r]+$",
+      "description": "One line: what the agent is for. Shown wherever the agent is listed (Tower, clearance-api GET /v1/agents, the MCP agents_list tool). Not a policy."
     },
     "owner": {
       "type": "string",

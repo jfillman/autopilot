@@ -1,4 +1,5 @@
 name: coding-agent
+description: "Makes a change in an app's repository and opens it as a pull request for a person to merge."
 kind: task
 identity: { type: delegated }
 profile:
@@ -11,7 +12,7 @@ profile:
   compute: small
   limits: { ttlMinutes: 30, toolCalls: 200, githubCalls: 300, openPrs: 3, modelTokens: 500000, children: 2 }
 runtime:
-  image: ghcr.io/jfillman/agent-coding@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: ghcr.io/jfillman/agent-coding@sha256:e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3
   framework: claude-agent-sdk
   sandbox: standard
 triggers: [ { type: manual } ]

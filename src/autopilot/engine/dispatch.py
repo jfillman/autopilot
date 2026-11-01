@@ -76,6 +76,9 @@ class Result:
 CORE_OWNED = frozenset({"run.spawn", "run.close"})
 
 
+MAX_RUN_INPUT = 2000          # a person's task input to an in-cluster run (an AgentRun's input is 4 KiB in all)
+
+
 def _durable(op):
     """End every public operation with store.flush(), whatever path it returned by: the sessions it changed, and
     (with a durable audit sink sharing the store's transaction) its audit records, commit together."""
@@ -216,6 +219,9 @@ class Gateway:
         if s is None or s.closed:
             return Result(False, {"allow": False, "rule": "R004"}, error="no live session")
         d = self.defs[s.agent]
+        if d.runs_in != "cluster":
+            return Result(False, {"allow": False, "rule": "R001"}, session=s.id,
+                          error=f"{d.name} has no runtime image: it runs in a person's MCP client, not as an in-cluster run")
         if d.kind == "service":
             return Result(False, {"allow": False, "rule": "R001"}, session=s.id,
                           error="service agents are deployed as applications, not launched as runs")
@@ -414,6 +420,55 @@ class Gateway:
             raise ctl.ControlError("CT-FORBIDDEN", f"{person} may not manage {agent}",
                                    "Only the agent's owner group, a platform admin, or the person whose session it is may.", 403)
         return person, via
+
+    @_durable
+    def run_agent(self, token: str, agent: str, run_input: Any = None, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """A person starts an in-cluster run of a task agent (Tower's Run, or their own token): a session opened as the
+        person, then launch() with their input as the run's task. Only a task agent with a runtime image; only the
+        agent's owner group or a platform admin (the person controls' rule). The session is the person's, so the run
+        acts with their delegated authority inside the definition's envelope. Recorded as session.open (via the
+        delegate) and run.launch. Raises ControlError."""
+        d = self.defs.get(agent)
+        if d is None:
+            raise ctl.ControlError("R003", "no such agent", "", 404)
+        person, via = self._manager(token, on_behalf_of, agent)
+        if d.kind != "task" or d.identity_type != "delegated":
+            raise ctl.ControlError("R001", f"{agent} is a {d.kind} agent; only task agents are run by a person",
+                                   "Event and scheduled agents start from their triggers.", 409)
+        if d.runs_in != "cluster":
+            raise ctl.ControlError("R001", f"{agent} runs in a person's MCP client, not in the cluster",
+                                   "Open a session from your MCP client (session_open), or give the definition a runtime image.", 409)
+        if run_input is not None and (not isinstance(run_input, str) or len(run_input) > MAX_RUN_INPUT):
+            raise ctl.ControlError("R008", f"input is a string of at most {MAX_RUN_INPUT} characters", "", 400)
+        if not (run_input or "").strip() and not d.instructions:
+            raise ctl.ControlError("R008", f"{agent} has no instructions of its own: say what it should do", "", 400)
+        held = self.hold_for(agent)
+        if held is not None:
+            raise ctl.ControlError("R024", f"{agent} is held until {iso(held.until)}: {held.reason}", "Release the hold first.", 409)
+        try:
+            s = self.store.open(person, agent, d.limits, LimitRequest.from_dict(None), self.now())
+        except (SessionError, ValueError) as e:
+            raise ctl.ControlError("R008", str(e), "", 409) from None
+        self._audit(s, Principal(person, "user"), "session.open", None, "allow", None, {"via": via},
+                    "opened to run" + (f" via {via}" if via else ""))
+        # The runtime's input (autopilot runtime hangar_agent.loop): the person's words are the prompt, the
+        # definition's instructions its system prompt, as the trigger bridge passes them for an event.
+        task = {"prompt": (run_input or "").strip() or "Carry out your instructions.", "started_by": person}
+        if d.instructions:
+            task["instructions"] = d.instructions
+        out = self.launch(s.id, task)
+        if not out.ok:
+            raise ctl.ControlError(out.decision.get("rule", "R001"), out.error or "the run was not launched", "", 409)
+        return {"agent": agent, "session": s.id, "task_id": s.task_id, "run": out.data.get("run"), "by": person, "via": via}
+
+    def agents_for(self, token: str) -> list[dict[str, Any]]:
+        """The agent definitions as a person sees them from an MCP client: what each is for, where it runs, its kind
+        and tools. Any authenticated caller; nothing here is secret (instructions are never included)."""
+        self.auth.authenticate(token)
+        return [{"name": d.name, "description": d.description, "kind": d.kind, "identity": d.identity_type,
+                 "runs_in": d.runs_in, "tier_ceiling": d.limits.tier_ceiling.name, "tools": sorted(d.limits.tools),
+                 "can_open_session": d.identity_type == "delegated"}
+                for d in sorted(self.defs.values(), key=lambda d: d.name)]
 
     def _control_record(self, person: str, via: str | None, tool: str, s: Session | None, agent: str, target: str,
                         args: dict[str, Any], result: str) -> dict[str, Any]:

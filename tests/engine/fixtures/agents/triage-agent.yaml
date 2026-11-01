@@ -1,4 +1,5 @@
 name: triage-agent
+description: "Reads a failed Glidepath run and proposes a fix as one pull request on the app's repository."
 kind: event
 identity: { type: workload, serviceAccount: holmesgpt/holmes }
 profile:
@@ -10,7 +11,7 @@ profile:
   compute: small
   limits: { ttlMinutes: 15, toolCalls: 80, githubCalls: 60, openPrs: 1, modelTokens: 200000, children: 0 }
 runtime:
-  image: ghcr.io/jfillman/agent-triage@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: ghcr.io/jfillman/agent-triage@sha256:e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3
   framework: generic
 triggers:
   - { type: alert, match: { alertname: RolloutDegraded } }

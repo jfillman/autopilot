@@ -23,9 +23,9 @@ def srv(gw):
     return create_server(gw, lambda: "alice")
 
 
-def test_exactly_three_tools_are_exposed(srv):
+def test_exactly_four_tools_are_exposed(srv):
     names = {t.name for t in run(srv.list_tools())}
-    assert names == {"tools_list", "session_open", "call"}
+    assert names == {"agents_list", "tools_list", "session_open", "call"}
 
 
 def test_a_full_round_trip_through_mcp(srv, backends):

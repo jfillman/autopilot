@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ import yaml
 from .limits import ComputeClass, Limits, Network
 from .tiers import Tier
 
+PLACEHOLDER_DIGEST = re.compile(r"@sha256:0{64}$")
 SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "agent-definition.schema.json"
 
 # Always denied, for every agent, in addition to whatever a definition adds. A definition
@@ -76,6 +78,15 @@ class AgentDefinition:
     # The profile as written. Core reads only the fields above; a pack reads its own sections from
     # here (clearance.packs.hangar: profile.glidepath.apps, profile.airframe.apps).
     raw_profile: dict[str, Any] = field(default_factory=dict, compare=False)
+    # One line: what the agent is for (required from v0.23.0).
+    description: str = ""
+
+    @property
+    def runs_in(self) -> str:
+        """Where the agent's loop runs: "cluster" when the definition names a runtime image (an AgentRun runs it,
+        its model calls go through the model proxy), else "client": a person's own MCP client is the loop and
+        Clearance enforces this envelope on every tool call (the model budget and instructions do not apply)."""
+        return "cluster" if self.image else "client"
 
 
 def _schema() -> dict:
@@ -104,6 +115,9 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
     extra_deny = tuple(repos.get("denyPaths", []))
     extra_field_deny = tuple(repos.get("fieldDeny", []))
     rt = doc.get("runtime", {})
+    if PLACEHOLDER_DIGEST.search(rt.get("image") or ""):
+        raise DefinitionError(f"{doc['name']}: runtime/image: {rt['image']} is a placeholder digest (all zeros); "
+                              "name a real runtime image, or leave runtime.image out for an agent that runs in a person's client")
     return AgentDefinition(
         name=doc["name"], kind=doc["kind"], identity_type=doc["identity"]["type"],
         service_account=doc["identity"].get("serviceAccount"), limits=limits,
@@ -116,7 +130,7 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         sandbox=rt.get("sandbox", "standard"), sidecars=tuple(rt.get("sidecars", [])),
         triggers=tuple(doc.get("triggers", [{"type": "manual"}])),
         instructions=rt.get("instructions"), owner=doc.get("owner"),
-        raw_profile=p,
+        raw_profile=p, description=doc["description"],
     )
 
 
