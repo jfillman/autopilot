@@ -266,6 +266,24 @@ The `runtime-image` workflow builds each multi-arch from its tag. A code agent: 
 entrypoint, `from hangar_agent import env, clearance, model` for the contract, and let its own Glidepath build publish
 the image its definition pins.
 
+## The Clearance GitHub App on Hangar
+
+Clearance's own check runs (`Clearance / agent-identity`, `Clearance / agent-scope`; clearance
+`docs/provenance-app.md`) run on hangar-dev beside Glidepath's `agent-gates-` check until their verdicts agree.
+Setting it up:
+
+1. **Register the App** from clearance `contract/github-app-manifest.json`, with the webhook URL
+   `https://clearance-webhook.hangarplatform.dev/v1/github/webhook`. It asks only for checks write and contents,
+   pull requests and metadata read. Install it on the repos agents open PRs on.
+2. **Store its id, private key (PEM) and webhook secret** in hangar-dev's Infisical project as
+   `clearance-github-app-id`, `clearance-github-app-private-key` and `clearance-github-app-webhook-secret`.
+3. **Route the hostname**: `cloudflared tunnel route dns pac-webhook clearance-webhook.hangarplatform.dev` (needs a
+   `cloudflared tunnel login`), then `~/tech/pac-tunnel/install.sh pac-webhook.hangarplatform.dev
+   clearance-webhook.hangarplatform.dev`. The tunnel forwards `POST /v1/github/webhook` only; every other path is a
+   404 at Cloudflare.
+4. **Turn it on**: `autopilot.githubApp: true` in gitops-hangar-dev `cluster.yaml`, then render (apron
+   `55-autopilot/clearance/github-app.yaml`). The gateway logs `github-app=on (app <id>, comments off)` at start.
+
 ## Signing in as a person
 
 On hangar-dev, people sign in through people-dex (apron `55-autopilot/people-dex`), a Dex whose only connector is GitHub. This is Hangar D19's interim answer until an IdP issues ID-JAG. Clearance accepts its ID tokens for audience `clearance`, as `user:<GitHub login>`, and only for the logins in cluster.yaml `autopilot.people`. ID tokens last an hour, and no refresh token is issued.
