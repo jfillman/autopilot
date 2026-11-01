@@ -141,6 +141,9 @@ class MemStore:
     def task(self, task_id):
         return [dict(s, state="live") for s in self.s if s["task_id"] == task_id]
 
+    def result(self, sid, now):
+        return {"s-0": {"session": "s-0", "status": "done", "final_text": "Python and Go."}}.get(sid)
+
     def evidence(self, f, v, limit, after):
         out = [r for r in reversed(self.e) if self._sees(r, v) and all(r.get(k) == x for k, x in f.items())]
         return [r for r in out if after is None or r["seq"] < after][:limit]
@@ -310,3 +313,16 @@ def test_explain_without_a_policy_is_404(access):
     app = api.create_api_app(MemStore([], [], []), access)
     with TestClient(app) as c:
         assert get(c, "/v1/policy", "alice").status_code == 404
+
+
+def test_a_finished_runs_result_is_read_like_its_session(client):
+    assert get(client, "/v1/sessions/s-0/result", "alice").json()["final_text"] == "Python and Go."
+    assert get(client, "/v1/sessions/s-1/result", "alice").status_code == 404, "another person's run's result is not found"
+    r = get(client, "/v1/sessions/s-2/result", "audit")
+    assert r.status_code == 404 and r.json()["error"] == "the run has not finished"
+
+
+def test_runtimes_say_which_custom_images_are_allowed(access):
+    app = api.create_api_app(MemStore([], [], []), access, custom_images=("ghcr.io/jfillman/*@sha256:*",))
+    with TestClient(app) as c:
+        assert get(c, "/v1/runtimes", "alice").json() == {"items": [], "custom_images": ["ghcr.io/jfillman/*@sha256:*"]}

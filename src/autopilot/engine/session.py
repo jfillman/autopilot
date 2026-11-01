@@ -44,6 +44,10 @@ class Session:
     denials: int = 0
     closed: bool = False
     run: str | None = None        # the run backend's name for this session's run, once one is started
+    # What the run was asked (launch: the person's prompt, who started it), and how it ended (Gateway.finish_run, or
+    # the sweep's backstop). Both small and kept with the session; the run's answer itself is in the result store.
+    input: dict[str, Any] | None = None
+    outcome: dict[str, Any] | None = None
 
     # -- budgets ---------------------------------------------------------
     def remaining(self, f: str) -> int:
@@ -81,7 +85,7 @@ class Session:
                 "parent_id": self.parent_id, "depth": self.depth, "task_id": self.task_id,
                 "used": dict(self.used), "reserved": dict(self.reserved), "children": list(self.children),
                 "tripped": self.tripped, "trip_reason": self.trip_reason, "denials": self.denials,
-                "closed": self.closed, "run": self.run}
+                "closed": self.closed, "run": self.run, "input": self.input, "outcome": self.outcome}
 
     @classmethod
     def from_record(cls, r: dict[str, Any]) -> "Session":
@@ -89,7 +93,8 @@ class Session:
                    created_at=datetime.fromisoformat(r["created_at"]), expires_at=datetime.fromisoformat(r["expires_at"]),
                    parent_id=r["parent_id"], depth=r["depth"], task_id=r["task_id"], used=dict(r["used"]),
                    reserved=dict(r["reserved"]), children=list(r["children"]), tripped=r["tripped"],
-                   trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"], run=r.get("run"))
+                   trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"], run=r.get("run"),
+                   input=r.get("input"), outcome=r.get("outcome"))
 
 
 class Persistence(Protocol):
