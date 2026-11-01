@@ -1,4 +1,5 @@
 name: triage-agent
+description: "Reads a failed gate-api pipeline run and proposes a fix as one pull request on the app's repository."
 owner: group:default/team-platform
 kind: event
 # A Glidepath pipeline failure starts it (the event bridge, src/autopilot/event_bridge.py); it reads the failed run
