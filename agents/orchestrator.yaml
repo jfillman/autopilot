@@ -11,7 +11,7 @@ profile:
   compute: small
   limits: { ttlMinutes: 60, toolCalls: 300, githubCalls: 300, openPrs: 3, modelTokens: 900000, children: 3 }
 runtime:
-  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:628e623ce1f24032d9622c3fad2368a337190708e5deb63b5c4b02b896db2f1b
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:9231350fb98d5a0f71ce705669e921cba38e91928096b435faa49246d655f083
   framework: langgraph
   instructions: >-
     Split the task you are given into independent parts, start a child run for each (run.spawn, at most your child budget), wait for their results, and combine them into one answer. Ask a person (human.request) when the task is ambiguous. Do no other work yourself.

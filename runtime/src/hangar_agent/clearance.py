@@ -5,7 +5,7 @@ POST per call is the whole protocol: no initialize, no session id, no event stre
 SDK's client, which would bring the gateway's server stack (starlette, uvicorn, pydantic) into the agent image and an
 async session for a request/response exchange.
 
-Only `tools_list` and `call` are used. The run's session already exists (HANGAR_SESSION_ID); session_open is not
+Only `tools_list`, `call` and, as the run exits, `run_finish` are used. The run's session already exists (HANGAR_SESSION_ID); session_open is not
 this runtime's to call. The bearer token is the run's projected clearance-token, read again on every request.
 """
 from __future__ import annotations
@@ -72,6 +72,15 @@ class Clearance:
         r = self._tool("call", {"session": self.session, "tool": tool, "args": args})
         if not isinstance(r, dict) or "ok" not in r:
             raise ClearanceError("call did not return a result object")
+        return r
+
+    def finish(self, outcome: dict[str, Any]) -> dict[str, Any]:
+        """Hand the run's result back as it exits (clearance v0.25.0's run_finish): Clearance keeps the answer 30 days
+        for Tower and closes the session. {ok, ...}; an older Clearance has no run_finish and raises ToolFailed."""
+        keys = ("status", "final_text", "turns", "tool_calls", "reason")
+        r = self._tool("run_finish", {"session": self.session, **{k: outcome[k] for k in keys if k in outcome}})
+        if not isinstance(r, dict) or "ok" not in r:
+            raise ClearanceError("run_finish did not return a result object")
         return r
 
     # -- the wire ---------------------------------------------------------------------------------------------------

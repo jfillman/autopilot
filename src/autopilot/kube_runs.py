@@ -1,8 +1,9 @@
 """The real AgentRunStore: AgentRun XRs created and deleted through the Kubernetes API, as Clearance's own identity.
 
-Two requests only, both in the run namespace, and nothing else is ever built:
+Three requests only, all in the run namespace, and nothing else is ever built:
   POST   /apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns          create (409 is an error)
   DELETE /apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns/<name>   delete (404 is success)
+  GET    /apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns/<name>   how it ended (outcome)
 
 RBAC is the outer limit (Role `clearance-agentruns` in autopilot-runs); this adapter is the inner one: a manifest
 that is not an AgentRun in autopilot-runs, or a name that is not a DNS label, is refused before any request exists.
@@ -36,10 +37,10 @@ class RunRefused(KubeRunError):
 
 
 def allowed(method: str, path: str) -> bool:
-    """The whole allowlist: POST to the collection, DELETE of one named AgentRun in it."""
+    """The whole allowlist: POST to the collection, DELETE or GET of one named AgentRun in it."""
     if method == "POST":
         return path == COLLECTION
-    if method == "DELETE" and path.startswith(COLLECTION + "/"):
+    if method in ("DELETE", "GET") and path.startswith(COLLECTION + "/"):
         return bool(_NAME.match(path[len(COLLECTION) + 1:]))
     return False
 
@@ -89,3 +90,16 @@ class KubeAgentRuns:
         if status in (200, 202, 404):   # 404: already gone, which is what a delete wants
             return
         raise KubeRunError(f"API server {status} deleting AgentRun {name}")
+
+    def outcome(self, name: str) -> str | None:
+        """How a run's workload ended: the AgentRun's status.outcome (Succeeded, Failed, ...), "Gone" when the AgentRun
+        no longer exists, None while it is still running."""
+        if not isinstance(name, str) or not _NAME.match(name):
+            raise RunRefused("an AgentRun name is a DNS label")
+        status, body = self._send("GET", f"{COLLECTION}/{name}")
+        if status == 404:
+            return "Gone"
+        if status != 200:
+            raise KubeRunError(f"API server {status} reading AgentRun {name}")
+        out = ((json.loads(body) if body else {}).get("status") or {}).get("outcome")
+        return out if isinstance(out, str) and out else None

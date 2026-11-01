@@ -64,7 +64,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 | AgentRun store | `autopilot/kube_runs.py` | the real `AgentRunStore`: POST to `/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns` and DELETE of one named AgentRun there, nothing else (any other method, path, namespace, kind or a non-DNS-label name is refused before a request is built); a 404 on delete is success, a 409 on create an error; token and CA re-read every call |
 | Read adapters | `autopilot/reads.py` | `argo.app.get` over the Application objects (the GET-only Kubernetes reader), `metrics.query` on a Prometheus-compatible API, `logs.query` on Loki; summaries and bounds, a rejected query as an answer |
 | The deployable gateway | `autopilot/serve.py` (`autopilot-gateway`), `Dockerfile` | builds the Hangar Gateway from environment variables and serves Clearance's HTTP app with uvicorn; real backends only; the expiry sweep on a thread under the same lock as every gateway call. See [Running the gateway](#running-the-gateway) |
-| The agent runtime | `runtime/` (`hangar_agent`, `runtime/Dockerfile`), `tests/test_runtime_*.py` | the program an AgentRun pod runs: a tool-use loop that offers Clearance's tools to the model, sends every call through Clearance in the run's existing session, and writes `result.json`. See [The agent runtime](#the-agent-runtime) |
+| The agent runtime | `runtime/` (`hangar_agent`, `runtime/Dockerfile`), `tests/test_runtime_*.py` | the program an AgentRun pod runs: a tool-use loop that offers Clearance's tools to the model, sends every call through Clearance in the run's existing session, writes `result.json` and hands it to Clearance (`run_finish`). See [The agent runtime](#the-agent-runtime) |
 | Network-policy canary (AP-A1) | `tools/netpol_canary.py` | renders a run's real policies with `compose()` on a live cluster and proves each denial against a no-policy control; its pass is what a person attests when setting the registry's `airframe.autopilotReady` |
 
 ## Running the gateway
@@ -241,6 +241,12 @@ The environment is airframe's function-agentrun's (`_pod_spec`):
 `status` is `done`, `budget`, `expired` or `error`, and `reason` says why it is not `done`. The exit code is 0 for
 `done`, 1 otherwise, 2 for an unusable environment.
 
+The pod's `/run/output` goes with its namespace, so after writing `result.json` the runtime hands the same result to
+Clearance (`run_finish`, clearance v0.25.0): Clearance keeps the answer 30 days for Tower's run detail
+(`GET /v1/sessions/{id}/result`), puts the outcome on the session and closes it. A failure there is logged and changes
+nothing else; a run that ends without handing one back is closed by Clearance's sweep from its AgentRun's
+`status.outcome` (`AgentRunBackend.ended`, a GET of that one AgentRun), with the outcome `no-result`.
+
 The image is `runtime/Dockerfile`: python:3.13-slim pinned by its multi-arch digest, the dependencies (the anthropic
 SDK only) installed from the hashed `runtime/requirements.lock`, uid 65532, nothing written outside `/run/output` and
 `/tmp`, so it runs with a read-only root filesystem under any uid (function-agentrun sets 10001). The
@@ -261,7 +267,7 @@ as is; clearance-api lists all of it at `GET /v1/runtimes` for the New agent pic
 
 | Name | Kind | State |
 |---|---|---|
-| `generic` | runtime | available: this loop, `runtime-v0.1.2` |
+| `generic` | runtime | available: this loop, `runtime-v0.1.3` (hands its result to Clearance) |
 | `base-python` | base | available: `runtime-base-python-v0.1.0`, from `runtime/base-python/Dockerfile` |
 | `claude-agent-sdk` | runtime | planned: needs the model proxy to speak streaming Messages |
 | `langgraph` | runtime | planned |

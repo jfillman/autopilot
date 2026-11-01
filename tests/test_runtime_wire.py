@@ -257,10 +257,17 @@ def test_main_runs_a_session_to_done_and_leaves_no_token_behind(served, proxy, t
                             stop="tool_use")),
               (200, message([{"type": "text", "text": "flight-api is in the catalog; I may not open PRs."}])))
     out = tmp_path / "output"
+    from clearance.results import MemoryResults
+    served.results = MemoryResults()
+    served.store.get(served.sid).run = "r-1"          # an in-cluster run's session, which run_finish closes
     code = runtime_main.main(pod_env(served, tokens, out, p.url))
     stdout = capsys.readouterr().out
     result = json.loads((out / "result.json").read_text())
     assert code == 0
+    # v0.25.0: the same result is handed to Clearance, which keeps the answer and closes the session.
+    kept = served.results.get(served.sid, datetime.now(timezone.utc))
+    assert kept["final_text"] == result["final_text"] and kept["status"] == "done" and served.store.get(served.sid).closed
+    assert "result handed to Clearance" in stdout
     # Clearance v0.7.0 scopes tools_list to the session: repo.pr.open is not in researcher's grant, so it is never
     # offered, and a model that names it anyway is answered here without reaching Clearance.
     offered = {t["name"] for t in p.requests[0]["body"]["tools"]}
@@ -272,7 +279,7 @@ def test_main_runs_a_session_to_done_and_leaves_no_token_behind(served, proxy, t
     assert "is_error" not in sent[0] and "flight-api" in sent[0]["content"]
     assert sent[1]["is_error"] is True and "no tool named" in sent[1]["content"]
     assert "turn 1: stop=tool_use tools=[catalog.read:ok, repo__pr__open:unknown]" in stdout
-    assert [r["tool"] for r in served.audit.records if r["tool"] != "session.open"] == ["catalog.read"]
+    assert [r["tool"] for r in served.audit.records if r["tool"] != "session.open"] == ["catalog.read", "run.finish"]
     everything = stdout + (out / "result.json").read_text()
     assert not any(t in everything for t in TOKENS + MODEL_TOKENS)
     assert "flight-api\"" not in stdout and "jfillman/x" not in stdout, "no tool arguments in the log"
@@ -283,8 +290,10 @@ def test_main_stops_cleanly_on_a_spent_budget(served, proxy, tokens, tmp_path, c
     out = tmp_path / "output"
     code = runtime_main.main(pod_env(served, tokens, out, p.url))
     result = json.loads((out / "result.json").read_text())
+    stdout = capsys.readouterr().out
     assert code == 1 and result["status"] == "budget" and result["turns"] == 0
-    assert not any(t in capsys.readouterr().out for t in TOKENS + MODEL_TOKENS)
+    assert "Clearance did not take the result: R001" in stdout, "this session has no run, so it is not the run's to finish"
+    assert not any(t in stdout for t in TOKENS + MODEL_TOKENS)
 
 
 def test_main_with_an_unusable_environment_still_writes_a_result(tmp_path, capsys):

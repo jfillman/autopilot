@@ -81,6 +81,12 @@ class AgentRunBackend:
     def delete(self, session: Session) -> None:
         self.store.delete(manifests.run_name(session))
 
+    def ended(self, session: Session) -> str | None:
+        """How the session's run ended, for Clearance's backstop when a run exits without run_finish
+        (Gateway._backstop_outcomes): the store's outcome, or None while it runs or when the store cannot say."""
+        outcome = getattr(self.store, "outcome", None)
+        return outcome(manifests.run_name(session)) if outcome and session.run else None
+
     def principal(self, session: Session) -> str | None:
         """The identity a session's run pod authenticates as: function-agentrun runs it as the ServiceAccount `run`
         in the run's own namespace, agent-<run> (airframe functions/function-agentrun, RUN_SERVICE_ACCOUNT, ns_name).
