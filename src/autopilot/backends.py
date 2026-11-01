@@ -37,6 +37,15 @@ class GlidepathBackend(Protocol):
     def promote(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
     def rollback(self, app: str, env: str, body: dict, idempotency_key: str, dry_run: bool, on_behalf_of: str) -> Any: ...
     def validate_cicd(self, app: str, body: dict, on_behalf_of: str) -> Any: ...
+    def live(self, app: str, on_behalf_of: str) -> Any: ...
+    def live_log(self, app: str, task_run: str, container: str, on_behalf_of: str) -> Any: ...
+    def watch(self, app: str, pipelinerun: str, timeout_seconds: int | None, on_behalf_of: str) -> Any: ...
+    def release_run(self, app: str, name: str, on_behalf_of: str) -> Any: ...
+    def evidence(self, app: str, image: str, on_behalf_of: str) -> Any: ...
+    def tests(self, app: str, limit: int | None, on_behalf_of: str) -> Any: ...
+    def test_report(self, app: str, test_id: str, on_behalf_of: str) -> Any: ...
+    def events(self, app: str, type_prefix: str | None, since: str | None, limit: int | None, on_behalf_of: str) -> Any: ...
+    def previews(self, app: str, on_behalf_of: str) -> Any: ...
 
 
 
@@ -111,6 +120,47 @@ class FakeGlidepath(Recorder):
     def cancel(self, app, pipelinerun, on_behalf_of):
         self._rec("glidepath.cancel", app, pipelinerun, on_behalf_of=on_behalf_of)
         return {"name": pipelinerun, "status": "cancelled"}
+
+    def live(self, app, on_behalf_of):
+        self._rec("glidepath.live", app, on_behalf_of=on_behalf_of)
+        return {"pipelineRuns": [{"name": f"{app}-ci-0-build-abcde", "pipeline": "build", "status": "running", "tasks": [
+            {"name": "build", "taskRun": f"{app}-ci-0-build-abcde-build", "status": "running",
+             "steps": [{"name": "build", "container": "step-build", "state": "running"}]}]}]}
+
+    def live_log(self, app, task_run, container, on_behalf_of):
+        self._rec("glidepath.live_log", app, task_run, container, on_behalf_of=on_behalf_of)
+        return {"log": "2026-11-01T00:00:00Z [build] compiling\n"}
+
+    def watch(self, app, pipelinerun, timeout_seconds, on_behalf_of):
+        self._rec("glidepath.watch", app, pipelinerun, timeout_seconds, on_behalf_of=on_behalf_of)
+        return {"finished": True, "waitedSeconds": 1.0, "via": "stream", "changes": [
+            {"task": "build", "taskRun": f"{pipelinerun}-build", "status": "succeeded"}],
+            "pipelineRun": {"name": pipelinerun, "status": "succeeded", "tasks": []}}
+
+    def release_run(self, app, name, on_behalf_of):
+        self._rec("glidepath.release_run", app, name, on_behalf_of=on_behalf_of)
+        return {"name": name, "status": "running", "phase": "running", "tasks": [{"name": "preflight", "status": "succeeded"}]}
+
+    def evidence(self, app, image, on_behalf_of):
+        self._rec("glidepath.evidence", app, image, on_behalf_of=on_behalf_of)
+        return {"image": image, "digest": "sha256:" + "0" * 64, "attestations": []}
+
+    def tests(self, app, limit, on_behalf_of):
+        self._rec("glidepath.tests", app, limit, on_behalf_of=on_behalf_of)
+        return {"runs": []}
+
+    def test_report(self, app, test_id, on_behalf_of):
+        self._rec("glidepath.test_report", app, test_id, on_behalf_of=on_behalf_of)
+        return {"report": "<testsuites/>"}
+
+    def events(self, app, type_prefix, since, limit, on_behalf_of):
+        self._rec("glidepath.events", app, type_prefix, since, limit, on_behalf_of=on_behalf_of)
+        return {"events": []}
+
+    def previews(self, app, on_behalf_of):
+        self._rec("glidepath.previews", app, on_behalf_of=on_behalf_of)
+        return {"previews": [{"pr": 55, "application": f"{app}-pr-55", "namespace": f"app-{app}-pr-55",
+                              "sync": "Synced", "health": "Healthy", "createdAt": "2026-10-26T21:38:47Z"}]}
 
     def environments(self, app, on_behalf_of):
         self._rec("glidepath.environments", app, on_behalf_of=on_behalf_of)

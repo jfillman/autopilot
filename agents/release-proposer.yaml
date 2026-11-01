@@ -16,7 +16,8 @@ profile:
   tierCeiling: T1
   tools: [glidepath.environments.list, glidepath.environments.rollbackPlan, glidepath.releases.get,
           glidepath.runs.list, glidepath.run.get, glidepath.explain, glidepath.contract,
-          glidepath.promote, glidepath.rollback]
+          glidepath.promote, glidepath.rollback, glidepath.releaseRun.get, glidepath.evidence.get,
+          glidepath.live.watch]
   glidepath: { apps: ["gate-api"] }
   models: [claude-sonnet-5-5]
   network: clearance+model

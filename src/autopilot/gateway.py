@@ -116,6 +116,16 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
         "glidepath.explain": lambda s, a: b.glidepath.explain(a["app"], a["result"], s.principal),
         "glidepath.releases.get": lambda s, a: b.glidepath.releases(a["app"], a.get("chainId"), s.principal),
         "glidepath.contract": lambda s, a: b.glidepath.contract(s.principal),
+        # What is happening now: runs in flight, a running step's log, and one run followed until it finishes.
+        "glidepath.live.list": lambda s, a: b.glidepath.live(a["app"], s.principal),
+        "glidepath.live.watch": lambda s, a: b.glidepath.watch(a["app"], a["pipelinerun"], a.get("timeoutSeconds"), s.principal),
+        "glidepath.live.logs.get": lambda s, a: b.glidepath.live_log(a["app"], a["taskRun"], a["container"], s.principal),
+        "glidepath.releaseRun.get": lambda s, a: b.glidepath.release_run(a["app"], a["name"], s.principal),
+        "glidepath.evidence.get": lambda s, a: b.glidepath.evidence(a["app"], a["image"], s.principal),
+        "glidepath.tests.list": lambda s, a: b.glidepath.tests(a["app"], a.get("limit"), s.principal),
+        "glidepath.tests.report": lambda s, a: b.glidepath.test_report(a["app"], a["id"], s.principal),
+        "glidepath.events.recent": lambda s, a: b.glidepath.events(a["app"], a.get("type"), a.get("since"), a.get("limit"), s.principal),
+        "glidepath.previews.list": lambda s, a: b.glidepath.previews(a["app"], s.principal),
         # The key is the session and the run, so an agent retrying the same re-run starts no second one.
         "glidepath.run.rerun": lambda s, a: b.glidepath.rerun(a["app"], a["pipelinerun"], rerun_key(s.id, a["app"], a["pipelinerun"]), s.principal),
         "glidepath.run.cancel": lambda s, a: b.glidepath.cancel(a["app"], a["pipelinerun"], s.principal),

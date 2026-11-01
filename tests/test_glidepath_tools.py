@@ -32,7 +32,7 @@ PROPOSALS = {"glidepath.promote", "glidepath.rollback"}
 
 def test_glidepath_tools_are_reads_except_run_control_and_release_proposals():
     gp = {t.name: t for t in TOOLS.values() if t.name.startswith("glidepath.")}
-    assert len(gp) == 14 and "pipeline.rerun" not in TOOLS, "pipeline.rerun is retired for glidepath.run.rerun"
+    assert len(gp) == 23 and "pipeline.rerun" not in TOOLS, "pipeline.rerun is retired for glidepath.run.rerun"
     assert {"glidepath.environments.list", "glidepath.environments.rollbackPlan", "glidepath.cicd.validate"} <= set(gp)
     assert all(t.tier == Tier.T0 for n, t in gp.items() if n not in WRITES | PROPOSALS)
     assert all(gp[n].tier == Tier.T1 and gp[n].target == "lower" and not gp[n].writes_files for n in WRITES)
@@ -411,7 +411,8 @@ def test_the_registry_has_no_tool_that_merges_or_approves():
     assert GITHUB_WRITERS == {"repo.pr.open", "repo.pr.open_upper", "xr.request", "glidepath.cicd.propose"}, \
         "a new GitHub-writing tool: decide whether release-proposer may ever see it"
     for name in TOOLS:
-        assert not re.search(r"merge|approv|push|review|branch", name), f"{name}: a tool that can merge or approve needs review here"
+        # \breview: "previews" (glidepath.previews.list, a read) is not a review.
+        assert not re.search(r"merge|approv|push|\breview|branch", name), f"{name}: a tool that can merge or approve needs review here"
     assert "branch_protection.update" in TRIPWIRES
 
 
@@ -419,7 +420,8 @@ def test_release_proposer_cannot_reach_any_github_write(gw, backends, defs):
     d = defs["release-proposer"]
     assert d.limits.tools == {"glidepath.environments.list", "glidepath.environments.rollbackPlan", "glidepath.releases.get",
                               "glidepath.runs.list", "glidepath.run.get", "glidepath.explain", "glidepath.contract",
-                              "glidepath.promote", "glidepath.rollback"}
+                              "glidepath.promote", "glidepath.rollback", "glidepath.releaseRun.get",
+                              "glidepath.evidence.get", "glidepath.live.watch"}
     assert all(t.startswith("glidepath.") for t in d.limits.tools) and not d.limits.tools & GITHUB_WRITERS
     assert d.limits.github_calls == 0 and d.limits.open_prs == 0 and d.limits.children == 0 and d.repos_allow == ()
     assert d.raw_profile["glidepath"]["apps"] == ["gate-api"] and d.identity_type == "delegated"
