@@ -1,4 +1,5 @@
 name: release-proposer
+description: "Proposes a gate-api promotion or rollback through Glidepath; a person merges the release PR."
 owner: group:default/team-platform
 kind: task
 identity: { type: delegated }
@@ -17,10 +18,10 @@ profile:
           glidepath.runs.list, glidepath.run.get, glidepath.explain, glidepath.contract,
           glidepath.promote, glidepath.rollback]
   glidepath: { apps: ["gate-api"] }
-  models: [claude-sonnet-5]
+  models: [claude-sonnet-5-5]
   network: clearance+model
   compute: small
   limits: { ttlMinutes: 30, toolCalls: 40, githubCalls: 0, openPrs: 0, modelTokens: 200000, children: 0 }
 runtime:
-  image: ghcr.io/jfillman/agent-researcher@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:628e623ce1f24032d9622c3fad2368a337190708e5deb63b5c4b02b896db2f1b
   framework: generic

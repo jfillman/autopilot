@@ -126,6 +126,7 @@ class Config:
     github_app_key_file: str | None = None
     github_app_secret_file: str | None = None
     github_app_comments: str = "off"
+    schedules_enabled: bool = False
     verifiers: tuple[str, ...] = ()
     agent_logins: tuple[str, ...] = ()
     oidc_allowed: tuple[str, ...] = ()
@@ -261,6 +262,8 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         broker_url=get("BROKER_URL", BROKER_URL),
         model_key_file=Path(model_key) if model_key else None, model_port=model_port, model_routes=routes,
         model_audience=get("MODEL_TOKEN_AUDIENCE", "model-proxy"), events_enabled=events,
+        # Interval triggers (scheduler.py): scheduled agents start at the start of each interval, UTC-aligned.
+        schedules_enabled=_flag(env, "SCHEDULES_ENABLED", False),
         verifiers=_list(get("CLEARANCE_VERIFIERS", "")),
         agent_logins=_list(get("AGENT_LOGINS", AGENT_LOGIN)), oidc_allowed=allowed,
         tower_cluster=tower_cluster if tower_issuer else None, tower_issuer=tower_issuer,
@@ -516,6 +519,7 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + (f" model-proxy=:{cfg.model_port} routes={','.join(sorted(cfg.model_routes))}" if cfg.model_key_file
                else " model-proxy=off")
             + f" events={'on' if cfg.events_enabled else 'off'}"
+            + f" schedules={'on' if cfg.schedules_enabled else 'off'}"
             + f" agent-pins={'on (every ' + format(cfg.agent_xrs_interval, 'g') + 's)' if cfg.agent_xrs_enabled else 'off'}"
             + f" github-oidc={'on (aud ' + cfg.github_oidc_audience + ')' if cfg.github_oidc_audience else 'off'}"
             + f" github-app={'on (app ' + str(cfg.github_app_id) + ', comments ' + cfg.github_app_comments + ')' if cfg.github_app_id else 'off'}"
@@ -545,6 +549,10 @@ def main() -> int:
     log.info(describe(cfg, gw))
     expirer = Expirer(gw, cfg.expire_seconds).start()
     bridge = pins = None
+    sched = None
+    if cfg.schedules_enabled:
+        from .scheduler import Scheduler
+        sched = Scheduler(gw).start()
     if cfg.events_enabled:
         from .event_bridge import EventBridge
         bridge = EventBridge(gw, cfg.glidepath_url, cfg.glidepath_token_file).start()
@@ -568,6 +576,8 @@ def main() -> int:
     finally:
         if gh_app is not None:
             gh_app.stop()
+        if sched is not None:
+            sched.stop()
         if pins is not None:
             pins.stop()
         if bridge is not None:
