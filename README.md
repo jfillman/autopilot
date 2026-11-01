@@ -86,6 +86,8 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `CLEARANCE_AGENTS_DIR` | the repo's `agents/` (`/app/agents` in the image) | the agent definitions loaded at start (that directory only, not its subdirectories) |
 | `CLEARANCE_RESOURCE_URL` | `http://localhost:$PORT/mcp` | this server's public URL, for the OAuth protected-resource metadata |
 | `CLEARANCE_OIDC_ISSUER`, `CLEARANCE_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
+| `CLEARANCE_GITHUB_APP_ID`, `CLEARANCE_GITHUB_APP_KEY_FILE`, `CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE` | unset | set all three to run the Clearance GitHub App (clearance `docs/provenance-app.md`): `POST /v1/github/webhook` accepts signed webhooks and posts `Clearance / agent-identity` and `Clearance / agent-scope` check runs. The key and the secret are files, never env values |
+| `CLEARANCE_GITHUB_APP_COMMENTS` | `off` | `agent-failures`: also comment on an agent PR that fails a check |
 | `CLEARANCE_OIDC_JWKS_URL` | `$CLEARANCE_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
 | `CLEARANCE_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
 | `CLEARANCE_OIDC_ALLOWED_USERS` | (none) | comma-separated globs on that claim: who may sign in at all. Required with `CLEARANCE_OIDC_ISSUER`, because an issuer that federates GitHub signs in anyone with a GitHub account |
@@ -263,6 +265,24 @@ as is; clearance-api lists all of it at `GET /v1/runtimes` for the New agent pic
 The `runtime-image` workflow builds each multi-arch from its tag. A code agent: `FROM` the base, add its code and an
 entrypoint, `from hangar_agent import env, clearance, model` for the contract, and let its own Glidepath build publish
 the image its definition pins.
+
+## The Clearance GitHub App on Hangar
+
+Clearance's own check runs (`Clearance / agent-identity`, `Clearance / agent-scope`; clearance
+`docs/provenance-app.md`) run on hangar-dev beside Glidepath's `agent-gates-` check until their verdicts agree.
+Setting it up:
+
+1. **Register the App** as `Hangar Clearance` (GitHub reserves `Clearance`) from clearance `contract/github-app-manifest.json`, with the webhook URL
+   `https://clearance-webhook.hangarplatform.dev/v1/github/webhook`. It asks only for checks write and contents,
+   pull requests and metadata read. Install it on the repos agents open PRs on.
+2. **Store its id, private key (PEM) and webhook secret** in hangar-dev's Infisical project as
+   `clearance-github-app-id`, `clearance-github-app-private-key` and `clearance-github-app-webhook-secret`.
+3. **Route the hostname**: `cloudflared tunnel route dns pac-webhook clearance-webhook.hangarplatform.dev` (needs a
+   `cloudflared tunnel login`), then `~/tech/pac-tunnel/install.sh pac-webhook.hangarplatform.dev
+   clearance-webhook.hangarplatform.dev`. The tunnel forwards `POST /v1/github/webhook` only; every other path is a
+   404 at Cloudflare.
+4. **Turn it on**: `autopilot.githubApp: true` in gitops-hangar-dev `cluster.yaml`, then render (apron
+   `55-autopilot/clearance/github-app.yaml`). The gateway logs `github-app=on (app <id>, comments off)` at start.
 
 ## Signing in as a person
 

@@ -122,6 +122,10 @@ class Config:
     agent_xrs_enabled: bool
     agent_xrs_interval: float
     runtime_images_extra: tuple[str, ...] = ()
+    github_app_id: str | None = None
+    github_app_key_file: str | None = None
+    github_app_secret_file: str | None = None
+    github_app_comments: str = "off"
     verifiers: tuple[str, ...] = ()
     agent_logins: tuple[str, ...] = ()
     oidc_allowed: tuple[str, ...] = ()
@@ -211,6 +215,11 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     if tower_issuer and not (tower_cluster and tower_sas):
         raise ConfigError("TOWER_ISSUER needs TOWER_CLUSTER and TOWER_SERVICE_ACCOUNTS (namespace/name globs): the "
                           "issuer signs a token for every pod of that cluster")
+    gh_parts = [get(k) for k in ("CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GITHUB_APP_KEY_FILE", "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE")]
+    if any(gh_parts) and not all(gh_parts):
+        raise ConfigError("CLEARANCE_GITHUB_APP_ID, _KEY_FILE and _WEBHOOK_SECRET_FILE are set together or not at all")
+    if get("CLEARANCE_GITHUB_APP_COMMENTS", "off") not in ("off", "agent-failures"):
+        raise ConfigError("CLEARANCE_GITHUB_APP_COMMENTS is off or agent-failures")
     events = _flag(env, "EVENTS_ENABLED", False)
     if events and not get("GLIDEPATH_API_URL"):
         raise ConfigError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
@@ -256,6 +265,10 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         # Images a definition may pin beyond the runtime catalog: the registries Glidepath builds agents' own images
         # into (code agents), as globs, e.g. ghcr.io/jfillman/*@sha256:*.
         runtime_images_extra=tuple(_list(get("RUNTIME_IMAGES_EXTRA", ""))),
+        # The Clearance GitHub App: all three or none (CLEARANCE_GITHUB_APP_COMMENTS: off | agent-failures).
+        github_app_id=get("CLEARANCE_GITHUB_APP_ID"), github_app_key_file=get("CLEARANCE_GITHUB_APP_KEY_FILE"),
+        github_app_secret_file=get("CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE"),
+        github_app_comments=get("CLEARANCE_GITHUB_APP_COMMENTS", "off"),
     )
 
 
@@ -430,9 +443,18 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
     return gw, state
 
 
-def build_app(cfg: Config, gw: Gateway):
+def build_github_app(cfg: Config, gw: Gateway):
+    """The Clearance GitHub App (clearance github_app.py), when its id, key file and webhook secret file are set:
+    Clearance's own check runs on PRs, beside Glidepath's agent-gates while both run (decided 2026-11-01)."""
+    from clearance import github_app
+    app_cfg = github_app.read_config(cfg.github_app_id, cfg.github_app_key_file, cfg.github_app_secret_file,
+                                     cfg.github_app_comments)
+    return github_app.GitHubApp(app_cfg, gw) if app_cfg else None
+
+
+def build_app(cfg: Config, gw: Gateway, github_app=None):
     from clearance.server import create_http_app
-    return create_http_app(gw, resource_url=cfg.resource_url, issuer_url=cfg.issuer_url)
+    return create_http_app(gw, resource_url=cfg.resource_url, issuer_url=cfg.issuer_url, github_app=github_app)
 
 
 class Expirer:
@@ -484,6 +506,7 @@ def describe(cfg: Config, gw: Gateway) -> str:
                else " model-proxy=off")
             + f" events={'on' if cfg.events_enabled else 'off'}"
             + f" agent-pins={'on (every ' + format(cfg.agent_xrs_interval, 'g') + 's)' if cfg.agent_xrs_enabled else 'off'}"
+            + f" github-app={'on (app ' + str(cfg.github_app_id) + ', comments ' + cfg.github_app_comments + ')' if cfg.github_app_id else 'off'}"
             + f" agentruns=in-cluster expire-every={cfg.expire_seconds:g}s")
 
 
@@ -503,7 +526,10 @@ def main() -> int:
 
     import uvicorn
     gw, state = build_gateway(cfg)
-    app = build_app(cfg, gw)
+    gh_app = build_github_app(cfg, gw)
+    app = build_app(cfg, gw, gh_app)
+    if gh_app is not None:
+        gh_app.start()
     log.info(describe(cfg, gw))
     expirer = Expirer(gw, cfg.expire_seconds).start()
     bridge = pins = None
@@ -528,6 +554,8 @@ def main() -> int:
     try:
         asyncio.run(serve_all())
     finally:
+        if gh_app is not None:
+            gh_app.stop()
         if pins is not None:
             pins.stop()
         if bridge is not None:

@@ -397,3 +397,16 @@ def test_tower_issuer_and_delegates(tmp_path):
     tower = serve.build_auth(c).inner.oidc["https://hangarplatform.dev/oidc/hangar-prod"]
     assert isinstance(tower, ForeignWorkloadAuthenticator) and tower.allowed == ("app-backstage-prod/backstage",)
     assert tower.name == "hangar-prod" and tower.audience == "clearance"
+
+
+def test_the_github_app_is_all_or_nothing(tmp_path):
+    base = {"CLEARANCE_EPHEMERAL": "1"}
+    assert serve.config_from_env(base).github_app_id is None
+    with pytest.raises(serve.ConfigError):
+        serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1"})
+    with pytest.raises(serve.ConfigError):
+        serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1", "CLEARANCE_GITHUB_APP_KEY_FILE": "/k",
+                               "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE": "/s", "CLEARANCE_GITHUB_APP_COMMENTS": "always"})
+    c = serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1", "CLEARANCE_GITHUB_APP_KEY_FILE": "/k",
+                               "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE": "/s", "CLEARANCE_GITHUB_APP_COMMENTS": "agent-failures"})
+    assert (c.github_app_id, c.github_app_comments) == ("1", "agent-failures")
