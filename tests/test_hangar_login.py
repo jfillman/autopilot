@@ -57,3 +57,25 @@ def test_login_stops_on_a_refusal():
     assert hl.login(ISS, post=post, get=lambda u: meta, store=lambda i, t: stored.update({i: t}),
                     sleep=lambda s: None, out=lambda m: None, open_url=lambda u: None) == 1
     assert stored == {}
+
+
+
+def test_glidepath_api_client_has_its_own_keychain_entry_and_a_bare_token(monkeypatch, capsys):
+    import time as _time
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": _time.time() + 3600}).encode()).decode().rstrip("=")
+    tok = f"h.{payload}.s"
+    services = []
+
+    class Done:
+        returncode, stdout = 0, tok + "\n"
+
+    def run(args, **_):
+        services.append(args[args.index("-s") + 1])
+        return Done()
+
+    monkeypatch.setattr(hl.subprocess, "run", run)
+    assert hl.main(["token", "--client", "glidepath-api"]) == 0
+    assert capsys.readouterr().out.strip() == tok
+    assert hl.main(["headers"]) == 0
+    assert json.loads(capsys.readouterr().out)["Authorization"] == f"Bearer {tok}"
+    assert services == ["hangar-glidepath-api", "hangar-clearance"]

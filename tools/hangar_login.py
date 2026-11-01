@@ -8,6 +8,12 @@ client.
                                            from the Keychain, or exits 1 naming the login command when there is no
                                            token or it has expired. Never signs in itself (headersHelper has 10 s)
   hangar_login.py logout [--issuer URL]    removes the token
+  hangar_login.py token [--issuer URL]     prints the bare ID token (for curl), or exits 1 like headers
+
+--client glidepath-api signs in to glidepath-api instead (its own Dex client and Keychain entry, hangar-glidepath-api):
+its ID tokens carry aud glidepath-api, which Clearance refuses, and the reverse. For glidepath-api over the Gateway:
+  curl -H "Authorization: Bearer $(python3 hangar_login.py token --client glidepath-api)" \
+    http://glidepath-api.hangar-dev.local/v1/whoami
 
 Only the ID token is kept, never a refresh token (the device flow asks for none), so a stolen Keychain entry is good
 for at most an hour. The token reaches `security` on its argument list for the moment it takes to store it.
@@ -33,6 +39,7 @@ from typing import Any, Callable
 ISSUER = "http://dex.hangar-dev.local/dex"
 CLIENT = "clearance"
 SERVICE = "hangar-clearance"
+CLIENTS = ("clearance", "glidepath-api")  # people-dex's public clients (apron 55-autopilot/people-dex)
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 MARGIN = 60   # a token with less than this left is treated as expired
 
@@ -124,21 +131,27 @@ def headers(issuer: str, *, read: Callable[[str], str | None] = kc_read, now=tim
             err=lambda m: print(m, file=sys.stderr)) -> int:
     token = read(issuer)
     if not usable(token, now()):
-        err(f"No Clearance sign-in for {issuer}, or it has expired: run `python3 {sys.argv[0]} login`.")
+        flag = "" if CLIENT == "clearance" else f" --client {CLIENT}"
+        err(f"No {CLIENT} sign-in for {issuer}, or it has expired: run `python3 {sys.argv[0]} login{flag}`.")
         return 1
     out(json.dumps({"Authorization": f"Bearer {token}"}))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    global CLIENT, SERVICE
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("command", choices=["login", "headers", "logout"])
+    p.add_argument("command", choices=["login", "headers", "token", "logout"])
     p.add_argument("--issuer", default=ISSUER)
+    p.add_argument("--client", choices=CLIENTS, default="clearance")
     a = p.parse_args(argv)
+    CLIENT, SERVICE = a.client, f"hangar-{a.client}"
     if a.command == "login":
         return login(a.issuer)
     if a.command == "headers":
         return headers(a.issuer)
+    if a.command == "token":
+        return headers(a.issuer, out=lambda h: print(json.loads(h)["Authorization"].split(" ", 1)[1]))
     kc_delete(a.issuer)
     return 0
 
