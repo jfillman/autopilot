@@ -2,6 +2,7 @@
 # RabbitMQ attach) starts one run per unique message. It drafts notices and never sends them. For a
 # major disruption it hands off to the irregular-ops team.
 name: disruption-responder
+description: "Responds to a delayed Skyport flight: assesses it and, for a major disruption, starts the irregular-ops team."
 owner: group:default/team-skyport
 kind: event
 identity: { type: workload, serviceAccount: autopilot-runs/disruption-responder }
@@ -9,12 +10,12 @@ profile:
   tierCeiling: T1
   tools: [app.api.get, metrics.query, artifact.get, artifact.put, run.spawn, run.close, human.request]
   apis: { allow: [flight-api, boarding-api, baggage-api] }
-  models: [claude-sonnet-5]
+  models: [claude-sonnet-5-5]
   network: clearance+model
   compute: small
   limits: { ttlMinutes: 20, toolCalls: 80, githubCalls: 0, openPrs: 0, modelTokens: 400000, children: 1 }
 runtime:
-  image: ghcr.io/jfillman/skyport-disruption-responder@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:628e623ce1f24032d9622c3fad2368a337190708e5deb63b5c4b02b896db2f1b
   framework: generic
   sandbox: standard
 triggers:
