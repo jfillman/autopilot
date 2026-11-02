@@ -5,7 +5,7 @@ name: runtime-image
 # give the cluster a pull secret). Pin agent definitions' runtime.image by digest.
 on:
   push:
-    tags: ["runtime-v*", "runtime-base-python-v*"]
+    tags: ["runtime-v*", "runtime-base-python-v*", "runtime-langgraph-v*", "runtime-claude-agent-sdk-v*"]
 permissions:
   contents: read
   packages: write
@@ -26,6 +26,8 @@ jobs:
         run: |
           case "${GITHUB_REF_NAME}" in
             runtime-base-python-v*) echo "file=runtime/base-python/Dockerfile" >> "$GITHUB_OUTPUT"; echo "repo=ghcr.io/jfillman/autopilot-agent-base-python" >> "$GITHUB_OUTPUT" ;;
+            runtime-langgraph-v*)   echo "file=runtime/langgraph/Dockerfile" >> "$GITHUB_OUTPUT"; echo "repo=ghcr.io/jfillman/autopilot-agent-langgraph" >> "$GITHUB_OUTPUT" ;;
+            runtime-claude-agent-sdk-v*) echo "file=runtime/claude-agent-sdk/Dockerfile" >> "$GITHUB_OUTPUT"; echo "repo=ghcr.io/jfillman/autopilot-agent-claude-agent-sdk" >> "$GITHUB_OUTPUT" ;;
             runtime-v*)             echo "file=runtime/Dockerfile" >> "$GITHUB_OUTPUT"; echo "repo=ghcr.io/jfillman/autopilot-agent-runtime" >> "$GITHUB_OUTPUT" ;;
             *) echo "unknown runtime tag ${GITHUB_REF_NAME}" >&2; exit 1 ;;
           esac
