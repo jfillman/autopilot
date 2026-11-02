@@ -106,11 +106,25 @@ def proxy(g, tmp_path):
     key.write_text("sk-real\n")
     sent = []
 
-    def post(url, k, version, body, timeout):
-        sent.append({"url": url, "key": k, "version": version, "body": json.loads(body)})
+    def post(url, k, version, body, timeout, betas=None):
+        sent.append({"url": url, "key": k, "version": version, "body": json.loads(body), "betas": betas})
         return 200, json.dumps({"id": "msg_1", "type": "message", "content": [{"type": "text", "text": "hi"}],
                                 "usage": {"input_tokens": 40, "output_tokens": 2}}).encode()
-    return TestClient(create_model_app(g, key_file=str(key), post=post)), sent
+
+    def stream(url, k, version, body, timeout, betas=None):
+        sent.append({"url": url, "key": k, "version": version, "body": json.loads(body), "betas": betas, "stream": True})
+        return 200, iter(STREAM)
+    return TestClient(create_model_app(g, key_file=str(key), post=post, stream=stream)), sent
+
+
+# A streaming answer as the provider sends it, cut mid-line across chunks the way a socket may.
+_EVENTS = (
+    'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":40,'
+    '"cache_read_input_tokens":100,"output_tokens":1}}}\n\n'
+    'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}\n\n'
+    'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}\n\n'
+    'event: message_stop\ndata: {"type":"message_stop"}\n\n').encode()
+STREAM = [_EVENTS[:57], _EVENTS[57:200], _EVENTS[200:]]
 
 
 BODY = {"model": "claude-sonnet-5", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}]}
@@ -124,6 +138,7 @@ def test_forwarded_with_the_real_key_and_upstream_model_and_charged(g, proxy):
     assert r.status_code == 200 and r.json()["content"][0]["text"] == "hi"
     assert sent[0]["url"] == "https://api.example/v1/messages" and sent[0]["key"] == "sk-real"
     assert sent[0]["body"]["model"] == "claude-sonnet-5-5" and sent[0]["version"] == "2023-06-01"
+    assert sent[0]["betas"] == "x", "anthropic-beta is the one client header forwarded"
     assert g.store.get(sid).used["model_tokens"] == 42
     assert "sk-real" not in json.dumps(g.audit.records)
 
@@ -134,7 +149,7 @@ def test_forwarded_with_the_real_key_and_upstream_model_and_charged(g, proxy):
     ({"x-api-key": "run-b"}, BODY, 403, "M002"),
     ({"x-api-key": "run-a"}, {**BODY, "model": "gpt-9"}, 403, "M005"),
     ({"x-api-key": "run-a"}, {**BODY, "max_tokens": 10**9}, 429, "M007"),
-    ({"x-api-key": "run-a"}, {**BODY, "stream": True}, 400, None),
+    ({"x-api-key": "run-a"}, {**BODY, "stream": True, "max_tokens": 10**9}, 429, "M007"),
 ])
 def test_refusals_never_reach_the_provider(g, proxy, headers, body, status, rule):
     client, sent = proxy
@@ -151,3 +166,25 @@ def test_the_run_sees_its_sessions_tools_and_another_run_does_not(g):
     sid = launched(g)
     assert g.session_tools("run-a", sid) == ["argo.app.get", "catalog.read", "metrics.query"]
     assert g.session_tools("run-b", sid) is None
+
+
+def test_a_stream_is_relayed_as_it_comes_and_its_usage_charged(g, proxy):
+    client, sent = proxy
+    sid = launched(g)
+    r = client.post("/v1/messages", json={**BODY, "stream": True},
+                    headers={"x-api-key": "run-a", "x-hangar-session": sid, "anthropic-beta": "oauth-2025-04-20, fine-1"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+    assert r.content == _EVENTS, "the provider's bytes, unchanged"
+    assert sent[0]["stream"] and sent[0]["body"]["model"] == "claude-sonnet-5-5" and sent[0]["betas"] == "fine-1"
+    assert g.store.get(sid).used["model_tokens"] == 40 + 10 + 7     # input + a tenth of the cache read + output
+
+
+def test_a_streaming_error_from_the_provider_comes_back_as_json(g, tmp_path):
+    key = tmp_path / "key"
+    key.write_text("sk-real\n")
+    err = json.dumps({"type": "error", "error": {"type": "overloaded_error", "message": "busy"}}).encode()
+    app = create_model_app(g, key_file=str(key), post=lambda *a, **k: (500, b""), stream=lambda *a, **k: (529, iter([err])))
+    sid = launched(g)
+    r = TestClient(app).post("/v1/messages", json={**BODY, "stream": True}, headers={"x-api-key": "run-a", "x-hangar-session": sid})
+    assert r.status_code == 529 and r.json()["error"]["type"] == "overloaded_error"
+    assert g.store.get(sid).used["model_tokens"] == 0
