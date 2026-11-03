@@ -187,7 +187,15 @@ class Pool:
                 grow = self._made < self.size
                 if grow:
                     self._made += 1
-            conn = self._new() if grow else self._free.get(timeout=10)
+            if grow:
+                try:
+                    conn = self._new()
+                except Exception:
+                    with self._lock:   # a failed connect gives its slot back (clearance api.py leaked it)
+                        self._made -= 1
+                    raise
+            else:
+                conn = self._free.get(timeout=10)
         try:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
@@ -210,7 +218,9 @@ def _session_view(r: dict[str, Any], now: datetime) -> dict[str, Any]:
 
 class PgReadStore:
     """ReadStore on the gateway's tables (clearance pg.py SCHEMA at v0.26.1, or the gateway's own database's: the same
-    shapes, `prefix` clearance or gateway). Every query is scoped by the viewer in SQL."""
+    shapes, `prefix` clearance or gateway). The lists (sessions, events) are scoped by the viewer in SQL; one session,
+    a task's sessions and the pending inbox are read whole and filtered by the HTTP layer; holds and definitions are
+    not per person."""
 
     def __init__(self, pool: Pool, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
                  prefix: str = "clearance"):
@@ -453,8 +463,8 @@ def create_api_app(store: ReadStore, access: Access, *, clock: Callable[[], date
         pending = store.human_pending(clock(), since)
         if v.role == "notifier" or v.all:
             return {"items": pending}
-        groups = access.directory.groups(v.person) if access.directory else set()
-        return {"items": [r for r in pending if r.get("owner") == v.person or (r.get("group") and r["group"] in groups)]}
+        # v.groups: the person's groups, read from the directory once when the viewer was made.
+        return {"items": [r for r in pending if r.get("owner") == v.person or (r.get("group") and r["group"] in v.groups)]}
 
     def list_runtimes(req, v):
         # custom_images: the globs an image built for an agent's own repo must match (the gateway's RUNTIME_IMAGES_EXTRA

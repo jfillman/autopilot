@@ -163,6 +163,33 @@ def test_a_store_failure_is_503_without_internals(access):
         assert get(c, "/readyz").status_code == 503
 
 
+def test_a_failed_connect_gives_its_pool_slot_back():
+    calls = []
+
+    def connect(dsn, **kw):
+        calls.append(kw["options"])
+        if len(calls) <= 3:
+            raise OSError("postgres restarting")
+
+        class Conn:
+            def cursor(self):
+                class Cur:
+                    description = None
+                    def __enter__(self): return self
+                    def __exit__(self, *a): return False
+                    def execute(self, sql, params): pass
+                return Cur()
+        return Conn()
+
+    pool = api.Pool("postgresql://x", size=1, connect=connect)
+    for _ in range(3):
+        with pytest.raises(OSError):
+            pool.run("SELECT 1")
+    assert pool._made == 0
+    assert pool.run("SELECT 1") == [] and pool._made == 1, "the pool still connects after the database is back"
+    assert "default_transaction_read_only=on" in calls[-1] and "statement_timeout=5000" in calls[-1]
+
+
 def test_the_store_takes_only_its_two_table_sets():
     with pytest.raises(ValueError):
         api.PgReadStore(None, prefix="clearance_sessions; DROP TABLE x")

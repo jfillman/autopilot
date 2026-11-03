@@ -52,7 +52,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 736 tests (R-3c, 2026-11-03: the 554 from gateway-v0.3.27, the 148 moved with the engine under `tests/engine/`, the 19 drift and boundary tests of `tests/engine/test_two_copies.py`, and 15 for the read API in `tests/engine/test_read_api.py` and `tests/test_api_serve.py`; one skips without a gitops-cluster-dev checkout, and four Postgres tests skip without `GATEWAY_TEST_DSN`), no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
+`./.venv/bin/python -m pytest -q` runs 737 tests (R-3c, 2026-11-03: the 554 from gateway-v0.3.27, the 148 moved with the engine under `tests/engine/`, the 19 drift and boundary tests of `tests/engine/test_two_copies.py`, and 16 for the read API in `tests/engine/test_read_api.py` and `tests/test_api_serve.py`; one skips without a gitops-cluster-dev checkout, and four Postgres tests skip without `GATEWAY_TEST_DSN`), no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
 
 `clearance/...` paths below are in the clearance repo, under `src/clearance/`; `engine/...` paths are here, under `src/autopilot/engine/`.
 
