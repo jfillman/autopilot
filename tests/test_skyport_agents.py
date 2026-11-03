@@ -9,9 +9,9 @@ from autopilot import triggers
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
 from autopilot.engine import profile
-from clearance.audit import verify
+from coreenv import verify_chain
 from autopilot.engine.dispatch import Principal
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.session import SessionStore
 from autopilot.engine.tiers import Tier
 
@@ -32,7 +32,7 @@ def sgw():
         "assistant": Principal("app-passenger-assistant-dev/passenger-assistant", "workload", Tier.T1),
     })
     b = fake_backends()
-    return hangar_gateway(SKY, store, AuditLog(), b, auth, clock), b, clock
+    return hangar_gateway(SKY, store, tap_core(), b, auth, clock), b, clock
 
 
 def test_all_six_shapes_are_represented():
@@ -99,7 +99,7 @@ def test_a_redelivered_event_starts_no_second_run(sgw):
     assert r1.data["session"] == r2.data["session"] and r2.data["deduped"] is True and r1.data["deduped"] is False
     r3 = gw.open_triggered("disruption-responder", "amqp:flights.events", task_id=triggers.event_task_id("disruption-responder", "msg-2"))
     assert r3.data["session"] != r1.data["session"]
-    assert verify(gw.audit.records) == (True, None)
+    assert verify_chain() == (True, None)
 
 
 def test_a_finished_run_does_not_block_a_genuine_retry_after_it_expires(sgw):

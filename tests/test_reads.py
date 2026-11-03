@@ -197,7 +197,7 @@ def test_read_calls_through_the_gateway_are_charged_and_audited(tmp_path, clock)
     assert gw.call("t", sid, "metrics.query", {"promql": "up"}).ok
     r = gw.call("t", sid, "logs.query", {"logql": '{app="x"}'})
     assert not r.ok and r.error == "no backend for this tool in this deployment"
-    assert [x["result"] for x in gw.audit.records[-3:]] == ["ok", "ok", "error:NoHandler"]
+    assert [x["result"] for x in gw.core.records[-3:]] == ["ok", "ok", "error:NoHandler"]
     assert gw.store.get(sid).used["tool_calls"] == 2
 
 

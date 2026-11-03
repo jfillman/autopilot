@@ -11,10 +11,6 @@ from typing import Any
 import pytest
 
 from autopilot.engine import profile
-from clearance_client import CoreClient
-
-from autopilot.engine.core import Core
-from autopilot.engine.outbox import MemoryOutbox
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
 from autopilot.engine.dispatch import Principal
@@ -65,11 +61,15 @@ def backends():
 # clearance checkout. CLEARANCE_CORE_BIN names a built binary; else CLEARANCE_SRC (or $HANGAR_TECH/clearance, or
 # ../clearance) is a checkout to build it from. CI checks clearance out at the SHA pyproject.toml pins.
 
-GATEWAY_PRINCIPAL = "autopilot-system/autopilot-gateway"
+GATEWAY_PRINCIPAL = "autopilot-system/autopilot-gateway"   # coreenv.GATEWAY_PRINCIPAL
 CORE_ENV = {
     "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": "test",
                                         "principals": [GATEWAY_PRINCIPAL]}]),
     "CLEARANCE_PACKS": "hangar",
+    # Provenance is the core's (tests/test_glidepath_tools.py asks it about an agent's PR): the CI gate's verifier
+    # identity, and the platform's bundled definitions, which name the agents' trailers it checks.
+    "CLEARANCE_VERIFIERS": "app-*-cicd/pipeline-runner",
+    "CLEARANCE_AGENTS_DIR": str(ROOT / "agents"),
 }
 
 
@@ -123,22 +123,9 @@ class CoreProcess:
     _last = -1
 
 
-class ChainView:
-    """The records the core wrote since a test began (its seq mark): what the tests read where the in-process engine
-    had its AuditLog. An allowed call is two records (its decision, then its outcome)."""
-
-    def __init__(self, core: CoreProcess):
-        self.core, self.start = core, core.head()
-
-    @property
-    def records(self) -> list[dict[str, Any]]:
-        return self.core.records(self.start)
-
-    def tools(self) -> list[str]:
-        return [r["tool"] for r in self.records]
-
-
 sys.path.insert(0, str(ROOT / "tests" / "clearance_core"))
+from coreenv import tap_core  # noqa: E402
+
 _CORE: dict[str, Any] = {}
 
 
@@ -163,14 +150,19 @@ def test_core():
     return _CORE["core"]
 
 
+@pytest.fixture(autouse=True)
+def _serve_reads_its_chain(monkeypatch):
+    """A gateway serve.build_gateway builds keeps its real wiring (client_from_env, the token file, the outbox) and
+    is a TapCore, so the test can read what it recorded."""
+    import coreenv
+    from autopilot import serve
+    monkeypatch.setattr(serve, "Core", coreenv.TapCore)
+
+
 @pytest.fixture
 def make_core(test_core):
-    """A gateway's Core on the test core: make_core(allow_reads=..., url=..., timeout=...)."""
-    def make(*, allow_reads: bool = False, url: str | None = None, outbox=None, record_kinds=None, **client_kw):
-        client = CoreClient(url or test_core.url, token=GATEWAY_PRINCIPAL, provider="autopilot-gateway", **client_kw)
-        kw = {"record_kinds": record_kinds} if record_kinds is not None else {}
-        return Core(client, outbox if outbox is not None else MemoryOutbox(), allow_reads=allow_reads, **kw)
-    return make
+    """make_core(allow_reads=..., url=..., outbox=..., record_kinds=..., timeout=...): coreenv.tap_core."""
+    return tap_core
 
 
 @pytest.fixture
@@ -179,12 +171,7 @@ def core(make_core):
 
 
 @pytest.fixture
-def chain(test_core):
-    return ChainView(test_core)
-
-
-@pytest.fixture
-def gw(defs, backends, clock, core, chain):
+def gw(defs, backends, clock, core):
     counter = iter(range(1, 1000))
     store = SessionStore(id_gen=lambda: f"s-{next(counter):06x}")
     auth = StaticAuth({
@@ -194,6 +181,4 @@ def gw(defs, backends, clock, core, chain):
         "holmes": Principal("holmesgpt/holmes", "workload", Tier.T1),
         "triage": Principal("autopilot-runs/triage-agent", "workload", Tier.T1),
     })
-    g = hangar_gateway(defs, store, core, backends, auth, clock)
-    g.audit = chain   # the core's records since the test began (ChainView)
-    return g
+    return hangar_gateway(defs, store, core, backends, auth, clock)

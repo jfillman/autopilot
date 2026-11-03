@@ -137,7 +137,7 @@ def test_denied_cicd_change_carries_the_gp_scope_rule_and_hint(gw, backends, fn,
     assert rules_of(r) == [rule]
     assert r.decision["hint"] and r.decision["hint"] == r.decision["problems"][0]["hint"]
     assert backends.git.calls == []
-    last = gw.audit.records[-1]
+    last = gw.core.records[-1]
     assert last["decision"] == "deny" and last["rule"] == rule
 
 

@@ -9,7 +9,7 @@ from starlette.testclient import TestClient
 from clearance import api
 from autopilot.engine import control as ctl
 from autopilot.engine import inbox as hr
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
 from autopilot.engine.server import create_http_app
@@ -38,13 +38,13 @@ class Groups:
 @pytest.fixture
 def g(defs, clock):
     counter = iter(range(1, 1000))
-    return Gateway(defs, SessionStore(id_gen=lambda: f"s-{next(counter):06x}"), AuditLog(), Auth(), clock,
+    return Gateway(defs, SessionStore(id_gen=lambda: f"s-{next(counter):06x}"), tap_core(), Auth(), clock,
                    packs=(HANGAR,), inbox=hr.MemoryInbox(), directory=Groups(), delegates=(TOWER,),
                    holds=ctl.MemoryHolds(), admins=("user:root",))
 
 
 def tools(g):
-    return [r["tool"] for r in g.audit.records]
+    return [r["tool"] for r in g.core.records]
 
 
 def test_who_may_freeze_a_session(g):
@@ -57,7 +57,7 @@ def test_who_may_freeze_a_session(g):
     assert e.value.rule == "CT-REASON"
     out = g.freeze_session("alice", sid, "it is looping")                # her own session
     assert out["tripped"] is True and out["trip_reason"] == "frozen by user:alice: it is looping"
-    rec = g.audit.records[out["audit_seq"]]
+    rec = g.core.at(out["audit_seq"])
     assert (rec["tool"], rec["principal"], rec["session"], rec["decision"]) == ("session.freeze", "user:alice", sid, "allow")
     assert not g.call("alice", sid, "metrics.query", {"promql": "up"}).ok, "a frozen session refuses every call"
     with pytest.raises(ctl.ControlError) as e:
@@ -74,7 +74,9 @@ def test_the_owner_group_an_admin_or_a_delegate_ends_a_session(g):
         g.end_session("carol", sid, "stop")
     out = g.end_session("tower", sid, "stop it", on_behalf_of="user:bob")
     assert out["closed"] is True
-    rec = g.audit.records[out["audit_seq"]]
+    # The core takes no session.end record yet (a needed core change): it is held in the outbox.
+    assert out["audit_seq"] is None
+    rec = g.core.held("session.end")[-1]
     assert rec["tool"] == "session.end" and rec["principal"] == "user:bob" and rec["result"] == f"ended: stop it via {TOWER}"
     with pytest.raises(ctl.ControlError) as e:
         g.end_session("root", sid, "twice")
@@ -104,7 +106,7 @@ def test_a_hold_stops_triggers_until_it_expires_or_is_released(g, clock):
     r = g.open_triggered("triage-agent", "glidepath:e2")
     assert not r.ok and r.decision["rule"] == "R024" and "held by user:root until" in r.error
     assert tools(g)[-2:] == ["trigger.hold", "session.open"]
-    assert g.audit.records[-1]["decision"] == "deny" and g.audit.records[-1]["rule"] == "R024"
+    assert g.core.records[-1]["decision"] == "deny" and g.core.records[-1]["rule"] == "R024"
 
     # Renewing replaces; expiry lifts it by itself; releasing lifts it early and is recorded.
     assert g.hold_triggers("root", "triage-agent", "still")["until"] == (clock() + timedelta(hours=24)).isoformat()
@@ -116,12 +118,12 @@ def test_a_hold_stops_triggers_until_it_expires_or_is_released(g, clock):
     assert e.value.rule == "CT-NOHOLD"
     g.hold_triggers("root", "triage-agent", "once more")
     out = g.release_triggers("root", "triage-agent")
-    assert out["released"] is True and g.audit.records[out["audit_seq"]]["tool"] == "trigger.release"
+    assert out["released"] is True and out["audit_seq"] is None and g.core.held("trigger.release")[-1]["agent"] == "triage-agent"
     assert g.open_triggered("triage-agent", "glidepath:e4").ok
 
 
 def test_without_a_hold_store_nothing_is_held(defs, clock):
-    g = Gateway(defs, SessionStore(), AuditLog(), Auth(), clock, packs=(HANGAR,), admins=("user:root",))
+    g = Gateway(defs, SessionStore(), tap_core(), Auth(), clock, packs=(HANGAR,), admins=("user:root",))
     assert g.hold_for("triage-agent") is None
     with pytest.raises(ctl.ControlError) as e:
         g.hold_triggers("root", "triage-agent", "x")

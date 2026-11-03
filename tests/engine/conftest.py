@@ -54,7 +54,7 @@ def backends():
 
 
 @pytest.fixture
-def gw(defs, backends, clock, core, chain):
+def gw(defs, backends, clock, core):
     counter = iter(range(1, 1000))
     store = SessionStore(id_gen=lambda: f"s-{next(counter):06x}")
     auth = StaticAuth({
@@ -65,6 +65,4 @@ def gw(defs, backends, clock, core, chain):
     })
     handlers = core_handlers(git=backends.git, argo=backends.argo, read=backends.read, human=backends.human,
                              artifacts=backends.artifacts)
-    g = Gateway(defs, store, core, auth, clock, packs=(HANGAR,), handlers=handlers, runs=backends.runs)
-    g.audit = chain   # the core's records since the test began (tests/conftest.py ChainView)
-    return g
+    return Gateway(defs, store, core, auth, clock, packs=(HANGAR,), handlers=handlers, runs=backends.runs)

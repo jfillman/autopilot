@@ -6,7 +6,7 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.backends import FakeRunBackend, core_handlers
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from autopilot.engine.modelproxy import ModelRoute
@@ -44,7 +44,7 @@ def g(defs, backends, clock):
         "run-b": Principal("agent-r-000002/run", "workload", Tier.T1),
         "alice": Principal("user:alice", "user", Tier.T1),
     })
-    return Gateway(defs, SessionStore(id_gen=lambda: f"s-{next(counter):06x}"), AuditLog(), auth, clock,
+    return Gateway(defs, SessionStore(id_gen=lambda: f"s-{next(counter):06x}"), tap_core(), auth, clock,
                    packs=(HANGAR,), handlers=core_handlers(argo=backends.argo, read=backends.read), runs=Runs(),
                    models=ROUTES, model_auth=auth)
 
@@ -59,7 +59,7 @@ def test_the_run_acts_as_its_session_and_the_record_names_the_run(g):
     sid = launched(g)
     r = g.call("run-a", sid, "argo.app.get", {"app": "x"})
     assert r.ok, r.as_dict()
-    assert g.audit.records[-1]["principal"] == "agent-r-000001/run"
+    assert g.core.records[-1]["principal"] == "agent-r-000001/run"
 
 
 def test_another_run_or_person_does_not(g):
@@ -77,7 +77,7 @@ def test_without_a_run_the_run_identity_owns_nothing(g):
 
 def test_a_backend_without_principal_keeps_the_old_rule(defs, clock):
     auth = StaticAuth({"run-a": Principal("agent-r-000001/run", "workload", Tier.T1)})
-    gw = Gateway(defs, SessionStore(id_gen=lambda: "s-000001"), AuditLog(), auth, clock, packs=(HANGAR,),
+    gw = Gateway(defs, SessionStore(id_gen=lambda: "s-000001"), tap_core(), auth, clock, packs=(HANGAR,),
                  runs=FakeRunBackend())
     sid = gw.open_triggered("nightly-reviewer", "t").data["session"]
     gw.launch(sid)
@@ -88,7 +88,7 @@ def test_model_calls_bind_the_same_way_and_are_charged(g):
     sid = launched(g)
     d = g.model_authorize("run-a", sid, "claude-sonnet-5", 100)
     assert d.allow and d.route.upstream_model == "claude-sonnet-5-5"
-    assert g.audit.records[-1]["tool"] == "model.call" and g.audit.records[-1]["principal"] == "agent-r-000001/run"
+    assert g.core.records[-1]["tool"] == "model.call" and g.core.records[-1]["principal"] == "agent-r-000001/run"
     assert g.model_authorize("run-b", sid, "claude-sonnet-5", 100).rule == "M002"
     g.model_usage(sid, 1234)
     assert g.store.get(sid).used["model_tokens"] == 1234
@@ -140,7 +140,7 @@ def test_forwarded_with_the_real_key_and_upstream_model_and_charged(g, proxy):
     assert sent[0]["body"]["model"] == "claude-sonnet-5-5" and sent[0]["version"] == "2023-06-01"
     assert sent[0]["betas"] == "x", "anthropic-beta is the one client header forwarded"
     assert g.store.get(sid).used["model_tokens"] == 42
-    assert "sk-real" not in json.dumps(g.audit.records)
+    assert "sk-real" not in json.dumps(g.core.records)
 
 
 @pytest.mark.parametrize("headers, body, status, rule", [

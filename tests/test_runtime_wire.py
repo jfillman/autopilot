@@ -16,7 +16,7 @@ from starlette.testclient import TestClient
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
 from autopilot.engine import profile
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.dispatch import AuthError, Principal
 from autopilot.engine.server import create_http_app
 from autopilot.engine.session import SessionStore
@@ -44,7 +44,7 @@ class TokenTable:
 @pytest.fixture
 def gateway():
     """The Hangar Gateway with fake backends and the real clock."""
-    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), fake_backends(),
+    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), tap_core(), fake_backends(),
                         TokenTable(), lambda: datetime.now(timezone.utc))
     gw.sid = gw.open_session(TOKENS[0], "researcher").data["session"]
     return gw
@@ -87,7 +87,7 @@ def test_clearance_client_speaks_to_the_real_gateway_and_rereads_its_token(gatew
     assert h["Content-Type"] == "application/json" and "application/json" in h["Accept"]
     assert h["MCP-Protocol-Version"] == "2025-06-18"
     assert [s[1]["Authorization"] for s in seen] == [f"Bearer {TOKENS[0]}"] * 2 + [f"Bearer {TOKENS[1]}"]
-    assert [r["tool"] for r in gateway.audit.records][-2:] == ["catalog.read", "repo.pr.open"]
+    assert [r["tool"] for r in gateway.core.records][-2:] == ["catalog.read", "repo.pr.open"]
 
 
 def test_clearance_client_never_opens_a_session(gateway, tokens):
@@ -279,7 +279,9 @@ def test_main_runs_a_session_to_done_and_leaves_no_token_behind(served, proxy, t
     assert "is_error" not in sent[0] and "flight-api" in sent[0]["content"]
     assert sent[1]["is_error"] is True and "no tool named" in sent[1]["content"]
     assert "turn 1: stop=tool_use tools=[catalog.read:ok, repo__pr__open:unknown]" in stdout
-    assert [r["tool"] for r in served.audit.records if r["tool"] != "session.open"] == ["catalog.read", "run.finish"]
+    # catalog.read's decision and outcome reached the core; run.finish waits in the outbox for its core kind.
+    assert [r["tool"] for r in served.core.records if r["tool"] != "session.open"] == ["catalog.read", "catalog.read"]
+    assert [r["tool"] for r in served.core.held()] == ["run.finish"]
     everything = stdout + (out / "result.json").read_text()
     assert not any(t in everything for t in TOKENS + MODEL_TOKENS)
     assert "flight-api\"" not in stdout and "jfillman/x" not in stdout, "no tool arguments in the log"

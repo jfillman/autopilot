@@ -1,7 +1,7 @@
 import pytest
 from datetime import timedelta
 
-from clearance.audit import verify
+from coreenv import verify_chain
 
 PR = {"repo": "jfillman/flight-api", "branch": "agent/t-1", "title": "fix probe",
       "files": [{"path": "charts/values.yaml", "content": "x"}]}
@@ -18,7 +18,7 @@ def test_allowed_call_reaches_the_backend_exactly_once_and_is_audited(gw, backen
     r = gw.call("alice", sid, "repo.pr.open", PR)
     assert r.ok and r.data["pr"] == 1
     assert backends.git.names() == ["git.open_pr"]
-    last = gw.audit.records[-1]
+    last = gw.core.records[-1]
     assert last["tool"] == "repo.pr.open" and last["decision"] == "allow" and last["session"] == sid
     assert "files" not in str(last) and len(last["args_sha256"]) == 64
 
@@ -29,7 +29,7 @@ def test_denied_call_never_touches_the_backend_and_returns_a_fix_hint(gw, backen
     r = gw.call("alice", sid, "repo.pr.open", bad)
     assert not r.ok and r.decision["rule"] == "R015" and r.decision["hint"]
     assert backends.git.calls == []
-    assert gw.audit.records[-1]["decision"] == "deny" and gw.audit.records[-1]["rule"] == "R015"
+    assert gw.core.records[-1]["decision"] == "deny" and gw.core.records[-1]["rule"] == "R015"
 
 
 def test_budget_is_charged_only_on_allow(gw):
@@ -65,7 +65,7 @@ def test_a_different_principal_cannot_use_my_session(gw, backends):
 
 def test_unknown_session_is_denied_and_audited(gw):
     r = gw.call("alice", "s-nope", "catalog.read", {"query": "x"})
-    assert not r.ok and gw.audit.records[-1]["decision"] == "deny"
+    assert not r.ok and gw.core.records[-1]["decision"] == "deny"
 
 
 def test_session_expires(gw, clock):
@@ -81,7 +81,7 @@ def test_backend_failure_is_reported_without_leaking_internals(gw, backends):
     sid = open_(gw)
     r = gw.call("alice", sid, "repo.pr.open", PR)
     assert not r.ok and r.error == "backend error" and "ghp_SECRET" not in str(r.as_dict())
-    assert gw.audit.records[-1]["result"] == "error:RuntimeError"
+    assert gw.core.records[-1]["result"] == "error:RuntimeError"
 
 
 def test_workload_identity_must_match_the_definition(gw):
@@ -98,14 +98,19 @@ def test_open_session_limits_cannot_widen(gw):
     assert not r.ok
 
 
-def test_every_call_leaves_exactly_one_audit_record_and_the_chain_holds(gw):
+def test_every_call_leaves_its_decision_and_an_allowed_one_its_outcome_and_the_chain_holds(gw):
     sid = open_(gw)
-    n = len(gw.audit.records)
+    n = len(gw.core.records)
     gw.call("alice", sid, "catalog.read", {"query": "x"})
     gw.call("alice", sid, "k8s.exec", {})
     gw.call("alice", sid, "catalog.read", {"query": "y"})   # denied by the tripped breaker
-    assert len(gw.audit.records) == n + 3
-    assert verify(gw.audit.records) == (True, None)
+    recs = gw.core.records[n:]
+    assert [(r["tool"], r["decision"], r["result"]) for r in recs] == [
+        ("catalog.read", "allow", "ok"), ("catalog.read", "allow", "ok"), ("k8s.exec", "deny", recs[2]["result"]),
+        ("catalog.read", "deny", recs[3]["result"])]
+    assert recs[1]["outcome_of"] == {"seq": recs[0]["seq"], "hash": recs[0]["hash"]}
+    assert recs[0]["provider"]["name"] == "clearance" and recs[1]["provider"]["name"] == "autopilot-gateway"
+    assert verify_chain() == (True, None)
 
 
 # ---- teams: run.spawn / run.close --------------------------------------------------
@@ -154,7 +159,7 @@ def test_triggered_workload_agents_run_as_their_own_identity(gw):
     assert r.ok
     s = gw.store.get(r.data["session"])
     assert s.principal == "holmesgpt/holmes"
-    assert gw.audit.records[-1]["principal"] == "holmesgpt/holmes"
+    assert gw.core.records[-1]["principal"] == "holmesgpt/holmes"
 
 
 def test_delegated_and_task_agents_cannot_be_triggered(gw):
@@ -174,7 +179,7 @@ def test_expire_deletes_each_expired_run_with_a_record_and_leaves_live_ones(gw, 
     done = gw.expire()
     assert child["session"] in done and fresh_child["session"] not in done
     assert backends.runs.names().count("runs.delete") == 1
-    rec = [r for r in gw.audit.records if r["tool"] == "run.delete"]
+    rec = [r for r in gw.core.records if r["tool"] == "run.delete"]
     assert len(rec) == 1 and rec[0]["session"] == child["session"] and rec[0]["result"] == "deleted"
     assert gw.store.get(child["session"]).run is None
     assert gw.expire() == [], "a deleted run is not deleted again"
@@ -190,10 +195,10 @@ def test_a_failed_delete_is_recorded_and_retried(gw, backends, clock):
         raise OSError("api server down")
     backends.runs.delete = down
     assert gw.expire() == [child["session"]]
-    assert [r["result"] for r in gw.audit.records if r["tool"] == "run.delete"] == ["error:OSError"]
+    assert [r["result"] for r in gw.core.records if r["tool"] == "run.delete"] == ["error:OSError"]
     backends.runs.delete = real
     gw.expire()
-    assert [r["result"] for r in gw.audit.records if r["tool"] == "run.delete"] == ["error:OSError", "deleted"]
+    assert [r["result"] for r in gw.core.records if r["tool"] == "run.delete"] == ["error:OSError", "deleted"]
 
 
 def test_closing_a_run_deletes_its_childrens_runs_too(gw, backends):

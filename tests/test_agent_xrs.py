@@ -84,11 +84,11 @@ def test_a_pin_loads_once_and_is_an_agent(gw, clock):
     ch = ld.poll()
     assert ch.added == ["gate-triage"] and "gate-triage" in gw.defs and gw.defs.source("gate-triage").commit == COMMIT
     assert gw.defs.source("gate-triage").loaded_at == "2026-09-26T12:00:00Z"
-    assert [r["tool"] for r in gw.audit.records] == ["definition.load"]
+    assert [r["tool"] for r in gw.core.held()] == ["definition.load"]
     # the same pin next poll: no GitHub call, no change, no evidence
     clock.advance(minutes=1)
     assert not ld.poll() and ld.github.calls == [("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT)]
-    assert len(gw.audit.records) == 1 and ld.fetches == 1
+    assert len(gw.core.held()) == 1 and ld.fetches == 1
     # a run can open a session as it
     assert gw.open_session("autopilot-runs/gate-triage", "gate-triage").ok
 
@@ -102,10 +102,10 @@ def test_a_repin_fetches_the_new_commit_and_records_it(gw, clock):
     ld.reader.items = [xr(commit=new)]
     ch = ld.poll()
     assert ch.changed == ["gate-triage"] and gw.defs["gate-triage"].limits.tools == frozenset({"glidepath.runs.list"})
-    assert gw.audit.records[-1]["result"].startswith("re-pinned jfillman/gate-api@bbbbbbb")
+    assert gw.core.held()[-1]["result"].startswith("re-pinned jfillman/gate-api@bbbbbbb")
     ld.reader.items = []
     assert ld.poll().removed == ["gate-triage"] and "gate-triage" not in gw.defs
-    assert gw.audit.records[-1]["tool"] == "definition.unload"
+    assert gw.core.held()[-1]["tool"] == "definition.unload"
 
 
 @pytest.mark.parametrize("answer, reason", [
@@ -122,11 +122,11 @@ def test_a_pin_that_cannot_load_is_rejected_with_the_reason(gw, clock, answer, r
     ld = loader(gw, [xr()], {("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT): answer}, clock)
     ch = ld.poll()
     assert "gate-triage" not in gw.defs and len(ch.rejected) == 1 and reason in ch.rejected[0].reason
-    rec = gw.audit.records[-1]
+    rec = gw.core.held()[-1]
     assert (rec["tool"], rec["decision"], rec["rule"], rec["agent"]) == ("definition.reject", "deny", "DF-PIN", "gate-triage")
     assert rec["principal"] == "pin:app-gate-api-cicd/gate-triage"
     # final for this pin: no second fetch, no second record
-    assert not ld.poll() and len(ld.github.calls) == 1 and len(gw.audit.records) == 1
+    assert not ld.poll() and len(ld.github.calls) == 1 and len(gw.core.held()) == 1
 
 
 def test_a_pin_cannot_take_a_bundled_name(gw, clock):
@@ -146,7 +146,7 @@ def test_a_transient_failure_skips_the_pin_and_keeps_what_was_loaded(gw, clock):
     assert not ld.poll() and "gate-triage" in gw.defs
     # the file turns up: loaded, and the earlier skip left no trace
     ld.github.files[("jfillman/gate-api", "agents/gate-two.yaml", COMMIT)] = definition("gate-two")
-    assert ld.poll().added == ["gate-two"] and [r["tool"] for r in gw.audit.records] == ["definition.load", "definition.load"]
+    assert ld.poll().added == ["gate-two"] and [r["tool"] for r in gw.core.held()] == ["definition.load", "definition.load"]
 
 
 def test_everything_unreachable_keeps_the_current_set(gw, clock):

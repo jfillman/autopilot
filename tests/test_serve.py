@@ -13,7 +13,7 @@ from autopilot.backends import Backends
 from autopilot.glidepath_api import GlidepathAPI
 from autopilot.kube_runs import KubeAgentRuns
 from autopilot.reads import KubeArgo
-from clearance.auth import CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
+from autopilot.engine.auth import CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
 from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 
@@ -37,7 +37,8 @@ def test_defaults():
 
 def test_full_environment(tmp_path):
     c = serve.config_from_env({
-        "CLEARANCE_DSN": "postgresql://clearance@pg/clearance", "CLEARANCE_AGENTS_DIR": str(tmp_path),
+        "GATEWAY_DSN": "postgresql://gateway@pg/gateway", "CLEARANCE_AGENTS_DIR": str(tmp_path),
+        "CLEARANCE_CORE_URL": "http://clearance-core.clearance-system:8080", "GATEWAY_OUTAGE_ALLOW_READS": "1",
         "CLEARANCE_RESOURCE_URL": "https://clearance.hangar.io/mcp", "CLEARANCE_OIDC_ISSUER": "https://dex.example/dex/",
         "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_OIDC_ALLOWED_USERS": "jfillman",
         "CLEARANCE_AUDIENCE": "clearance-dev", "PORT": "9000",
@@ -48,15 +49,30 @@ def test_full_environment(tmp_path):
     assert c.oidc_issuer == "https://dex.example/dex" and c.oidc_jwks_url == "https://dex.example/dex/keys"
     assert c.issuer_url == "https://dex.example/dex" and c.audience == "clearance-dev"
     assert c.glidepath_on_behalf_of and not c.airframe_enabled and c.airframe_upper_clusters == ("a", "b")
+    assert c.core_url == "http://clearance-core.clearance-system:8080" and c.outage_allow_reads
+    assert str(c.core_token_file) == serve.CORE_TOKEN_FILE
+
+
+def test_the_outage_switch_is_off_by_default():
+    assert serve.config_from_env(EPH).outage_allow_reads is False
+
+
+@pytest.mark.parametrize("var", serve.CORE_ONLY)
+def test_the_cores_settings_are_refused_on_the_gateway(var):
+    # The evidence DSN, verifiers, provenance's logins, the GitHub App and GitHub Actions callers are the core's.
+    with pytest.raises(serve.ConfigError, match=var):
+        serve.config_from_env({**EPH, var: "x"})
 
 
 def test_ephemeral_ignores_a_dsn():
-    assert serve.config_from_env({**EPH, "CLEARANCE_DSN": "postgresql://x"}).dsn is None
+    assert serve.config_from_env({**EPH, "GATEWAY_DSN": "postgresql://x"}).dsn is None
 
 
 @pytest.mark.parametrize("env, match", [
-    ({}, "CLEARANCE_DSN is required"),
-    ({"CLEARANCE_EPHEMERAL": "0", "CLEARANCE_DSN": ""}, "CLEARANCE_DSN is required"),
+    ({}, "GATEWAY_DSN is required"),
+    ({"CLEARANCE_EPHEMERAL": "0", "GATEWAY_DSN": ""}, "GATEWAY_DSN is required"),
+    ({"CLEARANCE_EPHEMERAL": "1"}, "CLEARANCE_CORE_URL is required"),
+    ({"CLEARANCE_EPHEMERAL": "1", "CLEARANCE_CORE_URL": "clearance-core:8080"}, "http"),
     ({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex"}, "set together"),
     ({**EPH, "CLEARANCE_OIDC_AUDIENCE": "tower"}, "set together"),
     ({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex", "CLEARANCE_OIDC_AUDIENCE": "c"}, "needs CLEARANCE_OIDC_ALLOWED_USERS"),
@@ -139,7 +155,7 @@ def test_an_allowed_call_without_a_backend_says_so_and_costs_nothing(built, tool
     r = built.call("t", sid, tool, args)
     assert r.decision["allow"] is True, r.as_dict()
     assert not r.ok and r.error == "no backend for this tool in this deployment"
-    assert built.audit.records[-1]["result"] == "error:NoHandler"
+    assert built.core.records[-1]["result"] == "error:NoHandler"
     s = built.store.get(sid)
     assert s.remaining("tool_calls") == s.limits.tool_calls
 
@@ -154,7 +170,7 @@ def test_spawn_and_expiry_go_through_the_kube_store(built, opener, clock):
     assert r.data["session"] in done
     assert opener.reqs[-1] == ("DELETE", "https://api/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/"
                                          f"agentruns/{r.data['run']}")
-    assert built.audit.records[-1]["tool"] == "run.delete" and built.audit.records[-1]["result"] == "deleted"
+    assert built.core.records[-1]["tool"] == "run.delete" and built.core.records[-1]["result"] == "deleted"
 
 
 def test_expiry_waits_for_the_gateway_lock(built):
@@ -207,11 +223,12 @@ def test_auth_routes_the_oidc_issuer():
 
 
 def test_start_line_names_no_secret():
-    cfg = serve.config_from_env({"CLEARANCE_DSN": "postgresql://clearance:hunter2@pg/clearance",
-                                 "GLIDEPATH_API_URL": "http://gp:8080"})
+    cfg = serve.config_from_env({"GATEWAY_DSN": "postgresql://gateway:hunter2@pg/gateway",
+                                 "GLIDEPATH_API_URL": "http://gp:8080", **core_env()})
     gw, _ = serve.build_gateway(serve.config_from_env({**EPH, "GLIDEPATH_API_URL": "http://gp:8080"}), auth=Auth())
     line = serve.describe(cfg, gw)
     assert "hunter2" not in line and "postgres" in line and "glidepath=http://gp:8080" in line
+    assert f"core={cfg.core_url}" in line and "outage-reads=denied" in line
 
 
 # -- HTTP -------------------------------------------------------------------------------------------------------------
@@ -230,7 +247,7 @@ def client():
 
 def test_ephemeral_server_answers_healthz(client):
     r = client.get("/healthz")
-    assert r.status_code == 200 and r.json() == {"ok": True, "tools": len(client.gw.tools)}
+    assert r.status_code == 200 and r.json() == {"ok": True, "tools": len(client.gw.tools), "core": "closed"}
 
 
 @pytest.mark.parametrize("bearer", [None, "not-a-jwt"])
@@ -242,7 +259,7 @@ def test_ephemeral_server_refuses_mcp_without_a_valid_bearer(client, bearer):
             "params": {"name": "session_open", "arguments": {"agent": "coding-agent"}}}
     r = client.post("/mcp", headers=h, content=json.dumps(body))
     assert r.status_code == 401
-    assert client.gw.audit.records == [], "nothing reached the gateway"
+    assert client.gw.core.records == [], "nothing reached the gateway"
 
 
 # -- losing the store -------------------------------------------------------------------------------------------------
@@ -364,17 +381,6 @@ def test_model_calls_hold_the_gateway_lock(built):
     assert done.is_set()
 
 
-def test_provenance_verifiers_and_agent_logins():
-    c = serve.config_from_env(EPH)
-    assert c.verifiers == () and c.agent_logins == (serve.AGENT_LOGIN,)
-    c = serve.config_from_env({**EPH, "CLEARANCE_VERIFIERS": "app-*-cicd/pipeline-runner, gitops-*/pipeline-runner",
-                               "AGENT_LOGINS": "a[bot],b[bot]"})
-    assert c.verifiers == ("app-*-cicd/pipeline-runner", "gitops-*/pipeline-runner")
-    assert c.agent_logins == ("a[bot]", "b[bot]")
-    gw, _ = serve.build_gateway(c)
-    assert gw.verifiers == c.verifiers and gw.agent_logins == c.agent_logins
-
-
 def test_catalog_read_only_with_backstage_url():
     off = serve.build_backends(serve.config_from_env({**EPH, "AIRFRAME_ENABLED": "0"}))
     assert "catalog.read" not in serve.build_handlers(off)
@@ -387,7 +393,7 @@ def test_catalog_read_only_with_backstage_url():
 
 
 def test_tower_issuer_and_delegates(tmp_path):
-    from clearance.auth import ForeignWorkloadAuthenticator
+    from autopilot.engine.auth import ForeignWorkloadAuthenticator
     with pytest.raises(serve.ConfigError, match="TOWER_SERVICE_ACCOUNTS"):
         serve.config_from_env({**EPH, "TOWER_ISSUER": "https://hangarplatform.dev/oidc/hangar-prod"})
     c = serve.config_from_env({**EPH, "TOWER_ISSUER": "https://hangarplatform.dev/oidc/hangar-prod/",
@@ -398,29 +404,3 @@ def test_tower_issuer_and_delegates(tmp_path):
     tower = serve.build_auth(c).inner.oidc["https://hangarplatform.dev/oidc/hangar-prod"]
     assert isinstance(tower, ForeignWorkloadAuthenticator) and tower.allowed == ("app-backstage-prod/backstage",)
     assert tower.name == "hangar-prod" and tower.audience == "clearance"
-
-
-def test_the_github_app_is_all_or_nothing(tmp_path):
-    base = {"CLEARANCE_EPHEMERAL": "1"}
-    assert serve.config_from_env(base).github_app_id is None
-    with pytest.raises(serve.ConfigError):
-        serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1"})
-    with pytest.raises(serve.ConfigError):
-        serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1", "CLEARANCE_GITHUB_APP_KEY_FILE": "/k",
-                               "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE": "/s", "CLEARANCE_GITHUB_APP_COMMENTS": "always"})
-    c = serve.config_from_env({**base, "CLEARANCE_GITHUB_APP_ID": "1", "CLEARANCE_GITHUB_APP_KEY_FILE": "/k",
-                               "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE": "/s", "CLEARANCE_GITHUB_APP_COMMENTS": "agent-failures"})
-    assert (c.github_app_id, c.github_app_comments) == ("1", "agent-failures")
-
-
-def test_github_actions_oidc_is_off_until_an_audience_is_set():
-    base = {"CLEARANCE_EPHEMERAL": "1"}
-    assert serve.config_from_env(base).github_oidc_audience is None
-    c = serve.config_from_env({**base, "CLEARANCE_GITHUB_OIDC_AUDIENCE": "clearance",
-                               "CLEARANCE_GITHUB_OIDC_ALLOWED": "repo:jfillman/*"})
-    assert (c.github_oidc_audience, c.github_oidc_allowed) == ("clearance", ("repo:jfillman/*",))
-    clearance_auth = pytest.importorskip("clearance.auth")
-    if not hasattr(clearance_auth, "GitHubActionsAuthenticator"):
-        pytest.skip("needs clearance v0.23.0")
-    routing = serve.build_auth(c).inner
-    assert clearance_auth.GITHUB_ACTIONS_ISSUER in routing.oidc
