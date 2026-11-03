@@ -1,6 +1,6 @@
-"""Helpers for the engine tests that read through clearance-api (test_control.py, test_events.py): an authenticator, a
-directory, app ownership and an in-memory ReadStore. They are clearance's tests/test_api.py at v0.26.1 without its
-tests: clearance-api (api.py) stays Clearance's, and its own tests stay there (R-3a)."""
+"""Helpers for the tests that read through the gateway's read API (read_api.py: test_read_api.py, test_control.py,
+test_events.py): an authenticator, a directory, app ownership and an in-memory ReadStore, from clearance's
+tests/test_api.py at v0.26.1. The evidence methods are unused by read_api (Clearance's reads are clearance-api's)."""
 from autopilot.engine.dispatch import AuthError, Principal
 from autopilot.engine.tiers import Tier
 

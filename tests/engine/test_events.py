@@ -6,9 +6,8 @@ from datetime import datetime, timezone
 import pytest
 from starlette.testclient import TestClient
 
-from clearance import api
+from autopilot import read_api as api
 from autopilot.engine import events
-from clearance.packs.hangar import HANGAR
 
 from .api_helpers import Auth, Groups, MemStore, Owns, TOWER, get
 
@@ -77,8 +76,7 @@ def client(defs):
         events.from_summary(summary(eid="ev-3", app="baggage-api", key="baggage-api.pipelinerun.finished", receivedAt="2026-10-31T05:03:00Z"),
                             [], NOW).view(),
     ]
-    from clearance.policy import Policy
-    app = api.create_api_app(EventsOnly(ev), access, policy=Policy((HANGAR,)))
+    app = api.create_api_app(EventsOnly(ev), access)
     with TestClient(app) as c:
         yield c
 

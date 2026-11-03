@@ -1,16 +1,21 @@
-"""`autopilot-gateway api`: clearance-api (clearance api.py) with Hangar's identity and catalog.
+"""`autopilot-gateway api`: the gateway's own read API (read_api.py), with Hangar's identity and catalog.
 
 The read API runs from the gateway's image as a separate Deployment: same agent definitions, same callers' auth
 (service-account tokens by TokenReview, people's OIDC, Tower's foreign workload), but its own read-only DSN and no
 writer lock, no tools, no runs. On Hangar, a person's teams and apps come from Tower's catalog (BackstageDirectory,
-BackstageOwnership), as the gateway's human inbox reads them.
+BackstageOwnership), as the gateway's human inbox reads them. It serves the runtime's reads only; Clearance's reads
+(evidence, receipts, provenance, clearances, policy) are clearance-api's (the Go `clearance api`), named in
+/v1/contract as CLEARANCE_API_URL.
 
-Environment (README "Running the read API"):
-  CLEARANCE_API_DSN         the read-only role's DSN (required)
+Environment (README "Running the read API"; each GATEWAY_API_* falls back to the CLEARANCE_API_* name it replaces):
+  GATEWAY_API_DSN           the read-only role's DSN (required)
+  GATEWAY_API_TABLES        clearance (clearance v0.26.1's tables, on clearance-pg) or gateway (the gateway's own
+                            database, R-3b); default clearance
+  GATEWAY_API_POOL (5), GATEWAY_API_AUDITORS, GATEWAY_API_NOTIFIERS, CLEARANCE_DELEGATES   principal globs, comma-separated
   CLEARANCE_AGENTS_DIR      the bundled agent definitions (default: the image's agents/); the ones Agent XRs pin come
-                            from the gateway's store (clearance_definitions), refreshed every CLEARANCE_API_DEFINITIONS_INTERVAL s (30)
-  CLEARANCE_API_AUDITORS, CLEARANCE_API_NOTIFIERS, CLEARANCE_DELEGATES   principal globs, comma-separated
-  CLEARANCE_GATEWAY_URL     where writes go, named in /v1/contract
+                            from the gateway's store (<tables>_definitions), refreshed every GATEWAY_API_DEFINITIONS_INTERVAL s (30)
+  CLEARANCE_GATEWAY_URL     where writes go, named in /v1/contract as `gateway`
+  CLEARANCE_API_URL         where Clearance's reads are, named in /v1/contract as `clearance`
   PORT (8080), and the gateway's auth and catalog variables (CLEARANCE_AUDIENCE, CLEARANCE_OIDC_*, TOWER_*,
   BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE)
 """
@@ -20,16 +25,12 @@ import logging
 import os
 from typing import Mapping
 
-from clearance import api
 from clearance.definitions import Definitions
-from clearance.gate import GatePolicy
-from clearance.policy import Policy
 
 from .engine import profile
 
-from . import serve
+from . import read_api, serve
 from .agent_xrs import DefinitionsRefresher
-from .gateway import PACKS
 from .reads import BackstageCatalog, BackstageDirectory, BackstageOwnership
 
 log = logging.getLogger("autopilot.api")
@@ -37,10 +38,25 @@ log = logging.getLogger("autopilot.api")
 
 def build(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
-    get = lambda k, d=None: env.get(k) or d  # noqa: E731
-    dsn = get("CLEARANCE_API_DSN")
+
+    def get(k: str, d: str | None = None) -> str | None:
+        # GATEWAY_API_X, else the CLEARANCE_API_X the read API was configured with before R-3c, else the default.
+        legacy = "CLEARANCE_API_" + k[len("GATEWAY_API_"):] if k.startswith("GATEWAY_API_") else None
+        return env.get(k) or (env.get(legacy) if legacy else None) or d
+
+    dsn = get("GATEWAY_API_DSN")
     if not dsn:
-        raise serve.ConfigError("CLEARANCE_API_DSN is required (the read-only role's DSN)")
+        raise serve.ConfigError("GATEWAY_API_DSN is required (the read-only role's DSN)")
+    tables = get("GATEWAY_API_TABLES", "clearance")
+    if tables not in read_api.TABLE_PREFIXES:
+        raise serve.ConfigError(f"GATEWAY_API_TABLES is one of {', '.join(read_api.TABLE_PREFIXES)}, not {tables!r}")
+    try:
+        pool_size = int(get("GATEWAY_API_POOL", "5"))
+        interval = float(get("GATEWAY_API_DEFINITIONS_INTERVAL", "30"))
+    except ValueError:
+        raise serve.ConfigError("GATEWAY_API_POOL and GATEWAY_API_DEFINITIONS_INTERVAL are numbers") from None
+    if not 1 <= pool_size <= 50:
+        raise serve.ConfigError("GATEWAY_API_POOL is 1 to 50")
     # The gateway's config parser for auth, catalog and agents; the store it would open is never used here.
     cfg = serve.config_from_env({**env, "CLEARANCE_EPHEMERAL": "1"})
     defs = Definitions(profile.load_dir(cfg.agents_dir))
@@ -49,17 +65,15 @@ def build(env: Mapping[str, str] | None = None):
         catalog = BackstageCatalog(cfg.backstage_url, cfg.backstage_token_file)
         directory = BackstageDirectory(catalog)
         ownership = BackstageOwnership(catalog, directory)
-    access = api.Access(serve.build_auth(cfg), defs, delegates=cfg.delegates,
-                        notifiers=serve._list(get("CLEARANCE_API_NOTIFIERS", "")),
-                        auditors=serve._list(get("CLEARANCE_API_AUDITORS", "")), directory=directory, ownership=ownership)
-    store = api.PgReadStore(api.Pool(dsn, size=int(get("CLEARANCE_API_POOL", "5"))))
+    access = read_api.Access(serve.build_auth(cfg), defs, delegates=cfg.delegates,
+                             notifiers=serve._list(get("GATEWAY_API_NOTIFIERS", "")),
+                             auditors=serve._list(get("GATEWAY_API_AUDITORS", "")), directory=directory, ownership=ownership)
+    store = read_api.PgReadStore(read_api.Pool(dsn, size=pool_size), prefix=tables)
     # The cluster-pinned definitions the gateway loaded, from its store: this process fetches and decides nothing.
-    DefinitionsRefresher(defs, store, interval=float(get("CLEARANCE_API_DEFINITIONS_INTERVAL", "30"))).start()
-    # The same policy the gateway runs (core + the Hangar pack), for /v1/policy and the dry-run explainer.
-    # The deployment gate's baseline (clearance gate.py), the same the gateway classifies with: /v1/clearance-policy.
-    app = api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"), policy=Policy(PACKS),
-                             gate_policy=GatePolicy(), runtimes=serve.load_runtimes(),
-                             custom_images=cfg.runtime_images_extra)
+    DefinitionsRefresher(defs, store, interval=interval).start()
+    app = read_api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"),
+                                  clearance_api_url=get("CLEARANCE_API_URL"), runtimes=serve.load_runtimes(),
+                                  custom_images=cfg.runtime_images_extra)
     return cfg, access, app
 
 
@@ -72,7 +86,7 @@ def main() -> int:
         log.error("configuration: %s", e)
         return 2
     import uvicorn
-    log.info(f"clearance-api: port={cfg.port} agents={len(access.definitions)} auditors={list(access.auditors)} "
+    log.info(f"autopilot-api: port={cfg.port} agents={len(access.definitions)} auditors={list(access.auditors)} "
              f"notifiers={list(access.notifiers)} delegates={list(access.delegates)} "
              f"catalog={cfg.backstage_url or 'off'}")
     uvicorn.run(app, host="0.0.0.0", port=cfg.port, log_level=os.environ.get("LOG_LEVEL", "info").lower(),
