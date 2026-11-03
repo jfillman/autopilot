@@ -46,8 +46,10 @@ def test_the_committed_contract_is_current():
 
 
 def test_every_clearance_v0_26_1_read_is_served_by_one_of_the_two_apis():
-    """The split loses nothing: each api.py operation is the gateway's or clearance-api's, at the same path."""
-    old = pytest.importorskip("clearance.api").contract()["operations"]
+    """The split loses nothing: each api.py operation (clearance v0.26.1, vendored in tests/fixtures) is the gateway's or
+    clearance-api's, at the same path."""
+    old = json.loads((ROOT / "tests" / "fixtures" / "clearance-v0.26.1-api-operations.json").read_text())["operations"]
+    assert len(old) == 22
     ours = {o["operationId"]: o for o in api.contract()["operations"]}
     for o in old:
         assert o["operationId"] in ours or o["operationId"] in CLEARANCE_OPS, o["operationId"]
@@ -206,8 +208,8 @@ def _schema(prefix):
             return SCHEMA
         except ImportError:
             pass
-    from clearance.pg import SCHEMA
-    return SCHEMA.replace("clearance_", f"{prefix}_")
+    sql = (ROOT / "tests" / "fixtures" / "clearance-v0.26.1-schema.sql").read_text()
+    return sql.replace("clearance_", f"{prefix}_")
 
 
 @pytest.fixture(params=api.TABLE_PREFIXES)

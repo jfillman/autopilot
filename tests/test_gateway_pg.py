@@ -14,6 +14,8 @@ BASE = os.environ.get("AUTOPILOT_TEST_PG")
 pytestmark = pytest.mark.skipif(not BASE, reason="AUTOPILOT_TEST_PG is not set (a Postgres server for scratch databases)")
 
 ROOT = Path(__file__).resolve().parents[1]
+# The tables clearance v0.26.1's pg.py created on clearance-pg (vendored: no clearance package, R-3d).
+OLD_SCHEMA = (ROOT / "tests" / "fixtures" / "clearance-v0.26.1-schema.sql").read_text()
 sys.path.insert(0, str(ROOT / "tools" / "cutover"))
 
 
@@ -96,17 +98,17 @@ def test_the_migration_drops_held_definition_records_and_keeps_the_rest(scratch)
 def _old_rows(dsn):
     """The runtime rows as the Python gateway (clearance v0.26.1 pg.py) wrote them into clearance-pg."""
     from psycopg.types.json import Jsonb
-    from clearance import pg as old
     from autopilot.engine.limits import ComputeClass, Limits, Network
     from autopilot.engine.session import Session
     from autopilot.engine.tiers import Tier
-    st = old.PgState(dsn)
+    conn = psycopg.connect(dsn)
+    conn.execute(OLD_SCHEMA)
     now = datetime.now(timezone.utc)
     exp = now + timedelta(days=1)
     lim = Limits(tier_ceiling=Tier.T1, ttl_minutes=30, tool_calls=10, github_calls=10, open_prs=1, model_tokens=10,
                  children=0, tools=frozenset({"catalog.read"}), models=frozenset(), network=Network.CLEARANCE,
                  compute=ComputeClass.SMALL)
-    with st.conn.cursor() as cur:
+    with conn.cursor() as cur:
         for i in range(3):
             rec = Session(f"s-{i}", "user:a", "coding-agent", lim, now, exp, task_id=f"t-{i}", closed=i == 2).to_record()
             cur.execute("INSERT INTO clearance_sessions (id, record, expires_at, closed) VALUES (%s, %s, %s, %s)",
@@ -124,8 +126,8 @@ def _old_rows(dsn):
         cur.execute("INSERT INTO clearance_definitions (name, state, record) VALUES ('gate-triage', 'loaded', %s)",
                     (Jsonb({"name": "gate-triage", "state": "loaded"}),))
         cur.execute("INSERT INTO clearance_evidence (seq, hash, prev_hash, record) VALUES (0, 'h', 'p', '{}'::jsonb)")
-    st.commit()
-    st.close()
+    conn.commit()
+    conn.close()
 
 
 def _dump(dsn, table, order):

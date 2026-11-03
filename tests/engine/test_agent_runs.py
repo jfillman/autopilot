@@ -9,7 +9,6 @@ from starlette.testclient import TestClient
 
 from autopilot.engine import control as ctl
 from autopilot.engine import inbox as hr
-from clearance import review
 from autopilot.engine import profile
 from coreenv import tap_core
 from autopilot.engine.backends import FakeRunBackend
@@ -66,7 +65,6 @@ def test_a_definition_needs_a_description():
     del d["description"]
     with pytest.raises(profile.DefinitionError):
         profile.parse(d)
-    assert [p.rule for p in review.validate(d, {})] == ["DF-DESCRIPTION"]
     assert profile.parse(doc()).description.startswith("Investigates")
 
 
@@ -75,7 +73,6 @@ def test_a_placeholder_digest_is_refused_and_no_image_means_client():
     d["runtime"]["image"] = "ghcr.io/x/agent@sha256:" + "0" * 64
     with pytest.raises(profile.DefinitionError, match="placeholder"):
         profile.parse(d)
-    assert review.validate(d, {})[0].rule == "DF-IMAGE"
     assert profile.parse(doc()).runs_in == "cluster"
     client = doc()
     del client["runtime"]

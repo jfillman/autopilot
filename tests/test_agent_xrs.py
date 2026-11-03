@@ -5,7 +5,7 @@ import copy
 import pytest
 from coreenv import chain_head, core_env
 import yaml
-from clearance import definitions as defn
+from autopilot.engine import definitions as defn
 from autopilot.engine.dispatch import Denied, Principal
 from autopilot.engine.tiers import Tier
 

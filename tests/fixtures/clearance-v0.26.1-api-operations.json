@@ -1,0 +1,314 @@
+{
+ "operations": [
+  {
+   "operationId": "listAgents",
+   "params": [
+    "full"
+   ],
+   "path": "/v1/agents",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "Agent definitions: kind, identity, owner, tier ceiling, tools, scope, limits, triggers"
+  },
+  {
+   "operationId": "getAgent",
+   "params": [
+    "full"
+   ],
+   "path": "/v1/agents/{name}",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "One agent definition"
+  },
+  {
+   "operationId": "listSessions",
+   "params": [
+    "agent",
+    "principal",
+    "task",
+    "state",
+    "limit",
+    "after"
+   ],
+   "path": "/v1/sessions",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "Sessions you may see, newest first: limits, budget used, breaker, run, parent, expiry; state is live, closed or expired"
+  },
+  {
+   "operationId": "getSession",
+   "params": [],
+   "path": "/v1/sessions/{id}",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "One session: with input (what an in-cluster run was asked) and outcome (how it ended) once it has them"
+  },
+  {
+   "operationId": "getSessionResult",
+   "params": [],
+   "path": "/v1/sessions/{id}/result",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "A finished in-cluster run's answer (results.py), kept 30 days: status, final_text, turns, tool_calls [{tool, ok, rule}], reason; 404 when there is none or it expired"
+  },
+  {
+   "operationId": "getTask",
+   "params": [],
+   "path": "/v1/tasks/{task_id}",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "A run tree: every session of the task, with parent links and totals"
+  },
+  {
+   "operationId": "listEvidence",
+   "params": [
+    "task",
+    "session",
+    "agent",
+    "tool",
+    "principal",
+    "decision",
+    "rule",
+    "app",
+    "since",
+    "until",
+    "limit",
+    "after"
+   ],
+   "path": "/v1/evidence",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "Evidence records you may see, newest first; the cursor is seq"
+  },
+  {
+   "operationId": "getEvidence",
+   "params": [],
+   "path": "/v1/evidence/{seq}",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "One evidence record with its hash"
+  },
+  {
+   "operationId": "verifyEvidence",
+   "params": [],
+   "path": "/v1/evidence/verify",
+   "roles": [
+    "auditor"
+   ],
+   "summary": "The whole chain checked from genesis: ok, count, head, the first bad seq"
+  },
+  {
+   "operationId": "countEvidence",
+   "params": [
+    "by",
+    "decision",
+    "agent",
+    "tool",
+    "app",
+    "since",
+    "until"
+   ],
+   "path": "/v1/evidence/counts",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "Records you may see, counted by rule, tool, agent, app or decision (`by`), with the same filters as the list"
+  },
+  {
+   "operationId": "getPolicy",
+   "params": [],
+   "path": "/v1/policy",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "The policy in force: the deny rules in evaluation order (id, name, CEL expression, message, hint, pack), the tool registry with tiers, the packs"
+  },
+  {
+   "operationId": "explainPolicy",
+   "params": [
+    "agent",
+    "tool",
+    "args"
+   ],
+   "path": "/v1/policy/explain",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "Would this be allowed? A dry run of the real policy for an agent, a tool and its args (JSON) on a fresh session: the decision and each rule's verdict in order. Records nothing"
+  },
+  {
+   "operationId": "listReceipts",
+   "params": [
+    "repo",
+    "pr"
+   ],
+   "path": "/v1/receipts",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "PR receipts: what Clearance's agents opened on a repo (and PR), the commit, the paths"
+  },
+  {
+   "operationId": "listProvenance",
+   "params": [
+    "repo",
+    "pr"
+   ],
+   "path": "/v1/provenance",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "The agent-gate verdicts recorded for a PR (provenance.verify)"
+  },
+  {
+   "operationId": "listHumanRequests",
+   "params": [
+    "since"
+   ],
+   "path": "/v1/human/requests",
+   "roles": [
+    "person",
+    "delegate",
+    "notifier",
+    "auditor"
+   ],
+   "summary": "Pending human requests: a person's, those they may answer; a notifier's, every pending one (with owner and group), created since `since`"
+  },
+  {
+   "operationId": "listEvents",
+   "params": [
+    "app",
+    "agent",
+    "source",
+    "key",
+    "subject",
+    "since",
+    "until",
+    "limit",
+    "after"
+   ],
+   "path": "/v1/events",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "The events the trigger bridge received, newest first, each with what it did per agent (launched, deduped, braked, refused): the history a trigger dry run, an agent's trigger statistics and an app's run marks read. Kept 30 days; the cursor is received_at"
+  },
+  {
+   "operationId": "listClearances",
+   "params": [
+    "app",
+    "env",
+    "state",
+    "repo",
+    "pr",
+    "tier",
+    "since",
+    "limit",
+    "after"
+   ],
+   "path": "/v1/clearances",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "The deployment gate's changes (gate.py), newest first: tier and why, state (holding, cleared, denied, expired, superseded), the requirement and the approvals so far, what the grant binds to. A person sees their apps' changes and the ones their groups may clear; the cursor is updated_at"
+  },
+  {
+   "operationId": "countClearances",
+   "params": [
+    "app",
+    "env",
+    "state",
+    "since",
+    "by"
+   ],
+   "path": "/v1/clearances/counts",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "Changes counted by state, tier, app, env or cleared_by (the C1 stats: holding, cleared by policy and by people, denied)"
+  },
+  {
+   "operationId": "getClearance",
+   "params": [],
+   "path": "/v1/clearances/{id}",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "One change: the objects and paths it touches, every reason for its tier, the requirement, the approvals, the checks as last reported"
+  },
+  {
+   "operationId": "getClearancePolicy",
+   "params": [],
+   "path": "/v1/clearance-policy",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "The deployment gate's baseline policy: the tier table, the people each tier needs, the outside groups, the TTL. A repo's clearance.yaml can only tighten it"
+  },
+  {
+   "operationId": "listRuntimes",
+   "params": [],
+   "path": "/v1/runtimes",
+   "roles": [
+    "person",
+    "delegate",
+    "auditor"
+   ],
+   "summary": "The deployment's runtime catalog (runtimes.py): the agent images a definition may run (kind runtime) or a code agent may build FROM (kind base), each pinned by digest, with its framework and status"
+  },
+  {
+   "operationId": "getContract",
+   "params": [],
+   "path": "/v1/contract",
+   "roles": [
+    "any"
+   ],
+   "summary": "This contract"
+  }
+ ],
+ "source": "clearance v0.26.1 clearance.api.contract()[\"operations\"] (operationId, path, params, roles, summary)"
+}
