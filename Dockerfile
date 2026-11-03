@@ -20,6 +20,10 @@ RUN /opt/venv/bin/pip install -e /app \
     && /opt/venv/bin/python -m compileall -q /app/src /opt/venv/lib
 
 FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb
+# The image's own version (gateway-image.yaml passes the gateway-v* tag): the start line and the conformance control
+# interface report it (src/autopilot/version.py). The core's CLEARANCE_PROVIDERS entry must name the same version.
+ARG GATEWAY_VERSION=dev
+ENV AUTOPILOT_GATEWAY_VERSION=${GATEWAY_VERSION}
 ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     CLEARANCE_AGENTS_DIR=/app/agents PORT=8080
 COPY --from=build /opt/venv /opt/venv
