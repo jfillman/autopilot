@@ -3,11 +3,11 @@ from datetime import timedelta
 
 import pytest
 
-from clearance.limits import BUDGET_FIELDS, ComputeClass, LimitRequest, Limits, Network, WideningError
-from clearance.session import DENIAL_TRIP, MAX_DEPTH, SessionError, SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.limits import BUDGET_FIELDS, ComputeClass, LimitRequest, Limits, Network, WideningError
+from autopilot.engine.session import DENIAL_TRIP, MAX_DEPTH, SessionError, SessionStore
+from autopilot.engine.tiers import Tier
 
-from conftest import T0
+from .conftest import T0
 
 BASE = Limits(Tier.T1, 60, 100, 100, 5, 1000, 3, frozenset({"a", "b"}), frozenset({"m"}),
               Network.CLEARANCE_MODEL, ComputeClass.MEDIUM)

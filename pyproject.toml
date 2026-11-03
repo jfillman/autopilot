@@ -7,8 +7,11 @@ name = "autopilot"
 version = "0.1.0.dev0"
 description = "Autopilot: Hangar's AI agent runtime (agent definitions, Preflight, tool backends) on Clearance"
 requires-python = ">=3.11"
-# Clearance is its own product and repo (Hangar D16), pinned by tag; bump it here when clearance releases.
-dependencies = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2"]
+# Clearance is its own product and repo (Hangar D16), pinned by tag; bump it here when clearance releases. The gateway
+# engine (src/autopilot/engine, moved from clearance v0.26.1 in R-3a) imports pyjwt itself (server.py reads a verified
+# token's expiry), so it is named here; R-3b drops the clearance package for its generated client.
+dependencies = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2",
+                "pyjwt[crypto]>=2.8"]
 
 [project.scripts]
 # The deployable gateway (src/autopilot/serve.py; README "Running the gateway").

@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from clearance import profile
-from clearance.limits import Network
-from clearance.tiers import Tier
+from autopilot.engine import profile
+from autopilot.engine.limits import Network
+from autopilot.engine.tiers import Tier
 
 AGENTS = Path(__file__).resolve().parent / "fixtures" / "agents"
 
@@ -82,7 +82,7 @@ def test_file_name_must_match_agent_name(tmp_path):
 
 def test_a_glidepath_event_trigger_validates(tmp_path):
     import yaml
-    from clearance import profile
+    from autopilot.engine import profile
     base = yaml.safe_load((profile_dir() / "nightly-reviewer.yaml").read_text())
     base.update(kind="event", triggers=[{"type": "event", "source": "glidepath", "bindingKey": "*.pipelinerun.finished",
                                          "match": {"subject.content.outcome": "failure"}, "maxPerHour": 6}])

@@ -1,7 +1,8 @@
-"""The deployable Hangar Clearance gateway: `autopilot-gateway`.
+"""The deployable Hangar gateway: `autopilot-gateway`.
 
-Builds the Hangar Gateway (core Clearance, the Hangar pack, Autopilot's real backends) from environment variables
-and serves Clearance's streamable-HTTP MCP app with uvicorn. See README.md, "Running the gateway", for the variables.
+Builds the Hangar Gateway (the gateway engine, Clearance's policy with the Hangar pack, Autopilot's real backends) from
+environment variables and serves the engine's streamable-HTTP MCP app (autopilot.engine.server) with uvicorn. See
+README.md, "Running the gateway", for the variables.
 
 Only real backends are registered (human.request and human.request.get are the Gateway's own inbox, durable on
 Postgres). A tool whose backend this deployment does not have (chat.*, app.api.get and xr.request today; catalog.read without BACKSTAGE_URL; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
@@ -31,17 +32,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from clearance import profile
 from clearance.audit import AuditLog
 from clearance.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
                             RoutingAuthenticator, WorkloadAuthenticator)
-from clearance.backends import Handler
-from clearance.dispatch import Authenticator, Gateway
-from clearance.control import MemoryHolds
-from clearance.events import MemoryEvents
-from clearance.inbox import MemoryInbox
-from clearance.modelproxy import ModelRoute
-from clearance.session import SessionStore
+from .engine import profile
+from .engine.backends import Handler
+from .engine.dispatch import Authenticator, Gateway
+from .engine.control import MemoryHolds
+from .engine.events import MemoryEvents
+from .engine.inbox import MemoryInbox
+from .engine.modelproxy import ModelRoute
+from .engine.session import SessionStore
 
 from . import airframe_plan
 from .airframe_api import KubeReader
@@ -53,7 +54,7 @@ from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from clearance.definitions import Definitions, MemoryDefinitions
 from clearance.gate import GatePolicy, MemoryChanges
-from clearance.results import MemoryResults
+from .engine.results import MemoryResults
 from .reads import BackstageAppOwners, BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 
@@ -67,7 +68,7 @@ REPO_RUNTIMES = REPO_AGENTS.parent / "runtime" / "catalog.yaml"
 
 def load_runtimes(path: Path | None = None) -> tuple:
     """The catalog's entries, parsed by Clearance (a malformed catalog is a ConfigError: fail at start, not later)."""
-    from clearance import runtimes as rt
+    from .engine import runtimes as rt
     p = path or REPO_RUNTIMES
     if not p.is_file():
         return ()
@@ -347,6 +348,17 @@ def build_auth(cfg: Config) -> Authenticator:
     return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
 
 
+def open_durable(dsn: str, id_gen=None):
+    """A PgState, its evidence log, and a SessionStore loaded from it: clearance.pg.open_durable (v0.26.1) with the
+    engine's own SessionStore, so the sessions, and the SessionError and WideningError the Gateway catches, are the
+    engine's (autopilot.engine.session) and not the clearance package's copy (R-3a). The tables are unchanged."""
+    from clearance.pg import PgAuditLog, PgSessions, PgState
+    state = PgState(dsn)
+    audit = PgAuditLog(state)
+    store = SessionStore(id_gen=id_gen, persist=PgSessions(state, audit))
+    return state, audit, store
+
+
 STORE_LOST_EXIT = 70
 
 
@@ -432,7 +444,6 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         results = MemoryResults()
     else:
         import psycopg   # only where it is used
-        from clearance.pg import open_durable
         from clearance.pg import PgArtifacts, PgChanges, PgDefinitions, PgEvents, PgHolds, PgInbox, PgResults
         state, audit, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
@@ -471,7 +482,7 @@ def build_github_app(cfg: Config, gw: Gateway):
 
 
 def build_app(cfg: Config, gw: Gateway, github_app=None):
-    from clearance.server import create_http_app
+    from .engine.server import create_http_app
     return create_http_app(gw, resource_url=cfg.resource_url, issuer_url=cfg.issuer_url, github_app=github_app)
 
 
@@ -568,7 +579,7 @@ def main() -> int:
     servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=cfg.port, log_level=level,
                                              proxy_headers=False, server_header=False))]
     if cfg.model_key_file:
-        from clearance.server import create_model_app
+        from .engine.server import create_model_app
         servers.append(uvicorn.Server(uvicorn.Config(create_model_app(gw, key_file=str(cfg.model_key_file)),
                                                      host="0.0.0.0", port=cfg.model_port, log_level=level,
                                                      proxy_headers=False, server_header=False)))

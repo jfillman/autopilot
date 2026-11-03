@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
-from .audit import AuditLog, args_digest, iso
+from .core import AuditLog, args_digest, iso
 from .limits import Network
 from .session import SessionStore
 

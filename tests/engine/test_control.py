@@ -6,14 +6,15 @@ from datetime import timedelta
 import pytest
 from starlette.testclient import TestClient
 
-from clearance import api, control as ctl
-from clearance import inbox as hr
+from clearance import api
+from autopilot.engine import control as ctl
+from autopilot.engine import inbox as hr
 from clearance.audit import AuditLog
-from clearance.dispatch import AuthError, Gateway, Principal
+from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
-from clearance.server import create_http_app
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.server import create_http_app
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
 TOWER = "hangar-prod/app-backstage-prod/backstage"
 
@@ -148,7 +149,7 @@ def test_http_routes(g):
 
 
 def test_the_read_api_shows_the_hold(defs):
-    from test_api import Auth as ApiAuth, Groups as ApiGroups, MemStore, Owns, TOWER as API_TOWER, get
+    from .api_helpers import Auth as ApiAuth, Groups as ApiGroups, MemStore, Owns, TOWER as API_TOWER, get
     hold = {"agent": "triage-agent", "by": "user:root", "via": None, "reason": "noisy", "since": "2026-10-31T06:00:00+00:00", "until": "2026-10-31T08:00:00+00:00"}
     access = api.Access(ApiAuth(), defs, delegates=(API_TOWER,), auditors=("user:auditor",), directory=ApiGroups(), ownership=Owns())
     app = api.create_api_app(MemStore([], [], [], holds={"triage-agent": hold}), access)

@@ -12,10 +12,10 @@ import pytest
 from autopilot.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
 from autopilot.gateway import TOOLS, hangar_gateway, release_key
 from autopilot.glidepath_api import GlidepathAPI, GlidepathError
-from clearance.dispatch import Denied
+from autopilot.engine.dispatch import Denied
 from clearance.provenance import PR_TOOLS
-from clearance.server import create_server
-from clearance.tiers import TRIPWIRES, Tier
+from autopilot.engine.server import create_server
+from autopilot.engine.tiers import TRIPWIRES, Tier
 
 RESULT = "0b9d1a2e-1111-4c4c-9999-aaaaaaaaaaaa"
 
@@ -221,8 +221,8 @@ def test_an_agent_names_the_failure_id_using_only_mcp(defs, clock, token):
     try:
         from conftest import StaticAuth
         from clearance.audit import AuditLog
-        from clearance.dispatch import Principal
-        from clearance.session import SessionStore
+        from autopilot.engine.dispatch import Principal
+        from autopilot.engine.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token)
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
         gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
@@ -355,8 +355,8 @@ def test_a_refused_proposal_is_a_denial_with_glidepaths_hint(defs, clock, token)
     with glidepath-api's rule and hint, recorded as a denial; the agent should not retry it."""
     from conftest import StaticAuth
     from clearance.audit import AuditLog
-    from clearance.dispatch import Principal
-    from clearance.session import SessionStore
+    from autopilot.engine.dispatch import Principal
+    from autopilot.engine.session import SessionStore
     refusal = {"error": "dev is a Ground environment", "rule": "GP-API-422",
                "hint": "Promote to a Flight environment; Ground promotions are a commit to the app repo."}
     api = GlidepathAPI("http://gp", token, on_behalf_of=True, opener=Opener(422, json.dumps(refusal).encode()))
@@ -485,8 +485,8 @@ def test_an_agent_proposes_a_staging_promotion_using_only_mcp(defs, clock, token
     try:
         from conftest import StaticAuth
         from clearance.audit import AuditLog
-        from clearance.dispatch import Principal
-        from clearance.session import SessionStore
+        from autopilot.engine.dispatch import Principal
+        from autopilot.engine.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token, on_behalf_of=True)
         git = FakeGit()
         b = Backends(git, FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
@@ -615,7 +615,7 @@ def test_adapter_posts_a_validation_and_reads_400_as_an_answer(token):
 def test_a_proposed_cicd_pr_is_vouched_for_by_the_agent_gates(gw, backends):
     # The receipt glidepath.cicd.propose leaves is what the agent gates read (clearance provenance): the same
     # confirmed/in-scope verdict a repo.pr.open PR gets, and an extra path the commit did not carry fails scope.
-    from clearance.dispatch import Principal
+    from autopilot.engine.dispatch import Principal
     bot = "hangar-autopilot-agents[bot]"
     gw.auth.table["gate"] = Principal("app-gate-api-cicd/pipeline-runner", "workload", Tier.T0)
     gw.verifiers, gw.agent_logins = ("app-*-cicd/pipeline-runner",), (bot,)

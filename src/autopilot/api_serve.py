@@ -20,10 +20,12 @@ import logging
 import os
 from typing import Mapping
 
-from clearance import api, profile
+from clearance import api
 from clearance.definitions import Definitions
 from clearance.gate import GatePolicy
 from clearance.policy import Policy
+
+from .engine import profile
 
 from . import serve
 from .agent_xrs import DefinitionsRefresher

@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 import pytest
 from starlette.testclient import TestClient
 
-from clearance import api, events
+from clearance import api
+from autopilot.engine import events
 from clearance.packs.hangar import HANGAR
 
-from test_api import Auth, Groups, MemStore, Owns, TOWER, get
+from .api_helpers import Auth, Groups, MemStore, Owns, TOWER, get
 
 NOW = datetime(2026, 10, 31, 6, 0, tzinfo=timezone.utc)
 

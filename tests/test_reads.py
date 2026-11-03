@@ -9,8 +9,8 @@ from autopilot.airframe_api import KubeReader, PathRefused
 from autopilot.backends import Backends
 from autopilot.kube_runs import KubeAgentRuns
 from autopilot.reads import KubeArgo, LokiAPI, PrometheusAPI, ReadError, Reads
-from clearance.dispatch import Denied, Principal
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import Denied, Principal
+from autopilot.engine.tiers import Tier
 
 
 class Auth:

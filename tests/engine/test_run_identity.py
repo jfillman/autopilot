@@ -7,13 +7,13 @@ import pytest
 from starlette.testclient import TestClient
 
 from clearance.audit import AuditLog
-from clearance.backends import FakeRunBackend, core_handlers
-from clearance.dispatch import AuthError, Gateway, Principal
-from clearance.modelproxy import ModelRoute
+from autopilot.engine.backends import FakeRunBackend, core_handlers
+from autopilot.engine.dispatch import AuthError, Gateway, Principal
+from autopilot.engine.modelproxy import ModelRoute
 from clearance.packs.hangar import HANGAR
-from clearance.server import create_model_app
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.server import create_model_app
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
 
 

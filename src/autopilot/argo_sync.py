@@ -31,7 +31,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from clearance.dispatch import Denied
+from .engine.dispatch import Denied
 
 from .airframe_api import KubeReader, Opener, _urlopen, argo_path
 from .kube_runs import IN_CLUSTER_API, SA_DIR

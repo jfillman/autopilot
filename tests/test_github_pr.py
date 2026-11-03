@@ -5,7 +5,7 @@ import json
 import pytest
 
 from autopilot.github_pr import GitHubError, GitHubPRs, app_of
-from clearance.dispatch import Denied
+from autopilot.engine.dispatch import Denied
 
 FILES = [{"path": "src/app.py", "content": "print('fixed')\n"}]
 META = {"agent": "triage-agent", "task": "t-abc123", "session": "s-1", "run": "r-1"}

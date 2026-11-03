@@ -1,7 +1,7 @@
 import pytest
 
-from clearance.limits import LimitRequest, Network
-from clearance.modelproxy import ModelProxy, ModelRoute
+from autopilot.engine.limits import LimitRequest, Network
+from autopilot.engine.modelproxy import ModelProxy, ModelRoute
 
 ROUTES = {"claude-sonnet-5": ModelRoute("claude-sonnet-5", "anthropic", "https://api.anthropic.com", "claude-sonnet-5"),
           "qwen": ModelRoute("qwen", "modelplane", "http://gw.inference.svc", "qwen/qwen3-8b")}
@@ -71,7 +71,7 @@ def test_every_model_call_is_audited(gw, mp):
 
 
 def test_usage_is_weighted_by_what_each_kind_of_token_costs():
-    from clearance.modelproxy import charged_tokens
+    from autopilot.engine.modelproxy import charged_tokens
     assert charged_tokens({"input_tokens": 100, "output_tokens": 50}) == 150
     assert charged_tokens({"input_tokens": 10, "cache_read_input_tokens": 10000, "output_tokens": 5}) == 1015
     assert charged_tokens({"cache_creation_input_tokens": 1000}) == 1250

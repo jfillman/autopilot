@@ -1,6 +1,7 @@
-"""The Hangar Gateway: core Clearance, the Hangar pack's policy, and Hangar's backends.
+"""The Hangar Gateway: the gateway engine, the Hangar pack's policy, and Hangar's backends.
 
-Clearance owns the decision (clearance.dispatch.Gateway, clearance.packs.hangar). What this module adds
+The engine (autopilot.engine.dispatch.Gateway, moved from clearance in R-3a) enforces; Clearance owns the decision
+(clearance.policy with clearance.packs.hangar, reached through autopilot.engine.core). What this module adds
 is what the tools DO on Hangar: a handler per glidepath.* and airframe.* tool over the backends in
 backends.py, the core tools' handlers over the same bundle, and the run tree as AgentRun XRs.
 
@@ -13,13 +14,13 @@ from datetime import datetime
 from typing import Any, Callable
 
 from clearance.audit import AuditLog
-from clearance.backends import Handler, core_handlers
-from clearance.dispatch import Authenticator, Gateway
+from .engine.backends import Handler, core_handlers
+from .engine.dispatch import Authenticator, Gateway
 from clearance.packs.hangar import HANGAR
 from clearance.policy import Policy
-from clearance.profile import AgentDefinition
-from clearance.session import Session, SessionStore
-from clearance.tiers import ToolSpec
+from .engine.profile import AgentDefinition
+from .engine.session import Session, SessionStore
+from .engine.tiers import ToolSpec
 
 from . import cicd_propose, manifests
 from .backends import AgentRunStore, Backends

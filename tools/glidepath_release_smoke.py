@@ -35,15 +35,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from clearance import profile  # noqa: E402
+from autopilot.engine import profile  # noqa: E402
 from clearance.audit import AuditLog  # noqa: E402
 from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from autopilot.gateway import hangar_gateway  # noqa: E402
-from clearance.dispatch import Principal  # noqa: E402
+from autopilot.engine.dispatch import Principal  # noqa: E402
 from autopilot.glidepath_api import GlidepathAPI  # noqa: E402
-from clearance.server import create_server  # noqa: E402
-from clearance.session import SessionStore  # noqa: E402
-from clearance.tiers import Tier  # noqa: E402
+from autopilot.engine.server import create_server  # noqa: E402
+from autopilot.engine.session import SessionStore  # noqa: E402
+from autopilot.engine.tiers import Tier  # noqa: E402
 
 
 class LocalUser:

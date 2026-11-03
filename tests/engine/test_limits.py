@@ -1,8 +1,8 @@
 import pytest
 from dataclasses import replace
 
-from clearance.limits import ComputeClass, LimitRequest, Limits, Network, WideningError, narrow
-from clearance.tiers import Tier
+from autopilot.engine.limits import ComputeClass, LimitRequest, Limits, Network, WideningError, narrow
+from autopilot.engine.tiers import Tier
 
 BASE = Limits(Tier.T1, 30, 200, 300, 3, 500_000, 2, frozenset({"a", "b", "c"}), frozenset({"m1", "m2"}),
               Network.CLEARANCE_MODEL, ComputeClass.MEDIUM)

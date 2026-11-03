@@ -41,13 +41,13 @@ from autopilot.airframe_api import KubeReader, PathRefused, _urlopen  # noqa: E4
 from autopilot.airframe_tools import AirframeTools, ValidatorCommand  # noqa: E402
 from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from autopilot.gateway import hangar_gateway  # noqa: E402
-from clearance import profile  # noqa: E402
+from autopilot.engine import profile  # noqa: E402
 from clearance.audit import AuditLog  # noqa: E402
-from clearance.dispatch import Principal  # noqa: E402
+from autopilot.engine.dispatch import Principal  # noqa: E402
 from clearance.packs import hangar  # noqa: E402
-from clearance.server import create_server  # noqa: E402
-from clearance.session import SessionStore  # noqa: E402
-from clearance.tiers import Tier  # noqa: E402
+from autopilot.engine.server import create_server  # noqa: E402
+from autopilot.engine.session import SessionStore  # noqa: E402
+from autopilot.engine.tiers import Tier  # noqa: E402
 
 # The scaffold's cicd.yaml with the check ride Skyport apps now carry: the case the old planner broke (GP-SCOPE-002).
 BASE_CICD = yaml.safe_load("""

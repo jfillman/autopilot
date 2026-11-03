@@ -1,4 +1,4 @@
-"""Fixtures for Clearance's own tests: the core gateway with the Hangar pack's policy, core handlers over
+"""Fixtures for the gateway engine's tests (moved from clearance v0.26.1): the core gateway with the Hangar pack's policy, core handlers over
 in-memory fakes, and a run backend that starts nothing. Agent definitions are tests/fixtures/agents/."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,16 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from clearance import profile
+from autopilot.engine import profile
 from clearance.audit import AuditLog
-from clearance.backends import FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRunBackend, core_handlers
-from clearance.dispatch import Gateway, Principal
+from autopilot.engine.backends import FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRunBackend, core_handlers
+from autopilot.engine.dispatch import Gateway, Principal
 from clearance.packs.hangar import HANGAR
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
-ROOT = Path(__file__).resolve().parents[1]
-AGENTS = ROOT / "tests" / "fixtures" / "agents"
+ROOT = Path(__file__).resolve().parents[2]
+AGENTS = Path(__file__).resolve().parent / "fixtures" / "agents"
 T0 = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 

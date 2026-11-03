@@ -17,7 +17,7 @@ import posixpath
 import re
 from typing import Any
 
-from clearance.dispatch import Denied
+from .engine.dispatch import Denied
 
 from .github_pr import app_of
 

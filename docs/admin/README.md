@@ -6,7 +6,9 @@ AgentRun grants, agent-sandbox and the run reaper, all on hangar-dev. The `clust
 feature on. The image is pinned by tag and digest (gateway-v0.3.27, Clearance v0.26.1, on 2026-11-02).
 
 ## The gateway image
-`autopilot-gateway` (`src/autopilot/serve.py`, the repo's `Dockerfile`) is the deployable Clearance for Hangar: the
+`autopilot-gateway` (`src/autopilot/serve.py`, the repo's `Dockerfile`) is the deployable gateway for Hangar. Its code
+is this repo's `src/autopilot/engine/` (moved from clearance v0.26.1 in R-3a; the image's behaviour is unchanged) with
+Clearance's policy and evidence store called in process from the pinned clearance package. It serves the
 streamable-HTTP MCP app on `PORT` (8080) at `/mcp`, `GET /healthz` unauthenticated for probes. Every variable, and the
 RBAC each backend needs, is in the README's [Running the gateway](../../README.md#running-the-gateway). In short:
 - **One replica of the gateway.** clearance-api (`autopilot-gateway api`, the README's "Running the read API") is a

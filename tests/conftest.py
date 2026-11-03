@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from clearance import profile
+from autopilot.engine import profile
 from clearance.audit import AuditLog
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
-from clearance.dispatch import Principal
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import Principal
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
 ROOT = Path(__file__).resolve().parents[1]
 T0 = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)

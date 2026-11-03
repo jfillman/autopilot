@@ -5,9 +5,9 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from clearance.dispatch import AuthError, Principal
-from clearance.server import create_http_app
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import AuthError, Principal
+from autopilot.engine.server import create_http_app
+from autopilot.engine.tiers import Tier
 
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json",
            "MCP-Protocol-Version": "2025-06-18"}

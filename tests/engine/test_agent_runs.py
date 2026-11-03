@@ -7,18 +7,19 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from clearance import control as ctl
-from clearance import inbox as hr
-from clearance import profile, review
+from autopilot.engine import control as ctl
+from autopilot.engine import inbox as hr
+from clearance import review
+from autopilot.engine import profile
 from clearance.audit import AuditLog
-from clearance.backends import FakeRunBackend
-from clearance.dispatch import AuthError, Gateway, Principal
+from autopilot.engine.backends import FakeRunBackend
+from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
-from clearance.server import create_http_app
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.server import create_http_app
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
-from conftest import AGENTS
+from .conftest import AGENTS
 
 TOWER = "hangar-prod/app-backstage-prod/backstage"
 

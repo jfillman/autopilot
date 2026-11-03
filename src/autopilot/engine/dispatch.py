@@ -18,13 +18,14 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
 
-from . import control as ctl, definitions as defn, events as evh, gate, inbox as hr, policy, provenance, review
+from . import control as ctl, events as evh, inbox as hr
 from . import results as res, runtimes as runtimes_mod
-from .audit import AuditLog, args_digest, iso, sha256_hex
 from .backends import Handler, RunBackend
+# Clearance's half (the decision, the record, the gate), through the one seam R-3b replaces (core.py).
+from .core import AuditLog, AuthError, Denied, Pack, args_digest, iso, sha256_hex  # noqa: F401 - AuthError, Denied: re-exported
+from .core import definitions as defn, gate, policy, provenance, review
 from .limits import LimitRequest, WideningError
 from .modelproxy import ModelDecision, ModelProxy, ModelRoute
-from .pack import Pack
 from .profile import AgentDefinition
 from .session import Session, SessionError, SessionStore
 from .tiers import Tier
@@ -44,15 +45,8 @@ class Authenticator(Protocol):
     def authenticate(self, token: str) -> Principal: ...
 
 
-class AuthError(Exception):
-    pass
-
-
-class Denied(Exception):
-    """Raised by a handler that must refuse for a reason the CEL rules cannot see."""
-    def __init__(self, rule: str, message: str, hint: str = ""):
-        self.rule, self.message, self.hint = rule, message, hint
-        super().__init__(message)
+# AuthError and Denied (a handler's refusal for a reason the CEL rules cannot see) are Clearance's classes until the
+# removal PR, because Clearance's authenticators and artifact store raise them (core.py).
 
 
 class AppOwners(Protocol):

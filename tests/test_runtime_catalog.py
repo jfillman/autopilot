@@ -1,7 +1,7 @@
 """runtime/catalog.yaml: parses (Clearance runtimes.py), every available runtime is pinned and is what the platform's
 own agents run, and the gateway allows exactly its images plus RUNTIME_IMAGES_EXTRA."""
-from clearance.dispatch import Principal
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import Principal
+from autopilot.engine.tiers import Tier
 
 from autopilot import serve
 from autopilot.backends import Backends, FakeRuns

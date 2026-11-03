@@ -3,10 +3,10 @@ and receipted like repo.pr.open (provenance.PR_TOOLS), its receipt takes the rep
 result (the files are the tool's own, not an argument), and its arguments are checked before any call. What the
 tools do (ask glidepath-api, open the PR) is Autopilot's handler, tested there."""
 from clearance import provenance
-from clearance.dispatch import _effect
+from autopilot.engine.dispatch import _effect
 from clearance.packs.hangar import TOOLS
 from clearance.packs.hangar.args import glidepath_bad_args
-from clearance.tiers import CORE_TOOLS, Tier, registry
+from autopilot.engine.tiers import CORE_TOOLS, Tier, registry
 
 SPECS = {t.name: t for t in TOOLS}
 CORE = registry(CORE_TOOLS)

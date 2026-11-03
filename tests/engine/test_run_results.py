@@ -5,18 +5,18 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from clearance import control as ctl
-from clearance import results as res
+from autopilot.engine import control as ctl
+from autopilot.engine import results as res
 from clearance.audit import AuditLog
-from clearance.backends import FakeRunBackend
-from clearance.dispatch import Gateway, Principal
+from autopilot.engine.backends import FakeRunBackend
+from autopilot.engine.dispatch import Gateway, Principal
 from clearance.packs.hangar import HANGAR
-from clearance.server import create_server
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.server import create_server
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
-from test_agent_runs import TOWER, Auth, Groups
-from test_server import payload, run
+from .test_agent_runs import TOWER, Auth, Groups
+from .test_server import payload, run
 
 
 class Runs(FakeRunBackend):

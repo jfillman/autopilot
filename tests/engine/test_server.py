@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from clearance.server import create_server
+from autopilot.engine.server import create_server
 
 
 def run(coro):

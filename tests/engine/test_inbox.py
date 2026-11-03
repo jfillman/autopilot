@@ -5,13 +5,13 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from clearance import inbox as hr
+from autopilot.engine import inbox as hr
 from clearance.audit import AuditLog
-from clearance.dispatch import AuthError, Gateway, Principal
+from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
-from clearance.server import create_http_app
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.server import create_http_app
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
 
 class Auth:

@@ -7,7 +7,7 @@ are commits that people review, and ephemeral runs are direct requests to Crossp
 commits, held to a tier of tools, a path scope and a budget that can only narrow at runtime.
 
 - **Defining or running an agent?** Start with the [user guide](user/README.md).
-- **Installing or operating Clearance?** See the [admin guide](admin/README.md).
+- **Installing or operating the gateway?** See the [admin guide](admin/README.md).
 - **Design, plan, decisions and diagrams** live in Hangar's
   [`docs/autopilot/`](https://github.com/jfillman/hangar/tree/main/docs/autopilot): the roadmap (M0 to M5), the
   design, 37 one-page diagrams and the decision log.
@@ -16,8 +16,9 @@ commits, held to a tier of tools, a path scope and a budget that can only narrow
 ## What is here
 | Piece | What it is |
 |---|---|
-| Clearance | Policy (CEL), hash-chained audit, tiers, path scope, narrow-only limits, the gateway and MCP surface (its own repo, https://github.com/jfillman/clearance, pinned in `pyproject.toml`); a core that imports nothing from Hangar, plus packs: `clearance.packs.hangar` is the policy for the Glidepath and Airframe tools |
-| Autopilot code | `src/autopilot/`: the Glidepath and Airframe tool backends, the AgentRun manifest, triggers, Preflight, and the builder of the Hangar Gateway |
+| The AI gateway | `src/autopilot/engine/` (moved from clearance v0.26.1 with its history, R-3a, Built): the MCP surface, sessions, the run tree, budgets and requested limits, the tool registry and dispatch, the model proxy, agent definitions and their schema, the runtime catalog, the human inbox, person controls, run results and trigger history. `engine/core.py` is its one seam to Clearance |
+| Clearance | Policy (CEL), path, repo and field scope, the hash-chained evidence and its Postgres store, authentication, the deployment gate, provenance and clearance-api (its own repo, https://github.com/jfillman/clearance, pinned in `pyproject.toml` and called in process until R-3b); a core that imports nothing from Hangar, plus packs: `clearance.packs.hangar` is the policy for the Glidepath and Airframe tools |
+| Autopilot code | `src/autopilot/`: the Glidepath and Airframe tool backends, the AgentRun manifest, triggers, Preflight, and the builder of the Hangar Gateway (`gateway.py`: the engine plus the Hangar pack and backends) |
 | Agent definitions | `agents/`: durable, schema-validated, one per workload shape |
 | Preflight | `preflight/cases/`: cases that score an agent definition before it is promoted |
 | AppSpec planner | Turns one statement of intent into an ordered change set across the tenants, app and gitops repos |
