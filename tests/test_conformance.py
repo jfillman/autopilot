@@ -165,6 +165,8 @@ def _apply(**over):
     (_apply(core={"url": "http://u:p@127.0.0.1:1"}), "without credentials"),
     (_apply(core={"url": "http://127.0.0.1:1", "token": "x"}), "is {url, bearer}"),
     (_apply(change={"app": "a"}), "no change or manifest"),
+    (_apply(manifest={}), "no change or manifest"),
+    (_apply(manifest="kind: Deployment"), "no change or manifest"),
     (_apply(evaluation={"subject": {}, "action": {"name": "session.open"}, "resource": {}, "context": {}}), "tool.call"),
     (b"[1]", "an object"),
     (b"{" + b" " * cf.MAX_BODY + b"}", "over its cap"),

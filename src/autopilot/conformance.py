@@ -121,7 +121,8 @@ def decode_apply(raw: bytes) -> Apply:
     if not isinstance(p, int) or isinstance(p, bool) or not 0 <= p <= 60_000:
         raise BadApply("poll_interval_ms is 0 to 60000")
     ev = a.get("evaluation")
-    if not isinstance(ev, dict) or a.get("change") is not None or a.get("manifest"):
+    # As DecodeApply: manifest is a string, empty (or absent) on a runtime apply; any other value is refused.
+    if not isinstance(ev, dict) or a.get("change") is not None or a.get("manifest") not in (None, ""):
         raise BadApply("a runtime apply carries evaluation (an object) and no change or manifest")
     for k in ("subject", "action", "resource", "context"):
         if not isinstance(ev.get(k), dict):
