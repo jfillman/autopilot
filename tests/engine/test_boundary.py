@@ -1,14 +1,12 @@
-"""The boundary after R-3b: the gateway speaks to Clearance only through the core's API (engine/core.py and the
-generated client), and imports nothing from the `clearance` package. The one exception is the read API
-(`autopilot-gateway api`, api_serve.py), which R-3c moves off it. Hangar's policy is a bundle the core loads
-(policy/hangar/bundle.json, R-5), not a clearance package."""
+"""The boundary after R-3: the gateway speaks to Clearance only through the core's API (engine/core.py and the
+generated client), and nothing here, source, tools or tests, imports the `clearance` package (which left clearance
+in v0.30.0, R-3d). Hangar's policy is a bundle the core loads (policy/hangar/bundle.json, R-5), not a clearance
+package. What the tests compare with clearance v0.26.1 is vendored (tests/fixtures/clearance-v0.26.1-*)."""
 import ast
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "autopilot"
-
-# file -> why it may still import clearance (R-3c, R-5)
-ALLOWED = {"api_serve.py": "the read API, R-3c"}
+ROOT = Path(__file__).resolve().parents[2]
+SRC = ROOT / "src" / "autopilot"
 
 
 def clearance_imports(path: Path) -> list[str]:
@@ -22,10 +20,27 @@ def clearance_imports(path: Path) -> list[str]:
     return out
 
 
-def test_nothing_but_the_read_api_imports_clearance():
-    found = {str(p.relative_to(SRC)): clearance_imports(p) for p in SRC.rglob("*.py")}
-    found = {k: v for k, v in found.items() if v}
-    assert set(found) <= set(ALLOWED), {k: v for k, v in found.items() if k not in ALLOWED}
+def test_nothing_imports_clearance():
+    files = [p for d in ("src", "tools", "tests", "runtime") for p in (ROOT / d).rglob("*.py")
+             if not {".venv", "site-packages", "node_modules"} & set(p.parts)]
+    assert len(files) > 100
+    found = {str(p.relative_to(ROOT)): clearance_imports(p) for p in files}
+    assert {k: v for k, v in found.items() if v} == {}
+
+
+def test_nothing_depends_on_the_clearance_package():
+    """Only the generated client is a dependency (clearance-core-client), in every extra."""
+    import tomllib
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    deps = project["dependencies"] + [d for ds in project.get("optional-dependencies", {}).values() for d in ds]
+    assert not [d for d in deps if d.split("@")[0].split("[")[0].strip() == "clearance"], deps
+    assert any(d.startswith("clearance-core-client @") for d in project["dependencies"])
+
+
+def test_the_import_check_sees_an_import(tmp_path):
+    f = tmp_path / "x.py"
+    f.write_text("import clearance.pg\nfrom clearance import review\nfrom clearance_client import CoreClient\n")
+    assert clearance_imports(f) == ["clearance.pg", "clearance"]
 
 
 def test_the_engine_reaches_the_core_only_through_core_py():

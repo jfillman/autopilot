@@ -10,8 +10,7 @@ requires-python = ">=3.11"
 # The Clearance core decides and records over its HTTP API (src/autopilot/engine/core.py), through the client generated
 # from its contract (clearance clients/python), pinned by the clearance release tag; CI builds the core under test from
 # the same tag (.github/workflows/test.yaml CLEARANCE_REF), so the two move together.
-# The `clearance` package itself is only the read API's (`autopilot-gateway api`, api_serve.py) until R-3c: the `api`
-# extra, which the image installs.
+# Nothing here imports the `clearance` package (it left clearance in v0.30.0; tests/engine/test_boundary.py).
 dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@v0.29.0#subdirectory=clients/python",
                 "jsonschema>=4.20", "pyyaml>=6", "mcp>=2", "pyjwt[crypto]>=2.8", "uvicorn>=0.30",
                 "psycopg[binary]>=3.2"]
@@ -26,10 +25,9 @@ allow-direct-references = true
 [project.optional-dependencies]
 # anthropic: the agent runtime's model client (runtime/, tests/test_runtime_*.py). langgraph: the LangGraph runtime
 # (runtime/langgraph). The Claude Agent SDK runtime's tests use a fake SDK, so the 140 MB SDK is not a test dependency.
-# api: clearance-api (`autopilot-gateway api`, api_serve.py) still runs clearance's read API until R-3c moves it.
-api = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1"]
-# The tests run the read API's tests, and compare the cutover tables with clearance v0.26.1's (clearance pg.py).
-test = ["pytest>=8", "anthropic>=0.40,<3", "langgraph>=1.2,<2", "clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1"]
+# The tests compare the cutover tables and the read API with clearance v0.26.1's from vendored fixtures
+# (tests/fixtures/clearance-v0.26.1-*), not the package.
+test = ["pytest>=8", "anthropic>=0.40,<3", "langgraph>=1.2,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/autopilot"]

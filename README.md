@@ -50,10 +50,11 @@ message}`. The cluster-pinned definition set is published whole to the core (`PU
 each pin again and writes `definition.load`, `.unload` and `.reject` itself; the gateway writes none of them. The
 core registers the gateway with `"definitions": true` in `CLEARANCE_PROVIDERS`.
 
-What still imports the `clearance` package: `api_serve.py` (`autopilot-gateway api`, clearance's read API, until R-3c
-moves it), and `FakeGlidepath.validate_cicd` (a test fake in `backends.py` that borrows clearance's vendored cicd.yaml
-scope, until R-5). `tests/engine/test_boundary.py` fails on any other import. The image installs the package for
-the read API only (the `api` extra).
+**R-3d (Built):** nothing imports the `clearance` package, and it is no dependency: not of the image, not of the
+tests (it left clearance in v0.30.0). The only Clearance dependency is the generated client. What the tests compare
+with clearance v0.26.1 (the tables it created, its read API's operations) is vendored in `tests/fixtures/clearance-v0.26.1-*`.
+`tests/engine/test_boundary.py` fails on any `clearance` import under `src`, `tools`, `tests` or `runtime`, and on a
+`clearance` requirement in `pyproject.toml`.
 
 **R-3c (Built, Unverified live):** the gateway serves its own read API. `autopilot-gateway api` is
 `src/autopilot/read_api.py`, no longer clearance's `api.py`: the nine runtime reads the Go `clearance api` (clearance
@@ -65,7 +66,6 @@ clearance-api's; `/v1/contract` names it (`CLEARANCE_API_URL`). See [Running the
 | Part | Where | What it owns |
 |---|---|---|
 | The Clearance core (a service) | `clearance core` (ghcr.io/jfillman/clearance), called through `clearance-core-client @ git+https://github.com/jfillman/clearance@v0.29.0#subdirectory=clients/python` | the decision (CEL rules, the core's and Hangar's policy bundle, scope, tiers, the narrow-only rule, spawn and open checks, the model decision), the evidence chain and its store, the cluster-pinned definitions the gateway publishes and their `definition.*` records, the deployment gate, PR provenance, definition review and the GitHub App |
-| clearance (the package, `api` extra) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1` | only the vendored Glidepath cicd scope a test fake reads (`backends.FakeGlidepath.validate_cicd`) and `tools/airframe_smoke.py`, until R-5; the read API is the gateway's own (`read_api.py`, R-3c) |
 | The gateway engine | `src/autopilot/engine/` (from clearance v0.26.1; R-3b adds `core.py`, `outbox.py`, `pg.py`, and the copied `auth.py`, `definitions.py`, `scope.py`) | the MCP surface over stdio and streamable HTTP (`server.py`), sessions, the run tree and `Gateway.expire` (`session.py`, `dispatch.py`), budgets and requested limits (`limits.py`), the tool registry and tier vocabulary (`tiers.py`), dispatch to backends (`dispatch.py`, the protocols and fakes in `backends.py`), the model proxy (`modelproxy.py`, streaming in `server.py`), agent definitions and their schema (`profile.py`), the runtime catalog (`runtimes.py`), the human inbox, person controls, run results and trigger history (`inbox.py`, `control.py`, `results.py`, `events.py`), callers' authentication (`auth.py`), the cluster pin set (`definitions.py`), the gateway's own database (`pg.py`) and outbox (`outbox.py`); `core.py` is the core's client |
 | Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, `hangar_tools.py` (the `glidepath.*` and `airframe.*` tool specs: the gateway's registry, which `policy/hangar/bundle.json` governs), and `gateway.py`, which builds the Hangar Gateway: the engine's Gateway + Hangar's tools + a handler per tool + AgentRun as the run backend + the core |
 
