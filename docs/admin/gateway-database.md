@@ -25,7 +25,12 @@ takes advisory lock `apg0` and a second one stops at start.
 An entry is a record (`POST /v1/records`) or an outcome (`POST /v1/decisions/{id}/outcome`), with why it waits:
 `outage` (a T0 read allowed during a core outage, posted as a coverage-unavailable `tool.call`), `core-unavailable`
 (the core could not take it when it was written), `held` (a kind the core does not accept yet) and `refused` (the
-core answered and refused it; kept with the error, never retried). States: `pending`, `done` (with the record's seq),
+core answered and refused it; kept with the error, never retried). Since clearance v0.28.0 the core takes every kind
+the gateway writes (`run.finish`, `session.end`, `trigger.release`, the outage `tool.call` among them), so nothing new
+is `held`; a row an older gateway held is posted by the next drain. The definition set is not in the outbox: the
+gateway publishes it whole to the core (`PUT /v1/definitions`) and makes the publish again on the next poll if the
+core did not take it. At start the gateway deletes pending `held` `definition.*` rows an older gateway left (the
+core writes those records itself and refuses them from a provider). States: `pending`, `done` (with the record's seq),
 `refused`. The expiry sweep posts pending entries oldest first and stops at the first the core cannot take; a new
 record waits behind them.
 

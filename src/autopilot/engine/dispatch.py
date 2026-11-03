@@ -144,6 +144,9 @@ class Gateway:
         self.runtime_images = tuple(runtime_images) + tuple(runtimes_mod.allowed_images(self.runtimes))
         # Cluster-pinned definitions (definitions.py): where the loaded set is kept for the read API and restarts.
         self.definitions_store = definitions_store
+        # Whether the core has the cluster set yet (apply_cluster_definitions): not until the first publish.
+        self._definitions_unpublished = True
+        self._definitions_publish_lock = threading.Lock()
         # Person controls (control.py): the holds on agents' triggers, and the platform admins (principal globs) who
         # may freeze, end, hold and release beside each agent's owner group.
         self.holds, self.admins = holds, tuple(admins)
@@ -333,7 +336,9 @@ class Gateway:
             data = self._spawn(s, child_def, v, args) if spawn else handler(s, args)
         except Denied as e:
             s.record_denial()
-            seq = self.core.outcome(v.decision_id, f"refused {e.rule}: {e.message}"[:4000])
+            # The handler's rule goes on the outcome as its refusal (claimed), beside the decision's own rule.
+            seq = self.core.outcome(v.decision_id, f"refused {e.rule}: {e.message}"[:4000],
+                                    refusal=(e.rule, e.message))
             dd = Verdict(False, e.rule, "refused", e.message, e.hint, int(spec.tier))
             return Result(False, dd.as_dict(), error=e.message, audit_seq=seq or v.seq, session=s.id)
         except Exception as e:  # noqa: BLE001 - never leak backend internals to the agent
@@ -366,7 +371,7 @@ class Gateway:
             s.used["github_calls"] += spec.github_cost
         allowed = Verdict(True, None, None, "allowed during a Clearance outage (GATEWAY_OUTAGE_ALLOW_READS)", "", tier)
         fields = {"task_id": s.task_id, "session": s.id, "parent": s.parent_id, "principal": principal.id,
-                  "agent": s.agent, "tier": tier, "decision": "allow", "target": env_tier_of(spec, args),
+                  "agent": s.agent, "tool": tool, "tier": tier, "decision": "allow", "target": env_tier_of(spec, args),
                   "args_sha256": args_digest(args),
                   "reason": f"the core was unreachable at {iso(now)}; allowed as an unscoped T0 read "
                             "(GATEWAY_OUTAGE_ALLOW_READS)"}
@@ -567,9 +572,11 @@ class Gateway:
         if held is not None:
             raise ctl.ControlError("R024", f"{agent} is held until {iso(held.until)}: {held.reason}", "Release the hold first.", 409)
         # The session is opened by the core's evaluation, as the person (decided like any open; recorded by the core
-        # as session.open). The delegate is not in that record (the evaluation carries no `via`, a needed core change).
+        # as session.open). `run: true` marks a person's run, and `via` the delegate they acted through: the core's
+        # record is clearance v0.26.1's run_agent record (args_sha256 of {"via": ...}, `opened to run[ via X]`).
         now = self.now()
-        req = self._open_request(_subject(person, "user", int(Tier.T1)), agent, {}, now)
+        req = self._open_request(_subject(person, "user", int(Tier.T1)), agent,
+                                 {"run": True, **({"via": via} if via else {})}, now)
         v = self._evaluate_open(req)
         if not v.allow and v.rule in (OUTAGE_RULE, REFUSED_RULE):
             raise ctl.ControlError(v.rule, v.message, v.hint, 503)
@@ -606,37 +613,43 @@ class Gateway:
             "result": result + (f" via {via}" if via else "")})
 
     # -- cluster-pinned definitions (definitions.py) -----------------------------------------------------------
-    def _definition_record(self, tool: str, name: str, source: defn.Source, decision: str, rule: str | None,
-                           result: str) -> int | None:
-        principal = f"pin:{source.namespace}/{source.xr}" if source.kind == "cluster" else "platform"
-        return self.core.record(tool, {
-            "principal": principal, "agent": name, "decision": decision, "rule": rule, "target": source.pin,
-            "args_sha256": args_digest(source.view()), "result": result})
-
     @_durable
     def apply_cluster_definitions(self, loaded: Sequence[defn.Loaded], rejected: Sequence[defn.Rejected] = ()) -> defn.Changes:
         """The loader's hand-off: make `loaded` + `rejected` the cluster set (definitions.Definitions.replace_cluster),
-        record what changed (definition.load for a new or re-pinned definition, definition.unload for a pin that is
-        gone, definition.reject for a pin that did not load, once each), and persist the set for the read API.
-        Nothing is recorded when the poll found the same set. The core takes no definition.* records yet: they are
-        held in the outbox until it does (core.py)."""
+        persist it for the read API, and publish the whole set to the core (Core.publish_definitions, PUT
+        /v1/definitions), which decides each pin again and records what changed (definition.load, .unload,
+        .reject), once each. The gateway writes no definition.* record itself.
+
+        Published after a change, and on the first call whatever it found (the core keeps the set across a gateway
+        restart; a set that emptied while the gateway was down must still reach it). A publish the core did not take
+        is made again on the next call, whole: the set is state, so there is nothing to queue. The publish runs
+        outside the gateway's lock, so a slow core never holds up tool calls."""
         if not isinstance(self.defs, defn.Definitions):
             raise TypeError("cluster definitions need a definitions.Definitions mapping")
         with self.lock:
             ch = self.defs.replace_cluster(list(loaded), list(rejected))
-            if not ch:
-                return ch
-            for n in ch.added:
-                self._definition_record("definition.load", n, ch.sources[n], "allow", None, f"loaded {ch.sources[n].pin}")
-            for n in ch.changed:
-                self._definition_record("definition.load", n, ch.sources[n], "allow", None, f"re-pinned {ch.sources[n].pin}")
-            for n in ch.removed:
-                self._definition_record("definition.unload", n, ch.sources[n], "allow", None, f"pin removed {ch.sources[n].pin}")
-            for r in ch.rejected:
-                self._definition_record("definition.reject", r.name, r.source, "deny", "DF-PIN", r.reason)
-            if self.definitions_store is not None:
+            if ch and self.definitions_store is not None:
                 self.definitions_store.replace(self.defs.records())
-            return ch
+                self.store.flush()   # commit the set before the publish: no transaction stays open across the call
+            if ch:
+                self._definitions_unpublished = True
+        self._publish_definitions()
+        return ch
+
+    def _publish_definitions(self) -> bool:
+        """Publish the current cluster set if the core does not have it yet. One publish at a time, of the set as it
+        is when the publish starts, so a later set is never overwritten by an earlier one."""
+        with self._definitions_publish_lock:
+            if not self._definitions_unpublished:
+                return True
+            with self.lock:
+                version = self.defs.version
+                pins, rejected = self.defs.cluster_set()
+            ok = self.core.publish_definitions(pins, rejected)
+            with self.lock:
+                if ok and self.defs.version == version:
+                    self._definitions_unpublished = False
+            return ok
 
     @_durable
     def freeze_session(self, token: str, session_id: str, reason: Any, on_behalf_of: str | None = None) -> dict[str, Any]:

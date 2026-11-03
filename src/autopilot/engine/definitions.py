@@ -8,7 +8,8 @@ this module decides whether a pin becomes a definition, and keeps the live set.
 
 `Definitions` is the Mapping the Gateway and the read API hold. Bundled names come first and can never be shadowed: a
 pin that reuses a platform agent's name is rejected and listed, not loaded. `replace_cluster` swaps the whole cluster
-set at once and says what changed, so the gateway records `definition.load` / `definition.unload` /
+set at once and says what changed, so the gateway publishes the set to the Clearance core (PUT /v1/definitions) only
+when it changed; the core decides each pin again and records `definition.load` / `definition.unload` /
 `definition.reject` evidence once per change, never once per poll.
 
 Lowering authority is immediate: a running session resolves its definition by name on every call (dispatch.py reads
@@ -185,6 +186,12 @@ class Definitions(Mapping[str, AgentDefinition]):
         if name in self._bundled:
             return Source("bundled")
         return None
+
+    def cluster_set(self) -> tuple[tuple[Loaded, ...], tuple[Rejected, ...]]:
+        """The cluster set as it stands, for the core (Core.publish_definitions): every loaded pin by name, and every
+        rejection (the loader's, plus the ones replace_cluster made: two pins of one name, a bundled name)."""
+        with self._lock:
+            return tuple(sorted(self._cluster.values(), key=lambda l: l.name)), self._rejected
 
     def records(self) -> list[dict[str, Any]]:
         """The cluster set as rows for the store (pg.py PgDefinitions): loaded ones with their document, rejected ones

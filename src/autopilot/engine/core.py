@@ -8,15 +8,23 @@ API (`clearance_client`, generated from contract/clearance-core.json), and nothi
              Verdict: allow or deny with its rule and hint, the spend the gateway applies to the session itself, the
              grant (the session to create) for an open or spawn, and the decision record's seq.
   outcome    POST /v1/decisions/{id}/outcome once an allowed call ran: its result line, effect and receipt.
-  record     POST /v1/records for the gateway's own runtime records (session.open by a person's run, run.launch,
-             run.delete, human.answer, session.freeze, trigger.hold, ...).
+  record     POST /v1/records for the gateway's own runtime records (run.launch, run.delete, run.finish,
+             human.answer, session.freeze, session.end, trigger.hold, trigger.release).
+  publish_definitions
+             PUT /v1/definitions: the whole cluster-pinned definition set (the Agent XR loader's), which the core
+             decides again itself and records once per change (definition.load, .unload, .reject). The gateway
+             writes no definition.* record; the core is their one writer.
 
 The gateway writes no evidence. What it cannot hand the core at once waits in its outbox (outbox.py), in its own
 database, and is posted in order once the core answers again (Core.drain):
   - a record or outcome the core could not take while it was unreachable;
-  - a T0 read allowed during an outage (GATEWAY_OUTAGE_ALLOW_READS), posted as a coverage-unavailable record;
-  - a record of a kind the core does not accept yet (run.finish, session.end, trigger.release, definition.*:
-    `held`), posted once the client (and so the core) lists the kind in RECORD_KINDS.
+  - a T0 read allowed during an outage (GATEWAY_OUTAGE_ALLOW_READS), posted as a coverage-unavailable `tool.call`
+    record naming the tool;
+  - a record of a kind the core does not accept yet (`held`), posted once the client (and so the core) lists the
+    kind in RECORD_KINDS. Since clearance v0.28.0 the core takes every kind the gateway writes, so nothing new is
+    held; the reason stays for a rolling upgrade, and a row held by an older gateway is posted by drain.
+The definition set never waits in the outbox: a publish the core could not take is made again, whole, on the next
+poll (Gateway.apply_cluster_definitions).
 
 Outage policy (decided 2026-11-02, Hangar spec R-3). The client's own settings are the policy's: 250 ms per attempt,
 one retry, a breaker that opens after 5 consecutive failures. An unreachable core (CoreUnavailable) is a deny for
@@ -32,10 +40,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from clearance_client import (RECORD_KINDS, BadResponse, ClearanceClientError, CoreClient, CoreRequestError,
                               CoreUnavailable)
@@ -51,6 +60,14 @@ PROVIDER = "autopilot-gateway"
 OUTAGE_RULE = "CORE-UNAVAILABLE"
 REFUSED_RULE = "CORE-REFUSED"
 OUTAGE_HINT = "Clearance is unreachable, so nothing that needs its decision runs. Retry in a minute."
+
+# A handler refusal's rule as the core takes it on an outcome (`refusal.rule`, internal/server/outcome.go): R004,
+# HR-003, ART-002. A rule outside it is sent without the refusal (the result line still names it).
+REFUSAL_RULE = re.compile(r"[A-Z][A-Z0-9]*(-[A-Z0-9]+)*")
+
+# PUT /v1/definitions carries the whole set (up to 256 pins, 4 MiB), so it gets its own client with a longer
+# timeout than the decision path's 250 ms, and its own breaker: a slow publish never opens the decisions' breaker.
+DEFINITIONS_TIMEOUT = 5.0
 
 
 class AuthError(Exception):
@@ -147,8 +164,11 @@ class Core:
     """The gateway's Clearance core: one client (one breaker, one connection pool), the outbox, the outage switch."""
 
     def __init__(self, client: CoreClient, outbox: Outbox | None = None, *, allow_reads: bool = False,
-                 provider: str = PROVIDER, record_kinds: frozenset[str] | tuple[str, ...] = tuple(RECORD_KINDS)):
+                 provider: str = PROVIDER, record_kinds: frozenset[str] | tuple[str, ...] = tuple(RECORD_KINDS),
+                 definitions_client: CoreClient | None = None):
         self.client, self.outbox = client, outbox if outbox is not None else MemoryOutbox()
+        # The definition set's publish (publish_definitions): its own client when given, else the decisions' one.
+        self.definitions_client = definitions_client if definitions_client is not None else client
         self.allow_reads, self.provider, self.record_kinds = allow_reads, provider, frozenset(record_kinds)
         self._drain_lock = threading.Lock()
 
@@ -170,9 +190,11 @@ class Core:
 
     # -- outcomes and records ---------------------------------------------------------------------------------------
     def outcome(self, decision_id: str | None, result: str, effect: dict[str, Any] | None = None,
-                receipt: dict[str, Any] | None = None) -> int | None:
+                receipt: dict[str, Any] | None = None, *, refusal: tuple[str, str] | None = None) -> int | None:
         """Report an allowed decision's result. Never raises: an outcome the core cannot take now waits in the
-        outbox (the call already ran). The outcome record's seq, or None when it is queued."""
+        outbox (the call already ran). `refusal` is (rule, message) when a handler refused the call after the core
+        allowed it (Denied): the record keeps the decision's rule and adds the handler's as `refusal` (claimed). The
+        outcome record's seq, or None when it is queued."""
         if not decision_id:
             return None
         body: dict[str, Any] = {"result": result}
@@ -180,6 +202,11 @@ class Core:
             body["effect"] = effect
         if receipt:
             body["receipt"] = receipt
+        if refusal is not None:
+            rule, message = refusal
+            if len(rule) <= 64 and REFUSAL_RULE.fullmatch(rule) and message:
+                body["refusal"] = {"rule": rule, "message": message.encode()[:4000].decode(errors="ignore")}
+                body.pop("effect", None)   # a refused call made no write
         return self._send({"op": "outcome", "decision_id": decision_id, "body": body}, required=False)
 
     def record(self, kind: str, fields: Mapping[str, Any], *, required: bool = False) -> int | None:
@@ -192,6 +219,25 @@ class Core:
             log.info("record %s held: the core does not accept this kind yet", kind)
             return None
         return self._send(entry, required=required)
+
+    def publish_definitions(self, loaded: Sequence[Any], rejected: Sequence[Any] = ()) -> bool:
+        """Hand the core the whole cluster-pinned definition set (PUT /v1/definitions): each definitions.Loaded as
+        its source, its XR owner and its document, each definitions.Rejected as its name, source and reason. The
+        core decides every pin again and records what changed. Never raises: False when the core did not take it
+        (unreachable, or it refused), and the caller publishes the whole set again later. Nothing is queued."""
+        pins = [{"source": _pin_source(l.source), "owner": l.definition.owner, "doc": dict(l.doc)} for l in loaded]
+        rej = [{"name": r.name, "source": _pin_source(r.source), "reason": r.reason} for r in rejected]
+        try:
+            res = self.definitions_client.publish_definitions(pins, rej, provider=self.provider)
+        except CoreUnavailable as e:
+            log.warning("clearance core unavailable: the definition set waits for the next poll (%s)", e.reason)
+            return False
+        except ClearanceClientError as e:
+            log.error("clearance core refused the definition set: %s", e)
+            return False
+        log.info("definitions published: +%d ~%d -%d rejected %d cleared %d (the core holds %d)",
+                 len(res.added), len(res.changed), len(res.removed), len(res.rejected), len(res.cleared), res.cluster)
+        return True
 
     def outage_read(self, fields: Mapping[str, Any]) -> None:
         """A T0 read allowed while the core was unreachable: posted once it answers, as coverage-unavailable."""
@@ -263,6 +309,12 @@ class Core:
         return self.client.breaker_state
 
 
+def _pin_source(source: Any) -> dict[str, Any]:
+    """A definitions.Source as PUT /v1/definitions takes it (PinSource, strictly decoded): the view less `kind`
+    (always cluster here) and `pin` (derived)."""
+    return {k: v for k, v in source.view().items() if k not in ("kind", "pin")}
+
+
 def client_from_env(url: str, token_file: str | None, *, timeout: float | None = None) -> CoreClient:
     """The core's client with the outage policy's defaults (the client's own: 250 ms, one retry, breaker at 5)."""
     kw: dict[str, Any] = {"provider": PROVIDER}
@@ -283,5 +335,5 @@ def local_core() -> Core:
                            provider=PROVIDER))
 
 
-__all__ = ["AuthError", "Core", "CoreUnreachable", "Denied", "OUTAGE_RULE", "PROVIDER", "REFUSED_RULE", "Verdict",
+__all__ = ["AuthError", "Core", "CoreUnreachable", "DEFINITIONS_TIMEOUT", "Denied", "OUTAGE_RULE", "PROVIDER", "REFUSED_RULE", "Verdict",
            "args_digest", "canonical", "client_from_env", "iso", "local_core", "outage_verdict", "rfc3339", "sha256_hex"]

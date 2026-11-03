@@ -69,8 +69,8 @@ def test_the_run_finishes_its_session_and_its_answer_is_kept_30_days(g, clock):
     o = s.outcome
     assert o["status"] == "done" and o["turns"] == 2 and o["tool_calls"] == 1 and o["not_ok"] == 0 and o["via"] == "runtime"
     assert o["result"]["bytes"] == len("Python and Go.") and len(o["result"]["sha256"]) == 64
-    assert out["audit_seq"] is None                 # the core takes no run.finish record yet: held in the outbox
-    rec = g.core.held("run.finish")[-1]
+    rec = g.core.at(out["audit_seq"])               # the core's run.finish record (clearance v0.28.0)
+    assert not g.core.held() and rec["session"] == s.id and rec["task_id"] == s.task_id
     assert rec["tool"] == "run.finish" and rec["result"] == "done" and "Python" not in str(rec)
     kept = g.results.get(s.id, clock())
     assert kept["final_text"] == "Python and Go." and kept["tool_calls"] == [{"tool": "catalog.read", "ok": True, "rule": None}]
@@ -123,7 +123,7 @@ def test_a_run_that_ends_without_a_result_is_closed_by_the_sweep(g):
     g.runs.phases[s.run] = "Succeeded"
     g.expire()
     assert s.closed and s.outcome["status"] == "no-result" and s.outcome["run_phase"] == "Succeeded"
-    assert [r["result"] for r in g.core.held("run.finish")] == ["no-result"]
+    assert [r["result"] for r in g.core.records if r["tool"] == "run.finish"] == ["no-result"] and not g.core.held()
 
 
 def test_a_session_past_its_deadline_has_the_outcome_expired(g, clock):

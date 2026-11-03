@@ -74,10 +74,10 @@ def test_the_owner_group_an_admin_or_a_delegate_ends_a_session(g):
         g.end_session("carol", sid, "stop")
     out = g.end_session("tower", sid, "stop it", on_behalf_of="user:bob")
     assert out["closed"] is True
-    # The core takes no session.end record yet (a needed core change): it is held in the outbox.
-    assert out["audit_seq"] is None
-    rec = g.core.held("session.end")[-1]
-    assert rec["tool"] == "session.end" and rec["principal"] == "user:bob" and rec["result"] == f"ended: stop it via {TOWER}"
+    # The core's session.end record (clearance v0.28.0), at once: nothing waits in the outbox.
+    rec = g.core.at(out["audit_seq"])
+    assert not g.core.held()
+    assert rec["tool"] == "session.end" and rec["target"] == sid and rec["principal"] == "user:bob" and rec["result"] == f"ended: stop it via {TOWER}"
     with pytest.raises(ctl.ControlError) as e:
         g.end_session("root", sid, "twice")
     assert e.value.rule == "CT-CLOSED"
@@ -118,7 +118,8 @@ def test_a_hold_stops_triggers_until_it_expires_or_is_released(g, clock):
     assert e.value.rule == "CT-NOHOLD"
     g.hold_triggers("root", "triage-agent", "once more")
     out = g.release_triggers("root", "triage-agent")
-    assert out["released"] is True and out["audit_seq"] is None and g.core.held("trigger.release")[-1]["agent"] == "triage-agent"
+    assert out["released"] is True and g.core.at(out["audit_seq"])["tool"] == "trigger.release"
+    assert g.core.at(out["audit_seq"])["agent"] == "triage-agent" and not g.core.held()
     assert g.open_triggered("triage-agent", "glidepath:e4").ok
 
 

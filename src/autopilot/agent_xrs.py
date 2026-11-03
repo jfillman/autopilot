@@ -5,8 +5,9 @@ in the app's own repository. Every AGENT_XRS_INTERVAL seconds (60) this lists th
 Kubernetes reader (GET /apis/catalog.hangar.io/v1alpha1/agents, cluster-wide: the clearance identity may list every
 catalog.hangar.io kind), fetches each pinned file through the agents' GitHub App (GitHubPRs.read_file: a per-call token
 from Glidepath's broker, which allows an onboarded app's own repositories and nothing else), and hands the documents to
-Gateway.apply_cluster_definitions, which decides (definitions.from_pin), records each change once as evidence and
-persists the set for clearance-api.
+Gateway.apply_cluster_definitions, which decides (definitions.from_pin), persists the set for the read API, and
+publishes it to the Clearance core (PUT /v1/definitions), which decides each pin again and records each change once
+as evidence.
 
 What is fetched when: a pin names a commit, so a file is fetched once per (repo, path, commit) and kept; a poll that
 finds the same pins makes no GitHub call. On start the cache is seeded from the gateway's store (the rows the last

@@ -40,7 +40,7 @@ from typing import Any, Callable, Mapping
 from .engine import profile
 from .engine.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
                           RoutingAuthenticator, WorkloadAuthenticator)
-from .engine.core import Core, client_from_env
+from .engine.core import DEFINITIONS_TIMEOUT, Core, client_from_env
 from .engine.definitions import Definitions, MemoryDefinitions
 from .engine.outbox import MemoryOutbox
 from .engine.backends import Handler
@@ -410,8 +410,11 @@ class SerializedGateway(Gateway):
 
 
 def build_core(cfg: Config, outbox) -> Core:
-    """The core's client with the outage policy's defaults, the outbox, and the outage switch."""
-    return Core(client_from_env(cfg.core_url, str(cfg.core_token_file)), outbox, allow_reads=cfg.outage_allow_reads)
+    """The core's client with the outage policy's defaults, the outbox, and the outage switch; and a second client
+    for the definition set's publish (PUT /v1/definitions, DEFINITIONS_TIMEOUT), so its longer deadline and its
+    breaker are its own."""
+    return Core(client_from_env(cfg.core_url, str(cfg.core_token_file)), outbox, allow_reads=cfg.outage_allow_reads,
+                definitions_client=client_from_env(cfg.core_url, str(cfg.core_token_file), timeout=DEFINITIONS_TIMEOUT))
 
 
 def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authenticator | None = None,
