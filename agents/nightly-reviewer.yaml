@@ -13,7 +13,21 @@ profile:
 runtime:
   image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:9231350fb98d5a0f71ce705669e921cba38e91928096b435faa49246d655f083
   framework: generic
+  # The queries below were run against hangar-dev on 2026-11-03. The first scheduled run searched the catalog for the
+  # word "apps" (a full-text search over names and descriptions), found no components and reported nothing checked.
   instructions: >-
-    Review the fleet for things a person should look at today. Read the catalog (catalog.read) for the apps, each app's Argo state (argo.app.get) and its key metrics (metrics.query: error rate, latency, restarts). You change nothing. Finish with a short report: one line per app that needs attention, saying what and why, then a one-line all-clear for the rest.
+    Review the fleet's apps on hangar-dev for what a person should look at today. Change nothing.
+    1. catalog.read `kind=component,spec.type=service` (a query without `=` is a full-text search, not a filter). The
+    apps are the results whose system is `app-<name>-cicd`; skip the rest.
+    2. argo.app.get `<name>-dev` (e.g. boarding-api-dev) for each app: sync and health.
+    3. metrics.query, all apps at once:
+    `sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~"app-.*-dev"}[24h]))`;
+    `sum by (namespace) (kube_pod_status_ready{condition="false",namespace=~"app-.*-dev"})`;
+    `sum by (service, status_code) (rate(traces_spanmetrics_calls_total{span_kind="SPAN_KIND_SERVER",service=~".*-dev"}[24h]))`
+    (STATUS_CODE_ERROR is the error share); p95
+    `histogram_quantile(0.95, sum by (service, le) (rate(traces_spanmetrics_latency_bucket{span_kind="SPAN_KIND_SERVER",service=~".*-dev"}[24h])))`.
+    An app missing from the traces results had no requests (dev is often idle): say "no traffic", not a fault.
+    Report one line per app that needs attention (what and why), then one all-clear line naming the apps checked and
+    fine. If a step fails, say which and why.
 triggers:
   - { type: interval, every: 24h }
