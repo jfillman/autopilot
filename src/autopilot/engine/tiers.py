@@ -41,7 +41,12 @@ class ToolSpec:
 
 
 _TOOLS = [
-    ToolSpec("catalog.read", Tier.T0, "Search the Backstage catalog", ("query",)),
+    # A model given only "Search the Backstage catalog" searched for the word "apps" and found no components (autopilot
+    # nightly-reviewer, 2026-11-03): the description says which form filters.
+    ToolSpec("catalog.read", Tier.T0, "Search the Backstage catalog. `query` with `=` is a Backstage filter, "
+             "comma-separated fields that must all match (kind=component,spec.type=service; "
+             "kind=component,spec.owner=group:default/<team>; kind=system); without `=` it is a full-text search of "
+             "entity names, titles and descriptions. Apps and services are kind=component", ("query",)),
     ToolSpec("metrics.query", Tier.T0, "Run a read-only PromQL query", ("promql",)),
     ToolSpec("logs.query", Tier.T0, "Run a read-only LogQL query", ("logql",)),
     ToolSpec("argo.app.get", Tier.T0, "Read an ArgoCD application", ("app",)),
