@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from starlette.testclient import TestClient
 
-from clearance import api
+from autopilot import read_api as api
 from autopilot.engine import control as ctl
 from autopilot.engine import inbox as hr
 from coreenv import tap_core

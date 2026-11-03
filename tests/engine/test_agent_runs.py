@@ -82,7 +82,7 @@ def test_a_placeholder_digest_is_refused_and_no_image_means_client():
 
 
 def test_the_read_api_and_mcp_say_what_each_agent_is_for(g):
-    from clearance.api import _definition_view
+    from autopilot.read_api import _definition_view
     v = _definition_view(g.defs["researcher"], full=False)
     assert v["description"].startswith("Investigates") and v["runsIn"] == "cluster"
     listed = {a["name"]: a for a in g.agents_for("sam")}

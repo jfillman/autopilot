@@ -1,5 +1,5 @@
-"""`autopilot-gateway api`: clearance-api built from the gateway's environment, with Tower's catalog as the
-Directory and Ownership."""
+"""`autopilot-gateway api`: the gateway's read API (read_api.py) built from the gateway's environment, with Tower's
+catalog as the Directory and Ownership."""
 import json
 
 import pytest
@@ -12,25 +12,43 @@ EPH = {"AIRFRAME_ENABLED": "0"}
 
 
 def test_needs_its_own_dsn():
-    with pytest.raises(serve.ConfigError, match="CLEARANCE_API_DSN"):
+    with pytest.raises(serve.ConfigError, match="GATEWAY_API_DSN"):
         api_serve.build(EPH)
+    for bad, msg in (({"GATEWAY_API_TABLES": "evidence"}, "GATEWAY_API_TABLES"), ({"GATEWAY_API_POOL": "x"}, "numbers"),
+                     ({"GATEWAY_API_POOL": "99"}, "1 to 50")):
+        with pytest.raises(serve.ConfigError, match=msg):
+            api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway", **bad})
 
 
 def test_builds_with_roles_and_catalog(tmp_path):
     tok = tmp_path / "t"
     tok.write_text("x")
-    cfg, access, app = api_serve.build({**EPH, "CLEARANCE_API_DSN": "postgresql://r@pg/clearance",
-                                        "CLEARANCE_API_AUDITORS": "user:jfillman", "CLEARANCE_API_NOTIFIERS": "hangar-prod/*/backstage-ingestor",
+    cfg, access, app = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/clearance",
+                                        "GATEWAY_API_AUDITORS": "user:jfillman", "GATEWAY_API_NOTIFIERS": "hangar-prod/*/backstage-ingestor",
                                         "CLEARANCE_DELEGATES": "hangar-prod/app-backstage-prod/backstage-ingestor",
                                         "BACKSTAGE_URL": "http://bs", "BACKSTAGE_TOKEN_FILE": str(tok),
-                                        "CLEARANCE_GATEWAY_URL": "http://clearance.hangar-dev.local"})
+                                        "CLEARANCE_GATEWAY_URL": "http://clearance.hangar-dev.local",
+                                        "CLEARANCE_API_URL": "http://clearance-api.hangar-dev.local"})
     assert access.auditors == ("user:jfillman",) and access.notifiers == ("hangar-prod/*/backstage-ingestor",)
     assert isinstance(access.directory, BackstageDirectory) and isinstance(access.ownership, BackstageOwnership)
     assert all(getattr(d, "owner", None) for d in access.definitions.values()), "every Hangar agent names its team"
     with TestClient(app) as c:
         assert c.get("/healthz").json() == {"ok": True}
-        assert c.get("/v1/contract").json()["gateway"] == "http://clearance.hangar-dev.local"
+        contract = c.get("/v1/contract").json()
+        assert contract["api"] == "autopilot-api" and contract["gateway"] == "http://clearance.hangar-dev.local"
+        assert contract["clearance"] == "http://clearance-api.hangar-dev.local", "Clearance's reads are named"
         assert c.get("/v1/sessions").status_code == 401
+        assert c.get("/v1/evidence").status_code == 404, "evidence is clearance-api's"
+
+
+def test_the_pre_r3c_names_still_configure_it():
+    """The Deployment's CLEARANCE_API_* names work until the cutover renames them (GATEWAY_API_* wins when both are set)."""
+    _, access, _ = api_serve.build({**EPH, "CLEARANCE_API_DSN": "postgresql://r@pg/clearance",
+                                    "CLEARANCE_API_AUDITORS": "user:old", "CLEARANCE_API_NOTIFIERS": "ns/old"})
+    assert access.auditors == ("user:old",) and access.notifiers == ("ns/old",)
+    _, access, _ = api_serve.build({**EPH, "CLEARANCE_API_DSN": "postgresql://r@pg/clearance",
+                                    "CLEARANCE_API_AUDITORS": "user:old", "GATEWAY_API_AUDITORS": "user:new"})
+    assert access.auditors == ("user:new",)
 
 
 def test_ownership_is_the_components_you_or_your_teams_own(tmp_path):
