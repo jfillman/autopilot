@@ -43,8 +43,8 @@ def _clearance_source(mod: str) -> str:
 
 
 class _NoImports(ast.NodeTransformer):
-    """Drops every import (they differ by design: relative in clearance, the engine's own or the seam's here) and
-    the named top-level classes."""
+    """Drops every import (they differ by design: relative in clearance, the engine's own or the seam's here), the
+    named top-level classes, and docstrings (the copies must behave alike; their prose may be corrected here)."""
 
     def __init__(self, drop: tuple[str, ...] = ()):
         self.drop = drop
@@ -55,7 +55,23 @@ class _NoImports(ast.NodeTransformer):
     visit_ImportFrom = visit_Import
 
     def visit_ClassDef(self, node):
-        return None if node.name in self.drop else self.generic_visit(node)
+        return None if node.name in self.drop else self.generic_visit(self._undoc(node))
+
+    def visit_FunctionDef(self, node):
+        return self.generic_visit(self._undoc(node))
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Module(self, node):
+        return self.generic_visit(self._undoc(node))
+
+    @staticmethod
+    def _undoc(node):
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+        return node
 
 
 def _normal(src: str, drop: tuple[str, ...] = ()) -> str:

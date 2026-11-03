@@ -1,10 +1,12 @@
 """MCP surface for the gateway core (mcp SDK v2, `MCPServer`).
 
-Deliberately thin: three tools, all delegating to Gateway, which owns every decision.
+Deliberately thin: five tools, all delegating to Gateway, which owns every decision.
   tools_list    what this deployment offers (the registry its Gateway was built with: core plus
                 its packs), with tiers and required arguments
+  agents_list   the agent definitions: what each is for and where it runs
   session_open  open a session for an agent definition, optionally narrowing it with requested limits
   call          call one tool inside a session
+  run_finish    an in-cluster run hands back its result as it exits and closes its session
 
 Authentication is a token provider. In stdio development it reads CLEARANCE_TOKEN. Over HTTP
 (create_http_app) the caller's bearer token is verified before any tool runs, by the gateway's own
