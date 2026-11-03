@@ -56,10 +56,11 @@ def backends():
 
 
 # -- the Clearance core under test --------------------------------------------------------------------------------
-# Every gateway in these tests asks a real Clearance core: `clearance autopilot-testcore` (tests/clearance_core), the
-# core `clearance core --memory --insecure-dev-auth` runs plus a records read and no clock-skew check, built from a
-# clearance checkout. CLEARANCE_CORE_BIN names a built binary; else CLEARANCE_SRC (or $HANGAR_TECH/clearance, or
-# ../clearance) is a checkout to build it from. CI checks clearance out at the SHA pyproject.toml pins.
+# Every gateway in these tests asks a real Clearance core: the unmodified `clearance` binary, run as `clearance core
+# --memory --insecure-dev-auth --max-clock-skew 0` (tests/clearance_core/coreenv.py), which serves the chain it
+# wrote at GET /v1/dev/records. CLEARANCE_CORE_BIN names a built binary; else CLEARANCE_SRC (or
+# $HANGAR_TECH/clearance, or ../clearance) is a checkout to `go build ./cmd/clearance` from. CI checks clearance out
+# at the ref pyproject.toml pins the client by, so the core under test is the core the client was generated from.
 
 def _core_binary(tmp: Path) -> Path:
     if os.environ.get("CLEARANCE_CORE_BIN"):
@@ -68,8 +69,10 @@ def _core_binary(tmp: Path) -> Path:
                  os.path.join(os.environ["HANGAR_TECH"], "clearance") if os.environ.get("HANGAR_TECH") else None,
                  str(ROOT.parent / "clearance")):
         if cand and (Path(cand) / "cmd" / "clearance").is_dir():
-            from build import build
-            return build(Path(cand), tmp / "clearance")
+            out = tmp / "clearance"
+            subprocess.run(["go", "build", "-trimpath", "-o", str(out), "./cmd/clearance"], cwd=cand, check=True,
+                           env={**os.environ, "CGO_ENABLED": "0"})
+            return out
     pytest.exit("no Clearance core to test against: set CLEARANCE_CORE_BIN, or CLEARANCE_SRC to a clearance checkout",
                 returncode=4)
 

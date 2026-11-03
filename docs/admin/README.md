@@ -21,7 +21,11 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
 - **The Clearance core.** `CLEARANCE_CORE_URL` (required), and a projected service-account token at
   `CLEARANCE_CORE_TOKEN_FILE` (default `/var/run/secrets/tokens/clearance-core`) whose audience is the core's
   `CLEARANCE_AUDIENCE` (default `clearance`). The core registers the gateway's identity as provider
-  `autopilot-gateway` in `CLEARANCE_PROVIDERS`. A NetworkPolicy must let the gateway reach the core, and nothing but
+  `autopilot-gateway` in `CLEARANCE_PROVIDERS`, with `"definitions": true` (clearance v0.28.0): the gateway publishes
+  its cluster-pinned definitions to the core (`PUT /v1/definitions`), which records each change, and a provider
+  without it is refused. For example
+  `[{"name": "autopilot-gateway", "version": "<gateway tag>", "principals": ["autopilot-system/clearance"],
+  "definitions": true}]`. A NetworkPolicy must let the gateway reach the core, and nothing but
   the core and clearance-api reach clearance-pg.
 - **Outage policy.** When the core is unreachable the gateway denies every T1-and-above call, session open, spawn
   and model call (rule `CORE-UNAVAILABLE`); T0 reads too, unless `GATEWAY_OUTAGE_ALLOW_READS=true`, which lets
@@ -47,7 +51,7 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   waits in the outbox once the core answers.
 - **Local run:** `CLEARANCE_EPHEMERAL=1` (in-memory store, nothing kept) and a core, e.g.
   `clearance core --memory --insecure-dev-auth` with `CLEARANCE_PACKS=hangar` and `CLEARANCE_PROVIDERS` naming the
-  gateway; tool calls that need the cluster fail as backend errors.
+  gateway (with `"definitions": true`); tool calls that need the cluster fail as backend errors.
 
 ## The read API
 Status: **Built** (R-3c), not deployed. `autopilot-gateway api` (`src/autopilot/read_api.py`, `api_serve.py`) is the

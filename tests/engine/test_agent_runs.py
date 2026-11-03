@@ -13,6 +13,7 @@ from clearance import review
 from autopilot.engine import profile
 from coreenv import tap_core
 from autopilot.engine.backends import FakeRunBackend
+from autopilot.engine.core import args_digest
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from autopilot.hangar_tools import HANGAR
 from autopilot.engine.server import create_http_app
@@ -98,6 +99,18 @@ def test_an_admin_runs_a_task_agent_through_the_delegate(g, backends):
     tools = [r["tool"] for r in g.core.records]
     assert tools[-2:] == ["session.open", "run.launch"]
     assert g.runs.inputs[-1] == {"prompt": "why is gate-api slow?", "started_by": "user:root"}
+    # The core's session.open record is clearance v0.26.1's run_agent record: the delegate in args and result.
+    opened = g.core.records[-2]
+    assert (opened["principal"], opened["session"], opened["decision"]) == ("user:root", s.id, "allow")
+    assert opened["args_sha256"] == args_digest({"via": TOWER}) and opened["result"] == f"opened to run via {TOWER}"
+
+
+def test_a_person_runs_with_their_own_token_and_the_record_says_so(g):
+    out = g.run_agent("root", "researcher", "look")
+    assert out["via"] is None
+    opened = g.core.records[-2]
+    assert opened["tool"] == "session.open" and opened["session"] == out["session"]
+    assert opened["args_sha256"] == args_digest({"via": None}) and opened["result"] == "opened to run"
 
 
 def test_an_agent_without_instructions_needs_an_input(g):

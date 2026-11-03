@@ -571,8 +571,12 @@ def test_cicd_propose_refuses_what_glidepath_api_refuses(gw, backends):
                                                           "patch": {"governance": {"sast": False}}, "title": "Turn SAST off"})
     assert not r.ok and r.decision["rule"] == "GP-SCOPE-002" and "never the other way" in r.decision["hint"]
     assert backends.git.calls == [], "no PR for a refused change"
-    # The core allowed the call; the handler refused it: the outcome names the rule.
-    assert gw.core.records[-1]["result"].startswith("refused GP-SCOPE-002")
+    # The core allowed the call; the handler refused it: the outcome names the rule, and carries it as its refusal
+    # (claimed) beside the decision's own (clearance v0.28.0).
+    last = gw.core.records[-1]
+    assert last["result"].startswith("refused GP-SCOPE-002") and last["decision"] == "allow" and "effect" not in last
+    assert last["refusal"]["rule"] == "GP-SCOPE-002"
+    assert last["refusal"]["message"] == r.decision["message"]
 
 
 def test_cicd_propose_needs_the_apps_own_repo_and_a_real_change(gw, backends):

@@ -5,7 +5,7 @@ env:
   # contractsrv serves it as glidepath-api's GET /v1/contract).
   GLIDEPATH_REF: main
   # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
-  # (clearance-core-client @ ...@<tag>). Bump the two together.
+  # (clearance-core-client @ ...@<tag or full commit SHA>). Bump the two together.
   CLEARANCE_REF: v0.29.0
 jobs:
   pytest:
@@ -32,7 +32,8 @@ jobs:
           repository: jfillman/glidepath
           ref: ${{ env.GLIDEPATH_REF }}
           path: tech/glidepath
-      # The Clearance core at the pinned release: the test core is built from it (tests/clearance_core/build.py).
+      # The Clearance core at the pinned release: the test core is a plain `go build ./cmd/clearance` of it
+      # (tests/conftest.py), run as `clearance core --memory --insecure-dev-auth --max-clock-skew 0`.
       - uses: actions/checkout@v4
         with:
           repository: jfillman/clearance
@@ -46,18 +47,21 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e ".[test]"
-      # The released core image, unmodified (tests/test_core_container.py).
+      # The released core image, unmodified (tests/test_core_container.py). A commit pin has no released image
+      # yet: the image is built from the same checkout with the release's Dockerfile.
       - name: Start the core container
         run: |
           # Hangar's policy bundle and its glidepath source (a file here; the suite's test core reads it over HTTP),
           # and the names Hangar passes the core (policy/hangar/core-env.json).
+          IMG=ghcr.io/jfillman/clearance:${CLEARANCE_REF}
+          docker pull "$IMG" || docker build -t "$IMG" tech/clearance
           python -c 'import json; [print(f"{k}={v}") for k, v in json.load(open("policy/hangar/core-env.json")).items() if not k.startswith("$")]' > "$RUNNER_TEMP/core.env"
           docker run -d --name clearance-core -p 8089:8080 --env-file "$RUNNER_TEMP/core.env" \
             -v "$PWD/policy/hangar:/etc/clearance/bundles/hangar:ro" -v "$PWD/tech/glidepath/contract:/etc/clearance/sources/glidepath:ro" \
             -e CLEARANCE_BUNDLES=/etc/clearance/bundles/hangar/bundle.json \
             -e 'CLEARANCE_BUNDLE_SOURCES={"glidepath":{"file":"/etc/clearance/sources/glidepath/glidepath-contract.json"}}' \
-            -e 'CLEARANCE_PROVIDERS=[{"name":"autopilot-gateway","version":"ci","principals":["autopilot-system/autopilot-gateway"]}]' \
-            ghcr.io/jfillman/clearance:${CLEARANCE_REF} core --memory --insecure-dev-auth
+            -e 'CLEARANCE_PROVIDERS=[{"name":"autopilot-gateway","version":"ci","principals":["autopilot-system/autopilot-gateway"],"definitions":true}]' \
+            "$IMG" core --memory --insecure-dev-auth
           for i in $(seq 30); do curl -sf http://127.0.0.1:8089/readyz && break; sleep 1; done
       - run: pytest -q
         env:
