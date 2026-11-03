@@ -8,8 +8,8 @@ from autopilot import serve
 from autopilot.backends import Backends, FakeRuns
 from autopilot.event_bridge import EventBridge, sse_events, summarize
 from autopilot.gateway import AgentRunBackend
-from clearance.dispatch import Principal
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import Principal
+from autopilot.engine.tiers import Tier
 
 EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0"}
 
@@ -141,7 +141,7 @@ def test_every_event_is_kept_as_history_with_what_was_done(gw, clock):
 def test_a_held_agent_is_not_started_and_the_event_says_so(gw, clock):
     """clearance control.py: a person's hold on the agent's triggers (R024) shows as the outcome `held`."""
     from datetime import timedelta
-    from clearance.control import Hold
+    from autopilot.engine.control import Hold
     g, runs = gw
     g.holds.put(Hold(agent="triage-agent", by="user:root", via=None, reason="it opens bad PRs", since=clock(), until=clock() + timedelta(hours=1)))
     done = EventBridge(g, "http://gp", "/dev/null", clock=clock).handle(failed(eid="held-1"))

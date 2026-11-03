@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from clearance.profile import AgentDefinition
+from .engine.profile import AgentDefinition
 
 _INTERVAL = re.compile(r"^(\d+)([mh])$")
 

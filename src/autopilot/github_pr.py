@@ -31,7 +31,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from clearance.dispatch import Denied
+from .engine.dispatch import Denied
 
 GITHUB_API = "https://api.github.com"
 BROKER_URL = "http://cdevents-broker-auth.platform-system.svc:8080"

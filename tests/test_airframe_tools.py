@@ -21,10 +21,10 @@ from autopilot import airframe_tools as at
 from autopilot.airframe_api import AirframeError, KubeReader, PathRefused, path_allowed
 from autopilot.backends import Backends, FakeArtifacts, FakeArgo, FakeGit, FakeHuman, FakeRead, FakeRuns
 from autopilot.gateway import TOOLS, hangar_gateway
-from clearance.dispatch import Denied
+from autopilot.engine.dispatch import Denied
 from clearance.packs import hangar
-from clearance.server import create_server
-from clearance.tiers import Tier
+from autopilot.engine.server import create_server
+from autopilot.engine.tiers import Tier
 
 ROOT = Path(__file__).resolve().parents[1]
 # CI clones airframe under HANGAR_TECH (.github/workflows/test.yaml); locally it is ~/tech.
@@ -590,8 +590,8 @@ def test_an_agent_reads_an_environment_using_only_mcp(defs, clock, token):
     try:
         from conftest import StaticAuth
         from clearance.audit import AuditLog
-        from clearance.dispatch import Principal
-        from clearance.session import SessionStore
+        from autopilot.engine.dispatch import Principal
+        from autopilot.engine.session import SessionStore
         reader = KubeReader(f"http://127.0.0.1:{srv.server_address[1]}", token)
         tools = at.AirframeTools(reader, at.FakeValidator(), REG, cluster="hangar-dev")
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), None, tools)

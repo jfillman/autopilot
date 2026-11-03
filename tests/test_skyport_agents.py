@@ -8,12 +8,12 @@ import pytest
 from autopilot import triggers
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
-from clearance import profile
+from autopilot.engine import profile
 from clearance.audit import verify
-from clearance.dispatch import Principal
+from autopilot.engine.dispatch import Principal
 from clearance.audit import AuditLog
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 
 from conftest import T0, Clock, StaticAuth
 
@@ -230,7 +230,7 @@ def test_a_run_stores_its_output_under_its_own_task_and_its_team_can_read_it(sgw
 def test_an_oversized_artifact_is_denied_and_never_stored(sgw):
     gw, b, _ = sgw
     sid = gw.open_triggered("delay-digest", "cron").data["session"]
-    from clearance.dispatch import Principal
+    from autopilot.engine.dispatch import Principal
     gw.auth.table["delay"] = Principal("autopilot-runs/delay-digest", "workload", Tier.T1)
     big = gw.call("delay", sid, "artifact.put", {"name": "x", "content": "a" * (1024 * 1024 + 1)})
     assert not big.ok and big.decision["rule"] == "R019" and b.artifacts.store == {}

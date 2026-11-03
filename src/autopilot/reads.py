@@ -30,7 +30,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from clearance.dispatch import Denied
+from .engine.dispatch import Denied
 
 from .airframe_api import KubeReader, argo_path
 

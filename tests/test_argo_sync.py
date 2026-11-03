@@ -5,7 +5,7 @@ import json
 import pytest
 
 from autopilot.argo_sync import ArgoSync, ArgoSyncError
-from clearance.dispatch import Denied
+from autopilot.engine.dispatch import Denied
 
 PATH = "/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications/gate-api-dev"
 WHO = {"agent": "coding-agent", "task": "t-1", "session": "s-1", "principal": "user:jfillman"}

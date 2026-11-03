@@ -15,12 +15,12 @@ from starlette.testclient import TestClient
 
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
-from clearance import profile
+from autopilot.engine import profile
 from clearance.audit import AuditLog
-from clearance.dispatch import AuthError, Principal
-from clearance.server import create_http_app
-from clearance.session import SessionStore
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import AuthError, Principal
+from autopilot.engine.server import create_http_app
+from autopilot.engine.session import SessionStore
+from autopilot.engine.tiers import Tier
 from conftest import ROOT
 from hangar_agent import main as runtime_main
 from hangar_agent.clearance import Clearance, ClearanceError
@@ -257,7 +257,7 @@ def test_main_runs_a_session_to_done_and_leaves_no_token_behind(served, proxy, t
                             stop="tool_use")),
               (200, message([{"type": "text", "text": "flight-api is in the catalog; I may not open PRs."}])))
     out = tmp_path / "output"
-    from clearance.results import MemoryResults
+    from autopilot.engine.results import MemoryResults
     served.results = MemoryResults()
     served.store.get(served.sid).run = "r-1"          # an in-cluster run's session, which run_finish closes
     code = runtime_main.main(pod_env(served, tokens, out, p.url))

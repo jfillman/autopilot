@@ -1,0 +1,18 @@
+name: coding-agent
+description: "Makes a change in an app's repository and opens it as a pull request for a person to merge."
+kind: task
+identity: { type: delegated }
+profile:
+  tierCeiling: T1
+  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.pr.open, xr.request, argo.sync.lower, glidepath.run.rerun, glidepath.run.cancel, run.spawn, run.close, human.request, repo.pr.open_upper]
+  repos: { allow: ["jfillman/*"] }
+  glidepath: { apps: ["*"] }
+  models: [claude-sonnet-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 30, toolCalls: 200, githubCalls: 300, openPrs: 3, modelTokens: 500000, children: 2 }
+runtime:
+  image: ghcr.io/jfillman/agent-coding@sha256:e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3
+  framework: claude-agent-sdk
+  sandbox: standard
+triggers: [ { type: manual } ]

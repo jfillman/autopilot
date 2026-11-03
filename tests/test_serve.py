@@ -13,8 +13,8 @@ from autopilot.glidepath_api import GlidepathAPI
 from autopilot.kube_runs import KubeAgentRuns
 from autopilot.reads import KubeArgo
 from clearance.auth import CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
-from clearance.dispatch import Principal
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import Principal
+from autopilot.engine.tiers import Tier
 
 EPH = {"CLEARANCE_EPHEMERAL": "1"}
 CORE_WITHOUT_BACKEND = ["catalog.read", "metrics.query", "logs.query", "app.api.get", "argo.app.get",

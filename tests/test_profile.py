@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from clearance import profile
-from clearance.limits import Network
-from clearance.tiers import Tier
+from autopilot.engine import profile
+from autopilot.engine.limits import Network
+from autopilot.engine.tiers import Tier
 
 ROOT = Path(__file__).resolve().parents[1]
 

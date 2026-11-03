@@ -5,8 +5,8 @@ import copy
 import pytest
 import yaml
 from clearance import definitions as defn
-from clearance.dispatch import Denied, Principal
-from clearance.tiers import Tier
+from autopilot.engine.dispatch import Denied, Principal
+from autopilot.engine.tiers import Tier
 
 from autopilot import serve
 from autopilot.agent_xrs import AGENTS_PATH, AgentXRs, DefinitionsRefresher

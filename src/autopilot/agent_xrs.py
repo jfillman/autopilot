@@ -24,7 +24,7 @@ from typing import Any, Callable
 
 import yaml
 from clearance import definitions as defn
-from clearance.dispatch import Denied
+from .engine.dispatch import Denied
 
 from .airframe_api import AirframeError, KubeReader
 from .github_pr import GitHubError, GitHubPRs

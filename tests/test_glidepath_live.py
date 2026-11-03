@@ -9,7 +9,7 @@ import pytest
 
 from autopilot import glidepath_live
 from autopilot.glidepath_api import LOG_TAIL, GlidepathAPI
-from clearance.dispatch import Denied
+from autopilot.engine.dispatch import Denied
 
 RUN = "gate-api-ci-0-build-abcde"
 

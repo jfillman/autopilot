@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from clearance.audit import iso
-from clearance.profile import AgentDefinition
-from clearance.session import Session
+from .engine.profile import AgentDefinition
+from .engine.session import Session
 
 RUN_NAMESPACE = "autopilot-runs"
 # The ServiceAccount a run pod runs as, in its namespace agent-<run> (function-agentrun RUN_SERVICE_ACCOUNT).
