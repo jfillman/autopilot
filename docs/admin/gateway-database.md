@@ -1,6 +1,7 @@
 # The gateway's database
 
-**Status: Built, not deployed** (R-3b). R-4 creates the database and runs the copy on hangar-dev.
+**Status: Live on hangar-dev** since the R-4 cutover (2026-11-03): gateway-v0.4.0 writes this database and calls
+clearance v0.29.0's core; autopilot-api serves the runtime reads from it (`GATEWAY_API_DSN`, `gateway_*` only).
 
 The gateway keeps runtime state, not evidence, in a Postgres database of its own (`GATEWAY_DSN`). The evidence chain,
 the deployment gate's changes and the core's definitions stay in clearance-pg, which only the Clearance core (the one
@@ -41,6 +42,10 @@ SELECT id, op, kind, reason, state, created_at, error FROM gateway_outbox WHERE 
 ```
 
 ## The cutover copy (R-4)
+
+**Used once**, at the hangar-dev cutover on 2026-11-03: it copied 24 sessions, 2 human requests, 145 events, 2 results
+and 1 definition. Kept as the record of the move; the steps below are what was run. The read API no longer reads the
+`clearance_*` runtime tables (its `GATEWAY_API_TABLES=clearance` option is retired), so they can be dropped.
 
 `tools/cutover/copy_runtime_tables.py` copies the seven runtime tables from clearance-pg into the gateway's database,
 row for row: `clearance_<name>` to `gateway_<name>`. It deletes and changes nothing in clearance-pg.

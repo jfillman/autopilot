@@ -1,7 +1,7 @@
 # Autopilot: user guide
 
-For people who **define and run agents**. Autopilot runs on hangar-dev (the gateway image gateway-v0.3.27 with
-Clearance v0.26.1, as of 2026-11-02); Hangar's portal on hangar-prod shows it (the Autopilot and Clearance pages,
+For people who **define and run agents**. Autopilot runs on hangar-dev (the gateway image gateway-v0.4.0 calling
+clearance v0.29.0's core, as of 2026-11-03); Hangar's portal on hangar-prod shows it (the Autopilot and Clearance pages,
 and Tower's Agent tab per app). Hangar's `docs/autopilot/roadmap.md` has the
 plan.
 
