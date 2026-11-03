@@ -1,9 +1,9 @@
 """Hangar's tools: the glidepath.* and airframe.* tool specs (names, tiers, arguments) the Hangar gateway registers.
 
-Copied from clearance.packs.hangar at v0.26.1 (R-3b): the tool registry is the gateway's (Hangar's boundary rule,
-2026-11-02), and the policy over these tools (R021 to R023) is the core's Hangar pack (CLEARANCE_PACKS=hangar),
-whose bundle names the same tools with the same tiers. tests/test_core_registry.py checks the two agree against the
-core this autopilot pins.
+The tool registry is the gateway's (Hangar's boundary rule, 2026-11-02). The policy over these tools (R021 to R023 and
+their argument checks) is Hangar's policy bundle, policy/hangar/bundle.json, which the Clearance core loads from
+configuration (R-5); it names the same tools with the same tiers and arguments, and tests/test_hangar_bundle.py checks
+the two agree.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Fixtures for the gateway engine's tests (moved from clearance v0.26.1): the core gateway with the Hangar pack's policy, core handlers over
+"""Fixtures for the gateway engine's tests (moved from clearance v0.26.1): the core gateway with Hangar's policy (the bundle the test core loads), core handlers over
 in-memory fakes, and a run backend that starts nothing. Agent definitions are tests/fixtures/agents/."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

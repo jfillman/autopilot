@@ -10,7 +10,7 @@ from coreenv import tap_core
 from autopilot.engine.backends import FakeRunBackend, core_handlers
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from autopilot.engine.modelproxy import ModelRoute
-from clearance.packs.hangar import HANGAR
+from autopilot.hangar_tools import HANGAR
 from autopilot.engine.server import create_model_app
 from autopilot.engine.session import SessionStore
 from autopilot.engine.tiers import Tier

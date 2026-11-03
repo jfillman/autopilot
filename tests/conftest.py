@@ -87,6 +87,13 @@ def pytest_configure(config):
     """Start the test core once, before collection, so a module's environment (coreenv.core_env) can name it."""
     tmp = Path(tempfile.mkdtemp(prefix="autopilot-core-"))
     binary = _core_binary(tmp)
+    # glidepath-api's GET /v1/contract, which the Hangar bundle reads at the core's start (contractsrv).
+    import contractsrv
+    srv = contractsrv.ContractServer(contractsrv.contract_path().read_bytes())
+    ctok = tmp / "contract-token"
+    ctok.write_text(contractsrv.TOKEN + "\n")
+    os.environ["AUTOPILOT_TEST_CONTRACT_URL"], os.environ["AUTOPILOT_TEST_CONTRACT_TOKEN_FILE"] = srv.url, str(ctok)
+    _CORE["contract"] = srv
     os.environ["AUTOPILOT_TEST_CORE_BIN"] = str(binary)
     c = CoreProcess(binary).start()
     tok = tmp / "core-token"
@@ -99,11 +106,20 @@ def pytest_unconfigure(config):
     c = _CORE.pop("core", None)
     if c is not None:
         c.stop()
+    srv = _CORE.pop("contract", None)
+    if srv is not None:
+        srv.stop()
 
 
 @pytest.fixture(scope="session")
 def test_core():
     return _CORE["core"]
+
+
+@pytest.fixture(scope="session")
+def contract_server():
+    """The glidepath-api stand-in the test core's bundle read its scope from."""
+    return _CORE["contract"]
 
 
 @pytest.fixture(autouse=True)

@@ -1,10 +1,13 @@
 """cicd.yaml field scope (policy R021): Glidepath's GP-SCOPE rules on an agent's pull request.
 
-Mirrors glidepath's tools/test_glidepath_validate.py `Scope` cases, but through Clearance's real
-call path (Gateway.call -> policy -> backend), so an allowed change reaches the git backend and a
-denied one never does. The vendored files are checked against a glidepath checkout when there is one.
+Mirrors glidepath's tools/test_glidepath_validate.py `Scope` cases, but through the real call path (Gateway.call ->
+the Clearance core running Hangar's policy bundle -> backend), so an allowed change reaches the git backend and a
+denied one never does. The scope rules are not vendored anywhere: the core's bundle loader reads them from
+glidepath-api's GET /v1/contract at start (here the contractsrv stand-in, serving glidepath's contract), so a
+Glidepath contract change needs no Clearance release.
 """
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,14 +16,10 @@ import pytest
 import yaml
 
 from autopilot import airframe_plan as ap
-from clearance.packs import hangar
+import contractsrv
+from coreenv import CoreProcess, core_decide, merge_patch
 
 ROOT = Path(__file__).resolve().parents[1]
-# The pinned clearance release's copy (github.com/jfillman/clearance): when glidepath changes it, bump the pin.
-VENDOR = Path(hangar.__file__).resolve().parent / "vendor"
-# CI clones glidepath under HANGAR_TECH (.github/workflows/test.yaml, GLIDEPATH_REF); locally it is ~/tech.
-GLIDEPATH = Path(os.environ.get("HANGAR_TECH", "/Users/jerf/tech")) / "glidepath"
-VENDORED = {"cicd_scope.py": "tools/cicd_scope.py"}
 
 # glidepath's Scope BASE, verbatim
 BASE = yaml.safe_load("""
@@ -49,32 +48,63 @@ pipelines:
 PR = {"repo": "jfillman/flight-api", "branch": "agent/t-1", "title": "cicd change"}
 
 
-# ---- drift ----------------------------------------------------------------------------------
-@pytest.mark.parametrize("vendored,upstream", sorted(VENDORED.items()))
-def test_vendored_file_matches_glidepath(vendored, upstream):
-    src = GLIDEPATH / upstream
+# ---- the scope is read live from glidepath-api ----------------------------------------------
+def test_the_core_read_the_scope_from_glidepath_api_with_a_token(test_core, contract_server):
+    """The bundle loader fetched GET /v1/contract with the core's token at start, and every decision names it."""
+    assert ("/v1/contract", f"Bearer {contractsrv.TOKEN}") in contract_server.hits
+    contract = json.loads(contract_server.body)
+    pol = core_decide("catalog.read", {"query": "x"})["context"]["policy"]
+    assert pol["bundle"] == "clearance-core+hangar"
+    [hangar] = pol["bundles"]
+    assert hangar["name"] == "hangar" and [s["name"] for s in hangar["sources"]] == ["glidepath"]
+    src = hangar["sources"][0]
+    assert src["version"] == contract["contractVersion"]
+    assert src["digest"] == hashlib.sha256(contract_server.body).hexdigest()
+
+
+def test_a_glidepath_scope_change_reaches_decisions_with_no_clearance_release():
+    """A scope rule Glidepath adds to its contract (here: /build/agent becomes human-only) is enforced by a core that
+    starts against it, with the same Clearance binary and the same bundle."""
+    contract = json.loads(contractsrv.contract_path().read_text())
+    contract["scope"]["rules"].insert(0, {"pattern": "/build/agent", "agentScope": "human", "why": "test: a new rule"})
+    srv = contractsrv.ContractServer(json.dumps(contract).encode())
+    core = CoreProcess(Path(os.environ["AUTOPILOT_TEST_CORE_BIN"]), env={"CLEARANCE_BUNDLE_SOURCES": json.dumps(
+        {"glidepath": {"url": srv.url, "tokenFile": os.environ["AUTOPILOT_TEST_CONTRACT_TOKEN_FILE"]}})}).start()
+    try:
+        files = [{"path": "cicd.yaml", "before": yaml.safe_dump(BASE),
+                  "content": yaml.safe_dump(edit(lambda d: d["build"].update(agent="nodejs-22")))}]
+        args = {"repo": "jfillman/x", "branch": "b", "title": "t", "files": files}
+        assert core_decide("repo.pr.open", args)["decision"] is True        # today's contract: an open field
+        old = os.environ["AUTOPILOT_TEST_CORE_URL"]
+        os.environ["AUTOPILOT_TEST_CORE_URL"] = core.url
+        try:
+            d = core_decide("repo.pr.open", args)
+        finally:
+            os.environ["AUTOPILOT_TEST_CORE_URL"] = old
+        assert d["decision"] is False and d["context"]["rule"] == "GP-SCOPE-001" and d["context"]["hint"] == "test: a new rule"
+    finally:
+        core.stop()
+        srv.stop()
+
+
+def test_a_contract_version_the_bundle_is_not_written_for_stops_the_core():
+    contract = json.loads(contractsrv.contract_path().read_text())
+    contract["contractVersion"] = 99
+    srv = contractsrv.ContractServer(json.dumps(contract).encode())
+    try:
+        with pytest.raises(RuntimeError, match="did not start"):
+            CoreProcess(Path(os.environ["AUTOPILOT_TEST_CORE_BIN"]), env={"CLEARANCE_BUNDLE_SOURCES": json.dumps(
+                {"glidepath": {"url": srv.url, "tokenFile": os.environ["AUTOPILOT_TEST_CONTRACT_TOKEN_FILE"]}})}).start()
+    finally:
+        srv.stop()
+
+
+def test_the_fixture_contract_is_glidepaths():
+    """tests/fixtures/glidepath-contract.json stands in when there is no glidepath checkout; CI compares it."""
+    src = Path(os.environ.get("HANGAR_TECH", "/nonexistent")) / "glidepath" / "contract" / "glidepath-contract.json"
     if not src.exists():
-        pytest.skip(f"no glidepath checkout with {upstream} at {GLIDEPATH} (CI clones it; set HANGAR_TECH)")
-    assert (VENDOR / vendored).read_bytes() == src.read_bytes(), (
-        f"clearance's packs/hangar/vendor/{vendored} drifted from glidepath's {upstream}: re-vendor it in the clearance "
-        "repo, tag a release and bump the pin in pyproject.toml")
-
-
-def test_vendored_scope_matches_glidepaths_contract():
-    """Clearance vendors only the contract's `scope` section (clearance v0.20.3): compare that, as parsed JSON, so a
-    glidepath-api change elsewhere in the contract never needs a Clearance release."""
-    src = GLIDEPATH / "contract" / "glidepath-contract.json"
-    if not src.exists():
-        pytest.skip(f"no glidepath checkout at {GLIDEPATH} (CI clones it; set HANGAR_TECH)")
-    assert json.loads((VENDOR / "glidepath-scope.json").read_text()) == json.loads(src.read_text())["scope"], (
-        "clearance's packs/hangar/vendor/glidepath-scope.json drifted from the scope section of glidepath's contract: "
-        "re-vendor it in the clearance repo, tag a release and bump the pin in pyproject.toml")
-
-
-def test_policy_reads_the_vendored_contracts_scope_block():
-    rules = hangar.CICD_SCOPE["rules"]
-    assert {r["agentScope"] for r in rules} == {"open", "tighten", "human"}
-    assert any(r["pattern"] == "/secrets" and r["agentScope"] == "human" for r in rules)
+        pytest.skip("no glidepath checkout under HANGAR_TECH (CI clones it)")
+    assert json.loads(contractsrv.FIXTURE.read_text())["contractVersion"] == json.loads(src.read_text())["contractVersion"]
 
 
 # ---- through the gateway --------------------------------------------------------------------
@@ -189,7 +219,7 @@ def test_an_unchanged_cicd_yaml_alongside_other_files_is_allowed(gw):
 
 
 def test_merge_patch_rfc7386():
-    assert hangar.merge_patch({"a": {"b": 1, "c": 2}, "l": [1]}, {"a": {"b": None, "d": 3}, "l": [2]}) == \
+    assert merge_patch({"a": {"b": 1, "c": 2}, "l": [1]}, {"a": {"b": None, "d": 3}, "l": [2]}) == \
         {"a": {"c": 2, "d": 3}, "l": [2]}
 
 

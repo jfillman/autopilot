@@ -8,7 +8,7 @@ from starlette.testclient import TestClient
 from autopilot.engine import inbox as hr
 from coreenv import tap_core
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
-from clearance.packs.hangar import HANGAR
+from autopilot.hangar_tools import HANGAR
 from autopilot.engine.server import create_http_app
 from autopilot.engine.session import SessionStore
 from autopilot.engine.tiers import Tier

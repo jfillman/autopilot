@@ -26,7 +26,7 @@ MAX_RESULT_CHARS = 16_000
 MAX_FILE_RESULT_CHARS = 60_000
 WHOLE_RESULT_TOOLS = frozenset({"repo.file.get"})
 
-# Required arguments whose type is not a string, from Clearance's tool specs (clearance.packs, the core registry).
+# Required arguments whose type is not a string, from the gateway's tool specs (autopilot.hangar_tools and the core registry).
 KNOWN_TYPES: dict[str, dict[str, Any]] = {
     "files": {"type": "array", "items": {"type": "object"}, "description": "[{path, content}]"},
     "documents": {"type": "array", "items": {"type": "object"}},

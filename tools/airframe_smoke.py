@@ -42,11 +42,12 @@ from autopilot.airframe_tools import AirframeTools, ValidatorCommand  # noqa: E4
 from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from autopilot.gateway import hangar_gateway  # noqa: E402
 from autopilot.engine import profile  # noqa: E402
-# The Clearance core decides (R-3b): a local `clearance core --memory --insecure-dev-auth` (CLEARANCE_PACKS=hangar,
-# CLEARANCE_PROVIDERS naming autopilot-gateway) at CLEARANCE_CORE_URL (default http://127.0.0.1:8090).
+# The Clearance core decides (R-3b): a local `clearance core --memory --insecure-dev-auth` running Hangar's policy
+# (CLEARANCE_BUNDLES=policy/hangar/bundle.json, CLEARANCE_BUNDLE_SOURCES naming glidepath's contract, the names in
+# policy/hangar/core-env.json; R-5) and CLEARANCE_PROVIDERS naming autopilot-gateway, at CLEARANCE_CORE_URL (default
+# http://127.0.0.1:8090).
 from autopilot.engine.core import local_core  # noqa: E402
 from autopilot.engine.dispatch import Principal  # noqa: E402
-from clearance.packs import hangar  # noqa: E402
 from autopilot.engine.server import create_server  # noqa: E402
 from autopilot.engine.session import SessionStore  # noqa: E402
 from autopilot.engine.tiers import Tier  # noqa: E402
@@ -150,15 +151,31 @@ def main() -> int:
     print("  steps: " + ", ".join(f"{s['id']}({s['gate']})" for s in cs["steps"]))
     agent = next(f for f in steps["app-repo"]["files"] if f["path"] == "cicd.yaml")
     as_file = {"path": "cicd.yaml", "op": agent["op"], "before": yaml.safe_dump(agent["before"]), "content": agent["content"]}
-    check(hangar.cicd_scope_problems([as_file]) == [], "app-repo cicd.yaml patch: no GP-SCOPE problem (R021)")
     coder = call("session_open", {"agent": "coding-agent"})["data"]["session"]
+
+    def scope_rules(f: dict) -> list[str]:
+        """The GP-SCOPE rules the core (Hangar's bundle, R021) gives a coding agent's PR carrying this cicd.yaml."""
+        r = call("call", {"session": coder, "tool": "repo.pr.open",
+                          "args": {"repo": "jfillman/parachute", "branch": "agent/probe", "title": "probe", "files": [f]}})
+        return [] if r["ok"] else sorted({p["rule"] for p in (r["decision"] or {}).get("problems", [])})
+
+    def merge_patch(target, patch):
+        if not isinstance(patch, dict):
+            return patch
+        out = dict(target) if isinstance(target, dict) else {}
+        for k, v in patch.items():
+            if v is None:
+                out.pop(k, None)
+            else:
+                out[k] = merge_patch(out.get(k), v)
+        return out
     pr = call("call", {"session": coder, "tool": "repo.pr.open",
                        "args": {"repo": "jfillman/parachute", "branch": "agent/plan", "title": "plan", "files": [as_file]}})
     check(pr["ok"] and git.names() == ["git.open_pr"], f"repo.pr.open with that patch through MCP: {'allowed' if pr['ok'] else pr['decision']}")
     human = steps["cicd-flight"]
-    hrules = sorted({p["rule"] for p in hangar.cicd_scope_problems([{**human["files"][0], "before": yaml.safe_dump(human["files"][0]["before"])}])})
+    hrules = scope_rules({**human["files"][0], "before": yaml.safe_dump(human["files"][0]["before"])})
     check(human["gate"] == "human-merge" and "GP-SCOPE-003" in hrules, f"flight half is a human-merge step ({', '.join(hrules)} if an agent sent it)")
-    check({"stage": "test", "env": "dev", "role": "check-ride"} in hangar.merge_patch(BASE_CICD, agent["content"])["pipelines"]["ci"]["steps"],
+    check({"stage": "test", "env": "dev", "role": "check-ride"} in merge_patch(BASE_CICD, agent["content"])["pipelines"]["ci"]["steps"],
           "the check-ride step survives the patch")
 
     # 2. status / describe against kubectl
