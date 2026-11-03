@@ -3,7 +3,7 @@ failure that drops nothing, a seed from the store, and the read API's refresher.
 import copy
 
 import pytest
-from coreenv import core_env
+from coreenv import chain_head, core_env
 import yaml
 from clearance import definitions as defn
 from autopilot.engine.dispatch import Denied, Principal
@@ -72,7 +72,15 @@ class GitHub:
 def gw(clock):
     g, _ = serve.build_gateway(serve.config_from_env(EPH), backends=Backends(None, None, FakeRuns(), None, None),
                                auth=Auth(), clock=clock)
+    # The test core is shared: empty its published set (another test's pins), then read only this test's records.
+    assert g.core.publish_definitions([], [])
+    g.core.start = chain_head()
     return g
+
+
+def def_records(gw):
+    """The definition.* records the core wrote for this gateway's publishes (it is their one writer)."""
+    return [r for r in gw.core.records if r["tool"].startswith("definition.")]
 
 
 def loader(gw, items, files, clock):
@@ -84,11 +92,15 @@ def test_a_pin_loads_once_and_is_an_agent(gw, clock):
     ch = ld.poll()
     assert ch.added == ["gate-triage"] and "gate-triage" in gw.defs and gw.defs.source("gate-triage").commit == COMMIT
     assert gw.defs.source("gate-triage").loaded_at == "2026-09-26T12:00:00Z"
-    assert [r["tool"] for r in gw.core.held()] == ["definition.load"]
-    # the same pin next poll: no GitHub call, no change, no evidence
+    [rec] = def_records(gw)
+    assert (rec["tool"], rec["agent"], rec["principal"], rec["decision"]) == (
+        "definition.load", "gate-triage", "pin:app-gate-api-cicd/gate-triage", "allow")
+    assert rec["result"] == f"loaded jfillman/gate-api@{COMMIT[:7]} agents/gate-triage.yaml" and rec["caller"]
+    assert not gw.core.held(), "the gateway holds no definition.* record: the core writes them"
+    # the same pin next poll: no GitHub call, no change, no publish, no evidence
     clock.advance(minutes=1)
     assert not ld.poll() and ld.github.calls == [("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT)]
-    assert len(gw.core.held()) == 1 and ld.fetches == 1
+    assert len(def_records(gw)) == 1 and ld.fetches == 1
     # a run can open a session as it
     assert gw.open_session("autopilot-runs/gate-triage", "gate-triage").ok
 
@@ -102,10 +114,10 @@ def test_a_repin_fetches_the_new_commit_and_records_it(gw, clock):
     ld.reader.items = [xr(commit=new)]
     ch = ld.poll()
     assert ch.changed == ["gate-triage"] and gw.defs["gate-triage"].limits.tools == frozenset({"glidepath.runs.list"})
-    assert gw.core.held()[-1]["result"].startswith("re-pinned jfillman/gate-api@bbbbbbb")
+    assert def_records(gw)[-1]["result"].startswith("re-pinned jfillman/gate-api@bbbbbbb")
     ld.reader.items = []
     assert ld.poll().removed == ["gate-triage"] and "gate-triage" not in gw.defs
-    assert gw.core.held()[-1]["tool"] == "definition.unload"
+    assert def_records(gw)[-1]["tool"] == "definition.unload"
 
 
 @pytest.mark.parametrize("answer, reason", [
@@ -122,11 +134,43 @@ def test_a_pin_that_cannot_load_is_rejected_with_the_reason(gw, clock, answer, r
     ld = loader(gw, [xr()], {("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT): answer}, clock)
     ch = ld.poll()
     assert "gate-triage" not in gw.defs and len(ch.rejected) == 1 and reason in ch.rejected[0].reason
-    rec = gw.core.held()[-1]
+    [rec] = def_records(gw)
     assert (rec["tool"], rec["decision"], rec["rule"], rec["agent"]) == ("definition.reject", "deny", "DF-PIN", "gate-triage")
-    assert rec["principal"] == "pin:app-gate-api-cicd/gate-triage"
+    assert rec["principal"] == "pin:app-gate-api-cicd/gate-triage" and reason in rec["result"]
     # final for this pin: no second fetch, no second record
-    assert not ld.poll() and len(ld.github.calls) == 1 and len(gw.core.held()) == 1
+    assert not ld.poll() and len(ld.github.calls) == 1 and len(def_records(gw)) == 1
+
+
+def test_the_set_is_published_on_its_own_client_with_a_longer_deadline(gw):
+    from autopilot.engine.core import DEFINITIONS_TIMEOUT
+    assert gw.core.definitions_client is not gw.core.client
+    assert gw.core.definitions_client.timeout == DEFINITIONS_TIMEOUT == 5.0 and gw.core.client.timeout == 0.25
+
+
+def test_a_set_the_core_did_not_take_is_published_again_whole_on_the_next_poll(gw, clock):
+    from clearance_client import CoreClient
+    ld = loader(gw, [xr()], {("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT): definition()}, clock)
+    good = gw.core.definitions_client
+    gw.core.definitions_client = CoreClient("http://127.0.0.1:9", token="x", provider="autopilot-gateway", timeout=0.05)
+    assert ld.poll().added == ["gate-triage"] and "gate-triage" in gw.defs, "the gateway enforces its set regardless"
+    assert def_records(gw) == [] and gw.core.outbox.all() == [], "nothing recorded, nothing queued"
+    gw.core.definitions_client = good
+    assert not ld.poll(), "no change this poll..."
+    assert [r["tool"] for r in def_records(gw)] == ["definition.load"], "...but the whole set is published again"
+    assert not ld.poll() and len(def_records(gw)) == 1, "and once the core has it, not again"
+
+
+def test_the_first_poll_publishes_even_a_set_that_did_not_change(gw, clock):
+    """The core keeps the set across a gateway restart: a pin removed while the gateway was down is unloaded on its
+    first poll, though the new process's set (empty to empty) did not change."""
+    loader(gw, [xr()], {("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT): definition()}, clock).poll()
+    assert [r["tool"] for r in def_records(gw)] == ["definition.load"]
+    g2, _ = serve.build_gateway(serve.config_from_env(EPH), backends=Backends(None, None, FakeRuns(), None, None),
+                                auth=Auth(), clock=clock)
+    g2.core.start = chain_head()
+    assert not loader(g2, [], {}, clock).poll()
+    [rec] = def_records(g2)
+    assert (rec["tool"], rec["agent"]) == ("definition.unload", "gate-triage")
 
 
 def test_a_pin_cannot_take_a_bundled_name(gw, clock):
@@ -146,7 +190,9 @@ def test_a_transient_failure_skips_the_pin_and_keeps_what_was_loaded(gw, clock):
     assert not ld.poll() and "gate-triage" in gw.defs
     # the file turns up: loaded, and the earlier skip left no trace
     ld.github.files[("jfillman/gate-api", "agents/gate-two.yaml", COMMIT)] = definition("gate-two")
-    assert ld.poll().added == ["gate-two"] and [r["tool"] for r in gw.core.held()] == ["definition.load", "definition.load"]
+    assert ld.poll().added == ["gate-two"]
+    assert [(r["tool"], r["agent"]) for r in def_records(gw)] == [("definition.load", "gate-triage"),
+                                                                  ("definition.load", "gate-two")]
 
 
 def test_everything_unreachable_keeps_the_current_set(gw, clock):

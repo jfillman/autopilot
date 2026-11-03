@@ -72,6 +72,26 @@ def test_the_gateway_keeps_its_state_and_outbox_and_has_one_writer(scratch):
     state.close()
 
 
+def test_the_migration_drops_held_definition_records_and_keeps_the_rest(scratch):
+    """clearance v0.28.0: the core writes definition.* itself (PUT /v1/definitions) and refuses them on POST
+    /v1/records, so a definition.* row an older gateway held can never be posted. Opening the database drops those
+    rows; every other held row stays for drain, and a posted or refused one is history."""
+    from autopilot.engine import pg
+    dsn = scratch()
+    state, _ = pg.open_durable(dsn)
+    box = pg.PgOutbox(state)
+    load = box.add({"op": "record", "kind": "definition.load", "body": {"agent": "a"}}, "held")
+    end = box.add({"op": "record", "kind": "session.end", "body": {"session": "s-1"}}, "held")
+    gone = box.add({"op": "record", "kind": "definition.reject", "body": {"agent": "b"}}, "held")
+    kept = box.add({"op": "record", "kind": "definition.unload", "body": {"agent": "c"}}, "refused", error="400")
+    state.commit()
+    state.close()
+    state, _ = pg.open_durable(dsn)
+    rows = pg.PgOutbox(state).all()
+    assert [r["id"] for r in rows] == [end, kept] and load not in [r["id"] for r in rows] and gone != end
+    state.close()
+
+
 def _old_rows(dsn):
     """The runtime rows as the Python gateway (clearance v0.26.1 pg.py) wrote them into clearance-pg."""
     from psycopg.types.json import Jsonb

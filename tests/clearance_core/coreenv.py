@@ -3,6 +3,8 @@ a test's environment for serve.config_from_env adds, so the gateway it builds as
 import json
 import os
 import subprocess
+import tempfile
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -15,8 +17,9 @@ def core_env() -> dict[str, str]:
 
 GATEWAY_PRINCIPAL = "autopilot-system/autopilot-gateway"
 CORE_ENV = {
+    # The gateway publishes its cluster-pinned definitions (PUT /v1/definitions): "definitions": true.
     "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": "test",
-                                        "principals": [GATEWAY_PRINCIPAL]}]),
+                                        "principals": [GATEWAY_PRINCIPAL], "definitions": True}]),
     "CLEARANCE_PACKS": "hangar",
     # Provenance is the core's (tests/test_glidepath_tools.py asks it about an agent's PR): the CI gate's verifier
     # identity, and the platform's bundled definitions, which name the agents' trailers it checks.
@@ -24,24 +27,60 @@ CORE_ENV = {
     "CLEARANCE_AGENTS_DIR": str(Path(__file__).resolve().parents[2] / "agents"),
 }
 
+# The unmodified core: an in-memory store, `Bearer <principal>` as that principal (which also serves the chain at
+# GET /v1/dev/records), and no clock-skew check, because the tests run on a fixed clock (2026-09-26).
+CORE_ARGS = ("core", "--memory", "--insecure-dev-auth", "--max-clock-skew", "0", "--listen", "127.0.0.1:0")
+DEV_RECORDS_PAGE = 10000   # the core's limit per GET /v1/dev/records
+
+
+def read_records(url: str, since: int = 0) -> list[dict[str, Any]]:
+    """The core's chain from seq `since` (GET /v1/dev/records, page by page). Any bearer token will do."""
+    out: list[dict[str, Any]] = []
+    while True:
+        req = urllib.request.Request(f"{url}/v1/dev/records?from={since}&limit={DEV_RECORDS_PAGE}",
+                                     headers={"Authorization": f"Bearer {GATEWAY_PRINCIPAL}"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            page = json.load(r)
+        out.extend(page)
+        if len(page) < DEV_RECORDS_PAGE:
+            return out
+        since = page[-1]["seq"] + 1
+
 
 class CoreProcess:
-    """One running test core: start() it, read its chain, stop() it."""
+    """One running test core (`clearance core --memory --insecure-dev-auth --max-clock-skew 0`): start() it, read its
+    chain, stop() it. Its log goes to a file (a pipe nobody drains would block it); the address it listens on is the
+    `addr` of its "clearance core serving" line."""
 
     def __init__(self, binary: Path, env: dict[str, str] | None = None):
         self.binary, self.env = binary, {**CORE_ENV, **(env or {})}
         self.proc = None
         self.url = ""
+        self.log_path: Path | None = None
 
-    def start(self) -> "CoreProcess":
+    def start(self, timeout: float = 30.0) -> "CoreProcess":
         env = {k: v for k, v in os.environ.items() if not k.startswith("CLEARANCE_")}
-        self.proc = subprocess.Popen([str(self.binary), "autopilot-testcore"], env={**env, **self.env},
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        line = self.proc.stdout.readline().strip()
-        if not line:
-            raise RuntimeError("the test core did not start")
-        self.url = "http://" + line
-        return self
+        fd, name = tempfile.mkstemp(prefix="clearance-core-", suffix=".log")
+        self.log_path = Path(name)
+        with os.fdopen(fd, "w") as log:
+            self.proc = subprocess.Popen([str(self.binary), *CORE_ARGS], env={**env, **self.env},
+                                         stdout=subprocess.DEVNULL, stderr=log, text=True)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for line in self.log_path.read_text().splitlines():
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("msg") == "clearance core serving":
+                    self.url = "http://" + msg["addr"]
+                    return self
+            if self.proc.poll() is not None:
+                break
+            time.sleep(0.05)
+        tail = self.log_path.read_text()[-2000:]
+        self.stop()
+        raise RuntimeError(f"the test core did not start:\n{tail}")
 
     def stop(self) -> None:
         if self.proc is not None:
@@ -50,22 +89,11 @@ class CoreProcess:
             self.proc = None
 
     def records(self, since: int = 0) -> list[dict[str, Any]]:
-        with urllib.request.urlopen(f"{self.url}/testcore/v1/records?from={since}", timeout=10) as r:
-            return json.load(r)
-
-    def head(self) -> int:
-        recs = self.records(max(self._last, 0))
-        if recs:
-            self._last = recs[-1]["seq"]
-        return self._last + 1
-
-    _last = -1
+        return read_records(self.url, since)
 
 
 def chain_records(since: int = 0) -> list[dict]:
-    with urllib.request.urlopen(f"{os.environ['AUTOPILOT_TEST_CORE_URL']}/testcore/v1/records?from={since}",
-                                timeout=10) as r:
-        return json.load(r)
+    return read_records(os.environ["AUTOPILOT_TEST_CORE_URL"], since)
 
 
 def chain_head() -> int:

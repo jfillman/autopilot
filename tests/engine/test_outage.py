@@ -4,16 +4,14 @@ every spawn and every model call; a T0 read is denied too unless GATEWAY_OUTAGE_
 runs and waits in the outbox as a coverage-unavailable record, posted in order once the core answers again. The
 client's timeout is 250 ms with one retry, and its breaker opens after 5 consecutive failures."""
 import http.client
-import os
 import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 import pytest
 from clearance_client import DEFAULT_BREAKER_THRESHOLD, DEFAULT_RETRIES, DEFAULT_TIMEOUT
-from coreenv import CoreProcess, GATEWAY_PRINCIPAL, tap_core
+from coreenv import GATEWAY_PRINCIPAL, tap_core
 
 from autopilot.engine import control as ctl, inbox as hr
 from autopilot.engine.backends import core_handlers
@@ -173,54 +171,91 @@ def test_model_calls_fail_closed(defs, clock, backends, switch):
     assert not d.allow and d.rule == OUTAGE_RULE
 
 
-def test_records_wait_in_order_and_are_posted_once_the_core_answers(defs, clock, backends, tmp_path):
-    # A core that already takes the kinds the gateway needs (tool.call for outage reads, session.end: the needed
-    # core change), so the replay can be proved end to end.
-    extra = CoreProcess(Path(os.environ["AUTOPILOT_TEST_CORE_BIN"]), env={
-        "AUTOPILOT_TESTCORE_EXTRA_KINDS": "tool.call=session,principal,agent,result;session.end=session,principal,agent,result"}).start()
-    sw = Switch(extra.url)
-    try:
-        from clearance_client import RECORD_KINDS
-        core = tap_core(url=sw.url, allow_reads=True, record_kinds=(*RECORD_KINDS, "tool.call", "session.end"))
-        g = build(defs, clock, backends, core)
-        sid = opened(g)
-        before = len(extra.records())
-        sw.mode = "down"
-        assert g.call("alice", sid, "catalog.read", {"query": "a"}).ok
-        assert g.call("alice", sid, "metrics.query", {"promql": "up"}).ok
-        out = g.freeze_session("alice", sid, "looping")            # takes effect at once; its record waits
-        assert out["tripped"] and out["audit_seq"] is None
-        assert [r["reason"] for r in core.outbox.all()] == ["outage", "outage", "core-unavailable"]
-        assert len(extra.records()) == before, "nothing reached the core"
-        sw.mode = "up"
-        g.expire()                                                 # the sweep drains the outbox
-        recs = extra.records()[before:]
-        assert [(r["tool"], r["coverage"]) for r in recs] == [
-            ("tool.call", "coverage-unavailable"), ("tool.call", "coverage-unavailable"),
-            ("session.freeze", "authorized-and-verified")]
-        assert [r["result"] for r in recs] == ["ok", "ok", "frozen: looping"]
-        assert all(r["provider"]["name"] == "autopilot-gateway" and r["session"] == sid for r in recs)
-        assert all(r["state"] == "done" for r in core.outbox.all())
-        # A new record goes after what waited, never before it.
-        sw.mode = "down"
-        g.end_session("alice", sid, "stop")
-        sw.mode = "up"
-        g.hold_triggers("root", "triage-agent", "noisy")
-        tail = extra.records()[before + 3:]
-        assert [r["tool"] for r in tail] == ["session.end", "trigger.hold"]
-    finally:
-        sw.close()
-        extra.stop()
+def test_records_wait_in_order_and_are_posted_once_the_core_answers(defs, clock, backends, switch):
+    core = tap_core(url=switch.url, allow_reads=True)
+    g = build(defs, clock, backends, core)
+    sid = opened(g)
+    before = len(core.records)
+    switch.mode = "down"
+    assert g.call("alice", sid, "catalog.read", {"query": "a"}).ok
+    assert g.call("alice", sid, "metrics.query", {"promql": "up"}).ok
+    out = g.freeze_session("alice", sid, "looping")            # takes effect at once; its record waits
+    assert out["tripped"] and out["audit_seq"] is None
+    assert [r["reason"] for r in core.outbox.all()] == ["outage", "outage", "core-unavailable"]
+    assert len(core.records) == before, "nothing reached the core"
+    switch.mode = "up"
+    g.expire()                                                 # the sweep drains the outbox
+    recs = core.records[before:]
+    # An outage read is the core's `tool.call` record naming the tool that ran (clearance v0.28.0), claimed.
+    assert [(r["tool"], r["coverage"]) for r in recs] == [
+        ("catalog.read", "coverage-unavailable"), ("metrics.query", "coverage-unavailable"),
+        ("session.freeze", "authorized-and-verified")]
+    assert [r["result"] for r in recs] == ["ok", "ok", "frozen: looping"]
+    assert [(r["tier"], r["decision"], r.get("rule")) for r in recs[:2]] == [(0, "allow", None)] * 2
+    assert all("GATEWAY_OUTAGE_ALLOW_READS" in r["reason"] for r in recs[:2])
+    assert all(r["provider"]["name"] == "autopilot-gateway" and r["session"] == sid for r in recs)
+    assert all(r["state"] == "done" for r in core.outbox.all())
+    # A new record goes after what waited, never before it.
+    switch.mode = "down"
+    g.end_session("alice", sid, "stop")
+    switch.mode = "up"
+    g.hold_triggers("root", "triage-agent", "noisy")
+    tail = core.records[before + 3:]
+    assert [r["tool"] for r in tail] == ["session.end", "trigger.hold"]
+
+
+def test_a_row_an_older_gateway_held_is_posted_once_the_core_takes_its_kind(defs, clock, backends, switch):
+    """Before clearance v0.28.0 the gateway held run.finish, session.end and trigger.release in the outbox. The core
+    takes them now: drain posts such a row in order, and nothing new is held."""
+    core = tap_core(url=switch.url)
+    g = build(defs, clock, backends, core)
+    sid = opened(g)
+    core.outbox.add({"op": "record", "kind": "session.end", "body": {
+        "session": sid, "principal": "user:alice", "agent": "coding-agent", "target": sid, "decision": "allow",
+        "result": "ended: stop"}}, "held")
+    g.expire()
+    [row] = core.outbox.all()
+    assert row["state"] == "done" and core.at(row["seq"])["tool"] == "session.end"
+    assert g.freeze_session("alice", sid, "and now")["audit_seq"] is not None and len(core.outbox.all()) == 1
 
 
 def test_a_kind_the_core_does_not_take_is_held_until_it_does(defs, clock, backends, switch):
-    g = build(defs, clock, backends, tap_core(url=switch.url))
+    # A rolling upgrade: a client that does not list session.end (record_kinds) holds it rather than send it.
+    from clearance_client import RECORD_KINDS
+    g = build(defs, clock, backends, tap_core(url=switch.url, record_kinds=[k for k in RECORD_KINDS if k != "session.end"]))
     sid = opened(g)
-    g.end_session("alice", sid, "stop")           # session.end: no core kind yet
+    g.end_session("alice", sid, "stop")
     [row] = g.core.outbox.all()
     assert (row["reason"], row["state"], row["entry"]["kind"]) == ("held", "pending", "session.end")
     g.expire()
     assert g.core.outbox.all()[0]["state"] == "pending", "a held kind is not posted to a core that refuses it"
+
+
+def test_a_refusal_goes_on_the_outcome_only_with_a_rule_id():
+    """Core.outcome's refusal is (rule, message); the core takes `refusal` only for a rule id (R004, HR-003,
+    ART-002), so anything else is sent without it (the result line still names it). A refusal carries no effect."""
+    from autopilot.engine.core import Core
+    from autopilot.engine.outbox import MemoryOutbox
+
+    class Client:
+        sent = []
+
+        def outcome(self, decision_id, body):
+            self.sent.append(body)
+
+            class R:
+                seq = 1
+            return R()
+    c = Client()
+    core = Core(c, MemoryOutbox())
+    core.outcome("d-1", "refused HR-003: no", refusal=("HR-003", "no"))
+    core.outcome("d-2", "refused x: no", refusal=("not a rule", "no"))
+    core.outcome("d-3", "refused ART-002: big", effect={"repo": "a/b"}, refusal=("ART-002", "big"))
+    core.outcome("d-4", "ok")
+    assert c.sent == [{"result": "refused HR-003: no", "refusal": {"rule": "HR-003", "message": "no"}},
+                      {"result": "refused x: no"},
+                      {"result": "refused ART-002: big", "refusal": {"rule": "ART-002", "message": "big"}},
+                      {"result": "ok"}]
 
 
 def test_the_breaker_opens_after_five_failures_and_then_fails_fast(defs, clock, backends, switch):

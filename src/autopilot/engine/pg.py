@@ -100,6 +100,10 @@ CREATE TABLE IF NOT EXISTS gateway_outbox (
   posted_at   timestamptz
 );
 CREATE INDEX IF NOT EXISTS gateway_outbox_pending ON gateway_outbox (id) WHERE state = 'pending';
+-- clearance v0.28.0: the core writes definition.* records itself when the gateway publishes its set (PUT
+-- /v1/definitions), and POST /v1/records refuses them. A definition.* row an older gateway held can never be posted,
+-- and the set it describes is published whole, so it goes.
+DELETE FROM gateway_outbox WHERE state = 'pending' AND reason = 'held' AND kind LIKE 'definition.%';
 """
 
 

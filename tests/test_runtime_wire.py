@@ -279,9 +279,10 @@ def test_main_runs_a_session_to_done_and_leaves_no_token_behind(served, proxy, t
     assert "is_error" not in sent[0] and "flight-api" in sent[0]["content"]
     assert sent[1]["is_error"] is True and "no tool named" in sent[1]["content"]
     assert "turn 1: stop=tool_use tools=[catalog.read:ok, repo__pr__open:unknown]" in stdout
-    # catalog.read's decision and outcome reached the core; run.finish waits in the outbox for its core kind.
-    assert [r["tool"] for r in served.core.records if r["tool"] != "session.open"] == ["catalog.read", "catalog.read"]
-    assert [r["tool"] for r in served.core.held()] == ["run.finish"]
+    # catalog.read's decision and outcome, then run.finish, reached the core; nothing waits in the outbox.
+    assert [r["tool"] for r in served.core.records if r["tool"] != "session.open"] == ["catalog.read", "catalog.read",
+                                                                                     "run.finish"]
+    assert not served.core.held()
     everything = stdout + (out / "result.json").read_text()
     assert not any(t in everything for t in TOKENS + MODEL_TOKENS)
     assert "flight-api\"" not in stdout and "jfillman/x" not in stdout, "no tool arguments in the log"
