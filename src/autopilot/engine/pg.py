@@ -4,7 +4,7 @@ Sessions, the human inbox, run results, artifacts, trigger history, holds, the c
 outbox (what the gateway owes the Clearance core) live here. The evidence chain does not: the core writes every
 record (core.py), in its own database, which the gateway never opens. Moved from clearance pg.py (v0.26.1) with the
 same table shapes, renamed clearance_* -> gateway_*, less clearance_evidence and clearance_changes (the core's) and
-plus gateway_outbox. tools/cutover/copy_runtime_tables.sql copies the runtime tables across at the R-4 cutover.
+plus gateway_outbox. tools/cutover/copy_runtime_tables.py copies the runtime tables across at the R-4 cutover.
 
 One connection, one transaction per gateway operation: an operation's writes (an inbox row, a hold, an outbox
 entry) are made on it, and store.flush() saves the sessions it changed and commits once, so they land together.
