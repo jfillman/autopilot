@@ -46,6 +46,12 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   (`MODEL_KEY_FILE`), event and schedule triggers, `Agent` XR pins, and artifacts on the durable store.
   `chat.*`, `app.api.get`, `xr.request` and `airframe.validate` have no handler in the image, so their calls are
   refused as "no backend"; nothing is faked.
+- **Triggers.** Event triggers (`EVENTS_ENABLED`) and interval triggers (`SCHEDULES_ENABLED`) launch once per
+  (agent, trigger key) across restarts: the key is claimed in the gateway's database first. The event bridge saves
+  its glidepath-api cursor there and resumes from it; a reconciliation sweep reads glidepath-api's run records so a
+  `pipelinerun.finished` whose event was lost still launches; a slot the gateway was down for is recorded `missed`.
+  Prometheus metrics on `METRICS_PORT` (9090) and the alerts for the gap: [trigger-durability.md](trigger-durability.md)
+  (Built, A-5; the PodMonitor, NetworkPolicy and PrometheusRule are a manifest for apron).
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
   AgentRuns, each deletion a record; a failed deletion is recorded and retried next sweep. The same sweep posts what
   waits in the outbox once the core answers.
