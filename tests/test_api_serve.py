@@ -5,7 +5,7 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from autopilot import api_serve, serve
+from autopilot import api_serve, read_api, serve
 from autopilot.reads import BackstageCatalog, BackstageDirectory, BackstageOwnership
 
 EPH = {"AIRFRAME_ENABLED": "0"}
@@ -42,12 +42,22 @@ def test_builds_with_roles_and_catalog(tmp_path):
         assert c.get("/v1/evidence").status_code == 404, "evidence is clearance-api's"
 
 
-def test_the_deployed_tables_value_is_accepted_and_reads_the_gateways_tables():
+def test_the_deployed_tables_value_is_accepted_and_reads_the_gateways_tables(monkeypatch):
     """R-4: GATEWAY_API_TABLES=gateway, as the Deployment still sets it, starts the API for one release; the store reads
     gateway_* whether it is set or not."""
+    stores = []
+
+    class Recording(read_api.PgReadStore):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            stores.append(self)
+    monkeypatch.setattr(read_api, "PgReadStore", Recording)
     for extra in ({"GATEWAY_API_TABLES": "gateway"}, {}):
         _, _, app = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway", **extra})
         assert app is not None
+    assert len(stores) == 2
+    for store in stores:
+        assert all(t.startswith("gateway_") for t in store.t.values()), store.t
 
 
 def test_the_pre_r3c_names_no_longer_configure_it():
