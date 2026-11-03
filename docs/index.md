@@ -23,4 +23,6 @@ commits, held to a tier of tools, a path scope and a budget that can only narrow
 | AppSpec planner | Turns one statement of intent into an ordered change set across the tenants, app and gitops repos |
 | `AgentRun` | built in airframe (XRD, composition, function-agentrun) and the cluster repos (grants, agent-sandbox); `airframe-drafts/README.md` points there |
 
-Status: **v0.1, pre-release.** See the README for what is built and tested, and what is not.
+Status: **running on hangar-dev** (gateway-v0.3.27 with Clearance v0.26.1, 2026-11-02). Releases are the image tags
+(`gateway-v*`, `runtime-v*`, `runtime-<name>-v*`); the Python package itself is not versioned. See the README for
+what is built and tested, and what is not.

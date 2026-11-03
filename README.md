@@ -18,7 +18,7 @@ pins a tagged release in `pyproject.toml` and supplies what only Hangar has:
 
 | Part | Where | What it owns |
 |---|---|---|
-| Clearance (pinned) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.4.0` | tiers, scope, limits, CEL policy and packs, sessions and the run tree (`Gateway.expire`), the gateway, the MCP surface over stdio and streamable HTTP, authentication (TokenReview, OIDC), the Postgres store, model-access decisions, audit |
+| Clearance (pinned) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1` (gateway-v0.3.27, the image apron pins on hangar-dev) | tiers, scope, limits, CEL policy and packs, sessions and the run tree (`Gateway.expire`), the gateway, the MCP surface over stdio and streamable HTTP, authentication (TokenReview, people's OIDC, another cluster's service accounts, GitHub Actions OIDC), the Postgres store and evidence chain, the model proxy (streaming), the human inbox, person controls, run results, PR provenance, the deployment gate's core, the GitHub App (check runs, deployment protection rule), and clearance-api, the read API |
 | Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, and `gateway.py`, which builds the Hangar Gateway: Clearance's core + the Hangar pack + a handler per tool + AgentRun as the run backend |
 
 ```python
@@ -34,7 +34,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 411 tests, no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
+`./.venv/bin/python -m pytest -q` runs 554 tests (2026-11-02, at gateway-v0.3.27; one skips without a gitops-cluster-dev checkout), no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
 
 `clearance/...` paths below are in the clearance repo, under `src/clearance/`.
 
@@ -324,16 +324,21 @@ claude mcp add-json clearance '{"type":"http","url":"http://clearance.hangar-dev
 
 ## What is NOT built
 
-* Real backends: GitHub through the token-review-interceptor, Argo CD sync, the Backstage catalog (`catalog.read`;
-  Backstage runs on hangar-prod only, and its catalog API needs a credential), allowlisted app APIs (`app.api.get`;
-  no definition uses it yet), human chat, artifacts, Backstage MCP federation. `clearance/backends.py` (core tools) defines the
-  interfaces and fakes; the deployable gateway registers no handler for these, so their calls are refused as having no
-  backend.
+Checked against gateway-v0.3.27 (clearance v0.26.1), the image on hangar-dev, on 2026-11-02.
+
+* Tools with no backend in the image: `chat.recv` and `chat.send` (no human chat backend; `human.request` is the
+  inbox), `app.api.get` (no adapter) and `xr.request`. `serve.build_handlers` drops them, so a call is refused as
+  "no backend". The nine Skyport definitions under `agents/skyport/` depend on them and are not loaded.
 * `airframe.validate` in the image: it needs airframe's `airframe-validate` (helm included), which the image does not
-  carry.
-* The model proxy's HTTP forwarder.
-* A deployment of the gateway (manifests, the Postgres database, the TokenReview binding): nothing here deploys it.
-* The interceptor's `/agent-installation-token` route, the `agent-scope` and `agent-identity` CI gates.
-* The AgentRun composition has not run under Crossplane on a cluster yet (AP-A3's copy-test, airframe
-  `docs/admin/agentrun-copy-test.md`). Expiry does not depend on Crossplane re-invocation (U2: about every 60 s):
-  the Sandbox's `shutdownTime` is the deadline.
+  carry, so the deployment drops it.
+* Backstage MCP federation.
+* A durable event cursor: the event bridge holds glidepath-api's `/v1/events` stream, which is an in-memory buffer
+  (glidepath known gap #44), and keeps no cursor of its own, so events sent while it is down are not replayed.
+* More than one gateway replica: the Postgres store has one writer (advisory lock). clearance-api, the read side,
+  runs two.
+* Stable agent identity by ID-JAG: people sign in through people-dex (Hangar D19's interim) and runs authenticate by
+  TokenReview until an issuer exists.
+* Anything on hangar-prod: Clearance and Autopilot run on hangar-dev only; Tower on hangar-prod reads clearance-api
+  across clusters.
+* The deployment gate's enforcement at admission (the pulled grant and its policy): Clearance's
+  `docs/gate.md`. On Hangar the `clearance-gate-` check is advisory.

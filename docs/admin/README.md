@@ -1,12 +1,16 @@
 # Autopilot: admin guide
 
-For people **running** Autopilot. Nothing here is deployed by a pipeline yet.
+For people **running** Autopilot. On Hangar it is installed by apron's `templates/55-autopilot/` (rendered into the
+cluster repo, synced by Argo CD): the gateway, clearance-api, the CNPG database `clearance-pg`, people-dex, the
+AgentRun grants, agent-sandbox and the run reaper, all on hangar-dev. The `cluster.yaml` `autopilot:` keys turn each
+feature on. The image is pinned by tag and digest (gateway-v0.3.27, Clearance v0.26.1, on 2026-11-02).
 
 ## The gateway image
 `autopilot-gateway` (`src/autopilot/serve.py`, the repo's `Dockerfile`) is the deployable Clearance for Hangar: the
 streamable-HTTP MCP app on `PORT` (8080) at `/mcp`, `GET /healthz` unauthenticated for probes. Every variable, and the
 RBAC each backend needs, is in the README's [Running the gateway](../../README.md#running-the-gateway). In short:
-- **One replica.** The Postgres store (`CLEARANCE_DSN`) takes an advisory lock; a second writer on the same database
+- **One replica of the gateway.** clearance-api (`autopilot-gateway api`, the README's "Running the read API") is a
+  separate Deployment with two replicas on a read-only role. The Postgres store (`CLEARANCE_DSN`) takes an advisory lock; a second writer on the same database
   exits at start. The gateway holds one connection and does not reconnect: a database error from any operation ends
   the process (exit 70) and the kubelet restarts it, which reloads the sessions and re-verifies the chain. The expiry
   sweep pings the database first, so a lost connection is found within `CLEARANCE_EXPIRE_SECONDS` with no traffic.
@@ -15,15 +19,18 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   caller), Role `clearance-agentruns` in `autopilot-runs` (AgentRuns), ClusterRole `clearance-airframe-reader`
   (Airframe reads, and Argo CD Applications for `argo.app.get`), and glidepath-api's ClusterRoles when
   `GLIDEPATH_API_URL` is set.
-- **Only real backends.** `argo.app.get`, `metrics.query` (`PROMETHEUS_URL`) and `logs.query` (`LOKI_URL`) are real;
-  git, Argo CD sync, `catalog.read`, `app.api.get`, chat, artifacts and `airframe.validate` have no handler in the
-  image, so their calls are refused as "no backend"; nothing is faked.
+- **Only real backends.** Each is on when configured: glidepath-api (`GLIDEPATH_API_URL`), Airframe and Argo CD reads,
+  Argo CD syncs of lower Applications (`ARGO_SYNC_ENABLED`), PRs as the agents' App through Glidepath's broker
+  (`GITHUB_PR_ENABLED`), `catalog.read` (`BACKSTAGE_URL`), `metrics.query` and `logs.query`, the model proxy
+  (`MODEL_KEY_FILE`), event and schedule triggers, `Agent` XR pins, the GitHub App, and artifacts on the durable store.
+  `chat.*`, `app.api.get`, `xr.request` and `airframe.validate` have no handler in the image, so their calls are
+  refused as "no backend"; nothing is faked.
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
   AgentRuns, each deletion a record in the same commit; a failed deletion is recorded and retried next sweep.
 - **Local run:** `CLEARANCE_EPHEMERAL=1` (in-memory store, nothing kept); the image starts and answers `/healthz` with
   no cluster, and tool calls that need the cluster fail as backend errors.
 
-## What an install will need
+## What an install needs
 - **Clearance**, a standalone deployment. Its core (https://github.com/jfillman/clearance, `src/clearance/` all but `packs/hangar/`) needs no Airframe
   and no Glidepath; on Hangar it runs with the Hangar pack and Autopilot's backends (`autopilot.gateway.hangar_gateway`;
   deployed as `autopilot-gateway`, above).
