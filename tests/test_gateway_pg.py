@@ -88,7 +88,8 @@ def test_the_migration_drops_held_definition_records_and_keeps_the_rest(scratch)
     state.close()
     state, _ = pg.open_durable(dsn)
     rows = pg.PgOutbox(state).all()
-    assert [r["id"] for r in rows] == [end, kept] and load not in [r["id"] for r in rows] and gone != end
+    assert [r["id"] for r in rows] == [end, kept]
+    assert {load, gone}.isdisjoint(r["id"] for r in rows) and rows[0]["state"] == "pending"
     state.close()
 
 
