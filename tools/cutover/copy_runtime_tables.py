@@ -1,5 +1,9 @@
 """R-4 cutover: copy the gateway's runtime tables from clearance-pg into the gateway's own database (GATEWAY_DSN).
 
+Used once, at the hangar-dev cutover on 2026-11-03 (24 sessions, 2 human requests, 145 events, 2 results and 1
+definition copied). Kept as the record of how the runtime state moved; nothing runs it now, and the read API no longer
+reads the clearance_* tables it copied from (R-4).
+
     python tools/cutover/copy_runtime_tables.py --from "$CLEARANCE_DSN" --to "$GATEWAY_DSN" [--dry-run]
 
 Sessions, the human inbox, run results, artifacts, trigger history, holds and the cluster-pinned definition set are

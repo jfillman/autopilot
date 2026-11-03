@@ -5,7 +5,7 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from autopilot import api_serve, serve
+from autopilot import api_serve, read_api, serve
 from autopilot.reads import BackstageCatalog, BackstageDirectory, BackstageOwnership
 
 EPH = {"AIRFRAME_ENABLED": "0"}
@@ -14,7 +14,8 @@ EPH = {"AIRFRAME_ENABLED": "0"}
 def test_needs_its_own_dsn():
     with pytest.raises(serve.ConfigError, match="GATEWAY_API_DSN"):
         api_serve.build(EPH)
-    for bad, msg in (({"GATEWAY_API_TABLES": "evidence"}, "GATEWAY_API_TABLES"), ({"GATEWAY_API_POOL": "x"}, "numbers"),
+    for bad, msg in (({"GATEWAY_API_TABLES": "clearance"}, "GATEWAY_API_TABLES is retired"),
+                     ({"GATEWAY_API_TABLES": "evidence"}, "GATEWAY_API_TABLES"), ({"GATEWAY_API_POOL": "x"}, "numbers"),
                      ({"GATEWAY_API_POOL": "99"}, "1 to 50")):
         with pytest.raises(serve.ConfigError, match=msg):
             api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway", **bad})
@@ -23,7 +24,7 @@ def test_needs_its_own_dsn():
 def test_builds_with_roles_and_catalog(tmp_path):
     tok = tmp_path / "t"
     tok.write_text("x")
-    cfg, access, app = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/clearance",
+    cfg, access, app = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway",
                                         "GATEWAY_API_AUDITORS": "user:jfillman", "GATEWAY_API_NOTIFIERS": "hangar-prod/*/backstage-ingestor",
                                         "CLEARANCE_DELEGATES": "hangar-prod/app-backstage-prod/backstage-ingestor",
                                         "BACKSTAGE_URL": "http://bs", "BACKSTAGE_TOKEN_FILE": str(tok),
@@ -41,14 +42,31 @@ def test_builds_with_roles_and_catalog(tmp_path):
         assert c.get("/v1/evidence").status_code == 404, "evidence is clearance-api's"
 
 
-def test_the_pre_r3c_names_still_configure_it():
-    """The Deployment's CLEARANCE_API_* names work until the cutover renames them (GATEWAY_API_* wins when both are set)."""
-    _, access, _ = api_serve.build({**EPH, "CLEARANCE_API_DSN": "postgresql://r@pg/clearance",
+def test_the_deployed_tables_value_is_accepted_and_reads_the_gateways_tables(monkeypatch):
+    """R-4: GATEWAY_API_TABLES=gateway, as the Deployment still sets it, starts the API for one release; the store reads
+    gateway_* whether it is set or not."""
+    stores = []
+
+    class Recording(read_api.PgReadStore):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            stores.append(self)
+    monkeypatch.setattr(read_api, "PgReadStore", Recording)
+    for extra in ({"GATEWAY_API_TABLES": "gateway"}, {}):
+        _, _, app = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway", **extra})
+        assert app is not None
+    assert len(stores) == 2
+    for store in stores:
+        assert all(t.startswith("gateway_") for t in store.t.values()), store.t
+
+
+def test_the_pre_r3c_names_no_longer_configure_it():
+    """The CLEARANCE_API_* fallbacks are gone (R-4): nothing deployed sets them, so they configure nothing."""
+    with pytest.raises(serve.ConfigError, match="GATEWAY_API_DSN"):
+        api_serve.build({**EPH, "CLEARANCE_API_DSN": "postgresql://r@pg/clearance"})
+    _, access, _ = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway",
                                     "CLEARANCE_API_AUDITORS": "user:old", "CLEARANCE_API_NOTIFIERS": "ns/old"})
-    assert access.auditors == ("user:old",) and access.notifiers == ("ns/old",)
-    _, access, _ = api_serve.build({**EPH, "CLEARANCE_API_DSN": "postgresql://r@pg/clearance",
-                                    "CLEARANCE_API_AUDITORS": "user:old", "GATEWAY_API_AUDITORS": "user:new"})
-    assert access.auditors == ("user:new",)
+    assert access.auditors == () and access.notifiers == ()
 
 
 def test_ownership_is_the_components_you_or_your_teams_own(tmp_path):

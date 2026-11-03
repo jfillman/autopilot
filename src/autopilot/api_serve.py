@@ -7,13 +7,13 @@ BackstageOwnership), as the gateway's human inbox reads them. It serves the runt
 (evidence, receipts, provenance, clearances, policy) are clearance-api's (the Go `clearance api`), named in
 /v1/contract as CLEARANCE_API_URL.
 
-Environment (README "Running the read API"; each GATEWAY_API_* falls back to the CLEARANCE_API_* name it replaces):
-  GATEWAY_API_DSN           the read-only role's DSN (required)
-  GATEWAY_API_TABLES        clearance (clearance v0.26.1's tables, on clearance-pg) or gateway (the gateway's own
-                            database, R-3b); default clearance
+Environment (README "Running the read API"):
+  GATEWAY_API_DSN           the read-only role's DSN on the gateway's own database (required); it reads gateway_* only
+  GATEWAY_API_TABLES        retired at R-4: `gateway` (what the Deployment still sets) is accepted and ignored for one
+                            release, anything else is refused; apron drops it before the next
   GATEWAY_API_POOL (5), GATEWAY_API_AUDITORS, GATEWAY_API_NOTIFIERS, CLEARANCE_DELEGATES   principal globs, comma-separated
   CLEARANCE_AGENTS_DIR      the bundled agent definitions (default: the image's agents/); the ones Agent XRs pin come
-                            from the gateway's store (<tables>_definitions), refreshed every GATEWAY_API_DEFINITIONS_INTERVAL s (30)
+                            from the gateway's store (gateway_definitions), refreshed every GATEWAY_API_DEFINITIONS_INTERVAL s (30)
   CLEARANCE_GATEWAY_URL     where writes go, named in /v1/contract as `gateway`
   CLEARANCE_API_URL         where Clearance's reads are, named in /v1/contract as `clearance`
   PORT (8080), and the gateway's auth and catalog variables (CLEARANCE_AUDIENCE, CLEARANCE_OIDC_*, TOWER_*,
@@ -39,16 +39,16 @@ def build(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
 
     def get(k: str, d: str | None = None) -> str | None:
-        # GATEWAY_API_X, else the CLEARANCE_API_X the read API was configured with before R-3c, else the default.
-        legacy = "CLEARANCE_API_" + k[len("GATEWAY_API_"):] if k.startswith("GATEWAY_API_") else None
-        return env.get(k) or (env.get(legacy) if legacy else None) or d
+        return env.get(k) or d
 
     dsn = get("GATEWAY_API_DSN")
     if not dsn:
         raise serve.ConfigError("GATEWAY_API_DSN is required (the read-only role's DSN)")
-    tables = get("GATEWAY_API_TABLES", "clearance")
-    if tables not in read_api.TABLE_PREFIXES:
-        raise serve.ConfigError(f"GATEWAY_API_TABLES is one of {', '.join(read_api.TABLE_PREFIXES)}, not {tables!r}")
+    # Retired at R-4: the read API reads only the gateway's own tables. `gateway` is accepted (the deployed value) until
+    # apron drops the variable; `clearance` (clearance v0.26.1's tables on clearance-pg) is no longer served.
+    if get("GATEWAY_API_TABLES", "gateway") != "gateway":
+        raise serve.ConfigError(f"GATEWAY_API_TABLES is retired (the read API reads only gateway_*): unset it, "
+                                f"not {env['GATEWAY_API_TABLES']!r}")
     try:
         pool_size = int(get("GATEWAY_API_POOL", "5"))
         interval = float(get("GATEWAY_API_DEFINITIONS_INTERVAL", "30"))
@@ -69,7 +69,7 @@ def build(env: Mapping[str, str] | None = None):
     access = read_api.Access(serve.build_auth(cfg), defs, delegates=cfg.delegates,
                              notifiers=serve._list(get("GATEWAY_API_NOTIFIERS", "")),
                              auditors=serve._list(get("GATEWAY_API_AUDITORS", "")), directory=directory, ownership=ownership)
-    store = read_api.PgReadStore(read_api.Pool(dsn, size=pool_size), prefix=tables)
+    store = read_api.PgReadStore(read_api.Pool(dsn, size=pool_size))
     # The cluster-pinned definitions the gateway loaded, from its store: this process fetches and decides nothing.
     DefinitionsRefresher(defs, store, interval=interval).start()
     app = read_api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"),

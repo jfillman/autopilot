@@ -192,38 +192,30 @@ def test_a_failed_connect_gives_its_pool_slot_back():
     assert "default_transaction_read_only=on" in calls[-1] and "statement_timeout=5000" in calls[-1]
 
 
-def test_the_store_takes_only_its_two_table_sets():
-    with pytest.raises(ValueError):
-        api.PgReadStore(None, prefix="clearance_sessions; DROP TABLE x")
-    assert api.PgReadStore(None, prefix="gateway").t["sessions"] == "gateway_sessions"
+def test_the_store_reads_only_the_gateways_tables():
+    """R-4: clearance v0.26.1's clearance_* runtime tables are no longer a choice."""
+    store = api.PgReadStore(None)
+    assert set(store.t.values()) == {f"gateway_{t}" for t in ("sessions", "results", "human_requests", "events", "holds",
+                                                              "definitions")}
+    with pytest.raises(TypeError):
+        api.PgReadStore(None, prefix="clearance")
 
 
 # -- Postgres ----------------------------------------------------------------------------------------------------
 
-def _schema(prefix):
-    """The table set as its writer creates it: clearance v0.26.1's pg.py, or the gateway's own (engine/pg.py, R-3b)."""
-    if prefix == "gateway":
-        try:
-            from autopilot.engine.pg import SCHEMA
-            return SCHEMA
-        except ImportError:
-            pass
-    sql = (ROOT / "tests" / "fixtures" / "clearance-v0.26.1-schema.sql").read_text()
-    return sql.replace("clearance_", f"{prefix}_")
-
-
-@pytest.fixture(params=api.TABLE_PREFIXES)
-def pg(request):
+@pytest.fixture
+def pg():
     if not DSN:
         pytest.skip("set GATEWAY_TEST_DSN to a scratch Postgres")
     psycopg = pytest.importorskip("psycopg")
     from psycopg.types.json import Jsonb
-    p = request.param
+    from autopilot.engine.pg import SCHEMA  # the table set as its writer creates it (R-3b)
+    p = "gateway"
     tables = [f"{p}_{t}" for t in ("sessions", "results", "human_requests", "events", "holds", "definitions", "artifacts",
-                                    "evidence", "changes", "outbox")]
+                                    "outbox")]
     with psycopg.connect(DSN, autocommit=True) as c:
         c.execute("DROP TABLE IF EXISTS " + ", ".join(tables))
-        c.execute(_schema(p))
+        c.execute(SCHEMA)
         exp = NOW + timedelta(hours=1)
         for s in SESSIONS + [{**SESSIONS[0], "id": "s-9", "task_id": "t-0", "created_at": "2026-10-30T12:09:00Z", "parent": "s-0"},
                              {**SESSIONS[0], "id": "s-c", "created_at": "2026-10-30T11:00:00Z", "closed": True}]:
@@ -246,7 +238,7 @@ def pg(request):
                   (exp, Jsonb({"agent": "triage-agent", "by": "user:root"}), NOW - timedelta(minutes=1), Jsonb({"agent": "orchestrator"})))
         c.execute(f"INSERT INTO {p}_definitions (name, state, record) VALUES ('gate-triage', 'loaded', %s)", (Jsonb({"name": "gate-triage"}),))
     pool = api.Pool(DSN, size=2)
-    yield api.PgReadStore(pool, clock=lambda: NOW, prefix=p), pool
+    yield api.PgReadStore(pool, clock=lambda: NOW), pool
     with psycopg.connect(DSN, autocommit=True) as c:
         c.execute("DROP TABLE IF EXISTS " + ", ".join(tables))
 
@@ -283,8 +275,10 @@ def test_pg_reads_are_scoped_and_read_only(pg, defs):
         pool.run(f"DELETE FROM {store.t['sessions']}")
 
 
-def test_pg_readyz_fails_on_the_wrong_table_set(pg):
+def test_pg_readyz_fails_without_the_gateways_tables(pg):
     store, pool = pg
-    other = "gateway" if store.t["sessions"].startswith("clearance") else "clearance"
+    import psycopg
+    with psycopg.connect(DSN, autocommit=True) as c:
+        c.execute("DROP TABLE gateway_sessions")
     with pytest.raises(Exception):
-        api.PgReadStore(pool, prefix=other).ping()
+        store.ping()

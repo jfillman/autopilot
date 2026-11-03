@@ -10,9 +10,8 @@ same paths, parameters, answers, status codes and roles (R-3c): the nine operati
 
 It reads the gateway's tables through its own read-only DSN, never the writer lock, so reads never queue behind
 agents' tool calls and the API can run several replicas. It writes nothing: answering a human request, the person
-controls and running an agent stay on the gateway. The tables are clearance v0.26.1's (`clearance_*`, on clearance-pg
-until the cutover) or the gateway's own database's (`gateway_*`, R-3b): the same shapes under another prefix, chosen by
-GATEWAY_API_TABLES.
+controls and running an agent stay on the gateway. The tables are the gateway's own database's (`gateway_*`, R-3b,
+engine/pg.py); clearance v0.26.1's `clearance_*` runtime tables on clearance-pg are no longer read (R-4, the cutover).
 
 Who sees what (`Viewer`):
   auditor    every read (GATEWAY_API_AUDITORS)
@@ -39,7 +38,6 @@ API_VERSION = "v1"
 MAX_LIMIT = 200
 DEFAULT_LIMIT = 50
 STATEMENT_TIMEOUT_MS = 5000
-TABLE_PREFIXES = ("clearance", "gateway")
 
 PERSON_ROLES = ("person", "delegate", "auditor")
 ROUTES: tuple[dict[str, Any], ...] = (
@@ -217,19 +215,14 @@ def _session_view(r: dict[str, Any], now: datetime) -> dict[str, Any]:
 
 
 class PgReadStore:
-    """ReadStore on the gateway's tables (clearance pg.py SCHEMA at v0.26.1, or the gateway's own database's: the same
-    shapes, `prefix` clearance or gateway). The lists (sessions, events) are scoped by the viewer in SQL; one session,
-    a task's sessions and the pending inbox are read whole and filtered by the HTTP layer; holds and definitions are
-    not per person."""
+    """ReadStore on the gateway's own tables (engine/pg.py SCHEMA, `gateway_*`). The lists (sessions, events) are
+    scoped by the viewer in SQL; one session, a task's sessions and the pending inbox are read whole and filtered by the
+    HTTP layer; holds and definitions are not per person."""
 
-    def __init__(self, pool: Pool, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 prefix: str = "clearance"):
-        if prefix not in TABLE_PREFIXES:
-            raise ValueError(f"tables are one of {', '.join(TABLE_PREFIXES)}")
+    def __init__(self, pool: Pool, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self.pool, self.now = pool, clock
-        # A fixed identifier from TABLE_PREFIXES, never caller input, so it is safe to place in the SQL.
-        p = prefix
-        self.t = {k: f"{p}_{k}" for k in ("sessions", "results", "human_requests", "events", "holds", "definitions")}
+        # Fixed identifiers, never caller input, so they are safe to place in the SQL.
+        self.t = {k: f"gateway_{k}" for k in ("sessions", "results", "human_requests", "events", "holds", "definitions")}
 
     @staticmethod
     def _session_scope(v: Viewer, alias: str = "s") -> tuple[str, list[Any]]:
