@@ -33,7 +33,6 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from . import control, inbox
 from .core import OUTAGE_RULE
 from .dispatch import AuthError, Authenticator, Gateway
-from .modelproxy import charged_tokens
 
 
 class GatewayTokenVerifier:
@@ -281,6 +280,7 @@ class StreamUsage:
 
     def __init__(self):
         self.usage: dict[str, Any] = {}
+        self.model: str | None = None   # message_start's message.model: the model that answered (AP-C1)
         self._buf = b""
 
     def feed(self, chunk: bytes) -> None:
@@ -295,6 +295,8 @@ class StreamUsage:
                 continue
             if not isinstance(ev, dict):
                 continue
+            if ev.get("type") == "message_start" and isinstance((ev.get("message") or {}).get("model"), str):
+                self.model = ev["message"]["model"]
             u = (ev.get("message") or {}).get("usage") if ev.get("type") == "message_start" else ev.get("usage")
             if ev.get("type") in ("message_start", "message_delta") and isinstance(u, dict):
                 self.usage.update({k: v for k, v in u.items() if isinstance(v, (int, float))})
@@ -322,9 +324,9 @@ def _error(status: int, kind: str, message: str, rule: str | None = None) -> JSO
 
 
 def _locked(gateway: Gateway, fn: Callable[..., Any]) -> Callable[..., Any]:
-    def run(*a):
+    def run(*a, **kw):
         with gateway.lock:
-            return fn(*a)
+            return fn(*a, **kw)
     return run
 
 
@@ -337,7 +339,8 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
     session's model allowlist, network mode, breaker and token budget, recorded in the evidence chain), forwarded
     to the route's upstream with the provider key read from `key_file` on every call (never logged, never
     returned), and its actual usage charged back with Gateway.model_usage, weighted by modelproxy.USAGE_WEIGHTS (a
-    prompt-cache read costs a tenth of an input token). Only the request body is forwarded, with `model` rewritten
+    prompt-cache read costs a tenth of an input token). Every allowed call's outcome goes to the core however it
+    ended, with the model that answered and the usage and charge (A-4: the cost the counts sum). Only the request body is forwarded, with `model` rewritten
     to the route's upstream model, and of the client's headers only anthropic-beta (less OAuth's, _betas).
 
     Streaming (v0.26.0, `"stream": true`, which Claude Code and the Agent SDK always send): decided the same way,
@@ -387,30 +390,43 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
         extra = {"betas": betas} if betas else {}
         url, key = d.route.upstream.rstrip("/") + "/v1/messages", key_path.read_text().strip()
         if payload.get("stream"):
-            return await _relay(session_id, url, key, version, body, extra)
+            return await _relay(session_id, d, url, key, version, body, extra)
         try:
             status, out = await anyio.to_thread.run_sync(
                 functools.partial(post, url, key, version, body, timeout, **extra))
         except OSError:
+            await _done(session_id, d, None, None, "error:ProviderUnreachable")
             return _error(502, "api_error", "the model provider is unreachable")
         try:
             doc = json.loads(out)
         except ValueError:
+            await _done(session_id, d, None, None, f"error:http-{status}")
             return _error(502, "api_error", f"the model provider answered {status} with no JSON")
         usage = doc.get("usage") if isinstance(doc, dict) else None
-        if isinstance(usage, dict):
-            used = charged_tokens(usage)
-            await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
+        answered = doc.get("model") if isinstance(doc, dict) else None
+        await _done(session_id, d, usage if isinstance(usage, dict) else None, answered,
+                    "ok" if status == 200 else f"error:http-{status}")
         return JSONResponse(doc, status_code=status)
 
-    async def _relay(session_id: str, url: str, key: str, version: str, body: bytes, extra: dict) -> Response:
+    async def _done(session_id: str, d, usage: dict | None, answered: Any, result: str) -> None:
+        """The allowed call ran: its usage charged to the session (an overrun trips the breaker) and its outcome
+        reported to the core with the model that answered and what was charged (AP-C1, AP-C2), however it ended."""
+        version = answered if isinstance(answered, str) and answered else d.route.upstream_model
+        with anyio.CancelScope(shield=True):
+            await anyio.to_thread.run_sync(functools.partial(_locked(gateway, gateway.model_usage), session_id, usage,
+                                                             decision_id=d.decision_id, model_version=version,
+                                                             result=result))
+
+    async def _relay(session_id: str, d, url: str, key: str, version: str, body: bytes, extra: dict) -> Response:
         try:
             status, chunks = await anyio.to_thread.run_sync(
                 functools.partial(stream, url, key, version, body, timeout, **extra))
         except OSError:
+            await _done(session_id, d, None, None, "error:ProviderUnreachable")
             return _error(502, "api_error", "the model provider is unreachable")
         if status != 200:
             out = b"".join(chunks)
+            await _done(session_id, d, None, None, f"error:http-{status}")
             return Response(out, status_code=status, media_type="application/json")
         meter = StreamUsage()
 
@@ -426,10 +442,7 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
                 close = getattr(chunks, "close", None)
                 if close:
                     close()
-                if meter.usage:
-                    used = charged_tokens(meter.usage)
-                    with anyio.CancelScope(shield=True):
-                        await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
+                await _done(session_id, d, meter.usage or None, meter.model, "ok")
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"cache-control": "no-cache"})
 

@@ -28,14 +28,30 @@ USAGE_WEIGHTS = {"input_tokens": 1.0, "output_tokens": 1.0, "cache_creation_inpu
                  "cache_read_input_tokens": 0.1}
 
 
+# The usage kinds a model call's outcome record carries (clearance evidence `usage`, revision 3), every one present.
+USAGE_KINDS = tuple(USAGE_WEIGHTS)
+
+
 def charged_tokens(usage: dict) -> int:
     """The budget charge for one call's `usage` (Anthropic's shape), rounded up."""
     total = 0.0
     for k, w in USAGE_WEIGHTS.items():
         v = usage.get(k)
-        if isinstance(v, (int, float)) and v > 0:
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
             total += v * w
     return int(-(-total // 1))
+
+
+def usage_record(usage: dict | None) -> dict[str, int]:
+    """One call's `usage` as its outcome record carries it: each kind a non-negative integer (0 when the provider left
+    it out) and `charged_tokens`, what the session's budget was charged (charged_tokens: the weights above)."""
+    u = usage if isinstance(usage, dict) else {}
+    out = {}
+    for k in USAGE_KINDS:
+        v = u.get(k)
+        out[k] = int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else 0
+    out["charged_tokens"] = charged_tokens(out)
+    return out
 
 
 @dataclass(frozen=True)
@@ -53,6 +69,8 @@ class ModelDecision:
     message: str
     route: ModelRoute | None = None
     headers: dict[str, str] | None = None
+    # The core's decision id: the outcome (Gateway.model_usage) is reported against it.
+    decision_id: str | None = None
 
 
 class ModelProxy:
@@ -89,13 +107,16 @@ class ModelProxy:
         if route is None or s is None:   # the core allowed a model it was told is routed
             return ModelDecision(False, "M006", f"no route for model {model!r}")
         headers = {"x-modelplane-caller": s.id, "x-hangar-task": s.task_id}
-        return ModelDecision(True, None, v.message or "allowed", route, headers)
+        return ModelDecision(True, None, v.message or "allowed", route, headers, v.decision_id)
 
-    def record_usage(self, session_id: str, tokens: int) -> None:
-        """Charge what the model actually used. Overrunning the budget trips the breaker."""
+    def record_usage(self, session_id: str, tokens: int, usage: dict[str, int] | None = None) -> None:
+        """Charge what the model actually used. Overrunning the budget trips the breaker. `usage` (usage_record) is
+        added to the session's running cost (Session.usage: the read API's "on the session", run.finish's cost)."""
         s = self.store.get(session_id)
         if s is None:
             return
+        if usage is not None:
+            s.add_usage(usage)
         room = s.remaining("model_tokens")
         s.used["model_tokens"] += min(tokens, max(room, 0))
         if tokens > room:

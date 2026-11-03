@@ -65,6 +65,10 @@ OUTAGE_HINT = "Clearance is unreachable, so nothing that needs its decision runs
 # HR-003, ART-002. A rule outside it is sent without the refusal (the result line still names it).
 REFUSAL_RULE = re.compile(r"[A-Z][A-Z0-9]*(-[A-Z0-9]+)*")
 
+# A model version as the core takes it (internal/server/cost.go): a provider's model name. One that is not is left
+# off the outcome rather than have the core refuse the whole outcome.
+MODEL_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}")
+
 # PUT /v1/definitions carries the whole set (up to 256 pins, 4 MiB), so it gets its own client with a longer
 # timeout than the decision path's 250 ms, and its own breaker: a slow publish never opens the decisions' breaker.
 DEFINITIONS_TIMEOUT = 5.0
@@ -190,11 +194,13 @@ class Core:
 
     # -- outcomes and records ---------------------------------------------------------------------------------------
     def outcome(self, decision_id: str | None, result: str, effect: dict[str, Any] | None = None,
-                receipt: dict[str, Any] | None = None, *, refusal: tuple[str, str] | None = None) -> int | None:
+                receipt: dict[str, Any] | None = None, *, refusal: tuple[str, str] | None = None,
+                usage: dict[str, int] | None = None, model_version: str | None = None) -> int | None:
         """Report an allowed decision's result. Never raises: an outcome the core cannot take now waits in the
         outbox (the call already ran). `refusal` is (rule, message) when a handler refused the call after the core
         allowed it (Denied): the record keeps the decision's rule and adds the handler's as `refusal` (claimed). The
-        outcome record's seq, or None when it is queued."""
+        outcome record's seq, or None when it is queued. `usage` and `model_version` are a model call's (A-4): what it
+        used and was charged (modelproxy.usage_record), and the model that answered."""
         if not decision_id:
             return None
         body: dict[str, Any] = {"result": result}
@@ -202,6 +208,10 @@ class Core:
             body["effect"] = effect
         if receipt:
             body["receipt"] = receipt
+        if usage is not None:
+            body["usage"] = dict(usage)
+        if model_version and MODEL_VERSION.fullmatch(model_version):
+            body["model_version"] = model_version
         if refusal is not None:
             rule, message = refusal
             if len(rule) <= 64 and REFUSAL_RULE.fullmatch(rule) and message:

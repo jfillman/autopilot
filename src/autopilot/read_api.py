@@ -442,10 +442,15 @@ def create_api_app(store: ReadStore, access: Access, *, clock: Callable[[], date
         if not sessions:
             raise ApiError(404, "no such task")
         used: dict[str, int] = {}
+        cost: dict[str, int] = {}
         for s in sessions:
             for k, n in (s.get("used") or {}).items():
                 used[k] = used.get(k, 0) + int(n)
-        return {"task_id": req.path_params["task_id"], "sessions": sessions, "used": used}
+            # The task tree's cost (A-4): what each session's model calls used and were charged (Session.usage).
+            for k, n in (s.get("usage") or {}).items():
+                if isinstance(n, int) and not isinstance(n, bool):
+                    cost[k] = cost.get(k, 0) + n
+        return {"task_id": req.path_params["task_id"], "sessions": sessions, "used": used, "cost": cost}
 
     def human(req, v):
         since_s = req.query_params.get("since")
