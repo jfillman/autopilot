@@ -104,7 +104,10 @@ def test_the_fixture_contract_is_glidepaths():
     src = Path(os.environ.get("HANGAR_TECH", "/nonexistent")) / "glidepath" / "contract" / "glidepath-contract.json"
     if not src.exists():
         pytest.skip("no glidepath checkout under HANGAR_TECH (CI clones it)")
-    assert json.loads(contractsrv.FIXTURE.read_text())["contractVersion"] == json.loads(src.read_text())["contractVersion"]
+    fixture, live = json.loads(contractsrv.FIXTURE.read_text()), json.loads(src.read_text())
+    # The bundle reads the scope section; a stale copy of it would test the bundle against rules glidepath no longer has.
+    assert fixture["contractVersion"] == live["contractVersion"]
+    assert fixture["scope"] == live["scope"]
 
 
 # ---- through the gateway --------------------------------------------------------------------
