@@ -1,14 +1,14 @@
 """The boundary after R-3b: the gateway speaks to Clearance only through the core's API (engine/core.py and the
 generated client), and imports nothing from the `clearance` package. The one exception is the read API
-(`autopilot-gateway api`, api_serve.py), which R-3c moves off it; FakeGlidepath.validate_cicd (a test fake) borrows
-clearance's vendored cicd.yaml scope until R-5 reads it from glidepath-api."""
+(`autopilot-gateway api`, api_serve.py), which R-3c moves off it. Hangar's policy is a bundle the core loads
+(policy/hangar/bundle.json, R-5), not a clearance package."""
 import ast
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "autopilot"
 
 # file -> why it may still import clearance (R-3c, R-5)
-ALLOWED = {"api_serve.py": "the read API, R-3c", "backends.py": "FakeGlidepath, a test fake: R-5"}
+ALLOWED = {"api_serve.py": "the read API, R-3c"}
 
 
 def clearance_imports(path: Path) -> list[str]:

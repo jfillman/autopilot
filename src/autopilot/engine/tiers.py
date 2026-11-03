@@ -1,7 +1,7 @@
 """Tool tiers and the tool registry.
 
 The registry here is the core one: tools any Clearance deployment can offer. A pack (pack.py)
-contributes more, e.g. clearance.packs.hangar's glidepath.* and airframe.* tools.
+contributes more, e.g. Hangar's glidepath.* and airframe.* tools (autopilot.hangar_tools).
 
 T0 read-only. T1 reversible writes (a PR a human can revert, a lower-env sync, a child
 run). T2 propose-only: the tool may open a PR against an upper environment, but a human
@@ -107,6 +107,6 @@ def effective_tier_name(t: Tier) -> str:
 @dataclass(frozen=True)
 class Pack:
     """A family of tools not every deployment has (Hangar's glidepath.* and airframe.*: autopilot.hangar_tools). The
-    gateway registers its tools; their policy is the core's (CLEARANCE_PACKS on the core names the same pack)."""
+    gateway registers its tools; their policy is the core's (a policy bundle the core loads names the same tools)."""
     name: str
     tools: tuple[ToolSpec, ...] = ()

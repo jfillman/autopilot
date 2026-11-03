@@ -1,7 +1,7 @@
 """The Hangar Gateway: the gateway engine, Hangar's tools, and Hangar's backends.
 
 The engine (autopilot.engine.dispatch.Gateway, moved from clearance in R-3a) enforces; the Clearance core decides
-and records, over its API (autopilot.engine.core; the core runs the Hangar pack's policy, CLEARANCE_PACKS=hangar).
+and records, over its API (autopilot.engine.core; the core runs Hangar's policy bundle, policy/hangar/bundle.json).
 What this module adds is what the tools DO on Hangar: a handler per glidepath.* and airframe.* tool over the
 backends in backends.py, the core tools' handlers over the same bundle, and the run tree as AgentRun XRs.
 

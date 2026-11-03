@@ -16,15 +16,33 @@ def core_env() -> dict[str, str]:
 
 
 GATEWAY_PRINCIPAL = "autopilot-system/autopilot-gateway"
+ROOT = Path(__file__).resolve().parents[2]
+# Hangar's policy is a bundle the core loads (policy/hangar/bundle.json, Clearance v0.29.0+), plus the names Hangar
+# passes as configuration (policy/hangar/core-env.json). The bundle's one source, glidepath, is glidepath-api's
+# GET /v1/contract, which the test core fetches over HTTP at start from contractsrv (tests/conftest.py starts it;
+# AUTOPILOT_TEST_CONTRACT_URL and its token file are set before any core starts).
+HANGAR_BUNDLE = ROOT / "policy" / "hangar" / "bundle.json"
+HANGAR_CORE_ENV = {k: v for k, v in json.loads((ROOT / "policy" / "hangar" / "core-env.json").read_text()).items()
+                   if not k.startswith("$")}
+
+
+def bundle_env() -> dict[str, str]:
+    return {"CLEARANCE_BUNDLES": str(HANGAR_BUNDLE),
+            "CLEARANCE_BUNDLE_SOURCES": json.dumps({"glidepath": {
+                "url": os.environ["AUTOPILOT_TEST_CONTRACT_URL"],
+                "tokenFile": os.environ["AUTOPILOT_TEST_CONTRACT_TOKEN_FILE"]}}),
+            "CLEARANCE_BUNDLE_SOURCE_WAIT": "5s"}
+
+
 CORE_ENV = {
     # The gateway publishes its cluster-pinned definitions (PUT /v1/definitions): "definitions": true.
     "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": "test",
                                         "principals": [GATEWAY_PRINCIPAL], "definitions": True}]),
-    "CLEARANCE_PACKS": "hangar",
+    **HANGAR_CORE_ENV,
     # Provenance is the core's (tests/test_glidepath_tools.py asks it about an agent's PR): the CI gate's verifier
     # identity, and the platform's bundled definitions, which name the agents' trailers it checks.
     "CLEARANCE_VERIFIERS": "app-*-cicd/pipeline-runner",
-    "CLEARANCE_AGENTS_DIR": str(Path(__file__).resolve().parents[2] / "agents"),
+    "CLEARANCE_AGENTS_DIR": str(ROOT / "agents"),
 }
 
 # The unmodified core: an in-memory store, `Bearer <principal>` as that principal (which also serves the chain at
@@ -53,7 +71,7 @@ class CoreProcess:
     `addr` of its "clearance core serving" line."""
 
     def __init__(self, binary: Path, env: dict[str, str] | None = None):
-        self.binary, self.env = binary, {**CORE_ENV, **(env or {})}
+        self.binary, self.env = binary, {**CORE_ENV, **bundle_env(), **(env or {})}
         self.proc = None
         self.url = ""
         self.log_path: Path | None = None
@@ -159,3 +177,62 @@ def verify_chain() -> tuple[bool, int | None]:
             return False, r["seq"]
         prev = r["hash"]
     return True, None
+
+
+# -- asking the test core directly ---------------------------------------------------------------------------------
+# What a test that used to call Clearance's Python pack in-process (cicd_scope_problems, glidepath_bad_args) asks now:
+# the core, running Hangar's bundle, over POST /access/v1/evaluation.
+
+def _session(tools: list[str]) -> dict[str, Any]:
+    zero = {"tool_calls": 0, "github_calls": 0, "open_prs": 0, "model_tokens": 0, "children": 0}
+    return {"id": "s-probe", "principal": "user:probe", "agent": "probe", "task_id": "t-probe", "parent_id": None,
+            "depth": 0, "limits": {"tier_ceiling": "T2", "ttl_minutes": 30, "tool_calls": 100, "github_calls": 100,
+                                   "open_prs": 5, "model_tokens": 0, "children": 0, "tools": tools, "models": [],
+                                   "network": "clearance", "compute": "small"},
+            "used": zero, "reserved": zero, "expires_at": "2099-01-01T00:00:00Z", "closed": False, "tripped": False,
+            "denials": 0}
+
+
+def core_decide(tool: str, args: dict[str, Any], profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The test core's decision on one tool call by a session that may call it (T2, any repo): {decision, context}."""
+    scope = {"agent_kind": "task", "deny_paths": [], "repos_allow": ["*", "*/*"], "api_allow": [], "field_deny": [],
+             "field_allow": []}
+    if profile is not None:
+        scope["profile"] = profile
+    req = {"subject": {"type": "principal", "id": "user:probe", "properties": {"kind": "user", "tier_ceiling": 2}},
+           "action": {"name": "tool.call", "properties": {"args": args}},
+           "resource": {"type": "tool", "id": tool},
+           "context": {"now": "2026-09-26T12:00:00Z", "session_id": "s-probe", "session": _session([tool]), "scope": scope}}
+    r = urllib.request.Request(os.environ["AUTOPILOT_TEST_CORE_URL"] + "/access/v1/evaluation", method="POST",
+                               data=json.dumps(req).encode(), headers={"Content-Type": "application/json",
+                                                                         "Authorization": f"Bearer {GATEWAY_PRINCIPAL}"})
+    with urllib.request.urlopen(r, timeout=10) as resp:
+        return json.load(resp)
+
+
+def scope_problems(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The cicd.yaml scope findings (R021, GP-SCOPE-*) the core gives an agent PR carrying these files."""
+    out = core_decide("repo.pr.open", {"repo": "jfillman/probe", "branch": "agent/probe", "title": "probe", "files": files})
+    ctx = out["context"]
+    if out["decision"]:
+        return []
+    assert ctx["name"] == "cicd-scope", ctx
+    return ctx["problems"]
+
+
+def bad_arguments(tool: str, args: dict[str, Any]) -> bool:
+    """Whether the core refuses these arguments as malformed (R008)."""
+    return core_decide(tool, args)["context"].get("rule") == "R008"
+
+
+def merge_patch(target: Any, patch: Any) -> Any:
+    """RFC 7386, as glidepath-api and the core apply a cicd.yaml merge patch."""
+    if not isinstance(patch, dict):
+        return patch
+    out = dict(target) if isinstance(target, dict) else {}
+    for k, v in patch.items():
+        if v is None:
+            out.pop(k, None)
+        else:
+            out[k] = merge_patch(out.get(k), v)
+    return out

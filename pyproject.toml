@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # the same tag (.github/workflows/test.yaml CLEARANCE_REF), so the two move together.
 # The `clearance` package itself is only the read API's (`autopilot-gateway api`, api_serve.py) until R-3c: the `api`
 # extra, which the image installs.
-dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@v0.28.0#subdirectory=clients/python",
+dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@v0.29.0#subdirectory=clients/python",
                 "jsonschema>=4.20", "pyyaml>=6", "mcp>=2", "pyjwt[crypto]>=2.8", "uvicorn>=0.30",
                 "psycopg[binary]>=3.2"]
 

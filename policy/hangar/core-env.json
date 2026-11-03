@@ -1,0 +1,16 @@
+{
+  "$comment": "What the Hangar deployment passes the Clearance core and clearance-api besides its bundle (policy/hangar/bundle.json): the names that were compiled into Clearance before v0.29.0 (R-5) and are now configuration. Apron renders these as the chart's policy.environments, vocabulary and gate.agentLogins values; autopilot's test core runs with them (tests/clearance_core/coreenv.py).",
+  "CLEARANCE_ENV_LOWER_NAMES": "dev,development,sandbox,scratch",
+  "CLEARANCE_ENV_LOWER_PREFIXES": "pr-,agent-",
+  "CLEARANCE_ENV_LOWER_PROJECT_SUFFIXES": "-lower",
+  "CLEARANCE_ENV_UPPER_REPO_PREFIXES": "gitops-",
+  "CLEARANCE_ON_BEHALF_OF_HEADER": "X-Hangar-On-Behalf-Of",
+  "CLEARANCE_TRAILER_PREFIX": "Hangar-",
+  "CLEARANCE_RUN_IDENTITY_NAMESPACE": "autopilot-runs",
+  "CLEARANCE_BASELINE_DENY_PATHS": ".tekton/**,**/.tekton/**,CODEOWNERS,**/CODEOWNERS,.github/**,**/appproject*.yaml,**/AppProject*.yaml,release.yaml,**/release.yaml,*.release.yaml,**/*.release.yaml",
+  "CLEARANCE_BASELINE_DENY_FIELDS": "/extraManifests,/networkPolicy,/httpRoute,/release,/releaseTracking,/rollout/image",
+  "CLEARANCE_GATE_OUTSIDE_GROUPS": "group:default/admins",
+  "CLEARANCE_GATE_OWNER_FALLBACK": "group:default/admins",
+  "CLEARANCE_V0_PROVIDER": "autopilot-gateway/unrecorded",
+  "AGENT_LOGINS": "hangar-autopilot-agents[bot]"
+}

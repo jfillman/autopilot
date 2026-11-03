@@ -83,6 +83,9 @@ class FakeRuns(Recorder):
         self.manifests.pop(name, None)
 
 
+# A side of a change with no value (the fake validator's diff).
+MISSING = object()
+
 class FakeGlidepath(Recorder):
     def runs(self, app, since_hours, limit, on_behalf_of):
         self._rec("glidepath.runs", app, since_hours, limit, on_behalf_of=on_behalf_of)
@@ -183,10 +186,34 @@ class FakeGlidepath(Recorder):
                  "governance": {"sast": True, "imageScan": True},
                  "pipelines": {"ci": {"trigger": {"source": "git", "event": "push", "branch": "main"}, "steps": [{"stage": "build"}]}}}
 
+    @staticmethod
+    def _merge_patch(target, patch):
+        """RFC 7386, as glidepath-api applies a cicd.yaml patch."""
+        if not isinstance(patch, dict):
+            return patch
+        out = dict(target) if isinstance(target, dict) else {}
+        for k, v in patch.items():
+            if v is None:
+                out.pop(k, None)
+            else:
+                out[k] = FakeGlidepath._merge_patch(out.get(k), v)
+        return out
+
+    @staticmethod
+    def _changes(base, head, ptr=""):
+        """(pointer, before, after) of every changed leaf, MISSING where a side has none; lists are leaves (the fake's
+        changes are field-level, enough for the propose handler's paths)."""
+        if base == head and type(base) is type(head):
+            return []
+        if isinstance(base, dict) and isinstance(head, dict):
+            out = []
+            for k in dict.fromkeys([*base, *head]):
+                out += FakeGlidepath._changes(base.get(k, MISSING), head.get(k, MISSING), f"{ptr}/{k}")
+            return out
+        return [(ptr, base, head)]
+
     def validate_cicd(self, app, body, on_behalf_of):
         self._rec("glidepath.validate_cicd", app, body, on_behalf_of=on_behalf_of)
-        from clearance.packs.hangar.cicd import merge_patch
-        from clearance.packs.hangar.vendor.cicd_scope import MISSING, changes
         import yaml
         base_info = {"repo": f"jfillman/{app}", "ref": body.get("baseRef") or "HEAD", "sha": "a" * 40, "present": True}
         if app == "unknown-app":   # not onboarded: glidepath-api knows no such app
@@ -202,9 +229,9 @@ class FakeGlidepath(Recorder):
                             {"pointer": "/", "rule": "GP-YAML-001", "severity": "error", "message": "cicd.yaml is not a mapping",
                              "hint": "a cicd.yaml is a YAML mapping starting with apiVersion: platform/v1"}]}
         else:
-            head = merge_patch(self.CICD_BASE, body.get("patch") or {})
+            head = self._merge_patch(self.CICD_BASE, body.get("patch") or {})
         out_changes = []
-        for ptr, b, h in changes(self.CICD_BASE, head):
+        for ptr, b, h in self._changes(self.CICD_BASE, head):
             c = {"pointer": ptr, "change": "removed" if h is MISSING else "added" if b is MISSING else "changed",
                  "agentScope": "tighten" if ptr.startswith("/governance/") else "open"}
             if b is not MISSING:

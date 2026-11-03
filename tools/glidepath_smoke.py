@@ -28,8 +28,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from autopilot.engine import profile  # noqa: E402
-# The Clearance core decides (R-3b): a local `clearance core --memory --insecure-dev-auth` (CLEARANCE_PACKS=hangar,
-# CLEARANCE_PROVIDERS naming autopilot-gateway) at CLEARANCE_CORE_URL (default http://127.0.0.1:8090).
+# The Clearance core decides (R-3b): a local `clearance core --memory --insecure-dev-auth` running Hangar's policy
+# (CLEARANCE_BUNDLES=policy/hangar/bundle.json, CLEARANCE_BUNDLE_SOURCES naming glidepath's contract, the names in
+# policy/hangar/core-env.json; R-5) and CLEARANCE_PROVIDERS naming autopilot-gateway, at CLEARANCE_CORE_URL (default
+# http://127.0.0.1:8090).
 from autopilot.engine.core import local_core  # noqa: E402
 from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from autopilot.gateway import hangar_gateway  # noqa: E402

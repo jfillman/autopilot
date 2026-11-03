@@ -1,0 +1,678 @@
+{
+  "apiVersion": "clearance.policy/v1",
+  "name": "hangar",
+  "version": "1.0.0",
+  "description": "Hangar's policy over the Autopilot gateway's glidepath.* and airframe.* tools: R021 Glidepath's cicd.yaml field scope (read from glidepath-api's contract at load) on any file-writing tool, R022 and R023 the per-agent app allowlists (profile.glidepath.apps, profile.airframe.apps), and the tools' argument checks (R008).",
+  "tools": [
+    {
+      "name": "glidepath.runs.list",
+      "tier": 0,
+      "description": "List an app's CI/CD runs, newest first (sinceHours, limit optional)",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.run.get",
+      "tier": 0,
+      "description": "Read one run: its PipelineRun and TaskRuns",
+      "required_args": [
+        "app",
+        "result"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.logs.get",
+      "tier": 0,
+      "description": "Read one TaskRun's archived step logs",
+      "required_args": [
+        "app",
+        "result",
+        "taskRun"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.explain",
+      "tier": 0,
+      "description": "Why a run failed: a knownFailures id, its hint and the cicd.yaml field to change",
+      "required_args": [
+        "app",
+        "result"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.releases.get",
+      "tier": 0,
+      "description": "Read an app's release records, or one by chainId",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.run.rerun",
+      "tier": 1,
+      "description": "Re-run a PipelineRun (a copy of its spec); retrying the same call starts no second run",
+      "required_args": [
+        "app",
+        "pipelinerun"
+      ],
+      "github_cost": 0,
+      "target": "lower",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.run.cancel",
+      "tier": 1,
+      "description": "Cancel a running PipelineRun (its finally tasks still run)",
+      "required_args": [
+        "app",
+        "pipelinerun"
+      ],
+      "github_cost": 0,
+      "target": "lower",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.contract",
+      "tier": 0,
+      "description": "Glidepath's contract: cicd.yaml fields and agent scope, gates, states, knownFailures",
+      "required_args": [],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.live.list",
+      "tier": 0,
+      "description": "An app's PipelineRuns in the cluster now (running, and finished within the hour), each with its TaskRuns and their step containers",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.live.watch",
+      "tier": 0,
+      "description": "Follow one live PipelineRun until it finishes or timeoutSeconds (1-120, default 60) passes; returns its state then and every task change seen",
+      "required_args": [
+        "app",
+        "pipelinerun"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.live.logs.get",
+      "tier": 0,
+      "description": "Read a running TaskRun's step log (container: step-<name>, from glidepath.live.list)",
+      "required_args": [
+        "app",
+        "taskRun",
+        "container"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.releaseRun.get",
+      "tier": 0,
+      "description": "Where a promote or rollback release run is: its tasks, the PR it opened and the change request (name: the pipelineRun promote or rollback returned)",
+      "required_args": [
+        "app",
+        "name"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.evidence.get",
+      "tier": 0,
+      "description": "An app image's supply-chain evidence: its attestations (build provenance, SBOM, scans, promotion) and whether each verifies (image: ghcr.io/<owner>/<app>...)",
+      "required_args": [
+        "app",
+        "image"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.tests.list",
+      "tier": 0,
+      "description": "An app's Testkube test runs, newest first (limit 1-200 optional)",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.tests.report",
+      "tier": 0,
+      "description": "One test run's JUnit report (id from glidepath.tests.list)",
+      "required_args": [
+        "app",
+        "id"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.events.recent",
+      "tier": 0,
+      "description": "An app's recent CDEvents, oldest first (type: a CDEvent type prefix; since: an event id or RFC 3339 time; limit optional)",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.previews.list",
+      "tier": 0,
+      "description": "An app's preview environments, one per PR labelled preview: the PR, image, Argo CD sync and health, and the port-forward that reaches it",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.environments.list",
+      "tier": 0,
+      "description": "An app's release plan: its environments in promotion order, Ground (lower) and Flight (upper, with cluster)",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.environments.rollbackPlan",
+      "tier": 0,
+      "description": "A Flight environment's current release and the earlier healthy releases it may roll back to (newest first)",
+      "required_args": [
+        "app",
+        "env",
+        "cluster"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.promote",
+      "tier": 2,
+      "description": "Propose promoting to the next Flight environment: starts the release run that opens the gitops PR a human merges (sourceEnv+sourceCluster, or sourceImageRepo+sourceImageTag for a first deploy; dryRun checks everything and starts nothing); retrying the same call starts no second run",
+      "required_args": [
+        "app",
+        "env",
+        "cluster"
+      ],
+      "github_cost": 0,
+      "target": "upper",
+      "propose_only": true,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.rollback",
+      "tier": 2,
+      "description": "Propose rolling a Flight environment back to one of its rollback plan's targets: starts the rollback release run whose PR a human merges (dryRun starts nothing); retrying the same call starts no second run",
+      "required_args": [
+        "app",
+        "env",
+        "cluster",
+        "targetReleaseId",
+        "reason"
+      ],
+      "github_cost": 0,
+      "target": "upper",
+      "propose_only": true,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.cicd.validate",
+      "tier": 0,
+      "description": "What a cicd.yaml change (a JSON merge patch) would mean for an app: valid or not, each finding with its rule and fix, every field it touches with its scope, the resulting file (baseRef optional)",
+      "required_args": [
+        "app",
+        "patch"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "glidepath.cicd.propose",
+      "tier": 1,
+      "description": "Propose a cicd.yaml change: validated by glidepath-api as an agent's change and refused with the GP rule when invalid, else opened as a pull request on the app's repo (repo: owner/<app>) that a human merges; title required, body and branch optional",
+      "required_args": [
+        "app",
+        "repo",
+        "patch",
+        "title"
+      ],
+      "github_cost": 4,
+      "target": "lower",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": true,
+      "receipt": [
+        "pr",
+        "commit",
+        "branch"
+      ]
+    },
+    {
+      "name": "airframe.capabilities",
+      "tier": 0,
+      "description": "What Airframe offers: chart fields, XR kinds, components and their outputs, conditions and verify checks (kind or section optional)",
+      "required_args": [],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "airframe.validate",
+      "tier": 0,
+      "description": "Validate proposed env-file or values content with airframe-validate: AF-* rule ids, JSON paths and fix hints (documents: [{path, content}])",
+      "required_args": [
+        "documents"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "airframe.explain",
+      "tier": 0,
+      "description": "What an AF-* rule id, a condition reason or a knownFailures id means, and how to fix it",
+      "required_args": [
+        "rule"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "airframe.plan",
+      "tier": 0,
+      "description": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
+      "required_args": [
+        "spec"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "airframe.status",
+      "tier": 0,
+      "description": "An app's (or one environment's) XR conditions: reason, hint, stale-status detection",
+      "required_args": [
+        "app"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "airframe.describe",
+      "tier": 0,
+      "description": "One environment: its XRs, the Argo CD Application syncing it and its Rollout",
+      "required_args": [
+        "app",
+        "env"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    },
+    {
+      "name": "airframe.verify",
+      "tier": 0,
+      "description": "Run an XR's sidecar verify checks from its status alone; anything needing a Secret, port-forward or exec is skipped with the reason",
+      "required_args": [
+        "app",
+        "kind",
+        "name"
+      ],
+      "github_cost": 0,
+      "target": "none",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": []
+    }
+  ],
+  "pr_tools": [
+    "glidepath.cicd.propose"
+  ],
+  "profile_sections": [
+    "glidepath",
+    "airframe"
+  ],
+  "sources": [
+    {
+      "name": "glidepath",
+      "version_pointer": "/contractVersion",
+      "compatible": [
+        1
+      ]
+    }
+  ],
+  "vars": [
+    {
+      "name": "has_glidepath_app",
+      "type": "bool",
+      "expr": "tool.name.startsWith('glidepath.') && 'app' in args && type(args['app']) == string"
+    },
+    {
+      "name": "glidepath_app_ok",
+      "type": "bool",
+      "expr": "!(ctx.has_glidepath_app && args['app'] != '') || glob.any(args['app'], py.strlist(py.get(py.get(profile, 'glidepath'), 'apps')))"
+    },
+    {
+      "name": "has_airframe_app",
+      "type": "bool",
+      "expr": "tool.name.startsWith('airframe.') && 'app' in args && type(args['app']) == string"
+    },
+    {
+      "name": "airframe_app_ok",
+      "type": "bool",
+      "expr": "!(ctx.has_airframe_app && args['app'] != '') || glob.any(args['app'], py.strlist(py.get(py.get(profile, 'airframe'), 'apps')))"
+    }
+  ],
+  "arg_checks": [
+    {
+      "when": "tool.known && tool.name.startsWith('glidepath.')",
+      "checks": [
+        "'app' in args && !(type(args['app']) == string && args['app'].matches(r'\\A(?:[a-z0-9][a-z0-9-]{0,62})\\z'))",
+        "'result' in args && !(type(args['result']) == string && args['result'].matches(r'\\A(?:[0-9a-f-]{36})\\z'))",
+        "'taskRun' in args && !(type(args['taskRun']) == string && args['taskRun'].matches(r'\\A(?:[a-z0-9][a-z0-9.-]{0,252})\\z'))",
+        "'pipelinerun' in args && !(type(args['pipelinerun']) == string && args['pipelinerun'].matches(r'\\A(?:[a-z0-9][a-z0-9.-]{0,252})\\z'))",
+        "'chainId' in args && !(type(args['chainId']) == string && args['chainId'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,252})\\z'))",
+        "'env' in args && !(type(args['env']) == string && args['env'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,62})\\z'))",
+        "'cluster' in args && !(type(args['cluster']) == string && args['cluster'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,62})\\z'))",
+        "'sourceEnv' in args && !(type(args['sourceEnv']) == string && args['sourceEnv'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,62})\\z'))",
+        "'sourceCluster' in args && !(type(args['sourceCluster']) == string && args['sourceCluster'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,62})\\z'))",
+        "'sourceImageRepo' in args && !(type(args['sourceImageRepo']) == string && args['sourceImageRepo'].matches(r'\\A(?:[a-z0-9][a-z0-9._/:-]{0,254})\\z'))",
+        "'sourceImageTag' in args && !(type(args['sourceImageTag']) == string && args['sourceImageTag'].matches(r'\\A(?:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})\\z'))",
+        "'container' in args && !(type(args['container']) == string && args['container'].matches(r'\\A(?:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)\\z'))",
+        "'name' in args && !(type(args['name']) == string && args['name'].matches(r'\\A(?:(promote|rollback)-[a-z0-9-]{1,56})\\z'))",
+        "'image' in args && !(type(args['image']) == string && args['image'].matches(r'\\A(?:ghcr\\.io/[a-z0-9._/-]{1,255}(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(@sha256:[0-9a-f]{64})?)\\z'))",
+        "'id' in args && !(type(args['id']) == string && args['id'].matches(r'\\A(?:[A-Za-z0-9_-]{1,128})\\z'))",
+        "'type' in args && !(type(args['type']) == string && args['type'].matches(r'\\A(?:[a-z0-9.]{1,256})\\z'))",
+        "'since' in args && !(type(args['since']) == string && args['since'].matches(r'\\A(?:[0-9A-Za-z:.+_-]{1,64})\\z'))",
+        "'targetReleaseId' in args && !(type(args['targetReleaseId']) == string && args['targetReleaseId'].matches(r'\\A(?:[\\x21-\\x7e]{1,256})\\z'))",
+        "'sinceHours' in args && !(type(args['sinceHours']) == int && args['sinceHours'] >= 1 && args['sinceHours'] <= 744)",
+        "'limit' in args && !(type(args['limit']) == int && args['limit'] >= 1 && args['limit'] <= 1000)",
+        "'timeoutSeconds' in args && !(type(args['timeoutSeconds']) == int && args['timeoutSeconds'] >= 1 && args['timeoutSeconds'] <= 120)",
+        "'dryRun' in args && type(args['dryRun']) != bool",
+        "'reason' in args && !(type(args['reason']) == string && py.len(py.strip(args['reason'])) >= 1 && py.len(py.strip(args['reason'])) <= 1024)",
+        "'patch' in args && !(type(args['patch']) == map && py.json_len(args['patch']) <= 262144)",
+        "'title' in args && !(type(args['title']) == string && py.len(py.strip(args['title'])) >= 1 && py.len(py.strip(args['title'])) <= 200)",
+        "'body' in args && !(type(args['body']) == string && py.len(args['body']) <= 4000)",
+        "'baseRef' in args && !(type(args['baseRef']) == string && args['baseRef'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._/-]{0,255})\\z') && !args['baseRef'].contains('..'))",
+        "'branch' in args && !(type(args['branch']) == string && args['branch'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._/-]{0,255})\\z') && !args['branch'].contains('..'))"
+      ]
+    },
+    {
+      "when": "tool.known && tool.name == 'glidepath.promote'",
+      "checks": [
+        "!([('sourceEnv' in args && args['sourceEnv'] != null && args['sourceEnv'] != ''), ('sourceCluster' in args && args['sourceCluster'] != null && args['sourceCluster'] != ''), ('sourceImageRepo' in args && args['sourceImageRepo'] != null && args['sourceImageRepo'] != ''), ('sourceImageTag' in args && args['sourceImageTag'] != null && args['sourceImageTag'] != '')].filter(g, g).size() == 2 && ((('sourceEnv' in args && args['sourceEnv'] != null && args['sourceEnv'] != '') && ('sourceCluster' in args && args['sourceCluster'] != null && args['sourceCluster'] != '')) || (('sourceImageRepo' in args && args['sourceImageRepo'] != null && args['sourceImageRepo'] != '') && ('sourceImageTag' in args && args['sourceImageTag'] != null && args['sourceImageTag'] != ''))))"
+      ]
+    },
+    {
+      "when": "tool.known && tool.name.startsWith('airframe.')",
+      "checks": [
+        "'app' in args && !(type(args['app']) == string && args['app'].matches(r'\\A(?:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)\\n?\\z'))",
+        "'env' in args && !(type(args['env']) == string && args['env'].matches(r'\\A(?:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)\\n?\\z'))",
+        "'name' in args && !(type(args['name']) == string && args['name'].matches(r'\\A(?:[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)\\n?\\z'))",
+        "'kind' in args && !(type(args['kind']) == string && args['kind'].matches(r'\\A(?:[A-Za-z][A-Za-z0-9]{0,62})\\n?\\z'))",
+        "'rule' in args && !(type(args['rule']) == string && args['rule'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,127})\\n?\\z'))",
+        "'section' in args && !(type(args['section']) == string && args['section'] in ['chart', 'xrds', 'components', 'targets', 'kinds'])",
+        "'documents' in args && !(type(args['documents']) == list && size(args['documents']) >= 1 && size(args['documents']) <= 20 && args['documents'].all(d, type(d) == map && d.all(k, k == 'path' || k == 'content') && 'content' in d && type(d['content']) == string && path.norm(py.get(d, 'path')) != '' && path.base(path.norm(py.get(d, 'path'))).matches(r'\\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.ya?ml\\n?\\z') && py.utf8len(d['content']) <= 262144))",
+        "'mode' in args && args['mode'] != 'values' && args['mode'] != 'xr'",
+        "'render' in args && type(args['render']) != bool",
+        "'spec' in args && type(args['spec']) != map",
+        "'baseCicd' in args && !(type(args['baseCicd']) == map || (type(args['baseCicd']) == string && py.len(args['baseCicd']) <= 262144))"
+      ]
+    }
+  ],
+  "documents": [
+    {
+      "name": "cicd_scope_problems",
+      "file": "cicd.yaml",
+      "rules": {
+        "source": "glidepath",
+        "pointer": "/scope/rules"
+      },
+      "whole_file": {
+        "rule": "GP-SCOPE-001",
+        "hint": "Send cicd.yaml as YAML (a mapping), with `before` set to its current content, so Clearance can tell which fields change."
+      },
+      "human": {
+        "rule": "GP-SCOPE-001",
+        "hint": "Ask a human to make this change, or leave the field as it was."
+      },
+      "loosened": {
+        "rule": "GP-SCOPE-002",
+        "hint": "An agent may turn a gate on or make it stricter, never the other way."
+      },
+      "keyed": [
+        {
+          "rule": "GP-SCOPE-003",
+          "at": "/deploy/environments",
+          "key": "name",
+          "default": [
+            {
+              "name": "dev",
+              "tier": "ground"
+            }
+          ],
+          "attribute": "tier",
+          "changed": {
+            "message": "environment '{key}' changed tier from {before} to {after}",
+            "hint": "Moving an environment between Ground and Flight changes which gates guard it. A human makes that change."
+          },
+          "protected": [
+            "flight"
+          ],
+          "protected_change": {
+            "message": "Flight environment '{key}' {what}",
+            "hint": "Flight environments are changed by a human. An agent may add or change Ground environments."
+          }
+        }
+      ],
+      "counted": [
+        {
+          "rule": "GP-SCOPE-002",
+          "at": "/pipelines",
+          "items": "steps",
+          "counters": [
+            {
+              "name": "check-rides",
+              "when": [
+                {
+                  "field": [
+                    "stage",
+                    "task"
+                  ],
+                  "equals": "test"
+                },
+                {
+                  "field": [
+                    "role"
+                  ],
+                  "equals": "check-ride"
+                }
+              ],
+              "fewer": {
+                "message": "flow '{key}' lost its check-ride step",
+                "hint": "The check ride is what the qa gate reads. Removing it is a human's change."
+              }
+            },
+            {
+              "name": "required-tests",
+              "when": [
+                {
+                  "field": [
+                    "stage",
+                    "task"
+                  ],
+                  "equals": "test"
+                },
+                {
+                  "field": [
+                    "required"
+                  ],
+                  "is_not": false
+                }
+              ],
+              "fewer": {
+                "message": "flow '{key}' has fewer required test steps ({before} -> {after})",
+                "hint": "Removing a required test, or setting required: false on one, loosens the flow. A human makes that change."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "app": "(tool.name.startsWith('glidepath.') || tool.name.startsWith('airframe.') || tool.name == 'xr.request') ? ('app' in args && type(args['app']) == string ? string(args['app']) : '') : (tool.name.startsWith('repo.') && 'repo' in args && type(args['repo']) == string && args['repo'].contains('/') ? py.trim_prefix(string(args['repo']).substring(string(args['repo']).lastIndexOf('/') + 1), ['gitops-infra-', 'gitops-']) : '')",
+  "rules": [
+    {
+      "id": "R022",
+      "name": "glidepath-app-not-allowed",
+      "expr": "ctx.has_glidepath_app && !ctx.glidepath_app_ok",
+      "message": "that app is not on this agent's Glidepath allowlist",
+      "hint": "Read only the apps your definition names under profile.glidepath.apps.",
+      "order": 180
+    },
+    {
+      "id": "R023",
+      "name": "airframe-app-not-allowed",
+      "expr": "ctx.has_airframe_app && !ctx.airframe_app_ok",
+      "message": "that app is not on this agent's Airframe allowlist",
+      "hint": "Read only the apps your definition names under profile.airframe.apps.",
+      "order": 190
+    },
+    {
+      "id": "R021",
+      "name": "cicd-scope",
+      "expr": "ctx.cicd_scope_problems > 0",
+      "message": "the cicd.yaml change is outside what an agent may change",
+      "hint": "Change only the fields Glidepath's contract marks open; see the GP-SCOPE rule in the decision.",
+      "order": 230,
+      "problems": "cicd_scope_problems"
+    }
+  ]
+}
