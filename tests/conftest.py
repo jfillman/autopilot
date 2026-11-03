@@ -61,18 +61,6 @@ def backends():
 # clearance checkout. CLEARANCE_CORE_BIN names a built binary; else CLEARANCE_SRC (or $HANGAR_TECH/clearance, or
 # ../clearance) is a checkout to build it from. CI checks clearance out at the SHA pyproject.toml pins.
 
-GATEWAY_PRINCIPAL = "autopilot-system/autopilot-gateway"   # coreenv.GATEWAY_PRINCIPAL
-CORE_ENV = {
-    "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": "test",
-                                        "principals": [GATEWAY_PRINCIPAL]}]),
-    "CLEARANCE_PACKS": "hangar",
-    # Provenance is the core's (tests/test_glidepath_tools.py asks it about an agent's PR): the CI gate's verifier
-    # identity, and the platform's bundled definitions, which name the agents' trailers it checks.
-    "CLEARANCE_VERIFIERS": "app-*-cicd/pipeline-runner",
-    "CLEARANCE_AGENTS_DIR": str(ROOT / "agents"),
-}
-
-
 def _core_binary(tmp: Path) -> Path:
     if os.environ.get("CLEARANCE_CORE_BIN"):
         return Path(os.environ["CLEARANCE_CORE_BIN"])
@@ -86,55 +74,23 @@ def _core_binary(tmp: Path) -> Path:
                 returncode=4)
 
 
-class CoreProcess:
-    """One running test core: start() it, read its chain, stop() it."""
-
-    def __init__(self, binary: Path, env: dict[str, str] | None = None):
-        self.binary, self.env = binary, {**CORE_ENV, **(env or {})}
-        self.proc = None
-        self.url = ""
-
-    def start(self) -> "CoreProcess":
-        env = {k: v for k, v in os.environ.items() if not k.startswith("CLEARANCE_")}
-        self.proc = subprocess.Popen([str(self.binary), "autopilot-testcore"], env={**env, **self.env},
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        line = self.proc.stdout.readline().strip()
-        if not line:
-            raise RuntimeError("the test core did not start")
-        self.url = "http://" + line
-        return self
-
-    def stop(self) -> None:
-        if self.proc is not None:
-            self.proc.terminate()
-            self.proc.wait(timeout=10)
-            self.proc = None
-
-    def records(self, since: int = 0) -> list[dict[str, Any]]:
-        with urllib.request.urlopen(f"{self.url}/testcore/v1/records?from={since}", timeout=10) as r:
-            return json.load(r)
-
-    def head(self) -> int:
-        recs = self.records(max(self._last, 0))
-        if recs:
-            self._last = recs[-1]["seq"]
-        return self._last + 1
-
-    _last = -1
-
-
 sys.path.insert(0, str(ROOT / "tests" / "clearance_core"))
-from coreenv import tap_core  # noqa: E402
+from coreenv import CORE_ENV, CoreProcess, tap_core  # noqa: E402
 
 _CORE: dict[str, Any] = {}
+
+
+import coreenv  # noqa: E402
 
 
 def pytest_configure(config):
     """Start the test core once, before collection, so a module's environment (coreenv.core_env) can name it."""
     tmp = Path(tempfile.mkdtemp(prefix="autopilot-core-"))
-    c = CoreProcess(_core_binary(tmp)).start()
+    binary = _core_binary(tmp)
+    os.environ["AUTOPILOT_TEST_CORE_BIN"] = str(binary)
+    c = CoreProcess(binary).start()
     tok = tmp / "core-token"
-    tok.write_text(GATEWAY_PRINCIPAL)   # --insecure-dev-auth: the bearer token is the principal
+    tok.write_text(coreenv.GATEWAY_PRINCIPAL)   # --insecure-dev-auth: the bearer token is the principal
     os.environ["AUTOPILOT_TEST_CORE_URL"], os.environ["AUTOPILOT_TEST_CORE_TOKEN_FILE"] = c.url, str(tok)
     _CORE["core"] = c
 

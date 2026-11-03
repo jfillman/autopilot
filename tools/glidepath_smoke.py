@@ -28,7 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from autopilot.engine import profile  # noqa: E402
-from clearance.audit import AuditLog  # noqa: E402
+# The Clearance core decides (R-3b): a local `clearance core --memory --insecure-dev-auth` (CLEARANCE_PACKS=hangar,
+# CLEARANCE_PROVIDERS naming autopilot-gateway) at CLEARANCE_CORE_URL (default http://127.0.0.1:8090).
+from autopilot.engine.core import local_core  # noqa: E402
 from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from autopilot.gateway import hangar_gateway  # noqa: E402
 from autopilot.glidepath_api import GlidepathAPI  # noqa: E402
@@ -58,7 +60,7 @@ def main() -> int:
 
     api = GlidepathAPI(a.url, a.token_file)
     backends = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
+    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), local_core(), backends, LocalUser(a.who),
                  lambda: datetime.now(timezone.utc))
     mcp = create_server(gw, lambda: "local")
 

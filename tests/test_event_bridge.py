@@ -1,9 +1,9 @@
 """event_bridge: Glidepath events in, triggered runs out. One run per (agent, event), a storm brake, the event
 summarised within the input cap, the run's pod acting as its session, and a stream that resumes. No network."""
-from coreenv import core_env
 import io
 import json
 import pytest
+from coreenv import core_env
 
 from autopilot import serve
 from autopilot.backends import Backends, FakeRuns

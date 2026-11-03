@@ -1,9 +1,9 @@
 """agent_xrs: Agent XRs in, Clearance definitions out. One fetch per pin ever, rejections with reasons, a transient
 failure that drops nothing, a seed from the store, and the read API's refresher. No network."""
-from coreenv import core_env
 import copy
 
 import pytest
+from coreenv import core_env
 import yaml
 from clearance import definitions as defn
 from autopilot.engine.dispatch import Denied, Principal

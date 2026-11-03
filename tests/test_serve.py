@@ -1,10 +1,10 @@
 """serve: the deployable gateway's configuration, backend selection, expiry sweep and HTTP surface. No network."""
-from coreenv import core_env
 import json
 import threading
 from datetime import timedelta
 
 import pytest
+from coreenv import core_env
 from starlette.testclient import TestClient
 
 from autopilot import serve

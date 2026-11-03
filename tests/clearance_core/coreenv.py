@@ -1,6 +1,11 @@
 """The test core's settings as a gateway reads them (tests/conftest.py starts the core in pytest_configure): what
 a test's environment for serve.config_from_env adds, so the gateway it builds asks the real test core."""
+import json
 import os
+import subprocess
+import urllib.request
+from pathlib import Path
+from typing import Any
 
 
 def core_env() -> dict[str, str]:
@@ -9,11 +14,55 @@ def core_env() -> dict[str, str]:
 
 
 GATEWAY_PRINCIPAL = "autopilot-system/autopilot-gateway"
+CORE_ENV = {
+    "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": "test",
+                                        "principals": [GATEWAY_PRINCIPAL]}]),
+    "CLEARANCE_PACKS": "hangar",
+    # Provenance is the core's (tests/test_glidepath_tools.py asks it about an agent's PR): the CI gate's verifier
+    # identity, and the platform's bundled definitions, which name the agents' trailers it checks.
+    "CLEARANCE_VERIFIERS": "app-*-cicd/pipeline-runner",
+    "CLEARANCE_AGENTS_DIR": str(Path(__file__).resolve().parents[2] / "agents"),
+}
+
+
+class CoreProcess:
+    """One running test core: start() it, read its chain, stop() it."""
+
+    def __init__(self, binary: Path, env: dict[str, str] | None = None):
+        self.binary, self.env = binary, {**CORE_ENV, **(env or {})}
+        self.proc = None
+        self.url = ""
+
+    def start(self) -> "CoreProcess":
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CLEARANCE_")}
+        self.proc = subprocess.Popen([str(self.binary), "autopilot-testcore"], env={**env, **self.env},
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        line = self.proc.stdout.readline().strip()
+        if not line:
+            raise RuntimeError("the test core did not start")
+        self.url = "http://" + line
+        return self
+
+    def stop(self) -> None:
+        if self.proc is not None:
+            self.proc.terminate()
+            self.proc.wait(timeout=10)
+            self.proc = None
+
+    def records(self, since: int = 0) -> list[dict[str, Any]]:
+        with urllib.request.urlopen(f"{self.url}/testcore/v1/records?from={since}", timeout=10) as r:
+            return json.load(r)
+
+    def head(self) -> int:
+        recs = self.records(max(self._last, 0))
+        if recs:
+            self._last = recs[-1]["seq"]
+        return self._last + 1
+
+    _last = -1
 
 
 def chain_records(since: int = 0) -> list[dict]:
-    import json
-    import urllib.request
     with urllib.request.urlopen(f"{os.environ['AUTOPILOT_TEST_CORE_URL']}/testcore/v1/records?from={since}",
                                 timeout=10) as r:
         return json.load(r)

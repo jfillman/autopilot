@@ -4,7 +4,8 @@
 
 # python:3.13-slim, multi-arch index (2026-10-29; the same base as runtime/Dockerfile). Bump the tag and digest together.
 FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb AS build
-# git: the clearance dependency is pinned as a git tag (pyproject.toml).
+# git: the Clearance core's client (and, for the read API until R-3c, the clearance package) are pinned as git tags
+# (pyproject.toml).
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -16,7 +17,8 @@ COPY agents/ agents/
 COPY schemas/ schemas/
 COPY runtime/catalog.yaml runtime/catalog.yaml
 # Editable, so the package resolves /app/schemas and /app/agents from its own location (airframe_tools, serve).
-RUN /opt/venv/bin/pip install -e /app \
+# [api]: `autopilot-gateway api` (clearance-api, api_serve.py) still runs clearance's read API until R-3c.
+RUN /opt/venv/bin/pip install -e "/app[api]" \
     && /opt/venv/bin/python -m compileall -q /app/src /opt/venv/lib
 
 FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb

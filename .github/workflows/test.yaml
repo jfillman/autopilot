@@ -3,9 +3,21 @@ on: [push, pull_request]
 env:
   # glidepath ref the cicd.yaml scope drift test compares against (tests/test_cicd_scope.py).
   GLIDEPATH_REF: main
+  # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
+  # (clearance-core-client @ ...@<tag>). Bump the two together.
+  CLEARANCE_REF: v0.27.0
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    services:
+      # Scratch databases for the gateway's own database and the R-4 cutover copy (tests/test_gateway_pg.py).
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       # airframe's contract (AppSpec, XRDs) for the tests tied to the real contracts
@@ -19,10 +31,30 @@ jobs:
           repository: jfillman/glidepath
           ref: ${{ env.GLIDEPATH_REF }}
           path: tech/glidepath
+      # The Clearance core at the pinned release: the test core is built from it (tests/clearance_core/build.py).
+      - uses: actions/checkout@v4
+        with:
+          repository: jfillman/clearance
+          ref: ${{ env.CLEARANCE_REF }}
+          path: tech/clearance
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tech/clearance/go.mod
+          cache-dependency-path: tech/clearance/go.sum
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - run: pip install -e ".[test]"
+      # The released core image, unmodified (tests/test_core_container.py).
+      - name: Start the core container
+        run: |
+          docker run -d --name clearance-core -p 8089:8080 -e CLEARANCE_PACKS=hangar \
+            -e 'CLEARANCE_PROVIDERS=[{"name":"autopilot-gateway","version":"ci","principals":["autopilot-system/autopilot-gateway"]}]' \
+            ghcr.io/jfillman/clearance:${CLEARANCE_REF} core --memory --insecure-dev-auth
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8089/readyz && break; sleep 1; done
       - run: pytest -q
         env:
           HANGAR_TECH: ${{ github.workspace }}/tech
+          CLEARANCE_SRC: ${{ github.workspace }}/tech/clearance
+          AUTOPILOT_TEST_PG: postgresql://postgres:pw@127.0.0.1:5432/postgres
+          AUTOPILOT_CORE_CONTAINER_URL: http://127.0.0.1:8089

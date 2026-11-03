@@ -3,19 +3,34 @@
 For people **running** Autopilot. On Hangar it is installed by apron's `templates/55-autopilot/` (rendered into the
 cluster repo, synced by Argo CD): the gateway, clearance-api, the CNPG database `clearance-pg`, people-dex, the
 AgentRun grants, agent-sandbox and the run reaper, all on hangar-dev. The `cluster.yaml` `autopilot:` keys turn each
-feature on. The image is pinned by tag and digest (gateway-v0.3.27, Clearance v0.26.1, on 2026-11-02).
+feature on. The image is pinned by tag and digest (gateway-v0.3.27, Clearance v0.26.1, on 2026-11-02). R-3b (Built,
+not deployed) changes what the next image needs: a Clearance core to call, and a database of its own; R-4 deploys it.
 
 ## The gateway image
 `autopilot-gateway` (`src/autopilot/serve.py`, the repo's `Dockerfile`) is the deployable gateway for Hangar. Its code
-is this repo's `src/autopilot/engine/` (moved from clearance v0.26.1 in R-3a; the image's behaviour is unchanged) with
-Clearance's policy and evidence store called in process from the pinned clearance package. It serves the
+is this repo's `src/autopilot/engine/` (moved from clearance v0.26.1 in R-3a). From R-3b it asks the Clearance core
+(`CLEARANCE_CORE_URL`) for every decision and writes every record through it; it holds no evidence. It serves the
 streamable-HTTP MCP app on `PORT` (8080) at `/mcp`, `GET /healthz` unauthenticated for probes. Every variable, and the
 RBAC each backend needs, is in the README's [Running the gateway](../../README.md#running-the-gateway). In short:
 - **One replica of the gateway.** clearance-api (`autopilot-gateway api`, the README's "Running the read API") is a
-  separate Deployment with two replicas on a read-only role. The Postgres store (`CLEARANCE_DSN`) takes an advisory lock; a second writer on the same database
-  exits at start. The gateway holds one connection and does not reconnect: a database error from any operation ends
-  the process (exit 70) and the kubelet restarts it, which reloads the sessions and re-verifies the chain. The expiry
+  separate Deployment with two replicas on a read-only role. The gateway's own Postgres (`GATEWAY_DSN`, not
+  clearance-pg: [gateway-database.md](gateway-database.md)) takes an advisory lock; a second writer on the same
+  database exits at start. The gateway holds one connection and does not reconnect: a database error from any
+  operation ends the process (exit 70) and the kubelet restarts it, which reloads the sessions. The expiry
   sweep pings the database first, so a lost connection is found within `CLEARANCE_EXPIRE_SECONDS` with no traffic.
+- **The Clearance core.** `CLEARANCE_CORE_URL` (required), and a projected service-account token at
+  `CLEARANCE_CORE_TOKEN_FILE` (default `/var/run/secrets/tokens/clearance-core`) whose audience is the core's
+  `CLEARANCE_AUDIENCE` (default `clearance`). The core registers the gateway's identity as provider
+  `autopilot-gateway` in `CLEARANCE_PROVIDERS`. A NetworkPolicy must let the gateway reach the core, and nothing but
+  the core and clearance-api reach clearance-pg.
+- **Outage policy.** When the core is unreachable the gateway denies every T1-and-above call, session open, spawn
+  and model call (rule `CORE-UNAVAILABLE`); T0 reads too, unless `GATEWAY_OUTAGE_ALLOW_READS=true`, which lets
+  unscoped reads run and records them later as coverage-unavailable. 250 ms per attempt, one retry, a breaker after 5
+  failures. The README's [outage policy](../../README.md#the-outage-policy) has every branch. `GET /healthz` shows the
+  breaker.
+- **Not the gateway's any more.** The evidence DSN, the deployment gate, provenance, definition review and the GitHub
+  App are the core's: `CLEARANCE_DSN`, `CLEARANCE_VERIFIERS`, `AGENT_LOGINS`, `CLEARANCE_GITHUB_APP_*` and
+  `CLEARANCE_GITHUB_OIDC_*` set on the gateway stop it at start.
 - **Read-only root, uid 65532.** Nothing is written at runtime; no volume is needed.
 - **Identity.** One ServiceAccount (`autopilot-system/clearance`): `system:auth-delegator` (TokenReview, for every
   caller), Role `clearance-agentruns` in `autopilot-runs` (AgentRuns), ClusterRole `clearance-airframe-reader`
@@ -24,18 +39,20 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
 - **Only real backends.** Each is on when configured: glidepath-api (`GLIDEPATH_API_URL`), Airframe and Argo CD reads,
   Argo CD syncs of lower Applications (`ARGO_SYNC_ENABLED`), PRs as the agents' App through Glidepath's broker
   (`GITHUB_PR_ENABLED`), `catalog.read` (`BACKSTAGE_URL`), `metrics.query` and `logs.query`, the model proxy
-  (`MODEL_KEY_FILE`), event and schedule triggers, `Agent` XR pins, the GitHub App, and artifacts on the durable store.
+  (`MODEL_KEY_FILE`), event and schedule triggers, `Agent` XR pins, and artifacts on the durable store.
   `chat.*`, `app.api.get`, `xr.request` and `airframe.validate` have no handler in the image, so their calls are
   refused as "no backend"; nothing is faked.
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
-  AgentRuns, each deletion a record in the same commit; a failed deletion is recorded and retried next sweep.
-- **Local run:** `CLEARANCE_EPHEMERAL=1` (in-memory store, nothing kept); the image starts and answers `/healthz` with
-  no cluster, and tool calls that need the cluster fail as backend errors.
+  AgentRuns, each deletion a record; a failed deletion is recorded and retried next sweep. The same sweep posts what
+  waits in the outbox once the core answers.
+- **Local run:** `CLEARANCE_EPHEMERAL=1` (in-memory store, nothing kept) and a core, e.g.
+  `clearance core --memory --insecure-dev-auth` with `CLEARANCE_PACKS=hangar` and `CLEARANCE_PROVIDERS` naming the
+  gateway; tool calls that need the cluster fail as backend errors.
 
 ## What an install needs
-- **Clearance**, a standalone deployment. Its core (https://github.com/jfillman/clearance, `src/clearance/` all but `packs/hangar/`) needs no Airframe
-  and no Glidepath; on Hangar it runs with the Hangar pack and Autopilot's backends (`autopilot.gateway.hangar_gateway`;
-  deployed as `autopilot-gateway`, above).
+- **Clearance**, a standalone deployment (https://github.com/jfillman/clearance: `clearance core`, its image and
+  chart). It needs no Airframe and no Glidepath; on Hangar it runs with the Hangar pack (`CLEARANCE_PACKS=hangar`),
+  and the gateway (`autopilot.gateway.hangar_gateway`, deployed as `autopilot-gateway`, above) calls it.
   `tools_list` shows exactly the tools the deployment was built with. Its write permission is one namespaced Role on `agentruns` in
   `autopilot-runs` (used by `src/autopilot/kube_runs.py`: create and delete, nothing else). For the `airframe.*` tools it reads, cluster-wide and read-only, `catalog.hangar.io/*` and
   `argoproj.io` applications and rollouts (ClusterRole `clearance-airframe-reader`, gitops-hangar-dev#40), and

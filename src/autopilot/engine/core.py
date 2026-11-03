@@ -273,5 +273,15 @@ def client_from_env(url: str, token_file: str | None, *, timeout: float | None =
     return CoreClient(url, **kw)
 
 
+def local_core() -> Core:
+    """A Core on a local development core (`clearance core --memory --insecure-dev-auth`, where the bearer token is
+    the principal): CLEARANCE_CORE_URL (default http://127.0.0.1:8090), CLEARANCE_CORE_TOKEN (default the gateway's
+    principal). For the live smoke tools (tools/*_smoke.py), never a deployment."""
+    import os
+    return Core(CoreClient(os.environ.get("CLEARANCE_CORE_URL") or "http://127.0.0.1:8090",
+                           token=os.environ.get("CLEARANCE_CORE_TOKEN") or "autopilot-system/autopilot-gateway",
+                           provider=PROVIDER))
+
+
 __all__ = ["AuthError", "Core", "CoreUnreachable", "Denied", "OUTAGE_RULE", "PROVIDER", "REFUSED_RULE", "Verdict",
-           "args_digest", "canonical", "client_from_env", "iso", "outage_verdict", "rfc3339", "sha256_hex"]
+           "args_digest", "canonical", "client_from_env", "iso", "local_core", "outage_verdict", "rfc3339", "sha256_hex"]

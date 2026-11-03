@@ -123,6 +123,7 @@ class SessionStore:
         self._id = id_gen or (lambda: "s-" + secrets.token_hex(6))
         self._persist = persist
         self._saved: dict[str, str] = {}
+        self._spare: list[str] = []
         if persist is not None:
             for r in persist.load():
                 s = Session.from_record(r)
@@ -195,8 +196,13 @@ class SessionStore:
 
     def new_id(self) -> str:
         """The id the next session gets: the gateway names it in the core's evaluation (context.new_session_id), and
-        the core's grant carries it back."""
-        return self._id()
+        the core's grant carries it back. An id the core did not grant is given back (give_back) and handed out
+        next, so ids are spent only on sessions that exist, as before the core decided opens."""
+        return self._spare.pop() if self._spare else self._id()
+
+    def give_back(self, sid: str | None) -> None:
+        if sid and sid not in self._s and sid not in self._spare:
+            self._spare.append(sid)
 
     def adopt(self, grant: dict[str, Any], now: datetime, reserve: dict[str, int] | None = None,
               children: int = 0) -> Session:

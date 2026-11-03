@@ -1,9 +1,9 @@
 """reads: argo.app.get over the Application objects, metrics.query on Prometheus, logs.query on Loki. Summaries and
 bounds, a rejected query as an answer, everything else a hidden failure. No network: fake openers."""
-from coreenv import core_env
 import json
 
 import pytest
+from coreenv import core_env
 
 from autopilot import reads, serve
 from autopilot.airframe_api import KubeReader, PathRefused

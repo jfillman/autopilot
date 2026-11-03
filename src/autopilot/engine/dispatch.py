@@ -27,8 +27,8 @@ from . import control as ctl, definitions as defn, events as evh, inbox as hr
 from . import results as res, runtimes as runtimes_mod
 from .backends import Handler, RunBackend
 # Clearance's half (the decision and the record), through the core's API (core.py).
-from .core import (AuthError, Core, CoreUnreachable, Denied, Verdict, args_digest, iso,  # noqa: F401 - re-exported
-                   outage_verdict, rfc3339, sha256_hex)
+from .core import (OUTAGE_RULE, REFUSED_RULE, AuthError, Core, CoreUnreachable, Denied, Verdict,  # noqa: F401
+                   args_digest, iso, outage_verdict, rfc3339, sha256_hex)
 from .modelproxy import ModelDecision, ModelProxy, ModelRoute
 from .profile import AgentDefinition
 from .scope import BadPath, normalize
@@ -189,6 +189,16 @@ class Gateway:
         return {"subject": subject, "action": {"name": "session.open", "properties": props},
                 "resource": {"type": "agent", "id": agent}, "context": c}
 
+    def _evaluate_open(self, req: dict[str, Any]) -> Verdict:
+        """An open's decision; the session id it named goes back to the store unless the core granted it."""
+        try:
+            v = self.core.evaluate(req)
+        except CoreUnreachable as e:
+            v = outage_verdict(e)
+        if not v.allow:
+            self.store.give_back(req["context"]["new_session_id"])
+        return v
+
     def _deny_open(self, v: Verdict) -> Result:
         return Result(False, {"allow": False, "rule": v.rule, "message": v.message}, error=v.message, audit_seq=v.seq)
 
@@ -203,10 +213,7 @@ class Gateway:
         if task_id:
             props["task_id"] = task_id
         req = self._open_request(_subject(principal.id, principal.kind, principal.tier_ceiling), agent, props, now)
-        try:
-            v = self.core.evaluate(req)
-        except CoreUnreachable as e:
-            return self._deny_open(outage_verdict(e))
+        v = self._evaluate_open(req)
         if not v.allow:
             return self._deny_open(v)
         s = self.store.adopt(dict(v.grant), now)
@@ -227,14 +234,12 @@ class Gateway:
         req = self._open_request(_subject(f"trigger:{trigger}", "workload", 1), agent, props, now,
                                  hold={"by": held.by, "until": rfc3339(held.until), "reason": held.reason} if held else None,
                                  live=live.state() if live else None)
-        try:
-            v = self.core.evaluate(req)
-        except CoreUnreachable as e:
-            return self._deny_open(outage_verdict(e))
+        v = self._evaluate_open(req)
         if not v.allow:
             return self._deny_open(v)
         g = dict(v.grant)
         if g.get("deduped"):
+            self.store.give_back(req["context"]["new_session_id"])
             s = self.store.get(g["session"])
             return Result(True, {"allow": True}, {"session": s.id, "task_id": s.task_id,
                                                   "expires_at": iso(s.expires_at), "deduped": True},
@@ -308,7 +313,11 @@ class Gateway:
         try:
             v = self.core.evaluate(req)
         except CoreUnreachable as e:
+            if spawn:
+                self.store.give_back(req["context"]["new_session_id"])
             return self._outage_call(principal, session_id, s, tool, args, now, e)
+        if spawn and not v.allow:
+            self.store.give_back(req["context"]["new_session_id"])
         if s is None or not v.allow:
             self.store.charge(s, v.spend)
             return Result(False, v.as_dict(), error=v.message, audit_seq=v.seq, session=s.id if s else session_id)
@@ -561,11 +570,9 @@ class Gateway:
         # as session.open). The delegate is not in that record (the evaluation carries no `via`, a needed core change).
         now = self.now()
         req = self._open_request(_subject(person, "user", int(Tier.T1)), agent, {}, now)
-        try:
-            v = self.core.evaluate(req)
-        except CoreUnreachable as e:
-            ov = outage_verdict(e)
-            raise ctl.ControlError(ov.rule, ov.message, ov.hint, 503) from None
+        v = self._evaluate_open(req)
+        if not v.allow and v.rule in (OUTAGE_RULE, REFUSED_RULE):
+            raise ctl.ControlError(v.rule, v.message, v.hint, 503)
         if not v.allow:
             raise ctl.ControlError(v.rule or "R008", v.message, v.hint, 409)
         s = self.store.adopt(dict(v.grant), now)
@@ -751,6 +758,7 @@ class Gateway:
         """An allowed session.spawn: the child is the core's grant, cut from what the parent has left after this
         call's charge, and the parent reserves its budget. A run that fails to start closes the child again."""
         if d is None or not v.grant:
+            self.store.give_back((v.grant or {}).get("session"))
             raise Denied("R003", "unknown agent definition", "Spawn an agent that exists in the catalog.")
         child = self.store.adopt(dict(v.grant), self.now(), reserve=dict(v.spend.get("reserve") or {}),
                                  children=int(v.spend.get("children") or 0))
