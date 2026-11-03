@@ -17,14 +17,25 @@ enforces (Hangar's boundary of 2026-11-02, amending D16). Its core installs wher
 Glidepath; its Hangar pack (`clearance.packs.hangar`: the `glidepath.*` and `airframe.*` tool policy, R021 to R023)
 ships with it.
 
-**R-3a (Built, this branch):** the AI gateway's Python moved here from clearance at v0.26.1, with its history
-(`git filter-repo`), behaviour unchanged: `src/autopilot/engine/` is clearance's `server.py`, `dispatch.py`,
-`session.py`, `limits.py`, `tiers.py`, `modelproxy.py`, `backends.py`, `profile.py` (and
-`schemas/agent-definition.schema.json`), `runtimes.py`, `inbox.py`, `control.py`, `results.py` and `events.py`, and
-`tests/engine/` their tests. The decision and the record are still the pinned clearance package, called in process
-through one module, `engine/core.py` (the seam R-3b replaces with the Clearance core's API). The clearance package
-keeps its own copy of the moved modules until the removal PR, because modules that stay in Clearance import them;
-`tests/engine/test_two_copies.py` fails if the two copies diverge and goes with that PR.
+**R-3a (Built):** the AI gateway's Python moved here from clearance at v0.26.1, with its history (`git filter-repo`),
+behaviour unchanged: `src/autopilot/engine/` is clearance's `server.py`, `dispatch.py`, `session.py`, `limits.py`,
+`tiers.py`, `modelproxy.py`, `backends.py`, `profile.py` (and `schemas/agent-definition.schema.json`), `runtimes.py`,
+`inbox.py`, `control.py`, `results.py` and `events.py`, and `tests/engine/` their tests.
+
+**R-3b (Built, this branch; not deployed):** the gateway stopped deciding and recording in process. Every tool call,
+model call, session open and spawn is an evaluation the Clearance core decides and records
+(`POST /access/v1/evaluation`, through `clearance-core-client` pinned at clearance v0.27.0); the gateway applies the
+spend the core names to its own session, acts only on an allow, and reports the result
+(`POST /v1/decisions/{id}/outcome`). Its runtime records (`run.launch`, `run.delete`, `human.answer`,
+`session.freeze`, `trigger.hold`) go to `POST /v1/records`. `engine/core.py` is the one module that talks to the
+core. The gateway keeps its runtime state in its own database (`GATEWAY_DSN`) and has no evidence DSN; when the core
+is unreachable it follows [the outage policy](#the-outage-policy). The deployment gate, PR provenance, definition
+review and the GitHub App are the core's routes now, so the gateway serves none of them. It deploys with R-4.
+
+What still imports the `clearance` package: `api_serve.py` (`autopilot-gateway api`, clearance's read API, until R-3c
+moves it), and `FakeGlidepath.validate_cicd` (a test fake in `backends.py` that borrows clearance's vendored cicd.yaml
+scope, until R-5). `tests/engine/test_boundary.py` fails on any other import. The image installs the package for
+the read API only (the `api` extra).
 
 **R-3c (Built, Unverified live):** the gateway serves its own read API. `autopilot-gateway api` is
 `src/autopilot/read_api.py`, no longer clearance's `api.py`: the nine runtime reads the Go `clearance api` (clearance
@@ -35,31 +46,65 @@ clearance-api's; `/v1/contract` names it (`CLEARANCE_API_URL`). See [Running the
 
 | Part | Where | What it owns |
 |---|---|---|
-| Clearance (pinned) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1` (gateway-v0.3.27, the image apron pins on hangar-dev) | CEL policy and packs (`policy.py`, `pack.py`, `packs/hangar`), path, repo and field scope, the evidence chain and the Postgres store (`audit.py`, `pg.py`), authentication (TokenReview, people's OIDC, another cluster's service accounts, GitHub Actions OIDC: `auth.py`), PR provenance, definition review and the cluster pin loader (`definitions.py`), the deployment gate's core, the GitHub App (check runs, deployment protection rule), and clearance-api, Clearance's read API (since R-3c no longer the one `autopilot-gateway api` serves) |
-| The gateway engine | `src/autopilot/engine/` (from clearance v0.26.1) | the MCP surface over stdio and streamable HTTP (`server.py`), sessions, the run tree and `Gateway.expire` (`session.py`, `dispatch.py`), budgets and requested limits (`limits.py`), the tool registry and tier vocabulary (`tiers.py`), dispatch to backends (`dispatch.py`, the protocols and fakes in `backends.py`), the model proxy (`modelproxy.py`, streaming in `server.py`), agent definitions and their schema (`profile.py`), the runtime catalog (`runtimes.py`), the human inbox, person controls, run results and trigger history (`inbox.py`, `control.py`, `results.py`, `events.py`); `core.py` is the seam to Clearance |
-| Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the gateway's read API `read_api.py` (served by `api_serve.py`), the vendored airframe files `vendor/`, and `gateway.py`, which builds the Hangar Gateway: the engine's Gateway + Clearance's Hangar pack + a handler per tool + AgentRun as the run backend |
+| The Clearance core (a service) | `clearance core` (ghcr.io/jfillman/clearance), called through `clearance-core-client @ git+https://github.com/jfillman/clearance@v0.27.0#subdirectory=clients/python` | the decision (CEL rules, the core and Hangar packs, scope, tiers, the narrow-only rule, spawn and open checks, the model decision), the evidence chain and its store, the deployment gate, PR provenance, definition review and the GitHub App |
+| clearance (the package, `api` extra) | `clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1` | only the vendored Glidepath cicd scope a test fake reads (`backends.FakeGlidepath.validate_cicd`) and `tools/airframe_smoke.py`, until R-5; the read API is the gateway's own (`read_api.py`, R-3c) |
+| The gateway engine | `src/autopilot/engine/` (from clearance v0.26.1; R-3b adds `core.py`, `outbox.py`, `pg.py`, and the copied `auth.py`, `definitions.py`, `scope.py`) | the MCP surface over stdio and streamable HTTP (`server.py`), sessions, the run tree and `Gateway.expire` (`session.py`, `dispatch.py`), budgets and requested limits (`limits.py`), the tool registry and tier vocabulary (`tiers.py`), dispatch to backends (`dispatch.py`, the protocols and fakes in `backends.py`), the model proxy (`modelproxy.py`, streaming in `server.py`), agent definitions and their schema (`profile.py`), the runtime catalog (`runtimes.py`), the human inbox, person controls, run results and trigger history (`inbox.py`, `control.py`, `results.py`, `events.py`), callers' authentication (`auth.py`), the cluster pin set (`definitions.py`), the gateway's own database (`pg.py`) and outbox (`outbox.py`); `core.py` is the core's client |
+| Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, `hangar_tools.py` (the `glidepath.*` and `airframe.*` tool specs, from clearance's Hangar pack), and `gateway.py`, which builds the Hangar Gateway: the engine's Gateway + Hangar's tools + a handler per tool + AgentRun as the run backend + the core |
 
 ```python
-Gateway(definitions, store, audit, auth, clock, packs=(HANGAR,), handlers=hangar_handlers(backends),
+Gateway(definitions, store, core, auth, clock, packs=(HANGAR,), handlers=hangar_handlers(backends),
         runs=AgentRunBackend(backends.runs))       # what autopilot.gateway.hangar_gateway() does
 ```
 
-A change to Clearance's policy (a new tool spec, a rule, a re-vendored Glidepath contract) is a clearance release and
-a pin bump here. Until the removal PR, a change to a moved module is made in both repos, or the drift test fails. `tests/test_cicd_scope.py` checks the pinned release's vendored Glidepath files against glidepath, so
-a Glidepath contract change fails here until the pin moves.
+A change to Clearance's policy (a rule, a re-vendored Glidepath contract) is a clearance release, deployed as the
+core; the client pin here moves with it (`pyproject.toml` and `CLEARANCE_REF` in `.github/workflows/test.yaml`, which
+builds the core the tests run against from the same tag). A new tool is a spec here (`engine/tiers.py`,
+`hangar_tools.py`) and in the core's bundle. `tests/test_cicd_scope.py` checks the vendored Glidepath files against
+glidepath.
+
+### The outage policy
+
+Decided 2026-11-02 (Hangar spec R-3). When the core is unreachable (a connection failure, a timeout, a 5xx: the
+client's `CoreUnavailable`), the gateway:
+
+| Call | Outcome |
+|---|---|
+| a T1, T2 tool call; `run.spawn`; a model call; a session open (MCP, a trigger, a person's run) | denied, rule `CORE-UNAVAILABLE`, with a hint; nothing runs, nothing is charged |
+| a T0 read | denied the same way, unless `GATEWAY_OUTAGE_ALLOW_READS=true` |
+| a T0 read with the switch on | runs if the gateway can stand behind it alone: a live, untripped session of the caller's that was granted the tool, budget left, and arguments that name no `repo`, `app` or `service` (scope only the core checks; those stay denied). It is charged, and written to the outbox as a `tool.call` record with `coverage: coverage-unavailable` |
+| a person control (freeze, end, hold, release), a run's `run_finish`, a run deletion | takes effect; its record waits in the outbox |
+| a human answer, a run launch | refused (the answer is not given, the run is deleted again): each stands only with its record |
+
+The outbox (`gateway_outbox`, `engine/outbox.py`) is posted in order once the core answers: by the expiry sweep, and
+before any new record, so nothing overtakes what waits. The client's timeout is 250 ms per attempt with one retry,
+and its breaker opens after 5 consecutive failures, so later calls are denied at once without a request (it lets one
+probe through every 5 s). A core that answers but refuses a request (a 4xx, an unreadable answer) is a deny too,
+rule `CORE-REFUSED`. `GET /healthz` shows the breaker (`"core": "closed" | "open" | "half-open"`).
+
+Two kinds of outbox entry wait for a core change (listed in the PR): a coverage-unavailable `tool.call` record, and
+records of kinds the core does not take yet (`run.finish`, `session.end`, `trigger.release`, `definition.load`,
+`definition.unload`, `definition.reject`). They are `held`, never dropped, and are posted once the client (and so the
+core) lists their kind.
 
 Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 737 tests (R-3c, 2026-11-03: the 554 from gateway-v0.3.27, the 148 moved with the engine under `tests/engine/`, the 19 drift and boundary tests of `tests/engine/test_two_copies.py`, and 16 for the read API in `tests/engine/test_read_api.py` and `tests/test_api_serve.py`; one skips without a gitops-cluster-dev checkout, and four Postgres tests skip without `GATEWAY_TEST_DSN`), no cluster needed; Clearance's own tests are in its repo (some skip without sibling airframe and glidepath checkouts under `HANGAR_TECH`, which CI clones).
+`./.venv/bin/python -m pytest -q` runs 740 tests (R-3b and R-3c, 2026-11-03; 732 pass and 8 skip without the extras below), no cluster needed, against a real Clearance core:
+`tests/clearance_core/` builds the clearance binary from a checkout (`CLEARANCE_SRC`, or `$HANGAR_TECH/clearance`;
+CI checks out the tag the client is pinned at) with a test entry point, `clearance autopilot-testcore`: the core
+exactly as `clearance core --memory --insecure-dev-auth` runs it, plus a read of its chain and no clock-skew check
+(the tests run on a fixed clock). `CLEARANCE_CORE_BIN` names a built one. Three tests need more and skip without it:
+`tests/test_gateway_pg.py` (`AUTOPILOT_TEST_PG`, a Postgres server for scratch databases) and
+`tests/test_core_container.py` (`AUTOPILOT_CORE_CONTAINER_URL`, the released core image, unmodified); CI runs both.
+One more skips without a gitops-cluster-dev checkout.
 
 `clearance/...` paths below are in the clearance repo, under `src/clearance/`; `engine/...` paths are here, under `src/autopilot/engine/`.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Tool tiers and tripwires | `engine/tiers.py` (clearance's copy builds the registry policy decides on until R-3b) | T0 to T2 tools; T3 names are tripwires |
-| Path and repo scope | `clearance/scope.py` | one implementation, shared with the CI `agent-scope` gate; traversal-safe |
+| Tool tiers and tripwires | `engine/tiers.py`, `autopilot/hangar_tools.py` | the registry the gateway dispatches against; T0 to T2 tools; T3 names are tripwires. The core's bundle names the same tools and tiers |
+| Path and repo scope | the core (`internal/scope`); `engine/scope.py` for Preflight | traversal-safe |
 | cicd.yaml field scope | `clearance/packs/hangar/` (R021, `cicd.py`), its `vendor/cicd_scope.py` + `vendor/glidepath-contract.json` (vendored byte for byte from glidepath, drift-tested) | an agent may change cicd.yaml in a PR within Glidepath's `open`/`tighten`/`human` field rules; a denial carries the `GP-SCOPE-00x` rule id and hint |
 | Glidepath reads and run control | `clearance/packs/hangar/` (`glidepath.*`, R022), `autopilot/glidepath_api.py`, `autopilot/gateway.py` (handlers), `agents/cicd-explainer.yaml` | six T0 tools over glidepath-api: runs, one run, step logs, `explain` (a failed run's knownFailures id, hint and field), releases, the contract; and two T1 writes, `glidepath.run.rerun` and `glidepath.run.cancel` (spec phase 3), which retire `pipeline.rerun`: a re-run sends an Idempotency-Key made from the session and the run, so a retried call starts no second run, and Clearance names the session principal so glidepath-api audits both identities. `profile.glidepath.apps` (globs; none listed means none) scopes them per agent, arguments must be valid path segments, and the adapter calls as Clearance's own identity, re-reading its token file every call. A 400/404 from glidepath-api (no such run, no archived log) comes back as data with its `GP-*` rule; a 401/403 is a denial with that rule |
 | Glidepath live runs, release runs, evidence, tests, events and previews | `clearance/packs/hangar/` (Clearance v0.24.0), `autopilot/glidepath_live.py`, `autopilot/glidepath_api.py`, `autopilot/gateway.py` | nine T0 reads over glidepath-api. `glidepath.live.list` is the runs in the cluster now (`runs.list` reads Results, finished runs only), summarised to each run's tasks and step containers; `glidepath.live.logs.get` is a running step's log (its last 256 KiB). `glidepath.live.watch` is the live stream as one bounded call: it follows one PipelineRun until it finishes or `timeoutSeconds` (1-120, default 60) passes and returns the run then and every task change it saw; a stream that cannot open (503 at a replica's limit) or drops is replaced by polling `live` every 3 s, so the answer is the same. `glidepath.releaseRun.get` follows a promote or rollback; `glidepath.evidence.get`, `glidepath.tests.list`, `glidepath.tests.report`, `glidepath.events.recent` (the app's CDEvents from glidepath-api's buffer) and `glidepath.previews.list` (preview environments, read only) round out the reads. Fleet-wide reads have no tool: agents are app-scoped |
@@ -69,10 +114,10 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 | Narrow-only limits | `engine/limits.py` | requested limits or a child can only narrow what they inherit |
 | Agent definitions | `engine/profile.py` and its `engine/schemas/agent-definition.schema.json` (cluster-pinned definitions are still parsed by clearance's copy, `clearance/definitions.py`) | durable, schema-validated; baseline deny paths cannot be removed |
 | Sessions and run tree | `engine/session.py` | budgets, expiry, breaker, parent-reserved child budgets |
-| Policy | `clearance/policy.py`, `clearance/pack.py` | CEL deny rules with ids, an explicit order and fix hints, core plus each pack's; fails closed |
-| Audit | `clearance/audit.py` | hash chain; detects edit, delete, reorder; truncation via an anchored checkpoint |
-| Gateway core | `engine/dispatch.py`, `engine/backends.py`, `engine/core.py` (the seam to Clearance) | authenticate, decide, audit, spend, call, audit; handlers are registered per tool, the run tree goes through an injected run backend |
-| Model access | `engine/modelproxy.py` | model allowlist, network mode, token budget; the decision core only |
+| Policy and the record | the Clearance core | CEL deny rules with ids, an explicit order and fix hints, core plus the Hangar pack; the evidence chain; fails closed |
+| Gateway core | `engine/dispatch.py`, `engine/backends.py`, `engine/core.py` | authenticate, ask the core, apply its spend, call, report the outcome; handlers are registered per tool, the run tree goes through an injected run backend |
+| Outbox and the gateway's database | `engine/outbox.py`, `engine/pg.py`, `tools/cutover/copy_runtime_tables.py` | what the core is owed, posted in order; sessions, inbox, results, artifacts, events, holds, pins; the R-4 copy from clearance-pg ([docs/admin/gateway-database.md](docs/admin/gateway-database.md)) |
+| Model access | `engine/modelproxy.py` | the core decides each call (allowlist, network mode, breaker, budget); the gateway charges the usage |
 | Triggers | `autopilot/triggers.py` | interval and alert triggers for scheduled and event agents |
 | Preflight | `autopilot/preflight.py`, `preflight/cases/` | deterministic scoring, self-check that a case can fail |
 | MCP surface | `engine/server.py` | three tools on the mcp SDK v2; `tools_list` lists the Gateway's own registry |
@@ -87,29 +132,28 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## Running the gateway
 
-`autopilot-gateway` (`src/autopilot/serve.py`) is the deployable gateway for Hangar: the gateway engine, Clearance's
-policy and record (in process, pinned) with the Hangar pack, and Autopilot's real backends, served as the engine's
+`autopilot-gateway` (`src/autopilot/serve.py`) is the deployable gateway for Hangar: the gateway engine, the Clearance
+core's client, Hangar's tools and Autopilot's real backends, served as the engine's
 streamable-HTTP MCP app (`/mcp`, bearer auth on every request,
 an unauthenticated `GET /healthz`). The image is the repo's `Dockerfile` (python:3.13-slim, uid 65532, nothing
 written at runtime, so it runs with a read-only root filesystem; linux/amd64 and linux/arm64):
 
 ```shell
 container build --arch arm64 -t autopilot-gateway:dev .         # or --arch amd64
-container run --rm --read-only -e CLEARANCE_EPHEMERAL=1 -p 8080:8080 autopilot-gateway:dev
+container run --rm --read-only -e CLEARANCE_EPHEMERAL=1 -e CLEARANCE_CORE_URL=http://<core>:8080 -p 8080:8080 autopilot-gateway:dev
 curl -s localhost:8080/healthz                                   # {"ok":true,"tools":35}
 ```
 
 | Variable | Default | What it does |
 |---|---|---|
-| `CLEARANCE_DSN` | required unless ephemeral | Postgres for sessions and evidence (`serve.open_durable`: clearance's `PgState`, `PgAuditLog` and `PgSessions` under the engine's `SessionStore`). One writer: a second replica on the same database stops at start (advisory lock), so run one |
-| `CLEARANCE_EPHEMERAL` | `0` | `1`: in-memory sessions and audit log, lost on exit. Local runs only; `CLEARANCE_DSN` is ignored |
+| `GATEWAY_DSN` | required unless ephemeral | the gateway's own Postgres (`engine/pg.py`): sessions, the inbox, results, artifacts, trigger history, holds, the pinned definition set and the outbox; never evidence. One writer: a second replica on the same database stops at start (advisory lock `apg0`), so run one |
+| `CLEARANCE_CORE_URL` | (required) | the Clearance core, e.g. `http://clearance-core.clearance-system:8080` |
+| `CLEARANCE_CORE_TOKEN_FILE` | `/var/run/secrets/tokens/clearance-core` | the gateway's token for the core, re-read on every request: a projected service-account token whose audience is the core's `CLEARANCE_AUDIENCE` (default `clearance`). The core must register this identity as provider `autopilot-gateway` (`CLEARANCE_PROVIDERS`) |
+| `GATEWAY_OUTAGE_ALLOW_READS` | `false` | `true`: during a core outage, unscoped T0 reads still run and are recorded later as coverage-unavailable ([the outage policy](#the-outage-policy)) |
+| `CLEARANCE_EPHEMERAL` | `0` | `1`: in-memory sessions and outbox, lost on exit. Local runs only; `GATEWAY_DSN` is ignored |
 | `CLEARANCE_AGENTS_DIR` | the repo's `agents/` (`/app/agents` in the image) | the agent definitions loaded at start (that directory only, not its subdirectories) |
 | `CLEARANCE_RESOURCE_URL` | `http://localhost:$PORT/mcp` | this server's public URL, for the OAuth protected-resource metadata |
 | `CLEARANCE_OIDC_ISSUER`, `CLEARANCE_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
-| `CLEARANCE_GITHUB_APP_ID`, `CLEARANCE_GITHUB_APP_KEY_FILE`, `CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE` | unset | set all three to run the Clearance GitHub App (clearance `docs/provenance-app.md`): `POST /v1/github/webhook` accepts signed webhooks and posts `Clearance / agent-identity` and `Clearance / agent-scope` check runs. The key and the secret are files, never env values |
-| `CLEARANCE_GITHUB_APP_COMMENTS` | `off` | `agent-failures`: also comment on an agent PR that fails a check |
-| `CLEARANCE_GITHUB_OIDC_AUDIENCE` | unset | set to accept GitHub Actions workflows' OIDC ID tokens for this audience (clearance v0.23.0 `GitHubActionsAuthenticator`, `clearance register`): principal `github:<sub>`, registering only when `CLEARANCE_VERIFIERS` lists it, and only for its own repository (DG-REPO) |
-| `CLEARANCE_GITHUB_OIDC_ALLOWED` | `repo:*` | which workflows' tokens are accepted at all (globs on the token's `sub`, e.g. `repo:jfillman/*`) |
 | `CLEARANCE_OIDC_JWKS_URL` | `$CLEARANCE_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
 | `CLEARANCE_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
 | `CLEARANCE_OIDC_ALLOWED_USERS` | (none) | comma-separated globs on that claim: who may sign in at all. Required with `CLEARANCE_OIDC_ISSUER`, because an issuer that federates GitHub signs in anyone with a GitHub account |
@@ -143,12 +187,15 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `EVENTS_ENABLED` | `0` | `1`: the event trigger bridge holds glidepath-api's `/v1/events` stream and launches each agent whose Glidepath event trigger matches (needs `GLIDEPATH_API_URL`) |
 | `SCHEDULES_ENABLED` | `0` | `1`: interval triggers (`src/autopilot/scheduler.py`): each scheduled workload agent starts once per interval, at its UTC-aligned start (every 24h: 00:00 UTC), within 10 minutes of it, with its instructions |
 | `AGENT_XRS_ENABLED` | = `GITHUB_PR_ENABLED` | `1`: Agent XR pins become definitions (`agent_xrs.py`, Autopilot M4): every `AGENT_XRS_INTERVAL` s (60) the gateway lists `Agent` XRs (airframe `xrds/agent.yaml`), fetches each pinned definition file once through the agents' App (the broker's repository rule applies) and loads it beside the bundled `agents/` (clearance `definitions.py`: a bundled name is never shadowed; every change is `definition.*` evidence once). Needs `GITHUB_PR_ENABLED=1` |
-| `CLEARANCE_VERIFIERS` | (none) | comma-separated principal globs that may call `POST /v1/provenance` (the agent-identity and agent-scope gates' pipelines, e.g. `app-*-cicd/pipeline-runner`); with none, every caller is refused 403 |
-| `AGENT_LOGINS` | `hangar-autopilot-agents[bot]` | the GitHub logins agents open PRs as; such a PR with no Clearance record fails agent-identity (AI002) |
 | `LOG_LEVEL` | `info` | |
 
+The core's settings are refused on the gateway, so a cutover that leaves one behind fails at start rather than
+running half-configured: `CLEARANCE_DSN`, `CLEARANCE_VERIFIERS`, `AGENT_LOGINS`, `CLEARANCE_GITHUB_APP_*` and
+`CLEARANCE_GITHUB_OIDC_*` (the evidence DSN, provenance, the gate, the GitHub App and GitHub Actions callers are the
+core's; set them there).
+
 The start line names what is enabled (store kind, agent and tool counts, auth, Glidepath URL, Airframe cluster, expiry
-interval) and never a DSN, token or file content.
+interval, the core's URL and the outage switch) and never a DSN, token or file content.
 
 What each backend needs. The gateway runs as one ServiceAccount (`autopilot-system/clearance` on hangar-dev) with its
 projected token and CA at the standard path; every adapter re-reads both on each call.
@@ -164,7 +211,8 @@ projected token and CA at the standard path; every adapter re-reads both on each
 | Backstage catalog (`BACKSTAGE_URL`) | `catalog.read` | a projected service-account token for audience `backstage` at `BACKSTAGE_TOKEN_FILE`, which Backstage verifies against this cluster's public issuer (`backend.auth.externalAccess` type `jwks`, `accessRestrictions` catalog `catalog.entity.read`); no stored secret. A full-text search, or a Backstage filter when the query has `=`; at most 25 entities, each a summary (ref, kind, title, description, type, owner, lifecycle, system), never annotations |
 | Prometheus (`PROMETHEUS_URL`) | `metrics.query` | network reach to the query API. An instant query; at most 200 series returned (`truncated` says when more matched) |
 | Loki (`LOKI_URL`) | `logs.query` | network reach to the query API. A range query over the last hour, newest first; at most 200 lines of at most 2000 characters. On hangar-dev the labels are the OpenTelemetry ones (`k8s_namespace_name`, `k8s_pod_name`, `service_name`) |
-| Postgres (`CLEARANCE_DSN`) | everything, and `artifact.put`/`artifact.get` (clearance `PgArtifacts`: per task, 256 KiB each, 32 and 2 MiB per task, 7 days) | a database the gateway owns; it creates its tables and verifies the evidence chain from genesis at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
+| The Clearance core (always) | every decision and record | network reach to `CLEARANCE_CORE_URL`, and a projected token for the core's audience at `CLEARANCE_CORE_TOKEN_FILE`; the core lists this identity in `CLEARANCE_PROVIDERS` as `autopilot-gateway` |
+| Postgres (`GATEWAY_DSN`) | sessions, the inbox, results, the outbox, and `artifact.put`/`artifact.get` (`PgArtifacts`: per task, 256 KiB each, 32 and 2 MiB per task, 7 days) | a database the gateway owns (not clearance-pg); it creates its tables at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
 
 | GitHub PRs (`GITHUB_PR_ENABLED`) | `repo.pr.open`, `repo.pr.open_upper`, `repo.file.get` | a projected token for audience `agent-installation-token` at `AGENT_TOKEN_FILE`, and `autopilot-system/clearance` in the broker's `agentToken.callers`. Per PR the broker mints a token for the agents' App on that one repo (contents and pull_requests write, never workflows), only for an onboarded app's own repo (`<app>`, `gitops-<app>` or `gitops-infra-<app>`; `repo.pr.open_upper` is T2 and propose-only: a human merges it). The PR is built with the Git data API (no clone), on a new branch only (an existing one is refused, never forced); its commit trailer and body carry the agent, task, session and run. `repo.file.get` reads a file (or lists a directory) at a ref with the same per-call token, GET only; over 1 MiB or binary is named, not returned |
 | Model proxy (`MODEL_KEY_FILE`) | a run's model calls | the provider key file, egress to `api.anthropic.com`, and the Service `model-proxy` on `MODEL_PORT` selecting this pod. A run sends its model-proxy token as `x-api-key` and its session as `x-hangar-session`; Clearance checks the session's model allowlist, network mode, breaker and token budget, forwards the body only, and charges the actual usage to the session in the same evidence chain (clearance `server.create_model_app`) |
@@ -334,6 +382,9 @@ the image its definition pins.
 
 ## The Clearance GitHub App on Hangar
 
+From R-3b the App runs in the Clearance core (`CLEARANCE_GITHUB_APP_*` on the core; the gateway refuses them), and
+R-4 points the webhook route at the core. The steps below are as they were set up with the in-process gateway.
+
 Clearance's own check runs (`Clearance / agent-identity`, `Clearance / agent-scope`; clearance
 `docs/provenance-app.md`) run on hangar-dev beside Glidepath's `agent-gates-` check until their verdicts agree.
 Setting it up:
@@ -382,12 +433,11 @@ Checked against gateway-v0.3.27 (clearance v0.26.1), the image on hangar-dev, on
   across clusters.
 * The deployment gate's enforcement at admission (the pulled grant and its policy): Clearance's
   `docs/gate.md`. On Hangar the `clearance-gate-` check is advisory.
-* R-3b and after (the rest of Hangar's R-3): the engine still decides and records in process through the pinned
-  clearance package (`engine/core.py`); calling the Clearance core's API through its generated Python client, the
-  gateway's own database for sessions, inbox, results and artifacts, the outage policy and its outbox, dropping the
-  clearance dependency and the clearance PR that removes its copy of the moved modules are not built. The gateway's own
-  read API is built (R-3c) but not deployed: hangar-dev's `clearance-api` Deployment still runs gateway-v0.3.27, whose
-  `api` is clearance's `api.py` serving every read; the cutover (R-4) moves Clearance's reads to the Go `clearance api`
-  in the same change that deploys this one. The read API keeps api.py's behaviour on unknown query parameters (ignored,
-  where the Go API answers 400) and runs on uvicorn without per-phase server timeouts; both come with A-9. The Go
-  port of the gateway is A-9.
+* The rest of Hangar's R-3 after R-3b and R-3c: the clearance PR that removes its copy of the moved modules
+  (R-3d), and the deployment (R-4). The gateway's own read API (R-3c) is built but not deployed: hangar-dev's
+  `clearance-api` Deployment still runs gateway-v0.3.27, whose `api` is clearance's `api.py` serving every read; the
+  cutover (R-4) moves Clearance's reads to the Go `clearance api` in the same change that deploys this one. The read
+  API keeps api.py's behaviour on unknown query parameters (ignored, where the Go API answers 400) and runs on uvicorn
+  without per-phase server timeouts; both come with A-9. The core changes R-3b needs (record kinds for `run.finish`,
+  `session.end`, `trigger.release`, `definition.*` and coverage-unavailable `tool.call`; a `via` on a delegated open;
+  a clock-skew setting for tests) are not released yet. The Go port of the gateway is A-9.

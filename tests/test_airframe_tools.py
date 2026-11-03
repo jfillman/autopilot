@@ -589,13 +589,13 @@ def test_an_agent_reads_an_environment_using_only_mcp(defs, clock, token):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         from conftest import StaticAuth
-        from clearance.audit import AuditLog
+        from coreenv import tap_core
         from autopilot.engine.dispatch import Principal
         from autopilot.engine.session import SessionStore
         reader = KubeReader(f"http://127.0.0.1:{srv.server_address[1]}", token)
         tools = at.AirframeTools(reader, at.FakeValidator(), REG, cluster="hangar-dev")
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), None, tools)
-        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), tap_core(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):

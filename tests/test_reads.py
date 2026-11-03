@@ -3,6 +3,7 @@ bounds, a rejected query as an answer, everything else a hidden failure. No netw
 import json
 
 import pytest
+from coreenv import core_env
 
 from autopilot import reads, serve
 from autopilot.airframe_api import KubeReader, PathRefused
@@ -164,7 +165,7 @@ def test_logql_metric_query_is_a_matrix():
 
 
 # -- wiring ---------------------------------------------------------------------------------------------------------
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0"}
+EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", **core_env()}
 
 
 def test_read_tools_only_for_configured_backends():
@@ -196,7 +197,7 @@ def test_read_calls_through_the_gateway_are_charged_and_audited(tmp_path, clock)
     assert gw.call("t", sid, "metrics.query", {"promql": "up"}).ok
     r = gw.call("t", sid, "logs.query", {"logql": '{app="x"}'})
     assert not r.ok and r.error == "no backend for this tool in this deployment"
-    assert [x["result"] for x in gw.audit.records[-3:]] == ["ok", "ok", "error:NoHandler"]
+    assert [x["result"] for x in gw.core.records[-3:]] == ["ok", "ok", "error:NoHandler"]
     assert gw.store.get(sid).used["tool_calls"] == 2
 
 

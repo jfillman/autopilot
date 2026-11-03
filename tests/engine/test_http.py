@@ -55,7 +55,7 @@ def test_healthz_needs_no_token(client):
 def test_no_or_bad_bearer_is_401_before_any_tool(client, gw, token):
     r = rpc(client, "tools/call", {"name": "session_open", "arguments": {"agent": "coding-agent"}}, token)
     assert r.status_code == 401
-    assert gw.audit.records == [], "nothing reached the gateway"
+    assert gw.core.records == [], "nothing reached the gateway"
 
 
 def test_a_session_is_its_openers_only(client, gw, backends):

@@ -1,7 +1,7 @@
 """The deployable Hangar gateway: `autopilot-gateway`.
 
-Builds the Hangar Gateway (the gateway engine, Clearance's policy with the Hangar pack, Autopilot's real backends) from
-environment variables and serves the engine's streamable-HTTP MCP app (autopilot.engine.server) with uvicorn. See
+Builds the Hangar Gateway (the gateway engine, Hangar's tools, Autopilot's real backends, and the Clearance core's
+client) from environment variables and serves the engine's streamable-HTTP MCP app (autopilot.engine.server) with uvicorn. See
 README.md, "Running the gateway", for the variables.
 
 Only real backends are registered (human.request and human.request.get are the Gateway's own inbox, durable on
@@ -12,11 +12,16 @@ airframe.validate always, since the image carries no airframe-validate) has no h
 as having no backend. Nothing here registers a fake.
 
 Every gateway entry point, the MCP server's calls and the expiry sweep alike, runs under one lock
-(SerializedGateway.lock): the session store and the audit chain are single-writer.
+(SerializedGateway.lock): the session store is single-writer.
+
+The Clearance core (CLEARANCE_CORE_URL) decides every call and writes every record; the gateway holds no evidence
+DSN. Its own database (GATEWAY_DSN) keeps sessions, the inbox, results, artifacts, trigger history, holds, the pinned
+definition set and the outbox (engine/pg.py). When the core is unreachable the outage policy applies (engine/core.py;
+GATEWAY_OUTAGE_ALLOW_READS), and the expiry sweep posts what the outbox holds once it answers again.
 
 Losing Postgres ends the process (crash-only). After a failed commit the in-memory sessions are ahead of the
-database, and only a restart, which reloads them and re-verifies the chain, puts the two back in step; reconnecting
-in place would keep spending budget that was never recorded. The kubelet restarts the container, which fails at
+database, and only a restart, which reloads them, puts the two back in step; reconnecting in place would keep
+spending budget that was never saved. The kubelet restarts the container, which fails at
 start (and backs off) until Postgres answers and the old session's writer lock is released. The expiry sweep pings
 the database first, so a lost connection is found within one interval even when no agent is calling.
 """
@@ -32,10 +37,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from clearance.audit import AuditLog
-from clearance.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
-                            RoutingAuthenticator, WorkloadAuthenticator)
 from .engine import profile
+from .engine.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
+                          RoutingAuthenticator, WorkloadAuthenticator)
+from .engine.core import Core, client_from_env
+from .engine.definitions import Definitions, MemoryDefinitions
+from .engine.outbox import MemoryOutbox
 from .engine.backends import Handler
 from .engine.dispatch import Authenticator, Gateway
 from .engine.control import MemoryHolds
@@ -52,10 +59,8 @@ from .backends import Backends
 from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
-from clearance.definitions import Definitions, MemoryDefinitions
-from clearance.gate import GatePolicy, MemoryChanges
 from .engine.results import MemoryResults
-from .reads import BackstageAppOwners, BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
+from .reads import BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 
 log = logging.getLogger("autopilot.gateway")
@@ -77,9 +82,14 @@ def load_runtimes(path: Path | None = None) -> tuple:
     except ValueError as e:
         raise ConfigError(f"runtime catalog {p}: {e}") from e
 
-# The agents' GitHub App (D4) as GitHub shows it on the PRs it opens; a PR by it that Clearance has no record of
-# fails agent-identity (clearance.provenance, AI002).
-AGENT_LOGIN = "hangar-autopilot-agents[bot]"
+# The core's token: a projected service-account token whose audience is the core's CLEARANCE_AUDIENCE.
+CORE_TOKEN_FILE = "/var/run/secrets/tokens/clearance-core"
+
+# What the gateway no longer does (R-3b): the evidence DSN, the deployment gate's verifiers, provenance, the GitHub
+# App and GitHub Actions callers are the Clearance core's. A gateway configured with one fails at start.
+CORE_ONLY = ("CLEARANCE_DSN", "CLEARANCE_VERIFIERS", "AGENT_LOGINS", "CLEARANCE_GITHUB_APP_ID",
+             "CLEARANCE_GITHUB_APP_KEY_FILE", "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE", "CLEARANCE_GITHUB_APP_COMMENTS",
+             "CLEARANCE_GITHUB_OIDC_AUDIENCE", "CLEARANCE_GITHUB_OIDC_ALLOWED")
 
 
 class ConfigError(ValueError):
@@ -89,7 +99,7 @@ class ConfigError(ValueError):
 @dataclass(frozen=True)
 class Config:
     agents_dir: Path
-    dsn: str | None
+    dsn: str | None             # GATEWAY_DSN: the gateway's own database (None when ephemeral)
     ephemeral: bool
     resource_url: str
     oidc_issuer: str | None
@@ -124,13 +134,11 @@ class Config:
     agent_xrs_enabled: bool
     agent_xrs_interval: float
     runtime_images_extra: tuple[str, ...] = ()
-    github_app_id: str | None = None
-    github_app_key_file: str | None = None
-    github_app_secret_file: str | None = None
-    github_app_comments: str = "off"
     schedules_enabled: bool = False
-    verifiers: tuple[str, ...] = ()
-    agent_logins: tuple[str, ...] = ()
+    # The Clearance core: its URL, the gateway's token for it, and the outage switch (engine/core.py).
+    core_url: str = ""
+    core_token_file: Path = Path(CORE_TOKEN_FILE)
+    outage_allow_reads: bool = False
     oidc_allowed: tuple[str, ...] = ()
     # Tower (another cluster): its backend's service-account tokens, verified against that cluster's public issuer,
     # and the delegates that may answer human requests for a person they name.
@@ -139,11 +147,6 @@ class Config:
     tower_jwks_url: str | None = None
     tower_service_accounts: tuple[str, ...] = ()
     delegates: tuple[str, ...] = ()
-    # GitHub Actions workflows (clearance register, provenance-app.md phase 2b): their OIDC ID tokens for this
-    # audience, from the workflows `github_oidc_allowed` names (globs on the token's sub). Off when the audience is
-    # unset. Registering still needs CLEARANCE_VERIFIERS to list the principal (github:<sub>).
-    github_oidc_audience: str | None = None
-    github_oidc_allowed: tuple[str, ...] = ("repo:*",)
     # Platform admins (principal globs, user:<login>) who may freeze, end, hold and release beside each agent's owner
     # group (clearance control.py).
     admins: tuple[str, ...] = ()
@@ -183,10 +186,19 @@ def _list(v: str) -> tuple[str, ...]:
 def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
     get = lambda k, d=None: env.get(k) or d  # noqa: E731 - an empty variable is an unset one
+    stale = [k for k in CORE_ONLY if get(k)]
+    if stale:
+        raise ConfigError(f"{', '.join(stale)}: the Clearance core's settings, not the gateway's (the gateway has no "
+                          "evidence DSN and serves no gate, provenance or GitHub App); set them on the core")
     ephemeral = _flag(env, "CLEARANCE_EPHEMERAL", False)
-    dsn = get("CLEARANCE_DSN")
+    dsn = get("GATEWAY_DSN")
     if not ephemeral and not dsn:
-        raise ConfigError("CLEARANCE_DSN is required (or CLEARANCE_EPHEMERAL=1 for an in-memory store, local runs only)")
+        raise ConfigError("GATEWAY_DSN is required (or CLEARANCE_EPHEMERAL=1 for an in-memory store, local runs only)")
+    core_url = get("CLEARANCE_CORE_URL")
+    if not core_url:
+        raise ConfigError("CLEARANCE_CORE_URL is required: the Clearance core decides every call")
+    if not core_url.startswith(("http://", "https://")):
+        raise ConfigError("CLEARANCE_CORE_URL is an http(s) URL")
     port = _number(env, "PORT", 8080, int)
     if port > 65535:
         raise ConfigError("PORT must be at most 65535")
@@ -223,11 +235,6 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     if tower_issuer and not (tower_cluster and tower_sas):
         raise ConfigError("TOWER_ISSUER needs TOWER_CLUSTER and TOWER_SERVICE_ACCOUNTS (namespace/name globs): the "
                           "issuer signs a token for every pod of that cluster")
-    gh_parts = [get(k) for k in ("CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GITHUB_APP_KEY_FILE", "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE")]
-    if any(gh_parts) and not all(gh_parts):
-        raise ConfigError("CLEARANCE_GITHUB_APP_ID, _KEY_FILE and _WEBHOOK_SECRET_FILE are set together or not at all")
-    if get("CLEARANCE_GITHUB_APP_COMMENTS", "off") not in ("off", "agent-failures"):
-        raise ConfigError("CLEARANCE_GITHUB_APP_COMMENTS is off or agent-failures")
     events = _flag(env, "EVENTS_ENABLED", False)
     if events and not get("GLIDEPATH_API_URL"):
         raise ConfigError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
@@ -266,21 +273,15 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         model_audience=get("MODEL_TOKEN_AUDIENCE", "model-proxy"), events_enabled=events,
         # Interval triggers (scheduler.py): scheduled agents start at the start of each interval, UTC-aligned.
         schedules_enabled=_flag(env, "SCHEDULES_ENABLED", False),
-        verifiers=_list(get("CLEARANCE_VERIFIERS", "")),
-        agent_logins=_list(get("AGENT_LOGINS", AGENT_LOGIN)), oidc_allowed=allowed,
+        core_url=core_url, core_token_file=Path(get("CLEARANCE_CORE_TOKEN_FILE", CORE_TOKEN_FILE)),
+        outage_allow_reads=_flag(env, "GATEWAY_OUTAGE_ALLOW_READS", False), oidc_allowed=allowed,
         tower_cluster=tower_cluster if tower_issuer else None, tower_issuer=tower_issuer,
         tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
         tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("CLEARANCE_DELEGATES", "")),
         admins=_list(get("CLEARANCE_ADMINS", "")),
-        github_oidc_audience=get("CLEARANCE_GITHUB_OIDC_AUDIENCE") or None,
-        github_oidc_allowed=_list(get("CLEARANCE_GITHUB_OIDC_ALLOWED", "repo:*")),
         # Images a definition may pin beyond the runtime catalog: the registries Glidepath builds agents' own images
         # into (code agents), as globs, e.g. ghcr.io/jfillman/*@sha256:*.
         runtime_images_extra=tuple(_list(get("RUNTIME_IMAGES_EXTRA", ""))),
-        # The Clearance GitHub App: all three or none (CLEARANCE_GITHUB_APP_COMMENTS: off | agent-failures).
-        github_app_id=get("CLEARANCE_GITHUB_APP_ID"), github_app_key_file=get("CLEARANCE_GITHUB_APP_KEY_FILE"),
-        github_app_secret_file=get("CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE"),
-        github_app_comments=get("CLEARANCE_GITHUB_APP_COMMENTS", "off"),
     )
 
 
@@ -341,22 +342,7 @@ def build_auth(cfg: Config) -> Authenticator:
         oidc[cfg.tower_issuer] = ForeignWorkloadAuthenticator(cfg.tower_cluster, cfg.tower_issuer, cfg.audience,
                                                               JWKS(cfg.tower_jwks_url),
                                                               allowed=cfg.tower_service_accounts)
-    if cfg.github_oidc_audience:
-        from clearance.auth import GITHUB_ACTIONS_ISSUER, GitHubActionsAuthenticator
-        oidc[GITHUB_ACTIONS_ISSUER] = GitHubActionsAuthenticator(
-            cfg.github_oidc_audience, JWKS(f"{GITHUB_ACTIONS_ISSUER}/.well-known/jwks"), allowed=cfg.github_oidc_allowed)
     return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
-
-
-def open_durable(dsn: str, id_gen=None):
-    """A PgState, its evidence log, and a SessionStore loaded from it: clearance.pg.open_durable (v0.26.1) with the
-    engine's own SessionStore, so the sessions, and the SessionError and WideningError the Gateway catches, are the
-    engine's (autopilot.engine.session) and not the clearance package's copy (R-3a). The tables are unchanged."""
-    from clearance.pg import PgAuditLog, PgSessions, PgState
-    state = PgState(dsn)
-    audit = PgAuditLog(state)
-    store = SessionStore(id_gen=id_gen, persist=PgSessions(state, audit))
-    return state, audit, store
 
 
 STORE_LOST_EXIT = 70
@@ -408,9 +394,6 @@ class SerializedGateway(Gateway):
     def model_authorize(self, *a, **k):
         return self._locked(super().model_authorize, *a, **k)
 
-    def provenance(self, *a, **k):
-        return self._locked(super().provenance, *a, **k)
-
     def model_usage(self, *a, **k):
         return self._locked(super().model_usage, *a, **k)
 
@@ -426,64 +409,61 @@ class SerializedGateway(Gateway):
         self._locked(roundtrip)
 
 
+def build_core(cfg: Config, outbox) -> Core:
+    """The core's client with the outage policy's defaults, the outbox, and the outage switch."""
+    return Core(client_from_env(cfg.core_url, str(cfg.core_token_file)), outbox, allow_reads=cfg.outage_allow_reads)
+
+
 def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authenticator | None = None,
-                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> tuple[SerializedGateway, Any]:
-    """The gateway and, for a durable store, its PgState (to close on exit; None when ephemeral)."""
+                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+                  core: Core | None = None) -> tuple[SerializedGateway, Any]:
+    """The gateway and, for a durable store, its GatewayState (to close on exit; None when ephemeral). `core` is a
+    ready Core (tests); else one is built from the configuration, its outbox in the gateway's database."""
     b = backends or build_backends(cfg)
     # The bundled definitions (the image's agents/) plus, as the loader finds them, the ones Agent XRs pin
-    # (clearance definitions.py; agent_xrs.py). A bundled name is never shadowed.
+    # (engine/definitions.py; agent_xrs.py). A bundled name is never shadowed.
     defs = Definitions(profile.load_dir(cfg.agents_dir))
     state, store_errors = None, ()
     if cfg.ephemeral:
-        store, audit = SessionStore(), AuditLog()
+        store = SessionStore()
         inbox = MemoryInbox()
         events = MemoryEvents()
         holds = MemoryHolds()
         pins = MemoryDefinitions()
-        changes = MemoryChanges()
         results = MemoryResults()
+        outbox = MemoryOutbox()
     else:
         import psycopg   # only where it is used
-        from clearance.pg import PgArtifacts, PgChanges, PgDefinitions, PgEvents, PgHolds, PgInbox, PgResults
-        state, audit, store = open_durable(cfg.dsn)
+        from .engine.pg import PgArtifacts, PgDefinitions, PgEvents, PgHolds, PgInbox, PgOutbox, PgResults, open_durable
+        state, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
-            b.artifacts = PgArtifacts(state)   # on the store's connection: a put commits with its call's evidence
+            b.artifacts = PgArtifacts(state)   # on the store's connection: a put commits with its call's session
         inbox = PgInbox(state)                 # human.request's questions and answers, in the same transactions
-        events = PgEvents(state)               # the trigger bridge's event history (clearance-api /v1/events)
+        events = PgEvents(state)               # the trigger bridge's event history
         holds = PgHolds(state)                 # people's holds on agents' triggers (control.py)
-        pins = PgDefinitions(state)            # the cluster-pinned definitions, for restarts and clearance-api
-        changes = PgChanges(state)             # the deployment gate's changes (clearance gate.py)
-        results = PgResults(state)             # finished runs' answers, 30 days (clearance results.py)
+        pins = PgDefinitions(state)            # the cluster-pinned definitions, for restarts and the read API
+        results = PgResults(state)             # finished runs' answers, 30 days (results.py)
+        outbox = PgOutbox(state)               # what the core is owed (engine/outbox.py)
+    if core is None:
+        core = build_core(cfg, outbox)
     models = model_auth = None
     if cfg.model_key_file:
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
         model_auth = CachingAuthenticator(WorkloadAuthenticator(cfg.model_audience))
-    gw = SerializedGateway(defs, store, audit, auth or build_auth(cfg), clock, packs=PACKS,
+    gw = SerializedGateway(defs, store, core, auth or build_auth(cfg), clock, packs=PACKS,
                            handlers=build_handlers(b), runs=AgentRunBackend(b.runs), state=state,
-                           store_errors=store_errors, models=models, model_auth=model_auth,
-                           verifiers=cfg.verifiers, agent_logins=cfg.agent_logins, inbox=inbox,
+                           store_errors=store_errors, models=models, model_auth=model_auth, inbox=inbox,
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
-                           definitions_store=pins, changes=changes, gate_policy=GatePolicy(),
-                           owners=BackstageAppOwners(b.read.backstage) if getattr(b.read, "backstage", None) else None,
-                           runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra,
+                           definitions_store=pins, runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra,
                            results=results)
     return gw, state
 
 
-def build_github_app(cfg: Config, gw: Gateway):
-    """The Clearance GitHub App (clearance github_app.py), when its id, key file and webhook secret file are set:
-    Clearance's own check runs on PRs, beside Glidepath's agent-gates while both run (decided 2026-11-01)."""
-    from clearance import github_app
-    app_cfg = github_app.read_config(cfg.github_app_id, cfg.github_app_key_file, cfg.github_app_secret_file,
-                                     cfg.github_app_comments)
-    return github_app.GitHubApp(app_cfg, gw) if app_cfg else None
-
-
-def build_app(cfg: Config, gw: Gateway, github_app=None):
+def build_app(cfg: Config, gw: Gateway):
     from .engine.server import create_http_app
-    return create_http_app(gw, resource_url=cfg.resource_url, issuer_url=cfg.issuer_url, github_app=github_app)
+    return create_http_app(gw, resource_url=cfg.resource_url, issuer_url=cfg.issuer_url)
 
 
 class Expirer:
@@ -536,8 +516,7 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + f" events={'on' if cfg.events_enabled else 'off'}"
             + f" schedules={'on' if cfg.schedules_enabled else 'off'}"
             + f" agent-pins={'on (every ' + format(cfg.agent_xrs_interval, 'g') + 's)' if cfg.agent_xrs_enabled else 'off'}"
-            + f" github-oidc={'on (aud ' + cfg.github_oidc_audience + ')' if cfg.github_oidc_audience else 'off'}"
-            + f" github-app={'on (app ' + str(cfg.github_app_id) + ', comments ' + cfg.github_app_comments + ')' if cfg.github_app_id else 'off'}"
+            + f" core={cfg.core_url} outage-reads={'allowed' if cfg.outage_allow_reads else 'denied'}"
             + f" agentruns=in-cluster expire-every={cfg.expire_seconds:g}s")
 
 
@@ -557,10 +536,7 @@ def main() -> int:
 
     import uvicorn
     gw, state = build_gateway(cfg)
-    gh_app = build_github_app(cfg, gw)
-    app = build_app(cfg, gw, gh_app)
-    if gh_app is not None:
-        gh_app.start()
+    app = build_app(cfg, gw)
     log.info(describe(cfg, gw))
     expirer = Expirer(gw, cfg.expire_seconds).start()
     bridge = pins = None
@@ -589,8 +565,6 @@ def main() -> int:
     try:
         asyncio.run(serve_all())
     finally:
-        if gh_app is not None:
-            gh_app.stop()
         if sched is not None:
             sched.stop()
         if pins is not None:

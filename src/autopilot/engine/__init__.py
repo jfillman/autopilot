@@ -4,8 +4,10 @@ The MCP surface (server.py), sessions, the run tree, budgets and requested limit
 dispatch (dispatch.py), the tool registry and tier vocabulary (tiers.py), the model proxy (modelproxy.py), the backend
 protocols and fakes (backends.py), agent definitions and their schema (profile.py, schemas/), the runtime catalog
 (runtimes.py), the human inbox (inbox.py), person controls (control.py), run results (results.py) and trigger history
-(events.py). autopilot.gateway assembles it for Hangar: the Hangar pack, Hangar's backends, the run tree as AgentRuns.
+(events.py), callers' authentication (auth.py), the cluster pin set (definitions.py), the gateway's own database
+(pg.py) and its outbox (outbox.py). autopilot.gateway assembles it for Hangar: Hangar's tools and backends, the run tree
+as AgentRuns.
 
-What the engine still takes from Clearance (the decision and the record, the deployment gate, provenance) comes in
-through one module, core.py: that is the seam R-3b replaces with the Clearance core's API (README.md).
+What the engine takes from Clearance (the decision and the record) comes through one module, core.py: the Clearance
+core's HTTP API through its generated client, with the outage policy (R-3b, README.md).
 """

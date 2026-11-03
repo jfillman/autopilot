@@ -9,7 +9,7 @@ ROUTES = {"claude-sonnet-5": ModelRoute("claude-sonnet-5", "anthropic", "https:/
 
 @pytest.fixture
 def mp(gw, clock):
-    return ModelProxy(ROUTES, gw.store, gw.audit, clock)
+    return ModelProxy(ROUTES, gw.store, gw.core, clock)
 
 
 def sess(gw, req=None, agent="coding-agent"):
@@ -62,10 +62,10 @@ def test_usage_is_charged_and_overrun_trips_the_breaker(gw, mp):
 
 def test_every_model_call_is_audited(gw, mp):
     sid = sess(gw)
-    n = len(gw.audit.records)
+    n = len(gw.core.records)
     mp.authorize(sid, "user:alice", "claude-sonnet-5", 5)
     mp.authorize(sid, "user:alice", "gpt-9", 5)
-    recs = gw.audit.records[n:]
+    recs = gw.core.records[n:]
     assert [r["decision"] for r in recs] == ["allow", "deny"] and all(r["tool"] == "model.call" for r in recs)
 
 

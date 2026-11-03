@@ -7,7 +7,7 @@ import pytest
 
 from autopilot.engine import control as ctl
 from autopilot.engine import results as res
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.backends import FakeRunBackend
 from autopilot.engine.dispatch import Gateway, Principal
 from clearance.packs.hangar import HANGAR
@@ -41,7 +41,7 @@ class RunAuth(Auth):
 
 @pytest.fixture
 def g(defs, clock):
-    return Gateway(defs, SessionStore(), AuditLog(), RunAuth(), clock, packs=(HANGAR,), runs=Runs(),
+    return Gateway(defs, SessionStore(), tap_core(), RunAuth(), clock, packs=(HANGAR,), runs=Runs(),
                    directory=Groups(), delegates=(TOWER,), admins=("user:root",), results=res.MemoryResults())
 
 
@@ -69,7 +69,8 @@ def test_the_run_finishes_its_session_and_its_answer_is_kept_30_days(g, clock):
     o = s.outcome
     assert o["status"] == "done" and o["turns"] == 2 and o["tool_calls"] == 1 and o["not_ok"] == 0 and o["via"] == "runtime"
     assert o["result"]["bytes"] == len("Python and Go.") and len(o["result"]["sha256"]) == 64
-    rec = g.audit.records[-1]
+    assert out["audit_seq"] is None                 # the core takes no run.finish record yet: held in the outbox
+    rec = g.core.held("run.finish")[-1]
     assert rec["tool"] == "run.finish" and rec["result"] == "done" and "Python" not in str(rec)
     kept = g.results.get(s.id, clock())
     assert kept["final_text"] == "Python and Go." and kept["tool_calls"] == [{"tool": "catalog.read", "ok": True, "rule": None}]
@@ -83,7 +84,7 @@ def test_the_sweep_then_deletes_the_finished_run(g):
     s = started(g)
     finish(g, s)
     g.expire()
-    assert [r for r in g.audit.records if r["tool"] == "run.delete"][-1]["result"] == "deleted"
+    assert [r for r in g.core.records if r["tool"] == "run.delete"][-1]["result"] == "deleted"
     assert g.store.get(s.id).run is None
 
 
@@ -122,7 +123,7 @@ def test_a_run_that_ends_without_a_result_is_closed_by_the_sweep(g):
     g.runs.phases[s.run] = "Succeeded"
     g.expire()
     assert s.closed and s.outcome["status"] == "no-result" and s.outcome["run_phase"] == "Succeeded"
-    assert [r["result"] for r in g.audit.records if r["tool"] == "run.finish"] == ["no-result"]
+    assert [r["result"] for r in g.core.held("run.finish")] == ["no-result"]
 
 
 def test_a_session_past_its_deadline_has_the_outcome_expired(g, clock):

@@ -50,10 +50,10 @@ def test_the_memory_store_keeps_the_newest_and_dedupes_by_id():
 def test_the_gateway_records_an_event_without_touching_the_chain(gw, clock):
     assert gw.record_event(summary(), []) is False, "no history store: nothing kept, nothing fails"
     gw.events = events.MemoryEvents()
-    head = len(gw.audit.records)
+    head = len(gw.core.records)
     assert gw.record_event(summary(), [{"agent": "triage-agent", "result": "launched"}]) is True
     assert [e.id for e in gw.events.recent()] == ["ev-1"]
-    assert len(gw.audit.records) == head, "history is not evidence"
+    assert len(gw.core.records) == head, "history is not evidence"
 
 
 class EventsOnly(MemStore):

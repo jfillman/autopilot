@@ -102,3 +102,11 @@ TOOLS: dict[str, ToolSpec] = registry(CORE_TOOLS)
 
 def effective_tier_name(t: Tier) -> str:
     return t.name
+
+
+@dataclass(frozen=True)
+class Pack:
+    """A family of tools not every deployment has (Hangar's glidepath.* and airframe.*: autopilot.hangar_tools). The
+    gateway registers its tools; their policy is the core's (CLEARANCE_PACKS on the core names the same pack)."""
+    name: str
+    tools: tuple[ToolSpec, ...] = ()

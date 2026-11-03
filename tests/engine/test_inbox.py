@@ -6,7 +6,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from autopilot.engine import inbox as hr
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
 from autopilot.engine.server import create_http_app
@@ -34,7 +34,7 @@ class Groups:
 @pytest.fixture
 def g(defs, clock):
     counter = iter(range(1, 1000))
-    return Gateway(defs, SessionStore(id_gen=lambda: f"s-{next(counter):06x}"), AuditLog(), Auth(), clock,
+    return Gateway(defs, SessionStore(id_gen=lambda: f"s-{next(counter):06x}"), tap_core(), Auth(), clock,
                    packs=(HANGAR,), inbox=hr.MemoryInbox(), directory=Groups(),
                    delegates=("hangar-prod/app-backstage-prod/backstage",))
 
@@ -57,7 +57,7 @@ def test_ask_returns_at_once_and_the_answer_is_read_later(g, defs):
     assert out["status"] == "answered" and out["answered_by"] == "user:alice" and out["answered_via"] is None
     got = g.call("alice", sid, "human.request.get", {"request": rid}).data
     assert got["answer"] == "no" and got["status"] == "answered"
-    rec = g.audit.records[-2]
+    rec = g.core.records[-3]    # then human.request.get's decision and outcome
     assert rec["tool"] == "human.answer" and rec["principal"] == "user:alice" and rec["target"] == rid
     assert g.human_requests("alice") == []
 
@@ -86,7 +86,7 @@ def test_a_delegate_answers_for_the_person_it_names_and_only_a_delegate(g):
     assert [r["id"] for r in g.human_requests("tower", on_behalf_of="user:alice")] == [rid]
     out = g.human_answer("tower", rid, "go", on_behalf_of="user:alice")
     assert out["answered_by"] == "user:alice" and out["answered_via"] == "hangar-prod/app-backstage-prod/backstage"
-    assert g.audit.records[-1]["result"] == "answered via hangar-prod/app-backstage-prod/backstage"
+    assert g.core.records[-1]["result"] == "answered via hangar-prod/app-backstage-prod/backstage"
 
 
 def test_refusals(g, clock):

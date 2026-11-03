@@ -3,6 +3,7 @@ summarised within the input cap, the run's pod acting as its session, and a stre
 import io
 import json
 import pytest
+from coreenv import core_env
 
 from autopilot import serve
 from autopilot.backends import Backends, FakeRuns
@@ -11,7 +12,7 @@ from autopilot.gateway import AgentRunBackend
 from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0"}
+EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
 
 
 def failed(eid="1793291758385806-7dd8657e1c25", outcome="failure", app="gate-api"):
@@ -79,7 +80,7 @@ def test_the_run_pod_acts_as_its_session_and_nobody_else_does(gw, clock):
     assert AgentRunBackend(runs).principal(g.store.get(sid)) == f"agent-{run}/run"
     r = g.call(f"agent-{run}/run", sid, "glidepath.runs.list", {"app": "gate-api"})
     assert r.decision["allow"] is True and r.error == "no backend for this tool in this deployment"
-    assert g.audit.records[-1]["principal"] == f"agent-{run}/run"
+    assert g.core.records[-1]["principal"] == f"agent-{run}/run"
     for other in ("agent-r-ffffffffffff/run", "autopilot-runs/default", "user:alice"):
         assert g.call(other, sid, "glidepath.runs.list", {"app": "gate-api"}).decision["rule"] == "R001"
 
@@ -132,7 +133,7 @@ def test_every_event_is_kept_as_history_with_what_was_done(gw, clock):
     assert [(o["agent"], o["result"]) for o in hit.outcomes] == [("triage-agent", "launched")]
     assert hit.outcomes[0]["session"] and hit.outcomes[0]["run"]
     assert kept["2"].outcomes == [], "an event no trigger matched is history too"
-    assert len(g.audit.records) == len([r for r in g.audit.records]), "and none of it is evidence"
+    assert len(g.core.records) == len([r for r in g.core.records]), "and none of it is evidence"
     # A gateway without history (an older Clearance, or none configured) changes nothing.
     g.events = None
     assert [d["result"] for d in bridge.handle(failed(eid="3"))] == ["launched"]

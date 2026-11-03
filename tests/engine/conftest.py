@@ -7,10 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from autopilot.engine import profile
-from clearance.audit import AuditLog
 from autopilot.engine.backends import FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRunBackend, core_handlers
 from autopilot.engine.dispatch import Gateway, Principal
-from clearance.packs.hangar import HANGAR
+from autopilot.hangar_tools import HANGAR
 from autopilot.engine.session import SessionStore
 from autopilot.engine.tiers import Tier
 
@@ -55,7 +54,7 @@ def backends():
 
 
 @pytest.fixture
-def gw(defs, backends, clock):
+def gw(defs, backends, clock, core):
     counter = iter(range(1, 1000))
     store = SessionStore(id_gen=lambda: f"s-{next(counter):06x}")
     auth = StaticAuth({
@@ -66,4 +65,4 @@ def gw(defs, backends, clock):
     })
     handlers = core_handlers(git=backends.git, argo=backends.argo, read=backends.read, human=backends.human,
                              artifacts=backends.artifacts)
-    return Gateway(defs, store, AuditLog(), auth, clock, packs=(HANGAR,), handlers=handlers, runs=backends.runs)
+    return Gateway(defs, store, core, auth, clock, packs=(HANGAR,), handlers=handlers, runs=backends.runs)

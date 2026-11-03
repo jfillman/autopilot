@@ -25,9 +25,8 @@ import logging
 import os
 from typing import Mapping
 
-from clearance.definitions import Definitions
-
 from .engine import profile
+from .engine.definitions import Definitions
 
 from . import read_api, serve
 from .agent_xrs import DefinitionsRefresher
@@ -58,7 +57,9 @@ def build(env: Mapping[str, str] | None = None):
     if not 1 <= pool_size <= 50:
         raise serve.ConfigError("GATEWAY_API_POOL is 1 to 50")
     # The gateway's config parser for auth, catalog and agents; the store it would open is never used here.
-    cfg = serve.config_from_env({**env, "CLEARANCE_EPHEMERAL": "1"})
+    # The core URL is required by the gateway's parser but never called here.
+    cfg = serve.config_from_env({**env, "CLEARANCE_EPHEMERAL": "1",
+                                 "CLEARANCE_CORE_URL": env.get("CLEARANCE_CORE_URL") or "http://clearance-core.invalid"})
     defs = Definitions(profile.load_dir(cfg.agents_dir))
     directory = ownership = None
     if cfg.backstage_url:

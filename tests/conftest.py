@@ -1,10 +1,16 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from autopilot.engine import profile
-from clearance.audit import AuditLog
 from autopilot.backends import fake_backends
 from autopilot.gateway import hangar_gateway
 from autopilot.engine.dispatch import Principal
@@ -49,8 +55,79 @@ def backends():
     return fake_backends()
 
 
+# -- the Clearance core under test --------------------------------------------------------------------------------
+# Every gateway in these tests asks a real Clearance core: `clearance autopilot-testcore` (tests/clearance_core), the
+# core `clearance core --memory --insecure-dev-auth` runs plus a records read and no clock-skew check, built from a
+# clearance checkout. CLEARANCE_CORE_BIN names a built binary; else CLEARANCE_SRC (or $HANGAR_TECH/clearance, or
+# ../clearance) is a checkout to build it from. CI checks clearance out at the SHA pyproject.toml pins.
+
+def _core_binary(tmp: Path) -> Path:
+    if os.environ.get("CLEARANCE_CORE_BIN"):
+        return Path(os.environ["CLEARANCE_CORE_BIN"])
+    for cand in (os.environ.get("CLEARANCE_SRC"),
+                 os.path.join(os.environ["HANGAR_TECH"], "clearance") if os.environ.get("HANGAR_TECH") else None,
+                 str(ROOT.parent / "clearance")):
+        if cand and (Path(cand) / "cmd" / "clearance").is_dir():
+            from build import build
+            return build(Path(cand), tmp / "clearance")
+    pytest.exit("no Clearance core to test against: set CLEARANCE_CORE_BIN, or CLEARANCE_SRC to a clearance checkout",
+                returncode=4)
+
+
+sys.path.insert(0, str(ROOT / "tests" / "clearance_core"))
+from coreenv import CORE_ENV, CoreProcess, tap_core  # noqa: E402
+
+_CORE: dict[str, Any] = {}
+
+
+import coreenv  # noqa: E402
+
+
+def pytest_configure(config):
+    """Start the test core once, before collection, so a module's environment (coreenv.core_env) can name it."""
+    tmp = Path(tempfile.mkdtemp(prefix="autopilot-core-"))
+    binary = _core_binary(tmp)
+    os.environ["AUTOPILOT_TEST_CORE_BIN"] = str(binary)
+    c = CoreProcess(binary).start()
+    tok = tmp / "core-token"
+    tok.write_text(coreenv.GATEWAY_PRINCIPAL)   # --insecure-dev-auth: the bearer token is the principal
+    os.environ["AUTOPILOT_TEST_CORE_URL"], os.environ["AUTOPILOT_TEST_CORE_TOKEN_FILE"] = c.url, str(tok)
+    _CORE["core"] = c
+
+
+def pytest_unconfigure(config):
+    c = _CORE.pop("core", None)
+    if c is not None:
+        c.stop()
+
+
+@pytest.fixture(scope="session")
+def test_core():
+    return _CORE["core"]
+
+
+@pytest.fixture(autouse=True)
+def _serve_reads_its_chain(monkeypatch):
+    """A gateway serve.build_gateway builds keeps its real wiring (client_from_env, the token file, the outbox) and
+    is a TapCore, so the test can read what it recorded."""
+    import coreenv
+    from autopilot import serve
+    monkeypatch.setattr(serve, "Core", coreenv.TapCore)
+
+
 @pytest.fixture
-def gw(defs, backends, clock):
+def make_core(test_core):
+    """make_core(allow_reads=..., url=..., outbox=..., record_kinds=..., timeout=...): coreenv.tap_core."""
+    return tap_core
+
+
+@pytest.fixture
+def core(make_core):
+    return make_core()
+
+
+@pytest.fixture
+def gw(defs, backends, clock, core):
     counter = iter(range(1, 1000))
     store = SessionStore(id_gen=lambda: f"s-{next(counter):06x}")
     auth = StaticAuth({
@@ -60,4 +137,4 @@ def gw(defs, backends, clock):
         "holmes": Principal("holmesgpt/holmes", "workload", Tier.T1),
         "triage": Principal("autopilot-runs/triage-agent", "workload", Tier.T1),
     })
-    return hangar_gateway(defs, store, AuditLog(), backends, auth, clock)
+    return hangar_gateway(defs, store, core, backends, auth, clock)

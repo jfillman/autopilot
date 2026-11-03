@@ -11,7 +11,7 @@ from autopilot.engine import control as ctl
 from autopilot.engine import inbox as hr
 from clearance import review
 from autopilot.engine import profile
-from clearance.audit import AuditLog
+from coreenv import tap_core
 from autopilot.engine.backends import FakeRunBackend
 from autopilot.engine.dispatch import AuthError, Gateway, Principal
 from clearance.packs.hangar import HANGAR
@@ -55,7 +55,7 @@ class Runs(FakeRunBackend):
 
 @pytest.fixture
 def g(defs, backends, clock):
-    return Gateway(defs, SessionStore(), AuditLog(), Auth(), clock, packs=(HANGAR,), runs=Runs(),
+    return Gateway(defs, SessionStore(), tap_core(), Auth(), clock, packs=(HANGAR,), runs=Runs(),
                    inbox=hr.MemoryInbox(), directory=Groups(), delegates=(TOWER,), admins=("user:root",),
                    holds=ctl.MemoryHolds())
 
@@ -95,7 +95,7 @@ def test_an_admin_runs_a_task_agent_through_the_delegate(g, backends):
     assert out["by"] == "user:root" and out["via"] == TOWER and out["run"]
     s = g.store.get(out["session"])
     assert s.principal == "user:root" and s.run == out["run"]
-    tools = [r["tool"] for r in g.audit.records]
+    tools = [r["tool"] for r in g.core.records]
     assert tools[-2:] == ["session.open", "run.launch"]
     assert g.runs.inputs[-1] == {"prompt": "why is gate-api slow?", "started_by": "user:root"}
 
@@ -129,7 +129,7 @@ def test_a_client_only_agent_is_not_run(defs, backends, clock):
     d = copy.deepcopy(doc())
     del d["runtime"]
     defs = {**defs, "researcher": profile.parse(d)}
-    g = Gateway(defs, SessionStore(), AuditLog(), Auth(), clock, packs=(HANGAR,), runs=backends.runs,
+    g = Gateway(defs, SessionStore(), tap_core(), Auth(), clock, packs=(HANGAR,), runs=backends.runs,
                 directory=Groups(), delegates=(TOWER,), admins=("user:root",))
     with pytest.raises(ctl.ControlError) as e:
         g.run_agent("root", "researcher", "look")

@@ -42,7 +42,9 @@ from autopilot.airframe_tools import AirframeTools, ValidatorCommand  # noqa: E4
 from autopilot.backends import Backends, FakeArgo, FakeArtifacts, FakeGit, FakeHuman, FakeRead, FakeRuns  # noqa: E402
 from autopilot.gateway import hangar_gateway  # noqa: E402
 from autopilot.engine import profile  # noqa: E402
-from clearance.audit import AuditLog  # noqa: E402
+# The Clearance core decides (R-3b): a local `clearance core --memory --insecure-dev-auth` (CLEARANCE_PACKS=hangar,
+# CLEARANCE_PROVIDERS naming autopilot-gateway) at CLEARANCE_CORE_URL (default http://127.0.0.1:8090).
+from autopilot.engine.core import local_core  # noqa: E402
 from autopilot.engine.dispatch import Principal  # noqa: E402
 from clearance.packs import hangar  # noqa: E402
 from autopilot.engine.server import create_server  # noqa: E402
@@ -111,7 +113,7 @@ def main() -> int:
                           airframe_plan.Registry("hangar-dev", ("hangar-prod",), "gitops-hangar-dev-tenants"), cluster=a.cluster)
     git = FakeGit()
     backends = Backends(git, FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), None, tools)
-    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), AuditLog(), backends, LocalUser(a.who),
+    gw = hangar_gateway(profile.load_dir(ROOT / "agents"), SessionStore(), local_core(), backends, LocalUser(a.who),
                  lambda: datetime.now(timezone.utc))
     mcp = create_server(gw, lambda: "local")
 

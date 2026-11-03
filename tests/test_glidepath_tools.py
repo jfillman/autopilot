@@ -93,7 +93,7 @@ def test_explain_reaches_glidepath_as_the_session_principal(gw, backends):
     r = gw.call("alice", sid, "glidepath.explain", {"app": "gate-api", "result": RESULT})
     assert r.ok and r.data["failures"][0]["knownFailure"]["id"] == "SourceVolumeFull"
     assert backends.glidepath.calls == [("glidepath.explain", ("gate-api", RESULT), {"on_behalf_of": "user:alice"})]
-    assert gw.audit.records[-1]["tool"] == "glidepath.explain" and gw.audit.records[-1]["decision"] == "allow"
+    assert gw.core.records[-1]["tool"] == "glidepath.explain" and gw.core.records[-1]["decision"] == "allow"
 
 
 def test_an_app_off_the_allowlist_is_refused_before_any_call(gw, backends, defs):
@@ -220,12 +220,12 @@ def test_an_agent_names_the_failure_id_using_only_mcp(defs, clock, token):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         from conftest import StaticAuth
-        from clearance.audit import AuditLog
+        from coreenv import tap_core
         from autopilot.engine.dispatch import Principal
         from autopilot.engine.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token)
         b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), tap_core(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):
@@ -354,18 +354,18 @@ def test_a_refused_proposal_is_a_denial_with_glidepaths_hint(defs, clock, token)
     """422 (out of order, a Ground target, an ineligible rollback target, or admission) is a policy answer: Denied,
     with glidepath-api's rule and hint, recorded as a denial; the agent should not retry it."""
     from conftest import StaticAuth
-    from clearance.audit import AuditLog
+    from coreenv import tap_core
     from autopilot.engine.dispatch import Principal
     from autopilot.engine.session import SessionStore
     refusal = {"error": "dev is a Ground environment", "rule": "GP-API-422",
                "hint": "Promote to a Flight environment; Ground promotions are a commit to the app repo."}
     api = GlidepathAPI("http://gp", token, on_behalf_of=True, opener=Opener(422, json.dumps(refusal).encode()))
     b = Backends(FakeGit(), FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-    gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+    gw = hangar_gateway(defs, SessionStore(), tap_core(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
     sid = gw.open_session("alice", "release-proposer").data["session"]
     r = gw.call("alice", sid, "glidepath.promote", {**PROMOTE, "env": "dev"})
     assert not r.ok and r.decision["rule"] == "GP-API-422" and r.decision["hint"] == refusal["hint"]
-    assert "Ground" in r.decision["message"] and gw.audit.records[-1]["decision"] == "deny"
+    assert "Ground" in r.decision["message"] and gw.core.records[-1]["result"].startswith("refused GP-API-422")
     # With no hint from the API, the agent is pointed at the two plans.
     bare = GlidepathAPI("http://gp", token, opener=Opener(422, b'{"error":"not a target","rule":"GP-API-422"}'))
     with pytest.raises(Denied) as e:
@@ -484,13 +484,13 @@ def test_an_agent_proposes_a_staging_promotion_using_only_mcp(defs, clock, token
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         from conftest import StaticAuth
-        from clearance.audit import AuditLog
+        from coreenv import tap_core
         from autopilot.engine.dispatch import Principal
         from autopilot.engine.session import SessionStore
         api = GlidepathAPI(f"http://127.0.0.1:{srv.server_address[1]}", token, on_behalf_of=True)
         git = FakeGit()
         b = Backends(git, FakeArgo(), FakeRuns(), FakeRead(), FakeHuman(), FakeArtifacts(), api)
-        gw = hangar_gateway(defs, SessionStore(), AuditLog(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
+        gw = hangar_gateway(defs, SessionStore(), tap_core(), b, StaticAuth({"alice": Principal("user:alice", "user", Tier.T1)}), clock)
         mcp = create_server(gw, lambda: "alice")
 
         def call(name, args):
@@ -556,7 +556,7 @@ def test_cicd_propose_opens_the_pr_with_the_validated_file(gw, backends):
     validated = [c for c in backends.glidepath.calls if c[0] == "glidepath.validate_cicd"]
     assert validated == [("glidepath.validate_cicd", ("gate-api", {"patch": CACHE_ON, "agent": True}), {"on_behalf_of": "user:alice"})]
     # The receipt the agent gates read: the PR, its commit and the path the commit carried, as for repo.pr.open.
-    last = gw.audit.records[-1]
+    last = gw.core.records[-1]
     assert last["tool"] == "glidepath.cicd.propose" and last["decision"] == "allow"
     assert last["effect"] == {"pr": 1, "commit": "0" * 39 + "1", "branch": args[1], "repo": "jfillman/gate-api", "paths": ["cicd.yaml"]}
     # A chosen branch name is used as given.
@@ -571,7 +571,8 @@ def test_cicd_propose_refuses_what_glidepath_api_refuses(gw, backends):
                                                           "patch": {"governance": {"sast": False}}, "title": "Turn SAST off"})
     assert not r.ok and r.decision["rule"] == "GP-SCOPE-002" and "never the other way" in r.decision["hint"]
     assert backends.git.calls == [], "no PR for a refused change"
-    assert gw.audit.records[-1]["decision"] == "deny" and gw.audit.records[-1]["rule"] == "GP-SCOPE-002"
+    # The core allowed the call; the handler refused it: the outcome names the rule.
+    assert gw.core.records[-1]["result"].startswith("refused GP-SCOPE-002")
 
 
 def test_cicd_propose_needs_the_apps_own_repo_and_a_real_change(gw, backends):
@@ -613,24 +614,25 @@ def test_adapter_posts_a_validation_and_reads_400_as_an_answer(token):
 
 
 def test_a_proposed_cicd_pr_is_vouched_for_by_the_agent_gates(gw, backends):
-    # The receipt glidepath.cicd.propose leaves is what the agent gates read (clearance provenance): the same
-    # confirmed/in-scope verdict a repo.pr.open PR gets, and an extra path the commit did not carry fails scope.
-    from autopilot.engine.dispatch import Principal
+    # The receipt glidepath.cicd.propose leaves (its outcome's effect, in the core's chain) is what the agent gates
+    # read: the core's own provenance route (POST /v1/provenance) gives the same confirmed/in-scope verdict a
+    # repo.pr.open PR gets, and an extra path the commit did not carry fails scope.
+    import os
+    from clearance_client import CoreClient
     bot = "hangar-autopilot-agents[bot]"
-    gw.auth.table["gate"] = Principal("app-gate-api-cicd/pipeline-runner", "workload", Tier.T0)
-    gw.verifiers, gw.agent_logins = ("app-*-cicd/pipeline-runner",), (bot,)
+    gate = CoreClient(os.environ["AUTOPILOT_TEST_CORE_URL"], token="app-gate-api-cicd/pipeline-runner")
     sid = open_(gw, agent="coding-agent")
     r = gw.call("alice", sid, "glidepath.cicd.propose", {"app": "gate-api", "repo": "jfillman/gate-api", "patch": CACHE_ON, "title": "cache on"})
     assert r.ok, r.as_dict()
     s = gw.store.get(sid)
     trailers = {"Task": s.task_id, "Session": sid, "Agent": "coding-agent"}
-    v = gw.provenance("gate", {"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
-                               "paths": ["cicd.yaml"], "author": bot, "trailers": trailers})
-    assert v["agent_pr"] and v["identity"]["status"] == "confirmed" and v["scope"]["status"] == "in-scope"
-    assert v["record"]["tool"] == "glidepath.cicd.propose"
-    v = gw.provenance("gate", {"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
-                               "paths": ["cicd.yaml", ".tekton/flow-ci.yaml"], "author": bot, "trailers": trailers})
-    assert v["identity"]["ok"] and not v["scope"]["ok"] and v["scope"]["rule"] == "AS001"
+    v = gate.verify_provenance({"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
+                                "paths": ["cicd.yaml"], "author": bot, "trailers": trailers})
+    assert v.agent_pr and v.identity.status == "confirmed" and v.scope.status == "in-scope"
+    assert v.record.tool == "glidepath.cicd.propose"
+    v = gate.verify_provenance({"repo": "jfillman/gate-api", "pr": r.data["pr"], "head": r.data["commit"],
+                                "paths": ["cicd.yaml", ".tekton/flow-ci.yaml"], "author": bot, "trailers": trailers})
+    assert v.identity.ok and not v.scope.ok and v.scope.rule == "AS001"
 
 
 # --- repo.pr.open carrying the app's cicd.yaml: the same verdict first --------------------------------------------
@@ -664,7 +666,7 @@ def test_repo_pr_open_is_refused_when_glidepath_api_finds_an_error(gw, backends)
                                                "files": [{"path": "cicd.yaml", "before": before, "content": after}]})
     assert not r.ok and r.decision["rule"] == "GP-SCHEMA-002" and "cobol-85" in r.decision["message"]
     assert backends.git.calls == [], "no PR for a cicd.yaml the check would fail"
-    assert gw.audit.records[-1]["decision"] == "deny" and gw.audit.records[-1]["rule"] == "GP-SCHEMA-002"
+    assert gw.core.records[-1]["result"].startswith("refused GP-SCHEMA-002")
 
 
 def test_repo_pr_open_validates_only_the_apps_root_cicd_yaml(gw, backends):

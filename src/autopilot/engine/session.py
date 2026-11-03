@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Protocol
 
 from .limits import BUDGET_FIELDS, LimitRequest, Limits, narrow
@@ -78,6 +78,14 @@ class Session:
         if self.denials >= DENIAL_TRIP:
             self.trip(f"{self.denials} denied calls")
 
+    def state(self) -> dict[str, Any]:
+        """The session as the core's evaluation reads it (context.session: DecideSessionState)."""
+        exp = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)
+        return {"id": self.id, "principal": self.principal, "agent": self.agent, "task_id": self.task_id,
+                "parent_id": self.parent_id, "depth": self.depth, "limits": self.limits.as_dict(),
+                "used": dict(self.used), "reserved": dict(self.reserved), "expires_at": exp.isoformat(),
+                "closed": self.closed, "tripped": self.tripped, "denials": self.denials}
+
     # -- durability ------------------------------------------------------
     def to_record(self) -> dict[str, Any]:
         return {"id": self.id, "principal": self.principal, "agent": self.agent, "limits": self.limits.as_dict(),
@@ -115,6 +123,7 @@ class SessionStore:
         self._id = id_gen or (lambda: "s-" + secrets.token_hex(6))
         self._persist = persist
         self._saved: dict[str, str] = {}
+        self._spare: list[str] = []
         if persist is not None:
             for r in persist.load():
                 s = Session.from_record(r)
@@ -184,6 +193,53 @@ class SessionStore:
             parent.children.append(s.id)
         self._s[s.id] = s
         return s
+
+    def new_id(self) -> str:
+        """The id the next session gets: the gateway names it in the core's evaluation (context.new_session_id), and
+        the core's grant carries it back. An id the core did not grant is given back (give_back) and handed out
+        next, so ids are spent only on sessions that exist, as before the core decided opens."""
+        return self._spare.pop() if self._spare else self._id()
+
+    def give_back(self, sid: str | None) -> None:
+        if sid and sid not in self._s and sid not in self._spare:
+            self._spare.append(sid)
+
+    def adopt(self, grant: dict[str, Any], now: datetime, reserve: dict[str, int] | None = None,
+              children: int = 0) -> Session:
+        """Create the session the core granted (an open's or a spawn's `context.grant`): its id, principal, agent,
+        task, parent, depth, limits and expiry are the grant's. For a spawn, the parent takes the spend the core
+        named (`reserve` on its reserved budgets, `children` on its used) and lists the child."""
+        exp = grant["expires_at"]
+        expires = exp if isinstance(exp, datetime) else datetime.fromisoformat(str(exp))
+        s = Session(id=grant["session"], principal=grant["principal"], agent=grant["agent"],
+                    limits=Limits.from_dict(grant["limits"]), created_at=now, expires_at=expires,
+                    parent_id=grant.get("parent"), depth=int(grant.get("depth") or 0), task_id=grant["task_id"])
+        parent = self._s.get(s.parent_id) if s.parent_id else None
+        if parent is not None:
+            for f, n in (reserve or {}).items():
+                if f in parent.reserved and n:
+                    parent.reserved[f] += int(n)
+            parent.used["children"] += children
+            parent.children.append(s.id)
+        self._s[s.id] = s
+        return s
+
+    def charge(self, s: "Session | None", spend: dict[str, Any]) -> None:
+        """Apply the spend the core's decision names to the session the request named (internal/decide doc.go,
+        Response): add the counters to used, count a denial, trip the breaker with `trip`, and trip the session and
+        every descendant with `trip_tree`. A spawn's `children` and `reserve` are the parent's, applied by adopt()."""
+        if s is None or not spend:
+            return
+        for f in ("tool_calls", "github_calls", "open_prs", "model_tokens"):
+            n = spend.get(f)
+            if n:
+                s.used[f] += int(n)
+        if spend.get("denial"):
+            s.denials += 1
+        if spend.get("trip"):
+            s.trip(spend["trip"])
+        if spend.get("trip_tree"):
+            self.trip(s.id, spend["trip_tree"])
 
     def find_live(self, agent: str, task_id: str, now: datetime) -> "Session | None":
         for s in self._s.values():
