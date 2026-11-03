@@ -5,7 +5,7 @@ env:
   GLIDEPATH_REF: main
   # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
   # (clearance-core-client @ ...@<tag or full commit SHA>). Bump the two together.
-  CLEARANCE_REF: 48660d476b0348f0ec4615c171734852ad76fccb
+  CLEARANCE_REF: v0.28.0
 jobs:
   pytest:
     runs-on: ubuntu-latest
