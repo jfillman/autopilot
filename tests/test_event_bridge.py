@@ -1,5 +1,6 @@
 """event_bridge: Glidepath events in, triggered runs out. One run per (agent, event), a storm brake, the event
 summarised within the input cap, the run's pod acting as its session, and a stream that resumes. No network."""
+from coreenv import core_env
 import io
 import json
 import pytest
@@ -11,7 +12,7 @@ from autopilot.gateway import AgentRunBackend
 from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0"}
+EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
 
 
 def failed(eid="1793291758385806-7dd8657e1c25", outcome="failure", app="gate-api"):

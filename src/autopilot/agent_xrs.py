@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import yaml
-from clearance import definitions as defn
+from .engine import definitions as defn
 from .engine.dispatch import Denied
 
 from .airframe_api import AirframeError, KubeReader

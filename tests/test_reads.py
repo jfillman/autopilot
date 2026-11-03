@@ -1,5 +1,6 @@
 """reads: argo.app.get over the Application objects, metrics.query on Prometheus, logs.query on Loki. Summaries and
 bounds, a rejected query as an answer, everything else a hidden failure. No network: fake openers."""
+from coreenv import core_env
 import json
 
 import pytest
@@ -164,7 +165,7 @@ def test_logql_metric_query_is_a_matrix():
 
 
 # -- wiring ---------------------------------------------------------------------------------------------------------
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0"}
+EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", **core_env()}
 
 
 def test_read_tools_only_for_configured_backends():

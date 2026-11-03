@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from clearance.audit import iso
+from .engine.core import iso
 from .engine.profile import AgentDefinition
 from .engine.session import Session
 

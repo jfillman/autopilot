@@ -1,11 +1,11 @@
-"""The Hangar Gateway: the gateway engine, the Hangar pack's policy, and Hangar's backends.
+"""The Hangar Gateway: the gateway engine, Hangar's tools, and Hangar's backends.
 
-The engine (autopilot.engine.dispatch.Gateway, moved from clearance in R-3a) enforces; Clearance owns the decision
-(clearance.policy with clearance.packs.hangar, reached through autopilot.engine.core). What this module adds
-is what the tools DO on Hangar: a handler per glidepath.* and airframe.* tool over the backends in
-backends.py, the core tools' handlers over the same bundle, and the run tree as AgentRun XRs.
+The engine (autopilot.engine.dispatch.Gateway, moved from clearance in R-3a) enforces; the Clearance core decides
+and records, over its API (autopilot.engine.core; the core runs the Hangar pack's policy, CLEARANCE_PACKS=hangar).
+What this module adds is what the tools DO on Hangar: a handler per glidepath.* and airframe.* tool over the
+backends in backends.py, the core tools' handlers over the same bundle, and the run tree as AgentRun XRs.
 
-    gw = hangar_gateway(definitions, store, audit, fake_backends(), auth, clock)
+    gw = hangar_gateway(definitions, store, core, fake_backends(), auth, clock)
 """
 from __future__ import annotations
 
@@ -13,14 +13,13 @@ import hashlib
 from datetime import datetime
 from typing import Any, Callable
 
-from clearance.audit import AuditLog
 from .engine.backends import Handler, core_handlers
+from .engine.core import Core
 from .engine.dispatch import Authenticator, Gateway
-from clearance.packs.hangar import HANGAR
-from clearance.policy import Policy
 from .engine.profile import AgentDefinition
 from .engine.session import Session, SessionStore
-from .engine.tiers import ToolSpec
+from .engine.tiers import CORE_TOOLS, ToolSpec, registry
+from .hangar_tools import HANGAR
 
 from . import cicd_propose, manifests
 from .backends import AgentRunStore, Backends
@@ -29,7 +28,7 @@ PACKS = (HANGAR,)
 
 # The registry a Hangar Gateway is built with (core plus the Hangar pack), for code that wants it
 # without a Gateway at hand. Gateway.tools is the same thing.
-TOOLS: dict[str, ToolSpec] = Policy(PACKS).tools
+TOOLS: dict[str, ToolSpec] = registry(CORE_TOOLS, *(p.tools for p in PACKS))
 
 
 def rerun_key(session_id: str, app: str, pipelinerun: str) -> str:
@@ -157,7 +156,7 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
     return h
 
 
-def hangar_gateway(definitions: dict[str, AgentDefinition], store: SessionStore, audit: AuditLog,
+def hangar_gateway(definitions: dict[str, AgentDefinition], store: SessionStore, core: Core,
                    backends: Backends, auth: Authenticator, clock: Callable[[], datetime]) -> Gateway:
-    return Gateway(definitions, store, audit, auth, clock, packs=PACKS,
+    return Gateway(definitions, store, core, auth, clock, packs=PACKS,
                    handlers=hangar_handlers(backends), runs=AgentRunBackend(backends.runs))

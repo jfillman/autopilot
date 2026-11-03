@@ -1,4 +1,5 @@
 """serve: the deployable gateway's configuration, backend selection, expiry sweep and HTTP surface. No network."""
+from coreenv import core_env
 import json
 import threading
 from datetime import timedelta
@@ -16,7 +17,7 @@ from clearance.auth import CachingAuthenticator, OIDCAuthenticator, RoutingAuthe
 from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 
-EPH = {"CLEARANCE_EPHEMERAL": "1"}
+EPH = {"CLEARANCE_EPHEMERAL": "1", **core_env()}
 CORE_WITHOUT_BACKEND = ["catalog.read", "metrics.query", "logs.query", "app.api.get", "argo.app.get",
                         "argo.sync.lower", "artifact.put", "artifact.get", "chat.recv", "chat.send",
                         "repo.pr.open", "repo.pr.open_upper", "xr.request"]

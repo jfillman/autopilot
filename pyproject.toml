@@ -7,11 +7,14 @@ name = "autopilot"
 version = "0.1.0.dev0"
 description = "Autopilot: Hangar's AI agent runtime (agent definitions, Preflight, tool backends) on Clearance"
 requires-python = ">=3.11"
-# Clearance is its own product and repo (Hangar D16), pinned by tag; bump it here when clearance releases. The gateway
-# engine (src/autopilot/engine, moved from clearance v0.26.1 in R-3a) imports pyjwt itself (server.py reads a verified
-# token's expiry), so it is named here; R-3b drops the clearance package for its generated client.
-dependencies = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1", "jsonschema>=4.20", "pyyaml>=6", "mcp>=2",
-                "pyjwt[crypto]>=2.8"]
+# The Clearance core decides and records over its HTTP API (src/autopilot/engine/core.py), through the client generated
+# from its contract (clearance clients/python). Pinned by the clearance commit the client and the core under test come
+# from; TODO(v0.27.0): pin the v0.27.0 tag (or its release wheel) once the manager cuts it after R-2 merges.
+# The `clearance` package itself is only the read API's (`autopilot-gateway api`, api_serve.py) until R-3c: the `api`
+# extra, which the image installs.
+dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@64c1798edf5265b424698485f3a34525179e845e#subdirectory=clients/python",
+                "jsonschema>=4.20", "pyyaml>=6", "mcp>=2", "pyjwt[crypto]>=2.8", "uvicorn>=0.30",
+                "psycopg[binary]>=3.2"]
 
 [project.scripts]
 # The deployable gateway (src/autopilot/serve.py; README "Running the gateway").
@@ -23,7 +26,10 @@ allow-direct-references = true
 [project.optional-dependencies]
 # anthropic: the agent runtime's model client (runtime/, tests/test_runtime_*.py). langgraph: the LangGraph runtime
 # (runtime/langgraph). The Claude Agent SDK runtime's tests use a fake SDK, so the 140 MB SDK is not a test dependency.
-test = ["pytest>=8", "anthropic>=0.40,<3", "langgraph>=1.2,<2"]
+# api: clearance-api (`autopilot-gateway api`, api_serve.py) still runs clearance's read API until R-3c moves it.
+api = ["clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1"]
+# The tests run the read API's tests, and compare the cutover tables with clearance v0.26.1's (clearance pg.py).
+test = ["pytest>=8", "anthropic>=0.40,<3", "langgraph>=1.2,<2", "clearance[serve,pg] @ git+https://github.com/jfillman/clearance@v0.26.1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/autopilot"]

@@ -8,9 +8,9 @@ Deliberately thin: three tools, all delegating to Gateway, which owns every deci
 
 Authentication is a token provider. In stdio development it reads CLEARANCE_TOKEN. Over HTTP
 (create_http_app) the caller's bearer token is verified before any tool runs, by the gateway's own
-Authenticator (clearance.auth), and the same token is what the gateway authenticates again per call,
+Authenticator (auth.py), and the same token is what the gateway authenticates again per call,
 so a session's owner is always the caller of the request at hand. Calls into the gateway are
-serialized: the session store and the audit chain are single-writer.
+serialized: the session store is single-writer.
 """
 from __future__ import annotations
 
@@ -29,13 +29,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from . import control, inbox
-from .core import gate, provenance
+from .core import OUTAGE_RULE
 from .dispatch import AuthError, Authenticator, Gateway
 from .modelproxy import charged_tokens
 
 
 class GatewayTokenVerifier:
-    """The MCP SDK's TokenVerifier over a Clearance Authenticator: a token the authenticator refuses gets a 401
+    """The MCP SDK's TokenVerifier over the gateway's Authenticator: a token the authenticator refuses gets a 401
     before any tool runs. The authenticator checks the audience itself."""
 
     def __init__(self, auth: Authenticator):
@@ -117,7 +117,7 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
 
 
 def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, path: str = "/mcp",
-                    host: str = "0.0.0.0", github_app: Any = None):
+                    host: str = "0.0.0.0"):
     """The streamable-HTTP app: bearer auth on every MCP request (401 without a token the gateway accepts),
     the caller's own token per call, and an unauthenticated GET /healthz for probes.
 
@@ -128,30 +128,7 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
 
     @mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)
     async def healthz(_: Request) -> JSONResponse:
-        return JSONResponse({"ok": True, "tools": len(gateway.tools)})
-
-    @mcp.custom_route("/v1/provenance", methods=["POST"], include_in_schema=False)
-    async def prov(request: Request) -> JSONResponse:
-        """A PR's agent-identity and agent-scope verdicts (provenance.py), for a CI gate with a verifier's token."""
-        auth = request.headers.get("authorization", "")
-        if not auth.lower().startswith("bearer ") or not auth[7:].strip():
-            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
-        raw = await request.body()
-        if len(raw) > MAX_BODY:
-            return JSONResponse({"error": "body too large"}, status_code=413)
-        try:
-            body = json.loads(raw)
-        except ValueError:
-            return JSONResponse({"error": "the body is not JSON"}, status_code=400)
-        try:
-            out = await anyio.to_thread.run_sync(_locked(gateway, gateway.provenance), auth[7:].strip(), body)
-        except AuthError:
-            return JSONResponse({"error": "token not accepted"}, status_code=401)
-        except provenance.NotVerifier as e:
-            return JSONResponse({"error": str(e)}, status_code=403)
-        except provenance.BadRequest as e:
-            return JSONResponse({"error": str(e)}, status_code=400)
-        return JSONResponse(out)
+        return JSONResponse({"ok": True, "tools": len(gateway.tools), "core": gateway.core.breaker_state})
 
     def _bearer(request: Request) -> str | None:
         auth = request.headers.get("authorization", "")
@@ -167,7 +144,7 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
             out = await anyio.to_thread.run_sync(_locked(gateway, functools.partial(op, on_behalf_of=who)), token, *args)
         except AuthError:
             return JSONResponse({"error": "token not accepted"}, status_code=401)
-        except (inbox.InboxError, control.ControlError, gate.GateError) as e:
+        except (inbox.InboxError, control.ControlError) as e:
             return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
         return JSONResponse(out)
 
@@ -242,78 +219,6 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
     async def release(request: Request) -> JSONResponse:
         """Lift a hold before it expires."""
         return await _people(request, gateway.release_triggers, request.path_params["agent"])
-
-    # The deployment gate (gate.py). Registering a change is the clearance-gate check's call, with a verifier's
-    # token (like /v1/provenance); clearing and denying are people's, through the delegate model.
-    @mcp.custom_route("/v1/clearances", methods=["POST"], include_in_schema=False)
-    async def register_change(request: Request) -> JSONResponse:
-        """Register or re-evaluate a change to a protected environment (gate.ChangeRequest)."""
-        token = _bearer(request)
-        if token is None:
-            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
-        raw = await request.body()
-        if len(raw) > MAX_BODY:
-            return JSONResponse({"error": "body too large"}, status_code=413)
-        try:
-            body = json.loads(raw)
-        except ValueError:
-            return JSONResponse({"error": "the body is not JSON"}, status_code=400)
-        try:
-            out = await anyio.to_thread.run_sync(_locked(gateway, gateway.register_change), token, body)
-        except AuthError:
-            return JSONResponse({"error": "token not accepted"}, status_code=401)
-        except provenance.NotVerifier as e:
-            return JSONResponse({"error": str(e)}, status_code=403)
-        except gate.BadChange as e:
-            return JSONResponse({"error": str(e)}, status_code=400)
-        except gate.GateError as e:
-            return JSONResponse({"error": e.message, "rule": e.rule, "hint": e.hint}, status_code=e.status)
-        return JSONResponse(out)
-
-    # The Clearance GitHub App (github_app.py): GitHub's webhooks, authenticated by their signature, never a token.
-    @mcp.custom_route("/v1/github/webhook", methods=["POST"], include_in_schema=False)
-    async def github_webhook(request: Request) -> JSONResponse:
-        if github_app is None:
-            return JSONResponse({"error": "this Clearance runs no GitHub App"}, status_code=404)
-        raw = await request.body()
-        if len(raw) > 25 << 20:
-            return JSONResponse({"error": "body too large"}, status_code=413)
-        status, word = github_app.accept(request.headers.get("x-github-event", ""), raw,
-                                         request.headers.get("x-hub-signature-256"))
-        return JSONResponse({"result": word}, status_code=status)
-
-    @mcp.custom_route("/v1/definitions/review", methods=["POST"], include_in_schema=False)
-    async def review_definition(request: Request) -> JSONResponse:
-        """Validate an agent definition and tier its change (review.py): {doc, old?, name?, owner?, path?}."""
-        token = _bearer(request)
-        if token is None:
-            return JSONResponse({"error": "a bearer token is required"}, status_code=401)
-        body = await _body(request)
-        if isinstance(body, JSONResponse):
-            return body
-        try:
-            out = await anyio.to_thread.run_sync(functools.partial(gateway.review_definition, token, body,
-                                                                   on_behalf_of=request.headers.get("x-hangar-on-behalf-of") or None))
-        except AuthError:
-            return JSONResponse({"error": "token not accepted"}, status_code=401)
-        except provenance.NotVerifier as e:
-            return JSONResponse({"error": str(e)}, status_code=403)
-        except gate.BadChange as e:
-            return JSONResponse({"error": str(e)}, status_code=400)
-        return JSONResponse(out)
-
-    @mcp.custom_route("/v1/clearances/{change_id}/clear", methods=["POST"], include_in_schema=False)
-    async def clear_change(request: Request) -> JSONResponse:
-        """A person clears a holding change."""
-        return await _people(request, gateway.clear_change, request.path_params["change_id"])
-
-    @mcp.custom_route("/v1/clearances/{change_id}/deny", methods=["POST"], include_in_schema=False)
-    async def deny_change(request: Request) -> JSONResponse:
-        """A person denies a holding change: {"reason": "..."}."""
-        body = await _body(request)
-        if isinstance(body, JSONResponse):
-            return body
-        return await _people(request, gateway.deny_change, request.path_params["change_id"], body.get("reason"))
 
     return mcp.streamable_http_app(streamable_http_path=path, stateless_http=True, json_response=True, host=host)
 
@@ -467,6 +372,8 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
                                                payload["model"], _estimate(payload, raw))
         except AuthError:
             return _error(401, "authentication_error", "token refused")
+        if not d.allow and d.rule == OUTAGE_RULE:
+            return _error(503, "api_error", d.message, d.rule)
         if not d.allow:
             return _error(429 if d.rule == "M007" else 403,
                           "rate_limit_error" if d.rule == "M007" else "permission_error", d.message, d.rule)

@@ -1,5 +1,6 @@
 """agent_xrs: Agent XRs in, Clearance definitions out. One fetch per pin ever, rejections with reasons, a transient
 failure that drops nothing, a seed from the store, and the read API's refresher. No network."""
+from coreenv import core_env
 import copy
 
 import pytest
@@ -14,7 +15,7 @@ from autopilot.airframe_api import AirframeError
 from autopilot.backends import Backends, FakeRuns
 from autopilot.github_pr import GitHubError
 
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0"}
+EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
 COMMIT = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"
 OWNER = "group:default/team-gate"
 

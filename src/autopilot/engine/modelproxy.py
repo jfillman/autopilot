@@ -16,8 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
-from .core import AuditLog, args_digest, iso
-from .limits import Network
+from .core import Core, CoreUnreachable, outage_verdict, rfc3339
 from .session import SessionStore
 
 
@@ -57,44 +56,40 @@ class ModelDecision:
 
 
 class ModelProxy:
-    def __init__(self, routes: dict[str, ModelRoute], store: SessionStore, audit: AuditLog,
+    """The model decision, by the Clearance core (model.call: M001-M007, decided and recorded there), with the
+    spend applied to the gateway's session and the route chosen here."""
+
+    def __init__(self, routes: dict[str, ModelRoute], store: SessionStore, core: Core,
                  clock: Callable[[], datetime]):
-        self.routes, self.store, self.audit, self.now = routes, store, audit, clock
+        self.routes, self.store, self.core, self.now = routes, store, core, clock
 
     def authorize(self, session_id: str, principal_id: str, model: str, est_tokens: int,
                   acting: str | None = None) -> ModelDecision:
         """`acting` is who the caller acts as (Gateway._acting: a run acts as its session); the record names the
-        caller."""
+        caller. An unreachable core is a deny (CORE-UNAVAILABLE): a model call is never an outage read."""
         s = self.store.get(session_id)
-        d = self._decide(s, acting or principal_id, model, est_tokens)
-        self.audit.append({
-            "ts": iso(self.now()), "task_id": s.task_id if s else None, "session": session_id,
-            "parent": s.parent_id if s else None, "principal": principal_id, "agent": s.agent if s else None,
-            "tool": "model.call", "tier": None, "decision": "allow" if d.allow else "deny", "rule": d.rule,
-            "target": model, "args_sha256": args_digest({"model": model, "est": est_tokens}),
-            "result": "ok" if d.allow else d.message})
-        if not d.allow and s is not None:
-            s.record_denial()
-        return d
-
-    def _decide(self, s, principal_id, model, est) -> ModelDecision:
-        if s is None or s.expired(self.now()):
-            return ModelDecision(False, "M001", "no live session")
-        if s.principal != principal_id:
-            return ModelDecision(False, "M002", "not this session's principal")
-        if s.tripped:
-            return ModelDecision(False, "M003", "session breaker is tripped")
-        if s.limits.network < Network.CLEARANCE_MODEL:
-            return ModelDecision(False, "M004", "this run's network mode does not include the model proxy")
-        if model not in s.limits.models:
-            return ModelDecision(False, "M005", f"model {model!r} is not on this session's allowlist")
+        props: dict = {"kind": "workload", "tier_ceiling": 1}
+        if acting and acting != principal_id:
+            props["acting_as"] = acting
+        ctx: dict = {"now": rfc3339(self.now()), "session_id": session_id, "models": {"routes": sorted(self.routes)}}
+        if s is not None:
+            ctx["session"] = s.state()
+        req = {"subject": {"type": "principal", "id": principal_id, "properties": props},
+               "action": {"name": "model.call", "properties": {"est_tokens": est_tokens}},
+               "resource": {"type": "model", "id": model}, "context": ctx}
+        try:
+            v = self.core.evaluate(req)
+        except CoreUnreachable as e:
+            ov = outage_verdict(e)
+            return ModelDecision(False, ov.rule, ov.message)
+        self.store.charge(s, v.spend)
+        if not v.allow:
+            return ModelDecision(False, v.rule, v.message)
         route = self.routes.get(model)
-        if route is None:
+        if route is None or s is None:   # the core allowed a model it was told is routed
             return ModelDecision(False, "M006", f"no route for model {model!r}")
-        if est < 0 or not s.can_spend("model_tokens", est):
-            return ModelDecision(False, "M007", "model-token budget would be exceeded")
         headers = {"x-modelplane-caller": s.id, "x-hangar-task": s.task_id}
-        return ModelDecision(True, None, "allowed", route, headers)
+        return ModelDecision(True, None, v.message or "allowed", route, headers)
 
     def record_usage(self, session_id: str, tokens: int) -> None:
         """Charge what the model actually used. Overrunning the budget trips the breaker."""
