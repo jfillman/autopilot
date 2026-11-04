@@ -183,14 +183,14 @@ def test_a_duplicate_apply_is_refused():
     assert c.start(_apply())[0] == 409
 
 
-@pytest.mark.parametrize("value", ["0.0.0.0:9090", "10.0.0.5:9090", "[::]:9090", "example.com:9090"])
+@pytest.mark.parametrize("value", ["0.0.0.0:9091", "10.0.0.5:9091", "[::]:9091", "example.com:9091"])
 def test_it_binds_loopback_only(value):
     with pytest.raises(ValueError, match="loopback"):
         cf.listen_address(value)
 
 
 def test_loopback_addresses():
-    assert cf.listen_address("127.0.0.1:9090") == ("127.0.0.1", 9090)
+    assert cf.listen_address("127.0.0.1:9091") == ("127.0.0.1", 9091)
     assert cf.listen_address("[::1]:9091") == ("::1", 9091)
     assert cf.listen_address("localhost:9092") == ("localhost", 9092)
 

@@ -1,7 +1,7 @@
 """Postgres: the gateway's own database (GATEWAY_DSN). Runtime state, not evidence.
 
-Sessions, the human inbox, run results, artifacts, trigger history, holds, the cluster-pinned definition set and the
-outbox (what the gateway owes the Clearance core) live here. The evidence chain does not: the core writes every
+Sessions, the human inbox, run results, artifacts, trigger history, the trigger ledger and the event cursor (A-5),
+holds, the cluster-pinned definition set and the outbox (what the gateway owes the Clearance core) live here. The evidence chain does not: the core writes every
 record (core.py), in its own database, which the gateway never opens. Moved from clearance pg.py (v0.26.1) with the
 same table shapes, renamed clearance_* -> gateway_*, less clearance_evidence and clearance_changes (the core's) and
 plus gateway_outbox. tools/cutover/copy_runtime_tables.py copies the runtime tables across at the R-4 cutover.
@@ -22,6 +22,7 @@ from psycopg.types.json import Jsonb
 
 from .core import Denied
 from .outbox import REASONS
+from . import trigger_ledger as tl
 
 LOCK_KEY = 0x61706730  # "apg0": one gateway writer per database (the core's is "clr0", in its own database)
 RECENT = timedelta(days=1)  # closed or expired sessions kept in memory this long, for the run tree's lookups
@@ -104,6 +105,29 @@ CREATE INDEX IF NOT EXISTS gateway_outbox_pending ON gateway_outbox (id) WHERE s
 -- /v1/definitions), and POST /v1/records refuses them. A definition.* row an older gateway held can never be posted,
 -- and the set it describes is published whole, so it goes.
 DELETE FROM gateway_outbox WHERE state = 'pending' AND reason = 'held' AND kind LIKE 'definition.%';
+-- A-5 trigger durability (engine/trigger_ledger.py): one row per (agent, trigger key), claimed before a triggered
+-- session is opened, so a trigger launches once across restarts, replays and the reconciliation sweep; and the event
+-- bridge's cursor per source (the newest event id handled, and the floor the sweep never reaches back past).
+CREATE TABLE IF NOT EXISTS gateway_trigger_launches (
+  agent      text        NOT NULL,
+  key        text        NOT NULL,
+  via        text        NOT NULL CHECK (via IN ('stream', 'recent', 'reconcile', 'schedule', 'rabbitmq')),
+  event_id   text,
+  state      text        NOT NULL CHECK (state IN ('claimed', 'launched', 'deduped', 'braked', 'held', 'refused',
+                                                    'launch-failed', 'missed')),
+  session    text,
+  run        text,
+  claimed_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (agent, key)
+);
+CREATE INDEX IF NOT EXISTS gateway_trigger_launches_claimed ON gateway_trigger_launches (claimed_at);
+CREATE TABLE IF NOT EXISTS gateway_event_cursors (
+  source     text        PRIMARY KEY,
+  last_id    text,
+  floor_at   timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 """
 
 
@@ -417,6 +441,78 @@ class PgOutbox:
             cur.execute("SELECT id, op, kind, decision_id, body, reason, state, error, seq FROM gateway_outbox ORDER BY id")
             return [{"id": r[0], "entry": {"op": r[1], "kind": r[2], "decision_id": r[3], "body": r[4]},
                      "reason": r[5], "state": r[6], "error": r[7], "seq": r[8]} for r in cur.fetchall()]
+
+
+class PgTriggers:
+    """trigger_ledger.TriggerStore on gateway_trigger_launches and gateway_event_cursors. Each method is its own
+    transaction and commits: the bridge and the scheduler call them between gateway operations, under the gateway's
+    lock (serve.SerializedGateway.guarded), never inside one. The claim is one INSERT .. ON CONFLICT, so the primary
+    key decides who launches."""
+
+    def __init__(self, state: GatewayState):
+        self.state = state
+
+    def _tx(self, fn):
+        try:
+            with self.state.conn.cursor() as cur:
+                out = fn(cur)
+            self.state.commit()
+            return out
+        except Exception:
+            self.state.conn.rollback()
+            raise
+
+    def claim(self, agent: str, key: str, via: str, event_id: str | None, now: datetime,
+              stale_before: datetime | None = None) -> bool:
+        tl.check(via)
+        stale = stale_before or now - tl.STALE
+
+        def run(cur):
+            cur.execute(
+                "INSERT INTO gateway_trigger_launches (agent, key, via, event_id, state, claimed_at) "
+                "VALUES (%s, %s, %s, %s, 'claimed', %s) ON CONFLICT (agent, key) DO UPDATE SET via = EXCLUDED.via, "
+                "event_id = EXCLUDED.event_id, claimed_at = EXCLUDED.claimed_at, session = NULL, run = NULL, "
+                "updated_at = now() WHERE gateway_trigger_launches.state = 'claimed' "
+                "AND gateway_trigger_launches.claimed_at <= %s RETURNING 1",
+                (agent, key, via, event_id, now, stale))
+            return cur.fetchone() is not None
+        return self._tx(run)
+
+    def decide(self, agent: str, key: str, state: str, session: str | None = None, run: str | None = None) -> None:
+        tl.check(state=state)
+        self._tx(lambda cur: cur.execute(
+            "UPDATE gateway_trigger_launches SET state = %s, session = %s, run = %s, updated_at = now() "
+            "WHERE agent = %s AND key = %s", (state, session, run, agent, key)))
+
+    def get(self, agent: str, key: str) -> dict[str, Any] | None:
+        def run(cur):
+            cur.execute("SELECT agent, key, via, event_id, state, session, run, claimed_at FROM gateway_trigger_launches "
+                        "WHERE agent = %s AND key = %s", (agent, key))
+            r = cur.fetchone()
+            return None if r is None else dict(zip(("agent", "key", "via", "event_id", "state", "session", "run",
+                                                    "claimed_at"), r))
+        return self._tx(run)
+
+    def cursor(self, source: str, now: datetime):
+        def run(cur):
+            cur.execute("INSERT INTO gateway_event_cursors (source, floor_at) VALUES (%s, %s) "
+                        "ON CONFLICT (source) DO NOTHING", (source, now))
+            cur.execute("SELECT last_id, floor_at FROM gateway_event_cursors WHERE source = %s", (source,))
+            last_id, floor = cur.fetchone()
+            return tl.Cursor(source, last_id, floor)
+        return self._tx(run)
+
+    def advance(self, source: str, last_id: str) -> None:
+        # Ids order by receive time as plain strings: compared bytewise (COLLATE "C"), never by the locale.
+        self._tx(lambda cur: cur.execute(
+            'UPDATE gateway_event_cursors SET last_id = %s, updated_at = now() WHERE source = %s '
+            'AND (last_id IS NULL OR last_id COLLATE "C" < %s COLLATE "C")', (last_id, source, last_id)))
+
+    def prune(self, now: datetime) -> int:
+        def run(cur):
+            cur.execute("DELETE FROM gateway_trigger_launches WHERE claimed_at < %s", (now - tl.RETENTION,))
+            return cur.rowcount
+        return self._tx(run)
 
 
 def open_durable(dsn: str, id_gen=None):

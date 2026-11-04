@@ -87,8 +87,8 @@ outcome, the spend, an unavailable and an unreachable core, and the chain at the
 interface from its own subcommand:
 
 ```shell
-GATEWAY_CONFORMANCE_CONTROL=1 autopilot-gateway conformance-control --listen 127.0.0.1:9090
-clearance conformance --provider http://127.0.0.1:9090 --role runtime --report conformance.json
+GATEWAY_CONFORMANCE_CONTROL=1 autopilot-gateway conformance-control --listen 127.0.0.1:9091
+clearance conformance --provider http://127.0.0.1:9091 --role runtime --report conformance.json
 ```
 
 **Test only, off by default.** The subcommand refuses to start unless `GATEWAY_CONFORMANCE_CONTROL=1`, binds a
@@ -113,7 +113,7 @@ PASS runtime.outcome-references-decision  the outcome record references the deci
 PASS runtime.spend-applied                the spend each decision carries is applied: deny: applied {"denial":true}, the core asked for {"denial":true}; allow: applied {"tool_calls":1,"github_calls":4,"open_prs":1}, the core asked for {"tool_calls":1,"github_calls":4,"open_prs":1}
 PASS runtime.outage-fails-closed          an unavailable or unreachable core fails closed: rt-outage-503: state "refused", target applies 0; rt-outage-drop: state "refused", target applies 0
 PASS chain.verify                         the evidence chain verifies from genesis: 3 records, head ba0bf181..., 1 written as autopilot-gateway
-PASS clearance-conformance/v1 runtime provider http://127.0.0.1:9090 (autopilot-gateway gateway-v0.4.2-test): 7 assertions, 0 failed
+PASS clearance-conformance/v1 runtime provider http://127.0.0.1:9091 (autopilot-gateway gateway-v0.4.2-test): 7 assertions, 0 failed
 ```
 
 ## Not built

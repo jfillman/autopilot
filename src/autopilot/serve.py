@@ -47,6 +47,7 @@ from .engine.backends import Handler
 from .engine.dispatch import Authenticator, Gateway
 from .engine.control import MemoryHolds
 from .engine.events import MemoryEvents
+from .engine.trigger_ledger import MemoryTriggers
 from .engine.inbox import MemoryInbox
 from .engine.modelproxy import ModelRoute
 from .engine.session import SessionStore
@@ -151,6 +152,11 @@ class Config:
     # Platform admins (principal globs, user:<login>) who may freeze, end, hold and release beside each agent's owner
     # group (clearance control.py).
     admins: tuple[str, ...] = ()
+    # A-5 trigger durability: the reconciliation sweep (reconcile.py; 0 = off) and its window, and the Prometheus
+    # metrics port (metrics.py; 0 = off).
+    reconcile_seconds: float = 300.0
+    reconcile_window_hours: int = 24
+    metrics_port: int = 9090
 
     @property
     def issuer_url(self) -> str:
@@ -167,6 +173,13 @@ def _flag(env: Mapping[str, str], name: str, default: bool) -> bool:
     if v.lower() in ("0", "false", "no", "off"):
         return False
     raise ConfigError(f"{name} must be 0 or 1, not {v!r}")
+
+
+def _off_or_number(env: Mapping[str, str], name: str, default: float, kind: Callable[[str], Any]) -> Any:
+    """A positive number, or 0 for off."""
+    if (env.get(name) or "").strip() == "0":
+        return kind("0")
+    return _number(env, name, default, kind)
 
 
 def _number(env: Mapping[str, str], name: str, default: float, kind: Callable[[str], Any]) -> Any:
@@ -239,6 +252,22 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     events = _flag(env, "EVENTS_ENABLED", False)
     if events and not get("GLIDEPATH_API_URL"):
         raise ConfigError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
+    if _flag(env, "EVENTS_RABBITMQ_ENABLED", False):
+        # A-5 builds the flag and the design (docs/admin/trigger-durability.md, "A RabbitMQ source"), not the reader:
+        # refusing to start is how nobody believes the Skyport agents' RabbitMQ triggers are live when they are not.
+        raise ConfigError("EVENTS_RABBITMQ_ENABLED: the RabbitMQ event source is designed but not built in this "
+                          "gateway (docs/admin/trigger-durability.md); unset it")
+    reconcile_seconds = _off_or_number(env, "RECONCILE_SECONDS", 300.0, float)
+    if reconcile_seconds and reconcile_seconds < 30:
+        raise ConfigError("RECONCILE_SECONDS is at least 30 (or 0 to turn the sweep off)")
+    window = _number(env, "RECONCILE_WINDOW_HOURS", 24, int)
+    if window > 744:
+        raise ConfigError("RECONCILE_WINDOW_HOURS is at most 744 (glidepath-api's sinceHours limit)")
+    metrics_port = int(_off_or_number(env, "METRICS_PORT", 9090, int))
+    if metrics_port > 65535:
+        raise ConfigError("METRICS_PORT must be at most 65535")
+    if metrics_port and (metrics_port == port or (model_key and metrics_port == model_port)):
+        raise ConfigError("METRICS_PORT must differ from PORT and MODEL_PORT")
     github_prs = _flag(env, "GITHUB_PR_ENABLED", False)
     # Agent XR pins (agent_xrs.py) read definition files through the same broker token repo.pr.open uses, so they are
     # on exactly when GitHub PRs are, unless said otherwise; on without GitHub there is nothing to read with.
@@ -283,6 +312,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         # Images a definition may pin beyond the runtime catalog: the registries Glidepath builds agents' own images
         # into (code agents), as globs, e.g. ghcr.io/jfillman/*@sha256:*.
         runtime_images_extra=tuple(_list(get("RUNTIME_IMAGES_EXTRA", ""))),
+        reconcile_seconds=reconcile_seconds, reconcile_window_hours=window, metrics_port=metrics_port,
     )
 
 
@@ -401,6 +431,29 @@ class SerializedGateway(Gateway):
     def model_outcome(self, *a, **k):
         return self._locked(super().model_outcome, *a, **k)
 
+    def guarded(self, op: Callable[..., Any], *a, **k) -> Any:
+        """Run `op` under the gateway's lock, with the same crash-only handling: the trigger ledger's and the
+        cursor's calls (engine/pg.py PgTriggers, each its own committed transaction) from the bridge, the
+        reconciliation sweep and the scheduler."""
+        return self._locked(op, *a, **k)
+
+    def record_event(self, *a, **k):
+        """The bridge's event history (Gateway.record_event), under the lock and committed: it is written between
+        gateway operations, not inside one."""
+        def op():
+            try:
+                out = Gateway.record_event(self, *a, **k)
+                if self.state is not None:
+                    self.state.commit()
+                return out
+            except self.store_errors:
+                raise
+            except Exception:
+                if self.state is not None:
+                    self.state.conn.rollback()
+                raise
+        return self._locked(op)
+
     def ping(self) -> None:
         """One round trip to the database, under the lock (a no-op when ephemeral)."""
         if self.state is None:
@@ -439,9 +492,11 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         pins = MemoryDefinitions()
         results = MemoryResults()
         outbox = MemoryOutbox()
+        trigger_store = MemoryTriggers()
     else:
         import psycopg   # only where it is used
-        from .engine.pg import PgArtifacts, PgDefinitions, PgEvents, PgHolds, PgInbox, PgOutbox, PgResults, open_durable
+        from .engine.pg import (PgArtifacts, PgDefinitions, PgEvents, PgHolds, PgInbox, PgOutbox, PgResults, PgTriggers,
+                                open_durable)
         state, store = open_durable(cfg.dsn)
         store_errors = (psycopg.OperationalError, psycopg.InterfaceError)
         if b.artifacts is None:
@@ -452,6 +507,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         pins = PgDefinitions(state)            # the cluster-pinned definitions, for restarts and the read API
         results = PgResults(state)             # finished runs' answers, 30 days (results.py)
         outbox = PgOutbox(state)               # what the core is owed (engine/outbox.py)
+        trigger_store = PgTriggers(state)      # the trigger ledger and the event cursor (engine/trigger_ledger.py)
     if core is None:
         core = build_core(cfg, outbox)
     models = model_auth = None
@@ -465,6 +521,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
                            definitions_store=pins, runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra,
                            results=results)
+    gw.triggers = trigger_store
     return gw, state
 
 
@@ -525,6 +582,9 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + (f" model-proxy=:{cfg.model_port} routes={','.join(sorted(cfg.model_routes))}" if cfg.model_key_file
                else " model-proxy=off")
             + f" events={'on' if cfg.events_enabled else 'off'}"
+            + (f" reconcile={'every ' + format(cfg.reconcile_seconds, 'g') + 's over ' + str(cfg.reconcile_window_hours) + 'h' if cfg.reconcile_seconds else 'off'}"
+               if cfg.events_enabled else "")
+            + f" metrics={':' + str(cfg.metrics_port) if cfg.metrics_port else 'off'}"
             + f" schedules={'on' if cfg.schedules_enabled else 'off'}"
             + f" agent-pins={'on (every ' + format(cfg.agent_xrs_interval, 'g') + 's)' if cfg.agent_xrs_enabled else 'off'}"
             + f" core={cfg.core_url} outage-reads={'allowed' if cfg.outage_allow_reads else 'denied'}"
@@ -553,14 +613,22 @@ def main() -> int:
     app = build_app(cfg, gw)
     log.info(describe(cfg, gw))
     expirer = Expirer(gw, cfg.expire_seconds).start()
-    bridge = pins = None
+    bridge = pins = reconciler = metrics_srv = None
     sched = None
+    from . import metrics as mx
+    trigger_metrics = mx.TriggerMetrics()
+    if cfg.metrics_port:
+        metrics_srv = mx.serve(trigger_metrics.registry, cfg.metrics_port)
     if cfg.schedules_enabled:
         from .scheduler import Scheduler
-        sched = Scheduler(gw).start()
+        sched = Scheduler(gw, metrics=trigger_metrics).start()
     if cfg.events_enabled:
         from .event_bridge import EventBridge
-        bridge = EventBridge(gw, cfg.glidepath_url, cfg.glidepath_token_file).start()
+        bridge = EventBridge(gw, cfg.glidepath_url, cfg.glidepath_token_file, metrics=trigger_metrics).start()
+        if cfg.reconcile_seconds:
+            from .reconcile import Reconciler
+            reconciler = Reconciler(bridge, interval=cfg.reconcile_seconds,
+                                    window_hours=cfg.reconcile_window_hours).start()
     if cfg.agent_xrs_enabled:
         from .agent_xrs import AgentXRs
         pins = AgentXRs(gw, KubeReader(IN_CLUSTER_API, SA_DIR / "token", SA_DIR / "ca.crt"),
@@ -583,8 +651,12 @@ def main() -> int:
             sched.stop()
         if pins is not None:
             pins.stop()
+        if reconciler is not None:
+            reconciler.stop()
         if bridge is not None:
             bridge.stop()
+        if metrics_srv is not None:
+            metrics_srv.shutdown()
         expirer.stop()
         if state is not None:
             state.close()
