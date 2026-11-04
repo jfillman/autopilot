@@ -27,6 +27,12 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   `[{"name": "autopilot-gateway", "version": "<gateway tag>", "principals": ["autopilot-system/clearance"],
   "definitions": true}]`. A NetworkPolicy must let the gateway reach the core, and nothing but
   the core and clearance-api reach clearance-pg.
+- **The provider contract.** The gateway is a Clearance runtime provider ([provider.md](provider.md)): it asks
+  first, acts only on yes, applies the spend, reports one outcome per allowed decision (model calls too, with
+  `receipt.stream`), and fails closed. The core stamps its records with the `version` of its `CLEARANCE_PROVIDERS`
+  entry: keep it equal to the image tag, which the start line prints as `provider=autopilot-gateway/<tag>`
+  (`AUTOPILOT_GATEWAY_VERSION`, set by the image build). Never set `GATEWAY_CONFORMANCE_CONTROL` in a deployment:
+  it turns on the test-only conformance control interface (`autopilot-gateway conformance-control`).
 - **Outage policy.** When the core is unreachable the gateway denies every T1-and-above call, session open, spawn
   and model call (rule `CORE-UNAVAILABLE`); T0 reads too, unless `GATEWAY_OUTAGE_ALLOW_READS=true`, which lets
   unscoped reads run and records them later as coverage-unavailable. 250 ms per attempt, one retry, a breaker after 5
@@ -52,6 +58,12 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   and a collector outage drops lines, never blocks a call). The read API (`autopilot-gateway api`) does the same as `autopilot-api`. On Hangar apron sets it with `OTEL_SERVICE_NAME` and the
   pod's namespace and name, so `{service_name="autopilot-gateway"}` and `{k8s_namespace_name="autopilot-system"}`
   find them in Loki.
+- **Triggers.** Event triggers (`EVENTS_ENABLED`) and interval triggers (`SCHEDULES_ENABLED`) launch once per
+  (agent, trigger key) across restarts: the key is claimed in the gateway's database first. The event bridge saves
+  its glidepath-api cursor there and resumes from it; a reconciliation sweep reads glidepath-api's run records so a
+  `pipelinerun.finished` whose event was lost still launches; a slot the gateway was down for is recorded `missed`.
+  Prometheus metrics on `METRICS_PORT` (9090) and the alerts for the gap: [trigger-durability.md](trigger-durability.md)
+  (Built, A-5; the PodMonitor, NetworkPolicy and PrometheusRule are a manifest for apron).
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
   AgentRuns, each deletion a record; a failed deletion is recorded and retried next sweep. The same sweep posts what
   waits in the outbox once the core answers.

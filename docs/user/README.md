@@ -69,7 +69,8 @@ plan.
   group answers. Freeze or end a session, and hold or release an agent's triggers, from the same pages.
 - **Use your own MCP client.** Sign in through people-dex (`tools/hangar_login.py`, the README's "Signing in as a
   person") and call Clearance's tools as yourself; Clearance enforces the definition's envelope, but your client is
-  the agent.
+  the agent. When you are done, `session_close` ends your session at once (it is recorded, and any runs it spawned
+  are deleted) instead of leaving it open until its TTL; only you can close your own session this way.
 
 ## Not yet
 Tools without a backend on Hangar (`chat.*`, `airframe.validate`; no definition names them), `xr.request` waiting on

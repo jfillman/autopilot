@@ -6,7 +6,7 @@ env:
   GLIDEPATH_REF: main
   # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
   # (clearance-core-client @ ...@<tag or full commit SHA>). Bump the two together.
-  CLEARANCE_REF: v0.29.0
+  CLEARANCE_REF: v0.30.0
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -70,3 +70,26 @@ jobs:
           CLEARANCE_SRC: ${{ github.workspace }}/tech/clearance
           AUTOPILOT_TEST_PG: postgresql://postgres:pw@127.0.0.1:5432/postgres
           AUTOPILOT_CORE_CONTAINER_URL: http://127.0.0.1:8089
+          # A-1: the released core image runs the provider conformance harness against the gateway's test-only control
+          # interface (tests/test_conformance.py; the plain binary runs it too). --network host: the harness's core
+          # and fake target listen on the runner's loopback, where the control interface is bound.
+          AUTOPILOT_CONFORMANCE_IMAGE: ghcr.io/jfillman/clearance:${{ env.CLEARANCE_REF }}
+          CONFORMANCE_REPORT_DIR: ${{ runner.temp }}/conformance
+      - name: Conformance reports
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, pathlib
+          d = pathlib.Path(os.environ["RUNNER_TEMP"], "conformance")
+          for p in sorted(d.glob("*.json")) if d.is_dir() else []:
+              r = json.loads(p.read_text())
+              print(f"### {p.stem}: {'PASS' if r['pass'] else 'FAIL'} ({r['suite']}, {r['provider'].get('name')} {r['provider'].get('version')})")
+              for a in r["assertions"]:
+                  print(f"- {'PASS' if a['pass'] else 'FAIL'} `{a['id']}`: {a.get('detail', '')}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-reports
+          path: ${{ runner.temp }}/conformance
+          if-no-files-found: warn

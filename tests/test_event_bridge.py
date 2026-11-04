@@ -15,10 +15,16 @@ from autopilot.engine.tiers import Tier
 EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
 
 
-def failed(eid="1793291758385806-7dd8657e1c25", outcome="failure", app="gate-api"):
+FIRST = "1793291758385806-7dd8657e1c25"
+
+
+def failed(eid=FIRST, outcome="failure", app="gate-api", run=None):
+    """A pipelinerun.finished envelope. Each event id names its own PipelineRun unless `run` says otherwise: the
+    ledger's key for a pipelinerun event is the run (trigger_ledger.trigger_key), not the event id."""
+    run = run or ("abc" if eid == FIRST else eid)
     return {"id": eid, "app": app, "routingKey": f"{app}.pipelinerun.finished", "receivedAt": "2026-10-29T16:00:00Z",
             "event": {"context": {"type": "dev.cdevents.pipelinerun.finished.0.2.0", "source": "/glidepath/x/y"},
-                      "subject": {"id": f"{app}-push-abc", "content": {"outcome": outcome, "pipelineName": "build",
+                      "subject": {"id": f"{app}-push-{run}", "content": {"outcome": outcome, "pipelineName": "build",
                                                                         "big": "x" * 5000}}}}
 
 

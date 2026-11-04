@@ -17,6 +17,8 @@ writer) and clearance-api (read-only) open. The gateway has no DSN for it.
 | `gateway_holds` | people's holds on an agent's triggers | `clearance_holds` |
 | `gateway_definitions` | the cluster-pinned definition set (the gateway's copy) | `clearance_definitions` (the core keeps its own) |
 | `gateway_outbox` | records and outcomes owed to the core, in order (`engine/outbox.py`) | new |
+| `gateway_trigger_launches` | the trigger ledger: one row per (agent, trigger key), claimed before a triggered session opens, with the decision; 30 days ([trigger-durability.md](trigger-durability.md)) | new (A-5) |
+| `gateway_event_cursors` | the event bridge's cursor (newest event id handled) and the ledger's floor, per source | new (A-5) |
 
 Same columns as before (`src/autopilot/engine/pg.py` SCHEMA), created at start if missing. One writer: the gateway
 takes advisory lock `apg0` and a second one stops at start.

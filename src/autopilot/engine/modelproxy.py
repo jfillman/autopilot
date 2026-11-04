@@ -53,6 +53,9 @@ class ModelDecision:
     message: str
     route: ModelRoute | None = None
     headers: dict[str, str] | None = None
+    # The core's decision record for this call: the proxy reports its outcome against it (Gateway.model_outcome),
+    # once the call ran, so a model call is two records like a tool call, the second written as the gateway.
+    decision_id: str | None = None
 
 
 class ModelProxy:
@@ -87,9 +90,21 @@ class ModelProxy:
             return ModelDecision(False, v.rule, v.message)
         route = self.routes.get(model)
         if route is None or s is None:   # the core allowed a model it was told is routed
-            return ModelDecision(False, "M006", f"no route for model {model!r}")
+            msg = f"no route for model {model!r}"
+            self.core.outcome(v.decision_id, f"refused M006: {msg}", receipt={"stream": False},
+                              refusal=("M006", msg))
+            return ModelDecision(False, "M006", msg)
         headers = {"x-modelplane-caller": s.id, "x-hangar-task": s.task_id}
-        return ModelDecision(True, None, v.message or "allowed", route, headers)
+        return ModelDecision(True, None, v.message or "allowed", route, headers, v.decision_id)
+
+    def outcome(self, decision_id: str | None, result: str, *, stream: bool, upstream_status: int | None = None) -> int | None:
+        """Report an allowed model call's result to the core (POST /v1/decisions/{id}/outcome), written as the gateway's
+        provider: `result` is "ok" or "error:<Kind>", and the receipt (flat, claimed) says whether the call streamed
+        and what the upstream answered. Never raises: an outcome the core cannot take now waits in the outbox."""
+        receipt: dict = {"stream": bool(stream)}
+        if upstream_status is not None:
+            receipt["upstream_status"] = int(upstream_status)
+        return self.core.outcome(decision_id, result, receipt=receipt)
 
     def record_usage(self, session_id: str, tokens: int) -> None:
         """Charge what the model actually used. Overrunning the budget trips the breaker."""

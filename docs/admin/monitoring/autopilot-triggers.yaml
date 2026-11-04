@@ -1,0 +1,109 @@
+# Trigger durability monitoring (A-5): what apron wires for the gateway's metrics port. A documented manifest, not
+# applied from this repo: apron's templates/55-autopilot/clearance/ takes it (the manager wires apron), with the
+# Deployment's container port added beside mcp and model:
+#
+#   ports:
+#     - {name: metrics, containerPort: 9090}      # METRICS_PORT (default 9090; 0 turns it off)
+#
+# What each series and alert means: docs/admin/trigger-durability.md. Prometheus here is kube-prometheus-stack in
+# `observability`; its PodMonitor selector is open (podMonitorSelectorNilUsesHelmValues: false) and its rule
+# selector matches `release: kube-prometheus-stack`.
+---
+# Prometheus may reach the gateway's metrics port, and nothing else new. The gateway's other policy (clearance) stays
+# as it is; NetworkPolicies are additive.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-metrics
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: clearance}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: observability}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports:
+        - {protocol: TCP, port: 9090}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: autopilot-gateway
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: clearance}
+  namespaceSelector:
+    matchNames: [autopilot-system]
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: autopilot-triggers
+  namespace: autopilot-system
+  labels: {release: kube-prometheus-stack, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  groups:
+    - name: autopilot-triggers
+      rules:
+        # The gap: a trigger whose event never reached the bridge, found by the reconciliation sweep. `result` is what
+        # the sweep then decided: launched (the run started, once), or held, braked, refused, launch-failed (no run).
+        - alert: AutopilotTriggerGap
+          expr: sum by (agent, result) (increase(autopilot_trigger_missed_total[1h])) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: "Autopilot: a trigger for {{ $labels.agent }} lost its event; the reconciliation sweep decided {{ $labels.result }}"
+            description: >-
+              {{ $value | humanize }} trigger(s) for {{ $labels.agent }} in the last hour were found in glidepath-api's
+              run records because the pipelinerun.finished event never reached the gateway's bridge (glidepath-api's
+              buffer lost it, or the gateway was down longer than it reaches back). The sweep decided
+              {{ $labels.result }}; a launched one started once. See autopilot docs/admin/trigger-durability.md.
+        # The sweep is what closes the gap; if it cannot read glidepath-api, a lost event stays lost.
+        - alert: AutopilotReconcileFailing
+          expr: increase(autopilot_reconcile_sweeps_total{result="failed"}[30m]) >= 3
+          labels: {severity: warning}
+          annotations:
+            summary: "Autopilot: the trigger reconciliation sweep cannot read glidepath-api"
+            description: "Three or more failed sweeps in 30 minutes. Check the gateway's log (autopilot.reconcile) and glidepath-api's GET /v1/runs."
+        - alert: AutopilotReconcileStale
+          expr: time() - autopilot_reconcile_last_success_timestamp_seconds > 1800
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: "Autopilot: no successful trigger reconciliation sweep in 30 minutes"
+            description: "RECONCILE_SECONDS is 300 by default; the last good sweep was {{ $value | humanizeDuration }} ago."
+        - alert: AutopilotEventStreamDown
+          expr: max_over_time(autopilot_events_stream_connected[15m]) == 0
+          labels: {severity: warning}
+          annotations:
+            summary: "Autopilot: the trigger bridge has not held glidepath-api's event stream for 15 minutes"
+            description: "Event triggers fire only through the reconciliation sweep (pipelinerun.finished) until the stream is back."
+        - alert: AutopilotEventCursorStale
+          expr: increase(autopilot_events_resume_total{result="stale-cursor"}[1h]) > 0
+          labels: {severity: info}
+          annotations:
+            summary: "Autopilot: the gateway resumed from a cursor older than glidepath-api's 24 h buffer"
+            description: "Events between the cursor and the buffer's oldest are gone; pipelinerun.finished triggers are recovered by the sweep, other event triggers are not."
+        # The scheduler: a slot whose 10-minute grace window passed with no firing (the gateway was down for all of it).
+        - alert: AutopilotScheduleSlotMissed
+          expr: increase(autopilot_schedule_missed_total[1d]) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: "Autopilot: {{ $labels.agent }} missed a scheduled slot"
+            description: "The slot was recorded missed in the trigger ledger and not run late. Start a run by hand if it matters."
+        - alert: AutopilotScheduleLate
+          expr: autopilot_schedule_lag_seconds > 300
+          labels: {severity: info}
+          annotations:
+            summary: "Autopilot: {{ $labels.agent }}'s last slot fired {{ $value | humanizeDuration }} after it began"
+            description: "A healthy gateway fires within one 30-second tick; a late firing means it started inside the grace window."
