@@ -894,7 +894,7 @@ class Gateway:
 
     def run_cost(self, s: Session, d: AgentDefinition | None) -> dict[str, Any]:
         """A run's cost when it ends (run.finish `cost`): its model usage as the proxy charged it, its model and tool
-        calls, its wall seconds from open to now, and the compute class it ran on."""
+        calls, its wall seconds from open to now, and the compute class its session was granted."""
         u = s.usage
         created = s.created_at if s.created_at.tzinfo else s.created_at.replace(tzinfo=timezone.utc)
         now = self.now()
@@ -904,8 +904,7 @@ class Gateway:
                                                                  "cache_read_input_tokens", "model_calls")}
         cost["tool_calls"] = int(s.used.get("tool_calls") or 0)
         cost["wall_seconds"] = max(0, int((now - created).total_seconds()))
-        if d is not None:
-            cost["compute"] = d.limits.compute.name.lower()
+        cost["compute"] = s.limits.compute.name.lower()   # the class the session was granted (narrowed at open)
         return cost
 
 

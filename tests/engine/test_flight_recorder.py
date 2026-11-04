@@ -147,3 +147,35 @@ def test_the_session_usage_survives_a_reload():
     old = s.to_record()
     del old["usage"]                                   # a session saved before A-4
     assert Session.from_record(old).usage["charged_tokens"] == 0
+
+
+def test_a_stream_that_breaks_is_not_an_ok_call(g, tmp_path):  # noqa: F811
+    """A provider that drops the connection mid-stream: the outcome says so, and what was metered is charged."""
+    key = tmp_path / "key"
+    key.write_text("sk-real\n")
+
+    def chunks():
+        yield STREAM[0] + STREAM[1]
+        raise ConnectionResetError("provider went away")
+    app = create_model_app(g, key_file=str(key), post=lambda *a, **k: (500, b""), stream=lambda *a, **k: (200, chunks()))
+    sid = launched(g)
+    try:
+        TestClient(app).post("/v1/messages", json={**BODY, "stream": True},
+                             headers={"x-api-key": "run-a", "x-hangar-session": sid})
+    except ConnectionResetError:
+        pass
+    [out] = outcomes(g, sid)
+    assert out["result"] == "error:ProviderUnreachable"
+    assert out["usage"]["charged_tokens"] == g.store.get(sid).used["model_tokens"] > 0
+
+
+def test_the_cost_names_the_sessions_granted_compute_class(g):  # noqa: F811
+    from dataclasses import replace
+
+    from autopilot.engine.limits import ComputeClass
+    sid = launched(g)
+    s = g.store.get(sid)
+    s.limits = replace(s.limits, compute=ComputeClass.parse("small"))
+    d = g.defs["nightly-reviewer"]
+    g.defs["nightly-reviewer"] = replace(d, limits=replace(d.limits, compute=ComputeClass.parse("large")))
+    assert g.run_cost(s, g.defs["nightly-reviewer"])["compute"] == "small"

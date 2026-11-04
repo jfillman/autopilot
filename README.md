@@ -118,7 +118,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 761 tests (A-4, 2026-11-03: 756 pass and 5 skip with `AUTOPILOT_TEST_PG` set and no core container), no cluster needed, against a real Clearance core:
+`./.venv/bin/python -m pytest -q` runs 763 tests (A-4, 2026-11-03: 755 pass and 8 skip without `AUTOPILOT_TEST_PG` and the core container), no cluster needed, against a real Clearance core:
 `tests/conftest.py` builds the unmodified clearance binary from a checkout (`go build ./cmd/clearance`;
 `CLEARANCE_SRC`, or `$HANGAR_TECH/clearance`; CI checks out the ref the client is pinned at) and runs it as
 `clearance core --memory --insecure-dev-auth --max-clock-skew 0 --listen 127.0.0.1:0` (the tests run on a fixed

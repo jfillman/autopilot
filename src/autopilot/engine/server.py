@@ -431,10 +431,18 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
         meter = StreamUsage()
 
         async def events():
+            # How the stream ended: ok only when the provider's stream ran to its end. A provider that drops the
+            # connection (or a client that goes away) mid-stream is not an ok call; what was metered is still charged.
+            result = "error:StreamInterrupted"
             try:
                 while True:
-                    chunk = await anyio.to_thread.run_sync(next, chunks, None)
+                    try:
+                        chunk = await anyio.to_thread.run_sync(next, chunks, None)
+                    except OSError:
+                        result = "error:ProviderUnreachable"
+                        raise
                     if chunk is None:
+                        result = "ok"
                         return
                     meter.feed(chunk)
                     yield chunk
@@ -442,7 +450,7 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
                 close = getattr(chunks, "close", None)
                 if close:
                     close()
-                await _done(session_id, d, meter.usage or None, meter.model, "ok")
+                await _done(session_id, d, meter.usage or None, meter.model, result)
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"cache-control": "no-cache"})
 
