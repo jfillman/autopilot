@@ -115,6 +115,7 @@ class Reconciler:
     def sweep(self) -> list[dict[str, Any]]:
         """One pass: what was newly decided (each a missed trigger). Raises when glidepath-api cannot be read."""
         m = self.bridge.metrics
+        self.bridge._db(self.bridge.ledger.prune, self.now())   # retention holds on every path, matched or not
         found, apps = watched_apps(self.bridge.gw.defs)
         if not found:
             m.sweeps.inc(result="ok")
@@ -143,7 +144,6 @@ class Reconciler:
         if new:
             log.warning("reconcile: %d trigger(s) no event delivered: %s", len(new),
                         ", ".join(f"{d['agent']} {d['event']} {d['result']}" for d in new))
-        self.bridge._db(self.bridge.ledger.prune, now)
         m.sweeps.inc(result="ok")
         m.sweep_ok.set(self.now().timestamp())
         return new

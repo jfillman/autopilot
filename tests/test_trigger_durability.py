@@ -565,3 +565,21 @@ def test_an_agent_added_later_has_no_earlier_slots_called_missed():
     assert sch.Scheduler(gw, clock=lambda: at(4, 9), ledger=led, metrics=m).tick() == []
     assert m.slot_missed.value(agent="nightly-reviewer") == 0
     assert [d["result"] for d in sch.Scheduler(gw, clock=lambda: at(5, 0, 1), ledger=led, metrics=m).tick()] == ["launched"]
+
+
+def test_the_ledger_is_pruned_with_no_pipelinerun_trigger_and_by_the_scheduler_alone(clock, tok):
+    led = tl.MemoryTriggers()
+    old = clock() - tl.RETENTION - timedelta(days=1)
+    led.claim("a", "event:old", "stream", "x", old)
+    led.decide("a", "event:old", "launched")
+
+    class NoTriggers:
+        defs = {}
+        triggers = led
+    bridge = EventBridge(NoTriggers(), "http://gp", tok, clock=clock, ledger=led)
+    assert rc.Reconciler(bridge, clock=clock).sweep() == [] and led.get("a", "event:old") is None
+
+    led.claim("b", "slot:24h:1", "schedule", None, old)
+    gw = GW()
+    sch.Scheduler(gw, clock=clock, ledger=led).tick()
+    assert led.get("b", "slot:24h:1") is None, "schedules without the sweep keep retention too"

@@ -31,6 +31,7 @@ log = logging.getLogger("autopilot.scheduler")
 
 GRACE = timedelta(minutes=10)
 TICK_SECONDS = 30.0
+PRUNE_EVERY = timedelta(hours=1)   # the ledger's retention, kept here too: schedules can run without the sweep
 MISSED_LOOKBACK = 744   # slots checked back per agent at most (31 days of hourly slots)
 SOURCE = "schedule"     # the ledger floors' rows in gateway_event_cursors: `schedule:<agent>` (only the floor is used)
 
@@ -57,6 +58,7 @@ class Scheduler:
         self.fired: set[tuple[str, int]] = set()      # this process's cache of slots already claimed or checked
         self._checked: set[tuple[str, int]] = set()
         self._floors: dict[str, datetime] = {}
+        self._pruned: datetime | None = None
         self.started = clock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, name="autopilot-scheduler", daemon=True)
@@ -113,6 +115,9 @@ class Scheduler:
 
     def tick(self) -> list[dict[str, Any]]:
         now, done = self.clock(), []
+        if self._pruned is None or now - self._pruned >= PRUNE_EVERY:
+            self._db(self.ledger.prune, now)
+            self._pruned = now
         for agent, every_s, every in self.schedules():
             slot, start = slot_of(now, every)
             done += self._check_missed(agent, every_s, every, slot, start, now)

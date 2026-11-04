@@ -36,7 +36,8 @@ it is being made. Every decision is final: a braked or held event is never launc
 `claimed` (the process died between claim and decision) is taken again by the next process at once (one writer holds
 the database, so a claim older than the process is an orphan) or after 5 minutes; if its run had in fact started and
 is still live, the open is answered as a dedupe. `via` says which path claimed it: `stream`, `recent` (the start-up
-catch-up), `reconcile`, `schedule` (`rabbitmq` is reserved). Rows are kept 30 days; the sweep prunes them.
+catch-up), `reconcile`, `schedule` (`rabbitmq` is reserved). Rows are kept 30 days; the sweep prunes them on every pass, and the scheduler once an hour (schedules can run
+without the sweep).
 
 The AgentRun's task id is a hash of the agent and the key (`triggers.event_task_id`), so a live duplicate is also
 caught by the gateway's own dedupe.
