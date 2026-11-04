@@ -330,7 +330,7 @@ def at(day, h, m=0):
 
 def test_a_restart_inside_the_window_after_the_slot_fired_does_not_fire_it_again():
     led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
-    led.cursor(sch.SOURCE, at(1, 12))                       # A-5 has been on since yesterday
+    led.cursor(f"{sch.SOURCE}:nightly-reviewer", at(1, 12))                       # A-5 has been on since yesterday
     gw = GW()
     assert [d["result"] for d in sch.Scheduler(gw, clock=lambda: at(2, 0, 1), ledger=led, metrics=m).tick()] == ["launched"]
     assert m.slot_lag.value(agent="nightly-reviewer") == 60
@@ -341,7 +341,7 @@ def test_a_restart_inside_the_window_after_the_slot_fired_does_not_fire_it_again
 
 def test_a_slot_the_gateway_was_down_for_is_missed_once_and_not_run_late():
     led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
-    led.cursor(sch.SOURCE, at(1, 12))
+    led.cursor(f"{sch.SOURCE}:nightly-reviewer", at(1, 12))
     gw = GW()
     s = sch.Scheduler(gw, clock=lambda: at(2, 0, 15), ledger=led, metrics=m)      # back at 00:15: the window is gone
     assert [d["result"] for d in s.tick()] == ["missed"] and gw.opened == []
@@ -538,7 +538,7 @@ def test_a_gap_the_sweep_finds_while_the_agent_is_held_is_counted_as_held_not_la
 
 def test_a_slot_a_dead_process_was_firing_is_not_called_missed():
     led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
-    led.cursor(sch.SOURCE, at(1, 12))
+    led.cursor(f"{sch.SOURCE}:nightly-reviewer", at(1, 12))
     slot = sch.slot_of(at(2, 0), timedelta(hours=24))[0]
     assert led.claim("nightly-reviewer", tl.slot_key("24h", slot), "schedule", None, at(2, 0, 1))   # ... and died
     gw = GW()
@@ -549,10 +549,19 @@ def test_a_slot_a_dead_process_was_firing_is_not_called_missed():
 
 def test_a_gateway_down_for_three_nights_records_three_missed_slots():
     led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
-    led.cursor(sch.SOURCE, at(1, 12))
+    led.cursor(f"{sch.SOURCE}:nightly-reviewer", at(1, 12))
     gw = GW()
     out = sch.Scheduler(gw, clock=lambda: at(4, 9), ledger=led, metrics=m).tick()       # down 2nd, 3rd, 4th 00:00
     assert [d["result"] for d in out] == ["missed"] * 3 and gw.opened == []
     assert m.slot_missed.value(agent="nightly-reviewer") == 3
     assert sch.Scheduler(gw, clock=lambda: at(4, 10), ledger=led, metrics=m).tick() == [], "each recorded once"
     assert m.slot_missed.value(agent="nightly-reviewer") == 3
+
+
+def test_an_agent_added_later_has_no_earlier_slots_called_missed():
+    led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
+    led.cursor(f"{sch.SOURCE}:other-reviewer", at(1, 12))      # another agent has been scheduled since the 1st
+    gw = GW()                                                   # nightly-reviewer first appears on the 4th at 09:00
+    assert sch.Scheduler(gw, clock=lambda: at(4, 9), ledger=led, metrics=m).tick() == []
+    assert m.slot_missed.value(agent="nightly-reviewer") == 0
+    assert [d["result"] for d in sch.Scheduler(gw, clock=lambda: at(5, 0, 1), ledger=led, metrics=m).tick()] == ["launched"]

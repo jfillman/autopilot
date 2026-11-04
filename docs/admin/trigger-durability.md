@@ -44,8 +44,8 @@ caught by the gateway's own dedupe.
 ## The cursor and the catch-up
 
 `gateway_event_cursors`: one row per source. `glidepath` holds `last_id`, the newest event id handled (moved forward
-only; ids order by receive time, compared bytewise), and `floor_at`, when the ledger first ran. `schedule` holds only a
-`floor_at`. On the first start there is no cursor: the bridge starts live, with no backlog. On every later start:
+only; ids order by receive time, compared bytewise), and `floor_at`, when the ledger first ran. `schedule:<agent>` holds only a
+`floor_at`: when the scheduler first saw that agent, so an agent added later never has earlier slots called missed. On the first start there is no cursor: the bridge starts live, with no backlog. On every later start:
 
 1. `GET /v1/events/recent?since=<last_id>&limit=10000`: what glidepath-api's buffer holds after the cursor (plus its
    10-second overlap), handled oldest first as `via recent`.
@@ -81,7 +81,7 @@ them back from. The storm brake's window is in memory, so a restart resets it.
 Unchanged: each interval is a UTC-aligned slot (every 24h: 00:00 UTC), fired within 10 minutes of its start, once.
 What changed: the slot is claimed in the ledger, so a restart at 00:04 after the 00:00 slot fired (its run finished
 or not) does not fire it again. A slot whose window passed with no firing (the gateway was down from 00:00 to past
-00:10) is recorded `missed`, once per slot back to the ledger's floor (a gateway down for three nights records three; a slot with any ledger row, even a `claimed` one a dead process left, is not), counted in `autopilot_schedule_missed_total{agent}` (alert
+00:10) is recorded `missed`, once per slot back to the agent's floor (a gateway down for three nights records three; a slot with any ledger row, even a `claimed` one a dead process left, is not), counted in `autopilot_schedule_missed_total{agent}` (alert
 `AutopilotScheduleSlotMissed`) and not run late. `autopilot_schedule_lag_seconds{agent}` is how long after its slot's
 start the last firing came: one 30-second tick at most while the gateway is up.
 
@@ -172,8 +172,7 @@ $PSQL "SELECT source, last_id, floor_at FROM gateway_event_cursors ORDER BY sour
 $K -n autopilot-system logs deploy/clearance | grep -E "reconcile=|metrics="     # the start line
 ```
 
-`glidepath` with a `floor_at` of the start (and a `last_id` once one event came), `schedule` once a scheduled agent
-is loaded; the start line says `reconcile=every 300s over 24h metrics=:9090`.
+`glidepath` with a `floor_at` of the start (and a `last_id` once one event came), `schedule:<agent>` for each scheduled agent; the start line says `reconcile=every 300s over 24h metrics=:9090`.
 
 **1. Restarting the gateway during a build loses no trigger.** Start a gate-api run that will fail (re-run a failed
 one: pick a name from `GP "/v1/runs?app=gate-api&sinceHours=168" | jq -r '.runs[] | select(.status=="failed") | .name' | head -1`,

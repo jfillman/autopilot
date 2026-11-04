@@ -10,7 +10,8 @@ Once per slot, across restarts (A-5): the slot's key (`slot:<every>:<n>`) is cla
 grace window after the slot has fired, its run finished or not, does not fire it again. The grace window keeps a
 restart from firing a slot long after it began: a slot whose window passed with no firing (the gateway was down for
 all of it) is recorded `missed` in the ledger, once per slot (back to the floor), and counted in autopilot_schedule_missed_total{agent}; it is
-not run late. Slots that began before the ledger's floor (the first start with A-5) are never counted missed.
+not run late. Slots that began before the agent's floor (when the scheduler first saw that agent with a ledger) are never counted
+missed.
 autopilot_schedule_lag_seconds{agent} is how long after its slot's start the last firing came (one tick, 30 s, at
 most when the gateway is up).
 """
@@ -31,7 +32,7 @@ log = logging.getLogger("autopilot.scheduler")
 GRACE = timedelta(minutes=10)
 TICK_SECONDS = 30.0
 MISSED_LOOKBACK = 744   # slots checked back per agent at most (31 days of hourly slots)
-SOURCE = "schedule"     # the ledger floor's row in gateway_event_cursors (no cursor id: only the floor is used)
+SOURCE = "schedule"     # the ledger floors' rows in gateway_event_cursors: `schedule:<agent>` (only the floor is used)
 
 
 def slot_task_id(agent: str, slot: int) -> str:
@@ -55,7 +56,7 @@ class Scheduler:
         self.metrics = metrics or TriggerMetrics()
         self.fired: set[tuple[str, int]] = set()      # this process's cache of slots already claimed or checked
         self._checked: set[tuple[str, int]] = set()
-        self._floor: datetime | None = None
+        self._floors: dict[str, datetime] = {}
         self.started = clock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, name="autopilot-scheduler", daemon=True)
@@ -74,10 +75,13 @@ class Scheduler:
         guarded = getattr(self.gw, "guarded", None)
         return guarded(fn, *a) if guarded is not None else fn(*a)
 
-    def floor(self, now: datetime) -> datetime:
-        if self._floor is None:
-            self._floor = self._db(self.ledger.cursor, SOURCE, now).floor
-        return self._floor
+    def floor(self, agent: str, now: datetime) -> datetime:
+        """When this agent's schedule was first seen with a ledger: a durable row per agent (gateway_event_cursors
+        source `schedule:<agent>`), so an agent added to a running deployment never has earlier slots called missed."""
+        f = self._floors.get(agent)
+        if f is None:
+            f = self._floors[agent] = self._db(self.ledger.cursor, f"{SOURCE}:{agent}", now).floor
+        return f
 
     def _check_missed(self, agent: str, every_s: str, every: timedelta, slot: int, start: datetime,
                       now: datetime) -> list[dict[str, Any]]:
@@ -86,7 +90,7 @@ class Scheduler:
         if every <= GRACE:     # windows overlap: a short interval's next slot comes before a miss could be told
             return []
         last, last_start = (slot, start) if now - start > GRACE else (slot - 1, start - every)
-        floor, out = self.floor(now), []
+        floor, out = self.floor(agent, now), []
         for n in range(MISSED_LOOKBACK):
             s, s_start = last - n, last_start - n * every
             if s_start < floor or (agent, s) in self._checked:
