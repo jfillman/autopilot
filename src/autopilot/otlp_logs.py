@@ -10,7 +10,8 @@ agent in the process that holds the model and GitHub credentials):
   OTEL_RESOURCE_ATTRIBUTES            more resource attributes, k=v,k=v (the pod's namespace and name, from the
                                       downward API), the standard variable's format
 
-Every record still goes to stderr as before; this is a copy. It never blocks a request: emit() puts the record on a
+Every record still goes to stderr as before; this is a copy of the INFO-and-above ones (DEBUG, for a local
+LOG_LEVEL=DEBUG session, stays on stderr so a debugging run does not flood the collector). It never blocks a request: emit() puts the record on a
 bounded queue (QUEUE_MAX) and a daemon thread posts batches (BATCH_MAX records, or every FLUSH_SECONDS) with a
 deadline; a full queue drops the record and counts it, and a failed post drops the batch and counts it, so a
 collector outage costs log lines, never the gateway. The lines are the ones the gateway already writes to stderr,

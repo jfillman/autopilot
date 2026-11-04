@@ -126,7 +126,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 911 tests (A-7 on A-1 and A-5, 2026-11-03; 901 pass and 10 skip without the extras below), no cluster needed, against a real Clearance core:
+`./.venv/bin/python -m pytest -q` runs 912 tests (A-7 on A-1 and A-5, 2026-11-03; 902 pass and 10 skip without the extras below), no cluster needed, against a real Clearance core:
 `tests/conftest.py` builds the unmodified clearance binary from a checkout (`go build ./cmd/clearance`;
 `CLEARANCE_SRC`, or `$HANGAR_TECH/clearance`; CI checks out the ref the client is pinned at) and runs it as
 `clearance core --memory --insecure-dev-auth --max-clock-skew 0 --listen 127.0.0.1:0` (the tests run on a fixed
@@ -219,7 +219,7 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `GITHUB_PR_ENABLED` | `0` | `1`: `repo.pr.open` opens PRs as the agents' GitHub App through Glidepath's broker (`github_pr.py`) |
 | `XR_REQUEST_ENABLED` | = `GITHUB_PR_ENABLED` | `1`: `xr.request` opens a PR adding one XR request to `AIRFRAME_TENANTS_REPO` as the agents' App (`xr_request.py`). Needs `GITHUB_PR_ENABLED=1` |
 | `APP_API_SERVICES` | unset | a JSON object `{service: base URL}` (http or https, no credentials, no query): the application APIs `app.api.get` may GET. Unset, `app.api.get` has no backend |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | unset | an OpenTelemetry collector's OTLP/HTTP logs URL (e.g. `http://otel-collector-opentelemetry-collector.observability.svc:4318/v1/logs`): a copy of every log line goes there, and on Hangar on to Loki (`otlp_logs.py`). `OTEL_SERVICE_NAME` (default `autopilot-gateway`) and `OTEL_RESOURCE_ATTRIBUTES` (`k=v,...`) name the source |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | unset | an OpenTelemetry collector's OTLP/HTTP logs URL (e.g. `http://otel-collector-opentelemetry-collector.observability.svc:4318/v1/logs`): a copy of every INFO-and-above log line goes there, and on Hangar on to Loki (`otlp_logs.py`; DEBUG stays on stderr). `OTEL_SERVICE_NAME` (default `autopilot-gateway`) and `OTEL_RESOURCE_ATTRIBUTES` (`k=v,...`) name the source |
 | `AGENT_TOKEN_FILE` | `/var/run/clearance/agent-installation-token` | a projected token for the broker's `agent-installation-token` audience, re-read per PR |
 | `BROKER_URL` | `http://cdevents-broker-auth.platform-system.svc:8080` | Glidepath's token broker |
 | `MODEL_KEY_FILE` | unset | the model provider's API key (a mounted Secret file, re-read per call); set, the model proxy listens on `MODEL_PORT` |

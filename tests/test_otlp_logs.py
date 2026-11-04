@@ -95,3 +95,17 @@ def test_install_is_off_without_an_endpoint_and_refuses_a_bad_one():
         root.removeHandler(h)
         h._post = Collector()
         h.close()
+
+
+def test_debug_lines_stay_on_stderr():
+    root = logging.getLogger("t.level")
+    h = otlp_logs.install({"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://c:4318/v1/logs"}, logger=root)
+    try:
+        root.setLevel(logging.DEBUG)
+        root.debug("noisy")
+        root.info("kept")
+        assert h.q.qsize() == 1
+    finally:
+        root.removeHandler(h)
+        h._post = Collector()
+        h.close()
