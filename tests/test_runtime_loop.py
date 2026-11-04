@@ -270,6 +270,16 @@ def test_the_system_prompt_names_the_run_and_whether_the_tools_are_scoped():
     assert "whole registry" in system_prompt("x", {})
 
 
+def test_a_grant_from_hangar_limits_counts_as_a_scoped_offer():
+    from hangar_agent.loop import is_scoped
+
+    class G:
+        scoped = False
+    assert is_scoped(G(), ["glidepath.run.get"]) and is_scoped(G(), []) and not is_scoped(G(), None)
+    G.scoped = True
+    assert is_scoped(G(), None)
+
+
 
 def test_prompt_cache_breakpoints_are_on_copies_and_at_most_three():
     from hangar_agent.loop import cached

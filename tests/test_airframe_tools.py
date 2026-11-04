@@ -86,6 +86,18 @@ OBJECTS = [APP, PROD, REDIS, RABBIT, ARGO_APP, ROLLOUT]
 
 
 @pytest.fixture
+def defs():
+    """The bundled definitions, with airframe.validate granted to airframe-operator: the bundled one leaves it out
+    while Hangar's image has no validator (A-7), but the tool itself is tested here over a fake validator."""
+    from autopilot.engine import profile
+    d = profile.load_dir(ROOT / "agents")
+    raw = yaml.safe_load((ROOT / "agents" / "airframe-operator.yaml").read_text())
+    raw["profile"]["tools"].append("airframe.validate")
+    d["airframe-operator"] = profile.parse(raw)
+    return d
+
+
+@pytest.fixture
 def cluster(backends):
     for o in OBJECTS:
         backends.airframe.kube.add(copy.deepcopy(o))

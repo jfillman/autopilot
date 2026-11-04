@@ -44,8 +44,14 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   Argo CD syncs of lower Applications (`ARGO_SYNC_ENABLED`), PRs as the agents' App through Glidepath's broker
   (`GITHUB_PR_ENABLED`), `catalog.read` (`BACKSTAGE_URL`), `metrics.query` and `logs.query`, the model proxy
   (`MODEL_KEY_FILE`), event and schedule triggers, `Agent` XR pins, and artifacts on the durable store.
-  `chat.*`, `app.api.get`, `xr.request` and `airframe.validate` have no handler in the image, so their calls are
-  refused as "no backend"; nothing is faked.
+  `xr.request` (with GitHub PRs; `XR_REQUEST_ENABLED=0` turns it off) and `app.api.get` (`APP_API_SERVICES`) too.
+  `chat.*` and `airframe.validate` have no handler in the image, so their calls are refused as "no backend", and no
+  bundled definition names them (`tests/test_definitions_backed.py`); nothing is faked.
+- **Logs to Loki.** `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` sends a copy of every log line to the cluster's OpenTelemetry
+  collector over OTLP/HTTP JSON (`otlp_logs.py`, standard library only; a bounded queue, batches with a 5 s deadline,
+  and a collector outage drops lines, never blocks a call). On Hangar apron sets it with `OTEL_SERVICE_NAME` and the
+  pod's namespace and name, so `{service_name="autopilot-gateway"}` and `{k8s_namespace_name="autopilot-system"}`
+  find them in Loki.
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
   AgentRuns, each deletion a record; a failed deletion is recorded and retried next sweep. The same sweep posts what
   waits in the outbox once the core answers.

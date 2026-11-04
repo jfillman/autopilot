@@ -35,6 +35,14 @@ def test_manifest_carries_the_narrowed_limits_not_the_definitions(gw, defs):
     assert spec["expiresAt"].endswith("Z")
 
 
+def test_manifest_carries_the_sessions_tool_grant_for_hangar_limits(gw, defs):
+    s, d = make(gw, defs, "researcher")
+    lim = manifests.agentrun_manifest(s, d)["spec"]["limits"]
+    assert lim["tools"] == sorted(d.limits.tools) == sorted(s.limits.tools)
+    s, d = make(gw, defs, req={"tools": ["catalog.read", "repo.file.get"]})
+    assert manifests.agentrun_manifest(s, d)["spec"]["limits"]["tools"] == ["catalog.read", "repo.file.get"]
+
+
 def test_labels_carry_task_and_session(gw, defs):
     s, d = make(gw, defs)
     lab = manifests.agentrun_manifest(s, d)["metadata"]["labels"]

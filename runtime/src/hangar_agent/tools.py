@@ -63,8 +63,9 @@ def describe(t: dict[str, Any]) -> str:
 
 
 def build_toolset(registry: list[dict[str, Any]], grant: list[str] | None = None) -> Toolset:
-    """`grant`, when the run is told its session's tools (HANGAR_LIMITS "tools"; AgentRun limits do not carry it
-    today), narrows the offer to them. Without it, the whole registry is offered and Clearance refuses the rest."""
+    """`grant`, when the run is told its session's tools (HANGAR_LIMITS "tools": the gateway writes the grant into
+    the AgentRun's limits), narrows the offer to them. Without it, whatever tools_list returned is offered (the
+    session's own tools from a gateway that scopes it) and the gateway refuses the rest."""
     tools, names, skipped = [], {}, []
     for t in registry:
         dotted = t.get("name")

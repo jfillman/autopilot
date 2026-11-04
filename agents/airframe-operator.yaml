@@ -1,11 +1,13 @@
 name: airframe-operator
-description: "Answers what Airframe can build for an app, validates and explains XRs, and plans changes; read-only, opens no PRs."
+description: "Answers what Airframe can build for an app, explains XRs and their conditions, and plans changes; read-only, opens no PRs."
 owner: group:default/team-platform
 kind: task
 identity: { type: delegated }
 profile:
   tierCeiling: T0
-  tools: [airframe.capabilities, airframe.validate, airframe.explain, airframe.plan, airframe.status, airframe.describe, airframe.verify]
+  # No airframe.validate: the gateway image carries no airframe-validate, so the tool has no backend on Hangar (A-7:
+  # no tool in a loaded definition lacks one). A-3 restores it here with the validator in the image.
+  tools: [airframe.capabilities, airframe.explain, airframe.plan, airframe.status, airframe.describe, airframe.verify]
   airframe: { apps: ["*"] }
   models: [claude-sonnet-5-5]
   network: clearance+model

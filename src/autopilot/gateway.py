@@ -105,6 +105,9 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
                                                        a.get("base", "main"), meta=pr_meta(s))
         h["repo.pr.open_upper"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
                                                              a.get("base", "main"), meta=pr_meta(s))
+        # xr.request: one new file in the tenants repo's tenants/<app>/xr-requests/ (xr_request.py), the same trailer.
+        h["xr.request"] = lambda s, a: b.git.commit_xr(a["app"], a["env"], a["kind"], a["spec"], a.get("name"),
+                                                       meta=pr_meta(s))
     if b.glidepath is not None:
         # A PR carrying the app's cicd.yaml gets glidepath-api's verdict first, whichever tool carries it, so the file
         # that reaches GitHub through Clearance has had the check glidepath.cicd.propose gives (cicd_propose.check_files).
