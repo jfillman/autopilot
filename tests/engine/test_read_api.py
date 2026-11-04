@@ -282,3 +282,20 @@ def test_pg_readyz_fails_without_the_gateways_tables(pg):
         c.execute("DROP TABLE gateway_sessions")
     with pytest.raises(Exception):
         store.ping()
+
+
+def test_a_task_sums_its_sessions_cost(access):
+    """A-4: a run tree's cost is its sessions' usage summed (Session.usage, what the model proxy metered)."""
+    tree = [{"id": sid, "principal": "user:bob", "agent": "orchestrator", "task_id": "t-9",
+             "created_at": "2026-10-30T12:00:00Z", "expires_at": "2099-01-01T00:00:00+00:00", "closed": False,
+             "used": {"model_tokens": c}, "usage": {"charged_tokens": c, "input_tokens": c - 1, "model_calls": 1}}
+            for sid, c in (("s-root", 300), ("s-child", 45))]
+    tree.append({**tree[0], "id": "s-old", "used": {}})   # a session saved before A-4 has no usage
+    del tree[-1]["usage"]
+    app = api.create_api_app(MemStore(tree, [], []), access, gateway_url="http://autopilot.example",
+                             clearance_api_url="http://clearance-api.example")
+    with TestClient(app) as c:
+        out = get(c, "/v1/tasks/t-9", "bob").json()
+        assert out["cost"] == {"charged_tokens": 345, "input_tokens": 343, "model_calls": 2}
+        assert out["used"]["model_tokens"] == out["cost"]["charged_tokens"]
+        assert get(c, "/v1/sessions/s-child", "bob").json()["usage"]["charged_tokens"] == 45

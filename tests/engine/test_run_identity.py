@@ -218,7 +218,8 @@ def test_an_allowed_model_call_has_one_outcome_written_as_the_gateway_with_strea
     assert o["provider"] == {"name": "autopilot-gateway", "version": "test"}, "the core stamps the registered provider"
     assert o["outcome_of"]["hash"] == decision["hash"] and o["result"] == "ok"
     assert o["receipt"] == {"stream": streamed, "upstream_status": 200}
-    assert o["subject"]["name"] == "model.call" and o["subject"]["digests"]["sha256"] == decision["args_sha256"]
+    # A model call's subject is model-call, named by the model it asked for (clearance A-4, revision 3).
+    assert o["subject"]["kind"] == "model-call" and o["subject"]["name"] == decision["target"] and o["subject"]["digests"]["sha256"] == decision["args_sha256"]
     assert "receipt" in o["claimed"], "what the gateway says about the call is claimed, not verified"
 
 

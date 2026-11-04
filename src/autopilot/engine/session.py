@@ -18,6 +18,15 @@ from .tiers import Tier
 MAX_DEPTH = 3
 DENIAL_TRIP = 5
 
+# A session's running cost (A-4, AP-C2): its model calls' usage summed as the model proxy metered it, and how many
+# calls there were. Kept with the session (the read API shows it) and sent with run.finish as the record's `cost`.
+USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+                "charged_tokens", "model_calls")
+
+
+def _no_usage() -> dict[str, int]:
+    return {f: 0 for f in USAGE_FIELDS}
+
 
 class SessionError(Exception):
     def __init__(self, code: str, message: str):
@@ -48,6 +57,14 @@ class Session:
     # the sweep's backstop). Both small and kept with the session; the run's answer itself is in the result store.
     input: dict[str, Any] | None = None
     outcome: dict[str, Any] | None = None
+    usage: dict[str, int] = field(default_factory=_no_usage)
+
+    def add_usage(self, call: dict[str, int]) -> None:
+        """One model call's usage (modelproxy.usage_record) added to the session's running cost."""
+        for k in USAGE_FIELDS:
+            if k != "model_calls":
+                self.usage[k] = self.usage.get(k, 0) + int(call.get(k) or 0)
+        self.usage["model_calls"] = self.usage.get("model_calls", 0) + 1
 
     # -- budgets ---------------------------------------------------------
     def remaining(self, f: str) -> int:
@@ -93,7 +110,8 @@ class Session:
                 "parent_id": self.parent_id, "depth": self.depth, "task_id": self.task_id,
                 "used": dict(self.used), "reserved": dict(self.reserved), "children": list(self.children),
                 "tripped": self.tripped, "trip_reason": self.trip_reason, "denials": self.denials,
-                "closed": self.closed, "run": self.run, "input": self.input, "outcome": self.outcome}
+                "closed": self.closed, "run": self.run, "input": self.input, "outcome": self.outcome,
+                "usage": dict(self.usage)}
 
     @classmethod
     def from_record(cls, r: dict[str, Any]) -> "Session":
@@ -102,7 +120,7 @@ class Session:
                    parent_id=r["parent_id"], depth=r["depth"], task_id=r["task_id"], used=dict(r["used"]),
                    reserved=dict(r["reserved"]), children=list(r["children"]), tripped=r["tripped"],
                    trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"], run=r.get("run"),
-                   input=r.get("input"), outcome=r.get("outcome"))
+                   input=r.get("input"), outcome=r.get("outcome"), usage={**_no_usage(), **(r.get("usage") or {})})
 
 
 class Persistence(Protocol):

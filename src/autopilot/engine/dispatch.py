@@ -18,7 +18,7 @@ from __future__ import annotations
 import functools
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from fnmatch import fnmatchcase
@@ -27,13 +27,16 @@ from . import control as ctl, definitions as defn, events as evh, inbox as hr
 from . import results as res, runtimes as runtimes_mod
 from .backends import Handler, RunBackend
 # Clearance's half (the decision and the record), through the core's API (core.py).
-from .core import (OUTAGE_RULE, REFUSED_RULE, AuthError, Core, CoreUnreachable, Denied, Verdict,  # noqa: F401
+from .core import (MODEL_VERSION, OUTAGE_RULE, REFUSED_RULE, AuthError, Core, CoreUnreachable, Denied, Verdict,  # noqa: F401
                    args_digest, iso, outage_verdict, rfc3339, sha256_hex)
-from .modelproxy import ModelDecision, ModelProxy, ModelRoute
+from .modelproxy import ModelDecision, ModelProxy, ModelRoute, usage_record
 from .profile import AgentDefinition
 from .scope import BadPath, normalize
 from .session import Session, SessionStore
 from .tiers import Pack, Tier, registry, CORE_TOOLS
+
+# A Preflight result's values (clearance evidence `preflight.result`).
+PREFLIGHT_RESULTS = ("pass", "fail", "not-run")
 
 
 @dataclass(frozen=True)
@@ -136,8 +139,12 @@ class Gateway:
                  events: evh.EventsStore | None = None, holds: ctl.HoldStore | None = None,
                  admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None,
                  runtime_images: Sequence[str] = (), runtimes: Sequence[Any] = (),
-                 results: res.ResultStore | None = None):
+                 results: res.ResultStore | None = None,
+                 preflight: Callable[[AgentDefinition], Mapping[str, Any] | None] | None = None):
         self.defs, self.store, self.core, self.auth, self.now = definitions, store, core, auth, clock
+        # The Preflight result of a definition (A-6 scores them; AP-C1 puts it on every run record): a callable from
+        # the definition to {result: pass|fail|not-run, definition, cases}, or None for not-run.
+        self.preflight = preflight
         # Where a definition's runtime.image may come from (prefix globs), and the deployment's runtime catalog
         # (runtimes.py): the read API shows them.
         self.runtimes = tuple(runtimes)
@@ -786,19 +793,35 @@ class Gateway:
         return self.models.authorize(session_id, principal.id, model, est_tokens, acting=acting)
 
     @_durable
-    def model_usage(self, session_id: str, tokens: int) -> None:
-        """Charge what an allowed model call actually used; an overrun trips the session's breaker."""
-        if self.models is not None:
-            self.models.record_usage(session_id, tokens)
+    def model_usage(self, session_id: str, usage: dict[str, Any] | int | None) -> dict[str, int] | None:
+        """Charge what an allowed model call actually used (an overrun trips the session's breaker) and add it to the
+        session's running cost (A-4). `usage` is the provider's usage block; an int is a bare charge. Returns the
+        usage as its outcome carries it (modelproxy.usage_record), which model_outcome then reports: the record's
+        charged_tokens is this call's whole charge (the budget counts it up to its limit: ModelProxy.record_usage)."""
+        if self.models is None:
+            return None
+        if isinstance(usage, dict):
+            rec = usage_record(usage)
+            self.models.record_usage(session_id, rec["charged_tokens"], rec)
+            return rec
+        if isinstance(usage, int) and not isinstance(usage, bool):
+            # A bare charge: no token breakdown, but the same one call in the session's running cost as in its budget.
+            rec = {**usage_record(None), "charged_tokens": max(usage, 0)}
+            self.models.record_usage(session_id, rec["charged_tokens"], rec)
+            return rec
+        return None
 
     @_durable
     def model_outcome(self, decision_id: str | None, result: str, *, stream: bool,
-                      upstream_status: int | None = None) -> int | None:
+                      upstream_status: int | None = None, usage: dict[str, int] | None = None,
+                      model_version: str | None = None) -> int | None:
         """The outcome of an allowed model call, once it ran (modelproxy.ModelProxy.outcome): one per allowed
-        decision, written as this gateway's provider, with `stream` on its receipt."""
+        decision, written as this gateway's provider, with `stream` on its receipt and, from A-4, the call's usage and
+        charge (model_usage's answer) and the model that answered."""
         if self.models is None:
             return None
-        return self.models.outcome(decision_id, result, stream=stream, upstream_status=upstream_status)
+        return self.models.outcome(decision_id, result, stream=stream, upstream_status=upstream_status, usage=usage,
+                                   model_version=model_version)
 
     # -- run tree --------------------------------------------------------
     def _spawn_unreached(self, s: Session, a: dict[str, Any]) -> dict[str, Any]:
@@ -875,11 +898,55 @@ class Gateway:
     def _record(self, kind: str, s: Session, principal_id: str, args: Any, result: str, *,
                 required: bool = False) -> int | None:
         """A runtime record of the session's (run.launch, run.delete, run.finish) through the core's record API:
-        the fields the in-process engine wrote (dispatch.py _audit before R-3b), less the ones the core sets."""
-        return self.core.record(kind, {
+        the fields the in-process engine wrote (dispatch.py _audit before R-3b), less the ones the core sets, and the
+        flight recorder's (A-4): the run's pinned model version and its definition's Preflight result on every one,
+        and on run.finish the run's cost."""
+        fields: dict[str, Any] = {
             "task_id": s.task_id, "session": s.id, "parent": s.parent_id, "principal": principal_id,
-            "agent": s.agent, "decision": "allow", "args_sha256": args_digest(args), "result": result},
-            required=required)
+            "agent": s.agent, "decision": "allow", "args_sha256": args_digest(args), "result": result}
+        d = self.defs.get(s.agent)
+        fields["model_version"] = self.pinned_model(d)
+        fields["preflight"] = self.preflight_of(d, s.agent)
+        if kind == "run.finish":
+            fields["cost"] = self.run_cost(s, d)
+        return self.core.record(kind, fields, required=required)
+
+    # -- the flight recorder (A-4: AP-C1, AP-C2) ---------------------------
+    def pinned_model(self, d: AgentDefinition | None) -> str | None:
+        """The model version a run of `d` runs on: its first listed model (the one its runtime asks for) through this
+        deployment's route to the upstream model, or the alias itself when there is no route. None without a model."""
+        models = (d.raw_profile.get("models") if d is not None else None) or []
+        alias = models[0] if isinstance(models, list) and models and isinstance(models[0], str) else None
+        if alias is None:
+            return None
+        route = self.models.routes.get(alias) if self.models is not None else None
+        version = route.upstream_model if route is not None else alias
+        return version if MODEL_VERSION.fullmatch(version) else None
+
+    def preflight_of(self, d: AgentDefinition | None, name: str) -> dict[str, Any]:
+        """The Preflight result of the run's definition (self.preflight), else not-run."""
+        got = self.preflight(d) if (self.preflight is not None and d is not None) else None
+        out: dict[str, Any] = {"result": "not-run", "definition": name}
+        if isinstance(got, Mapping) and got.get("result") in PREFLIGHT_RESULTS:
+            out["result"] = got["result"]
+            if isinstance(got.get("cases"), int) and not isinstance(got.get("cases"), bool):
+                out["cases"] = got["cases"]
+        return out
+
+    def run_cost(self, s: Session, d: AgentDefinition | None) -> dict[str, Any]:
+        """A run's cost when it ends (run.finish `cost`): its model usage as the proxy charged it, its model and tool
+        calls, its wall seconds from open to now, and the compute class its session was granted."""
+        u = s.usage
+        created = s.created_at if s.created_at.tzinfo else s.created_at.replace(tzinfo=timezone.utc)
+        now = self.now()
+        now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        cost: dict[str, Any] = {k: int(u.get(k) or 0) for k in ("charged_tokens", "input_tokens", "output_tokens",
+                                                                 "cache_creation_input_tokens",
+                                                                 "cache_read_input_tokens", "model_calls")}
+        cost["tool_calls"] = int(s.used.get("tool_calls") or 0)
+        cost["wall_seconds"] = max(0, int((now - created).total_seconds()))
+        cost["compute"] = s.limits.compute.name.lower()   # the class the session was granted (narrowed at open)
+        return cost
 
 
 def _input_view(run_input: Any) -> dict[str, Any] | None:
