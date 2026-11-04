@@ -49,7 +49,7 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   bundled definition names them (`tests/test_definitions_backed.py`); nothing is faked.
 - **Logs to Loki.** `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` sends a copy of every log line to the cluster's OpenTelemetry
   collector over OTLP/HTTP JSON (`otlp_logs.py`, standard library only; a bounded queue, batches with a 5 s deadline,
-  and a collector outage drops lines, never blocks a call). On Hangar apron sets it with `OTEL_SERVICE_NAME` and the
+  and a collector outage drops lines, never blocks a call). The read API (`autopilot-gateway api`) does the same as `autopilot-api`. On Hangar apron sets it with `OTEL_SERVICE_NAME` and the
   pod's namespace and name, so `{service_name="autopilot-gateway"}` and `{k8s_namespace_name="autopilot-system"}`
   find them in Loki.
 - **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
