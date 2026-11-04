@@ -796,8 +796,8 @@ class Gateway:
     def model_usage(self, session_id: str, usage: dict[str, Any] | int | None) -> dict[str, int] | None:
         """Charge what an allowed model call actually used (an overrun trips the session's breaker) and add it to the
         session's running cost (A-4). `usage` is the provider's usage block; an int is a bare charge. Returns the
-        usage as its outcome carries it (modelproxy.usage_record), which model_outcome then reports: the charged
-        tokens in the record are the tokens charged here."""
+        usage as its outcome carries it (modelproxy.usage_record), which model_outcome then reports: the record's
+        charged_tokens is this call's whole charge (the budget counts it up to its limit: ModelProxy.record_usage)."""
         if self.models is None:
             return None
         if isinstance(usage, dict):

@@ -179,3 +179,18 @@ def test_the_cost_names_the_sessions_granted_compute_class(g):  # noqa: F811
     d = g.defs["nightly-reviewer"]
     g.defs["nightly-reviewer"] = replace(d, limits=replace(d.limits, compute=ComputeClass.parse("large")))
     assert g.run_cost(s, g.defs["nightly-reviewer"])["compute"] == "small"
+
+
+def test_an_overrun_trips_the_breaker_and_the_record_keeps_the_whole_charge(g, app):  # noqa: F811
+    """The budget counts a charge up to its limit (remaining never goes negative); the outcome and the session's
+    running cost keep what the call cost, so the cost counts never under-report a run that overran."""
+    client, answers = app
+    sid = launched(g)
+    s = g.store.get(sid)
+    room = s.remaining("model_tokens")
+    answers.append((200, {"id": "m", "type": "message", "content": [], "usage": {"input_tokens": room + 5000}}))
+    assert call(client, sid, max_tokens=1).status_code == 200
+    [out] = outcomes(g, sid)
+    assert out["usage"]["charged_tokens"] == room + 5000 == s.usage["charged_tokens"]
+    assert s.used["model_tokens"] == room and s.remaining("model_tokens") == 0
+    assert s.tripped and s.trip_reason == "model-token overrun"

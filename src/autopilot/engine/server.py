@@ -366,7 +366,8 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
     the gateway's provider: "ok" for a 2xx answer (a stream that ran to its end), else "error:<Kind>", with the
     receipt `stream` (true for a streamed call) and `upstream_status`. A streamed call is provable from the chain.
     The same outcome carries the flight recorder's fields (A-4): `model_version` (the model that answered) and,
-    for a call that used tokens, `usage` (the four kinds and `charged_tokens`, exactly what the session was charged).
+    for a call that used tokens, `usage` (the four kinds and `charged_tokens`, the call's weighted charge;
+    the session's budget counts it up to its limit, and an overrun trips the breaker while the record keeps it whole).
 
     Refusals are Anthropic-shaped errors with the Clearance rule: 401 for a bad token, 403 for a policy denial, 429
     for the token budget (M007), 400 for a request the proxy does not take (no model)."""

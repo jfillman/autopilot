@@ -44,7 +44,7 @@ def charged_tokens(usage: dict) -> int:
 
 def usage_record(usage: dict | None) -> dict[str, int]:
     """One call's `usage` as its outcome record carries it: each kind a non-negative integer (0 when the provider left
-    it out) and `charged_tokens`, what the session's budget was charged (charged_tokens: the weights above)."""
+    it out) and `charged_tokens`, the call's weighted charge (charged_tokens: the weights above)."""
     u = usage if isinstance(usage, dict) else {}
     out = {}
     for k in USAGE_KINDS:
@@ -118,7 +118,7 @@ class ModelProxy:
         """Report an allowed model call's result to the core (POST /v1/decisions/{id}/outcome), written as the gateway's
         provider: `result` is "ok" or "error:<Kind>", and the receipt (flat, claimed) says whether the call streamed
         and what the upstream answered. The flight recorder's fields go on the same outcome (A-4): `usage`
-        (usage_record: the four token kinds and charged_tokens, what the session was charged) when the call used
+        (usage_record: the four token kinds and charged_tokens, the call's weighted charge) when the call used
         any, and `model_version`, the model that answered. Never raises: an outcome the core cannot take now waits
         in the outbox."""
         receipt: dict = {"stream": bool(stream)}
@@ -128,7 +128,12 @@ class ModelProxy:
 
     def record_usage(self, session_id: str, tokens: int, usage: dict[str, int] | None = None) -> None:
         """Charge what the model actually used. Overrunning the budget trips the breaker. `usage` (usage_record) is
-        added to the session's running cost (Session.usage: the read API's "on the session", run.finish's cost)."""
+        added to the session's running cost (Session.usage: the read API's "on the session", run.finish's cost).
+
+        The two differ only on an overrun, on purpose: the budget (used["model_tokens"]) counts the charge up to its
+        limit, as it always has, so `remaining` never goes negative and a parent's reservation is never overdrawn;
+        the running cost and the call's outcome record keep the whole charge, because cost accounting (A-4) is what
+        the call cost, not what the budget let it count. The breaker trips, so no further model call is allowed."""
         s = self.store.get(session_id)
         if s is None:
             return
