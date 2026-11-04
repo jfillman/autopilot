@@ -8,6 +8,7 @@ nav:
   - Admin guide:
       - Overview: admin/README.md
       - The gateway database: admin/gateway-database.md
+      - The provider contract: admin/provider.md
       - Trigger durability: admin/trigger-durability.md
   - Brand:
       - Marks and files: brand/README.md

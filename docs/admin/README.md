@@ -27,6 +27,12 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   `[{"name": "autopilot-gateway", "version": "<gateway tag>", "principals": ["autopilot-system/clearance"],
   "definitions": true}]`. A NetworkPolicy must let the gateway reach the core, and nothing but
   the core and clearance-api reach clearance-pg.
+- **The provider contract.** The gateway is a Clearance runtime provider ([provider.md](provider.md)): it asks
+  first, acts only on yes, applies the spend, reports one outcome per allowed decision (model calls too, with
+  `receipt.stream`), and fails closed. The core stamps its records with the `version` of its `CLEARANCE_PROVIDERS`
+  entry: keep it equal to the image tag, which the start line prints as `provider=autopilot-gateway/<tag>`
+  (`AUTOPILOT_GATEWAY_VERSION`, set by the image build). Never set `GATEWAY_CONFORMANCE_CONTROL` in a deployment:
+  it turns on the test-only conformance control interface (`autopilot-gateway conformance-control`).
 - **Outage policy.** When the core is unreachable the gateway denies every T1-and-above call, session open, spawn
   and model call (rule `CORE-UNAVAILABLE`); T0 reads too, unless `GATEWAY_OUTAGE_ALLOW_READS=true`, which lets
   unscoped reads run and records them later as coverage-unavailable. 250 ms per attempt, one retry, a breaker after 5
