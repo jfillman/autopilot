@@ -1,12 +1,13 @@
 """MCP surface for the gateway core (mcp SDK v2, `MCPServer`).
 
-Deliberately thin: five tools, all delegating to Gateway, which owns every decision.
+Deliberately thin: six tools, all delegating to Gateway, which owns every decision.
   tools_list    what this deployment offers (the registry its Gateway was built with: core plus
                 its packs), with tiers and required arguments
   agents_list   the agent definitions: what each is for and where it runs
   session_open  open a session for an agent definition, optionally narrowing it with requested limits
   call          call one tool inside a session
   run_finish    an in-cluster run hands back its result as it exits and closes its session
+  session_close the session's own caller ends it (owner-only), deleting its runs; recorded as session.end
 
 Authentication is a token provider. In stdio development it reads CLEARANCE_TOKEN. Over HTTP
 (create_http_app) the caller's bearer token is verified before any tool runs, by the gateway's own
@@ -112,6 +113,16 @@ def create_server(gateway: Gateway, token_provider: Callable[[], str] | None = N
         try:
             with lock:
                 return {"ok": True, **gateway.finish_run(token(), session, body)}
+        except control.ControlError as e:
+            return {"ok": False, "rule": e.rule, "error": e.message}
+
+    @mcp.tool(description="End one of your own sessions now instead of leaving it live until its TTL: it and its "
+                          "children close, their in-cluster runs are deleted, and the end is recorded. Only the "
+                          "session's own caller may; `reason` is optional and recorded.")
+    def session_close(session: str, reason: str = "") -> dict[str, Any]:
+        try:
+            with lock:
+                return {"ok": True, **gateway.close_session(token(), session, reason or None)}
         except control.ControlError as e:
             return {"ok": False, "rule": e.rule, "error": e.message}
 
@@ -321,6 +332,11 @@ def _error(status: int, kind: str, message: str, rule: str | None = None) -> JSO
     return JSONResponse(body, status_code=status)
 
 
+def _result(status: int) -> str:
+    """A model call's outcome result line from the upstream's status."""
+    return "ok" if 200 <= status < 300 else f"error:Upstream{status}"
+
+
 def _locked(gateway: Gateway, fn: Callable[..., Any]) -> Callable[..., Any]:
     def run(*a):
         with gateway.lock:
@@ -343,6 +359,10 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
     Streaming (v0.26.0, `"stream": true`, which Claude Code and the Agent SDK always send): decided the same way,
     the provider's server-sent events relayed as they arrive, and the usage they carry charged when the stream ends,
     however it ends (StreamUsage).
+
+    Every allowed call gets exactly one outcome (Gateway.model_outcome, POST /v1/decisions/{id}/outcome), written as
+    the gateway's provider: "ok" for a 2xx answer (a stream that ran to its end), else "error:<Kind>", with the
+    receipt `stream` (true for a streamed call) and `upstream_status`. A streamed call is provable from the chain.
 
     Refusals are Anthropic-shaped errors with the Clearance rule: 401 for a bad token, 403 for a policy denial, 429
     for the token budget (M007), 400 for a request the proxy does not take (no model)."""
@@ -379,46 +399,62 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
         if not d.allow:
             return _error(429 if d.rule == "M007" else 403,
                           "rate_limit_error" if d.rule == "M007" else "permission_error", d.message, d.rule)
+        streamed = bool(payload.get("stream"))
+
+        async def report(result: str, upstream_status: int | None = None) -> None:
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(functools.partial(
+                    _locked(gateway, functools.partial(gateway.model_outcome, stream=streamed,
+                                                       upstream_status=upstream_status)), d.decision_id, result))
+
         if d.route.backend != "anthropic":
+            await report("error:UnsupportedBackend")
             return _error(501, "api_error", f"backend {d.route.backend!r} is not forwarded by this proxy")
         body = json.dumps({**payload, "model": d.route.upstream_model}).encode()
         version = request.headers.get("anthropic-version") or ANTHROPIC_VERSION
         betas = _betas(request.headers.get("anthropic-beta"))
         extra = {"betas": betas} if betas else {}
         url, key = d.route.upstream.rstrip("/") + "/v1/messages", key_path.read_text().strip()
-        if payload.get("stream"):
-            return await _relay(session_id, url, key, version, body, extra)
+        if streamed:
+            return await _relay(session_id, url, key, version, body, extra, report)
         try:
             status, out = await anyio.to_thread.run_sync(
                 functools.partial(post, url, key, version, body, timeout, **extra))
         except OSError:
+            await report("error:ModelUnreachable")
             return _error(502, "api_error", "the model provider is unreachable")
         try:
             doc = json.loads(out)
         except ValueError:
+            await report("error:BadUpstreamAnswer", status)
             return _error(502, "api_error", f"the model provider answered {status} with no JSON")
         usage = doc.get("usage") if isinstance(doc, dict) else None
         if isinstance(usage, dict):
             used = charged_tokens(usage)
             await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
+        await report(_result(status), status)
         return JSONResponse(doc, status_code=status)
 
-    async def _relay(session_id: str, url: str, key: str, version: str, body: bytes, extra: dict) -> Response:
+    async def _relay(session_id: str, url: str, key: str, version: str, body: bytes, extra: dict, report) -> Response:
         try:
             status, chunks = await anyio.to_thread.run_sync(
                 functools.partial(stream, url, key, version, body, timeout, **extra))
         except OSError:
+            await report("error:ModelUnreachable")
             return _error(502, "api_error", "the model provider is unreachable")
         if status != 200:
             out = b"".join(chunks)
+            await report(_result(status), status)
             return Response(out, status_code=status, media_type="application/json")
         meter = StreamUsage()
 
         async def events():
+            ended = False
             try:
                 while True:
                     chunk = await anyio.to_thread.run_sync(next, chunks, None)
                     if chunk is None:
+                        ended = True
                         return
                     meter.feed(chunk)
                     yield chunk
@@ -430,6 +466,8 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
                     used = charged_tokens(meter.usage)
                     with anyio.CancelScope(shield=True):
                         await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
+                # A stream that did not run to its end (the run went away, the provider dropped it) is not "ok".
+                await report("ok" if ended else "error:StreamInterrupted", status)
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"cache-control": "no-cache"})
 

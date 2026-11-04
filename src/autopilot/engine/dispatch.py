@@ -679,9 +679,37 @@ class Gateway:
         text = ctl.check_reason(reason)
         if s.closed:
             raise ctl.ControlError("CT-CLOSED", "this session is already closed", "", 409)
-        self.store.close(s.id)
-        rec = self._control_record(person, via, "session.end", s, s.agent, s.id, {"reason": text}, f"ended: {text}")
+        rec = self._end(s, person, via, text)
         return {"session": s.id, "agent": s.agent, "closed": True, "audit_seq": rec}
+
+    def _end(self, s: Session, person: str, via: str | None, text: str) -> int | None:
+        """End a live session and its children, and write session.end through the core (end_session's path, shared
+        with close_session). The control has taken effect before the record: an unreachable core queues it."""
+        self.store.close(s.id)
+        return self._control_record(person, via, "session.end", s, s.agent, s.id, {"reason": text}, f"ended: {text}")
+
+    @_durable
+    def close_session(self, token: str, session_id: str, reason: Any = None) -> dict[str, Any]:
+        """The MCP tool session_close: the session's own caller ends it (a person's MCP client, or the session's own
+        in-cluster run), instead of leaving it live until its TTL. Owner-only: anyone else is refused, the agent's
+        owner group and platform admins included (they use the person control, end_session: Tower's End). The
+        session and its children close, session.end is written through the core (end_session's path), and its
+        run and its children's runs are deleted as the expiry sweep deletes them, each with a run.delete record.
+        Raises ControlError."""
+        principal = self.auth.authenticate(token)
+        s = self.store.get(session_id)
+        if s is None or self._acting(s, principal.id) != s.principal:
+            # The same answer for an unknown session and another's: a caller learns nothing of sessions not its own.
+            raise ctl.ControlError("CT-FORBIDDEN", "no such session of yours",
+                                   "session_close ends only your own session; a person ends another's from Tower.", 403)
+        if s.closed:
+            raise ctl.ControlError("CT-CLOSED", "this session is already closed", "", 409)
+        text = ctl.check_reason(reason) if reason not in (None, "") else "closed by its owner (session_close)"
+        rec = self._end(s, principal.id, None, text)
+        runs = [sid for sid in [s.id, *self._descendants(s)] if (x := self.store.get(sid)) is not None and x.run]
+        self._delete_runs(s, s, "closed")
+        return {"session": s.id, "agent": s.agent, "closed": True, "audit_seq": rec,
+                "runs_deleted": sorted(sid for sid in runs if not self.store.get(sid).run)}
 
     @_durable
     def hold_triggers(self, token: str, agent: str, reason: Any, hours: Any = None, on_behalf_of: str | None = None) -> dict[str, Any]:
@@ -762,6 +790,15 @@ class Gateway:
         """Charge what an allowed model call actually used; an overrun trips the session's breaker."""
         if self.models is not None:
             self.models.record_usage(session_id, tokens)
+
+    @_durable
+    def model_outcome(self, decision_id: str | None, result: str, *, stream: bool,
+                      upstream_status: int | None = None) -> int | None:
+        """The outcome of an allowed model call, once it ran (modelproxy.ModelProxy.outcome): one per allowed
+        decision, written as this gateway's provider, with `stream` on its receipt."""
+        if self.models is None:
+            return None
+        return self.models.outcome(decision_id, result, stream=stream, upstream_status=upstream_status)
 
     # -- run tree --------------------------------------------------------
     def _spawn_unreached(self, s: Session, a: dict[str, Any]) -> dict[str, Any]:

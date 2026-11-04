@@ -28,5 +28,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/jfillman/autopilot-gateway:${{ github.ref_name }}
+          build-args: GATEWAY_VERSION=${{ github.ref_name }}
           provenance: false
       - run: echo "ghcr.io/jfillman/autopilot-gateway:${{ github.ref_name }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
