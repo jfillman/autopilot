@@ -31,8 +31,7 @@ behaviour unchanged: `src/autopilot/engine/` is clearance's `server.py`, `dispat
 
 **R-3b (Built, live on hangar-dev since R-4, 2026-11-03):** the gateway stopped deciding and recording in process. Every tool call,
 model call, session open and spawn is an evaluation the Clearance core decides and records
-(`POST /access/v1/evaluation`, through `clearance-core-client` pinned at clearance v0.30.0 by A-1, and by A-4 at the commit of
-clearance's `w2-a4-cost-counts` branch until the release that carries it); the gateway applies the
+(`POST /access/v1/evaluation`, through `clearance-core-client` pinned at clearance v0.31.0); the gateway applies the
 spend the core names to its own session, acts only on an allow, and reports the result
 (`POST /v1/decisions/{id}/outcome`). Its runtime records (`run.launch`, `run.delete`, `human.answer`,
 `session.freeze`, `trigger.hold`; from R-3f also `run.finish`, `session.end`, `trigger.release`) go to
@@ -78,7 +77,7 @@ clearance-api's; `/v1/contract` names it (`CLEARANCE_API_URL`). See [Running the
 
 | Part | Where | What it owns |
 |---|---|---|
-| The Clearance core (a service) | `clearance core` (ghcr.io/jfillman/clearance), called through `clearance-core-client @ git+https://github.com/jfillman/clearance@<ref>#subdirectory=clients/python` (`pyproject.toml`: the A-4 branch commit until the release that carries its outcome and record fields) | the decision (CEL rules, the core's and Hangar's policy bundle, scope, tiers, the narrow-only rule, spawn and open checks, the model decision), the evidence chain and its store, the cluster-pinned definitions the gateway publishes and their `definition.*` records, the deployment gate, PR provenance, definition review and the GitHub App |
+| The Clearance core (a service) | `clearance core` (ghcr.io/jfillman/clearance), called through `clearance-core-client @ git+https://github.com/jfillman/clearance@<ref>#subdirectory=clients/python` (`pyproject.toml`: v0.31.0, the release that carries A-4's outcome and record fields) | the decision (CEL rules, the core's and Hangar's policy bundle, scope, tiers, the narrow-only rule, spawn and open checks, the model decision), the evidence chain and its store, the cluster-pinned definitions the gateway publishes and their `definition.*` records, the deployment gate, PR provenance, definition review and the GitHub App |
 | The gateway engine | `src/autopilot/engine/` (from clearance v0.26.1; R-3b adds `core.py`, `outbox.py`, `pg.py`, and the copied `auth.py`, `definitions.py`, `scope.py`) | the MCP surface over stdio and streamable HTTP (`server.py`), sessions, the run tree and `Gateway.expire` (`session.py`, `dispatch.py`), budgets and requested limits (`limits.py`), the tool registry and tier vocabulary (`tiers.py`), dispatch to backends (`dispatch.py`, the protocols and fakes in `backends.py`), the model proxy (`modelproxy.py`, streaming in `server.py`), agent definitions and their schema (`profile.py`), the runtime catalog (`runtimes.py`), the human inbox, person controls, run results and trigger history (`inbox.py`, `control.py`, `results.py`, `events.py`), callers' authentication (`auth.py`), the cluster pin set (`definitions.py`), the gateway's own database (`pg.py`) and outbox (`outbox.py`); `core.py` is the core's client |
 | Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, `hangar_tools.py` (the `glidepath.*` and `airframe.*` tool specs: the gateway's registry, which `policy/hangar/bundle.json` governs), and `gateway.py`, which builds the Hangar Gateway: the engine's Gateway + Hangar's tools + a handler per tool + AgentRun as the run backend + the core |
 
@@ -127,7 +126,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 800 tests (A-4 on A-1, 2026-11-03: 792 pass and 8 skip without `AUTOPILOT_TEST_PG` and the core container), no cluster needed, against a real Clearance core:
+`./.venv/bin/python -m pytest -q` runs 828 tests (A-4 on main with A-1 and A-5, clearance v0.31.0, 2026-11-04: 823 pass and 5 skip with `AUTOPILOT_TEST_PG` set and no core container), no cluster needed, against a real Clearance core:
 `tests/conftest.py` builds the unmodified clearance binary from a checkout (`go build ./cmd/clearance`;
 `CLEARANCE_SRC`, or `$HANGAR_TECH/clearance`; CI checks out the ref the client is pinned at) and runs it as
 `clearance core --memory --insecure-dev-auth --max-clock-skew 0 --listen 127.0.0.1:0` (the tests run on a fixed
