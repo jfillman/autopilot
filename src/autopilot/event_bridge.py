@@ -153,8 +153,8 @@ class EventBridge:
         if via == "reconcile":
             if any(d["new"] for d in done):
                 for d in done:
-                    if d["new"]:
-                        self.metrics.missed.inc(agent=d["agent"])
+                    if d["new"]:   # the event path lost it, whatever the sweep then decided (launched, held, ...)
+                        self.metrics.missed.inc(agent=d["agent"], result=d["result"])
                 self._record(envelope, done)
         elif not (done and all(d.get("replay") for d in done)):   # a replay of an event already kept is not new history
             self._record(envelope, done)

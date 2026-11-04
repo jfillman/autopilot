@@ -170,7 +170,7 @@ def test_a_restarted_gateway_launches_nothing_twice_and_catches_up_from_its_curs
     assert led.get("triage-agent", tl.trigger_key(e3))["via"] == "recent"
     assert m.resumes.value(result="caught-up") == 1 and m.events_received.value(via="recent") == 1
     assert m.outcomes.value(agent="triage-agent", via="recent", result="launched") == 1
-    assert m.missed.value(agent="triage-agent") == 0
+    assert m.missed.value(agent="triage-agent", result="launched") == 0
     assert m.cursor_time.value() == pytest.approx(id_time(e3["id"]).timestamp())
 
 
@@ -234,7 +234,7 @@ def test_a_seeded_gap_is_reconciled_once_and_a_late_event_is_a_dedupe(clock, tok
     assert gp.calls[-1] == ("/v1/runs", {"app": "gate-api", "sinceHours": "24", "limit": "1000"}, None)
     (manifest,) = runs.manifests.values()
     assert manifest["spec"]["input"]["event"]["subject"]["id"] == "gate-api-push-lost"
-    assert m.missed.value(agent="triage-agent") == 1 and m.sweeps.value(result="ok") == 1
+    assert m.missed.value(agent="triage-agent", result="launched") == 1 and m.sweeps.value(result="ok") == 1
     hist = {e.id: e for e in g.events.recent()}
     assert hist["reconcile:gate-api/gate-api-push-lost"].outcomes[0]["via"] == "reconcile"
     assert set(hist) == {"reconcile:gate-api/gate-api-push-lost"}, "a run already handled is not history again"
@@ -243,7 +243,7 @@ def test_a_seeded_gap_is_reconciled_once_and_a_late_event_is_a_dedupe(clock, tok
     late = finished(eid_at(clock()), "gate-api-push-lost")
     (d,) = bridge.handle(late)
     assert d["result"] == "deduped" and not d["new"] and len(runs.manifests) == 1, "the event arrives after all"
-    assert m.missed.value(agent="triage-agent") == 1
+    assert m.missed.value(agent="triage-agent", result="launched") == 1
 
 
 def test_a_run_whose_event_came_is_not_a_gap(clock, tok):
@@ -257,7 +257,7 @@ def test_a_run_whose_event_came_is_not_a_gap(clock, tok):
     gp.runs = [run_row("gate-api-push-x", clock() - timedelta(minutes=9))]
     bridge._seen.clear()                              # as after a restart
     assert rc.Reconciler(bridge, clock=clock).sweep() == [] and len(runs.manifests) == 1
-    assert m.missed.value(agent="triage-agent") == 0
+    assert m.missed.value(agent="triage-agent", result="launched") == 0
 
 
 def test_a_braked_or_held_event_stays_decided(clock, tok):
@@ -360,11 +360,11 @@ def test_nothing_before_the_ledger_existed_is_missed():
 # -- metrics and configuration --------------------------------------------------------------------------------------
 def test_metrics_render_and_serve():
     m = mx.TriggerMetrics()
-    m.missed.inc(agent='tri"age')
+    m.missed.inc(agent='tri"age', result="launched")
     m.stream_connected.set(1)
     text = m.registry.render()
     assert '# TYPE autopilot_trigger_missed_total counter' in text
-    assert 'autopilot_trigger_missed_total{agent="tri\\"age"} 1' in text
+    assert 'autopilot_trigger_missed_total{agent="tri\\"age",result="launched"} 1' in text
     assert "autopilot_events_stream_connected 1" in text
     assert "\nautopilot_reconcile_last_success_timestamp_seconds" not in text, "a gauge never set has no sample"
     with pytest.raises(ValueError):
@@ -518,3 +518,30 @@ def test_the_monitoring_manifest_alerts_on_series_the_gateway_exports():
     assert docs["PodMonitor"]["spec"]["podMetricsEndpoints"][0]["port"] == "metrics"
     (ing,) = docs["NetworkPolicy"]["spec"]["ingress"]
     assert ing["ports"] == [{"protocol": "TCP", "port": serve.config_from_env(EPH).metrics_port}]
+
+
+def test_a_gap_the_sweep_finds_while_the_agent_is_held_is_counted_as_held_not_launched(clock, tok):
+    from autopilot.engine.control import Hold
+    gp, m = FakeGlidepath(), mx.TriggerMetrics()
+    g, runs = build(clock)
+    bridge = EventBridge(g, "http://gp", tok, clock=clock, opener=gp, metrics=m)
+    bridge.resume()
+    clock.advance(minutes=10)
+    g.holds.put(Hold(agent="triage-agent", by="user:root", via=None, reason="noisy", since=clock(),
+                     until=clock() + timedelta(hours=1)))
+    gp.runs = [run_row("gate-api-push-g", clock() - timedelta(minutes=5))]
+    (d,) = rc.Reconciler(bridge, clock=clock).sweep()
+    assert d["result"] == "held" and runs.manifests == {}
+    assert m.missed.value(agent="triage-agent", result="held") == 1
+    assert m.missed.value(agent="triage-agent", result="launched") == 0
+
+
+def test_a_slot_a_dead_process_was_firing_is_not_called_missed():
+    led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
+    led.cursor(sch.SOURCE, at(1, 12))
+    slot = sch.slot_of(at(2, 0), timedelta(hours=24))[0]
+    assert led.claim("nightly-reviewer", tl.slot_key("24h", slot), "schedule", None, at(2, 0, 1))   # ... and died
+    gw = GW()
+    assert sch.Scheduler(gw, clock=lambda: at(2, 0, 15), ledger=led, metrics=m).tick() == [] and gw.opened == []
+    assert m.slot_missed.value(agent="nightly-reviewer") == 0
+    assert led.get("nightly-reviewer", tl.slot_key("24h", slot))["state"] == "claimed"

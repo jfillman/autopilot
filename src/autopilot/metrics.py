@@ -108,8 +108,9 @@ class TriggerMetrics:
                                 "What a trigger firing became, per agent, by path and result.",
                                 ["agent", "via", "result"])
         self.missed = Counter(r, "autopilot_trigger_missed_total",
-                              "Trigger firings the reconciliation sweep found that no event had delivered: the gap.",
-                              ["agent"])
+                              "Trigger firings no event delivered, found by the reconciliation sweep (the gap), by "
+                              "what the sweep decided: launched, or held, braked, refused, launch-failed.",
+                              ["agent", "result"])
         self.sweeps = Counter(r, "autopilot_reconcile_sweeps_total",
                               "Reconciliation sweeps, by result (ok, failed).", ["result"])
         self.sweep_ok = Gauge(r, "autopilot_reconcile_last_success_timestamp_seconds",

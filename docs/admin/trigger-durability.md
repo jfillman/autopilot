@@ -14,7 +14,7 @@ the slot again, and nothing said when an event had been lost. Now:
 | A trigger launches once | Every firing has a key; one row per (agent, key) is claimed before a session is opened, and the decision is written to it. A second claim loses, from any path. | `gateway_trigger_launches`, `engine/trigger_ledger.py` |
 | The bridge resumes where it stopped | The newest event id handled is saved after each event. At start the bridge reads `GET /v1/events/recent?since=<cursor>` and handles what it missed, then holds `GET /v1/events` with `Last-Event-ID`. | `gateway_event_cursors`, `event_bridge.py` |
 | A lost `pipelinerun.finished` still launches | Every 5 minutes the sweep reads glidepath-api's run records (`GET /v1/runs`, Tekton Results) for the apps a trigger watches, rebuilds each finished run's event and hands it to the bridge. A run whose event came is already claimed; one whose event never came launches now, once. | `reconcile.py` |
-| The gap is visible | `autopilot_trigger_missed_total{agent}` counts what the sweep launched; alert `AutopilotTriggerGap`. | `metrics.py`, [monitoring manifest](monitoring/autopilot-triggers.yaml) |
+| The gap is visible | `autopilot_trigger_missed_total{agent,result}` counts what the sweep found no event for, by what it decided; alert `AutopilotTriggerGap`. | `metrics.py`, [monitoring manifest](monitoring/autopilot-triggers.yaml) |
 | A slot fires once, on time | The slot's key is claimed in the same ledger, so a restart inside the 10-minute grace window after the slot fired does nothing. A slot whose window passed with the gateway down is recorded `missed` and alerted, not run late. | `scheduler.py` |
 
 ADR-0030 (AMQP fan-out inside Glidepath) stays deferred by the user's 2026-11-01 decision: none of this needs
@@ -65,7 +65,7 @@ rebuilds the event (`reconcile.envelope_from_run`): routing key `<app>.pipeliner
 name, `subject.content.outcome` from its status (succeeded, failed, cancelled to success, failure, cancel; anything
 else error, as glidepath's `cdevents_map_outcome`) and `pipelineName` from its Pipeline. It hands that to the bridge as
 `via reconcile`, under the same storm brake and holds. What it launches is kept in the event history as
-`reconcile:<app>/<run>` with `via: reconcile` on each outcome, and counted in `autopilot_trigger_missed_total{agent}`.
+`reconcile:<app>/<run>` with `via: reconcile` on each outcome, and counted in `autopilot_trigger_missed_total{agent,result}`.
 
 It skips runs that finished before the ledger's floor (turning A-5 on does not launch a day of old failures) and
 runs that finished in the last 2 minutes (their event is sent from the run's finally block and normally arrives
@@ -81,7 +81,7 @@ them back from. The storm brake's window is in memory, so a restart resets it.
 Unchanged: each interval is a UTC-aligned slot (every 24h: 00:00 UTC), fired within 10 minutes of its start, once.
 What changed: the slot is claimed in the ledger, so a restart at 00:04 after the 00:00 slot fired (its run finished
 or not) does not fire it again. A slot whose window passed with no firing (the gateway was down from 00:00 to past
-00:10) is recorded `missed`, once, counted in `autopilot_schedule_missed_total{agent}` (alert
+00:10) is recorded `missed`, once (a slot with any ledger row, even a `claimed` one a dead process left, is not), counted in `autopilot_schedule_missed_total{agent}` (alert
 `AutopilotScheduleSlotMissed`) and not run late. `autopilot_schedule_lag_seconds{agent}` is how long after its slot's
 start the last firing came: one 30-second tick at most while the gateway is up.
 
@@ -107,7 +107,7 @@ without `app=`, in the app's namespace with it), and the gateway's identity alre
 | `autopilot_events_cursor_timestamp_seconds` | gauge | the receive time in the saved cursor |
 | `autopilot_events_resume_total{result}` | counter | start-up catch-ups: `caught-up`, `stale-cursor`, `failed` |
 | `autopilot_trigger_outcomes_total{agent,via,result}` | counter | every decision, by path |
-| `autopilot_trigger_missed_total{agent}` | counter | **the gap**: launches the sweep made because no event came |
+| `autopilot_trigger_missed_total{agent,result}` | counter | **the gap**: triggers no event delivered, found by the sweep, by what it decided (`launched`, or `held`, `braked`, `refused`, `launch-failed`) |
 | `autopilot_reconcile_sweeps_total{result}` | counter | sweeps, `ok` or `failed` |
 | `autopilot_reconcile_last_success_timestamp_seconds` | gauge | the last good sweep |
 | `autopilot_schedule_launches_total{agent,result}` | counter | slots fired |
@@ -221,7 +221,7 @@ $K -n autopilot-system exec deploy/clearance -- python -c "import urllib.request
 ```
 
 Pass: `reconcile: 1 trigger(s) no event delivered: triage-agent reconcile:gate-api/<run> launched`, one row `via
-reconcile` `launched`, `autopilot_trigger_missed_total{agent="triage-agent"} 1`, and the next sweeps launch nothing.
+reconcile` `launched`, `autopilot_trigger_missed_total{agent="triage-agent",result="launched"} 1`, and the next sweeps launch nothing.
 With the PrometheusRule wired, `AutopilotTriggerGap` fires for an hour.
 
 A cheaper seed, if no failing run can be made: delete the ledger row of a failed run the bridge already launched

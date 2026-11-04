@@ -90,6 +90,10 @@ class Scheduler:
         if last_start < self.floor(now):
             return None
         key = tl.slot_key(every_s, last)
+        # Any row means the slot was being fired: a `claimed` orphan (a process that died between claim and decision)
+        # may have launched its run, so it is not called missed, and it is not fired late either.
+        if self._db(self.ledger.get, agent, key) is not None:
+            return None
         if not self._db(self.ledger.claim, agent, key, "schedule", None, now):
             return None
         self._db(self.ledger.decide, agent, key, "missed")

@@ -7,7 +7,7 @@ sweep reads the finished runs of the last RECONCILE_WINDOW_HOURS for the apps a 
 match, rebuilds the event each one's finally block sent (envelope_from_run), and hands it to the bridge as `via
 reconcile`. The bridge claims its trigger key in the ledger: a run whose event arrived was claimed then, and loses
 here; a run whose event never arrived is claimed now, launched under the same storm brake and hold, counted in
-autopilot_trigger_missed_total{agent} (the gap's metric) and kept in the event history under id
+autopilot_trigger_missed_total{agent,result} (the gap's metric) and kept in the event history under id
 `reconcile:<app>/<run>`.
 
 Two bounds keep it from launching what it should not:

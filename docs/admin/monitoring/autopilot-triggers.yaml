@@ -56,18 +56,18 @@ spec:
   groups:
     - name: autopilot-triggers
       rules:
-        # The gap: a trigger the reconciliation sweep launched because its event never reached the bridge. The run
-        # did start (once); the alert says the event path lost something and when.
+        # The gap: a trigger whose event never reached the bridge, found by the reconciliation sweep. `result` is what
+        # the sweep then decided: launched (the run started, once), or held, braked, refused, launch-failed (no run).
         - alert: AutopilotTriggerGap
-          expr: increase(autopilot_trigger_missed_total[1h]) > 0
+          expr: sum by (agent, result) (increase(autopilot_trigger_missed_total[1h])) > 0
           labels: {severity: warning}
           annotations:
-            summary: "Autopilot: {{ $labels.agent }} was triggered by the reconciliation sweep, not by its event"
+            summary: "Autopilot: a trigger for {{ $labels.agent }} lost its event; the reconciliation sweep decided {{ $labels.result }}"
             description: >-
-              {{ $value | humanize }} trigger(s) for {{ $labels.agent }} in the last hour came from glidepath-api's run
-              records because the pipelinerun.finished event never reached the gateway's bridge (glidepath-api's
-              buffer lost it, or the gateway was down longer than it reaches back). Each launched once. See
-              autopilot docs/admin/trigger-durability.md.
+              {{ $value | humanize }} trigger(s) for {{ $labels.agent }} in the last hour were found in glidepath-api's
+              run records because the pipelinerun.finished event never reached the gateway's bridge (glidepath-api's
+              buffer lost it, or the gateway was down longer than it reaches back). The sweep decided
+              {{ $labels.result }}; a launched one started once. See autopilot docs/admin/trigger-durability.md.
         # The sweep is what closes the gap; if it cannot read glidepath-api, a lost event stays lost.
         - alert: AutopilotReconcileFailing
           expr: increase(autopilot_reconcile_sweeps_total{result="failed"}[30m]) >= 3

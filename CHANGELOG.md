@@ -14,7 +14,7 @@ says what each gateway tag adds. The manager cuts the tags.
     `GET /v1/events/recent?since=<cursor>`, then resumes the stream with `Last-Event-ID`.
   - The reconciliation sweep (`reconcile.py`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`): finished runs from
     glidepath-api's `GET /v1/runs` whose `pipelinerun.finished` never arrived are launched once, as `via reconcile`.
-  - Prometheus metrics on `METRICS_PORT` (9090), among them `autopilot_trigger_missed_total{agent}` (the gap) and
+  - Prometheus metrics on `METRICS_PORT` (9090), among them `autopilot_trigger_missed_total{agent,result}` (the gap) and
     `autopilot_schedule_missed_total{agent}`; a PodMonitor, NetworkPolicy and PrometheusRule for apron in
     `docs/admin/monitoring/autopilot-triggers.yaml`.
   - `EVENTS_RABBITMQ_ENABLED`: reserved; the RabbitMQ source is designed, not built, and the flag refuses to start.
