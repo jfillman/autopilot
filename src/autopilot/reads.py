@@ -1,10 +1,12 @@
 """The T0 read adapters behind the core tools: argo.app.get, metrics.query and logs.query.
 
 argo.app.get reads the Argo CD Application object through the Kubernetes API (airframe_api.KubeReader, GET-only
-and allowlisted), as Clearance's own identity, which already reads applications for the airframe.* tools. No Argo
+and allowlisted), as the gateway's own identity, which already reads applications for the airframe.* tools. No Argo
 CD account and no stored token: the Application's status is what the Argo CD API would answer for a get. What is
 returned is a summary (source, destination, sync, health, the last operation, conditions and the resources that are
-not synced or not healthy), never spec.source's Helm values, which can carry anything a chart was given.
+not synced or not healthy), never spec.source's Helm values, which can carry anything a chart was given. Given an
+app's name instead of an Application's (a researcher holds the catalog component name), it lists that app's
+Applications by the hangar.io/app label Hangar's tenant-onboarding stamps on each (APP_LABEL below).
 
 metrics.query is an instant PromQL query against a Prometheus-compatible API (Thanos Query on hangar-dev), and
 logs.query a LogQL range query over the last hour against Loki. Both are read-only by API, unauthenticated in the
@@ -18,7 +20,8 @@ against this cluster's public issuer (backend.auth.externalAccess type jwks, res
 stored secret. Only a summary of each entity is returned (kind, ref, title, description, type, owner, lifecycle,
 system), at most MAX_ENTITIES of them, never annotations or the rest of spec.
 
-app.api.get has no adapter yet; serve.build_handlers drops it.
+app.api.get (AppAPIs) GETs a path on an application's own API, by a service name the deployment maps to a base URL
+(APP_API_SERVICES) and the definition allows (profile.apis.allow); no credential is sent and no redirect followed.
 """
 from __future__ import annotations
 
@@ -64,6 +67,24 @@ def _clip(s: Any, n: int = MAX_MESSAGE) -> Any:
 
 # -- Argo CD --------------------------------------------------------------------------------------------------------
 
+# Hangar's naming convention for an app's Applications (apron templates/02-argocd-apps/tenant-onboarding): one per
+# environment, named <app>-<env> in argocd-apps, plus <app>-onboarding and <app>-xr-requests, each labelled
+# hangar.io/app=<app> (and hangar.io/env=<env> for an environment's), where <app> is the tenants directory name, which
+# is also the app's Backstage component name. argo.app.get resolves an app name by that label.
+APP_LABEL = "hangar.io/app"
+ENV_LABEL = "hangar.io/env"
+MAX_APPS = 50
+_LABEL_VALUE = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$")
+
+
+def app_brief(obj: dict[str, Any]) -> dict[str, Any]:
+    meta, st = obj.get("metadata") or {}, obj.get("status") or {}
+    labels = meta.get("labels") or {}
+    return {"app": meta.get("name"), "namespace": meta.get("namespace"), "env": labels.get(ENV_LABEL),
+            "role": labels.get("hangar.io/subcomponent"), "project": (obj.get("spec") or {}).get("project"),
+            "sync": (st.get("sync") or {}).get("status"), "health": (st.get("health") or {}).get("status")}
+
+
 def app_summary(obj: dict[str, Any]) -> dict[str, Any]:
     meta, spec, st = obj.get("metadata") or {}, obj.get("spec") or {}, obj.get("status") or {}
     sources = spec.get("sources") or ([spec["source"]] if spec.get("source") else [])
@@ -97,14 +118,31 @@ class KubeArgo:
         self.kube, self.namespaces, self.syncer = reader, namespaces, syncer
 
     def get_app(self, app: str) -> dict[str, Any]:
+        """An Application by its name, else, when no Application has that name, an app's Applications by Hangar's
+        naming convention: `app` taken as the app (its catalog component and tenants directory name) and resolved
+        by the label tenant-onboarding stamps on every Application it generates (APP_LABEL), never by guessing a
+        name. The answer then lists them (name, environment, sync, health) for a second call by name."""
         if not isinstance(app, str) or not _NAME.match(app):
             raise Denied("READ-ARGO-NAME", f"{app!r} is not an Application name",
-                         "Pass the Argo CD Application's name, e.g. flight-api-dev.")
+                         "Pass the Argo CD Application's name (e.g. flight-api-dev) or an app's catalog component "
+                         "name (e.g. flight-api).")
         for ns in self.namespaces:
             obj = self.kube.get(argo_path("applications", ns, app))
             if obj is not None:
                 return app_summary(obj)
-        return {"app": app, "found": False, "searched": list(self.namespaces)}
+        found = []
+        if _LABEL_VALUE.match(app):
+            for ns in self.namespaces:
+                found += self.kube.list(argo_path("applications", ns), f"{APP_LABEL}={app}")
+        if not found:
+            return {"app": app, "found": False, "searched": list(self.namespaces),
+                    "hint": "No Application has that name, and none is labelled as that app's. Applications are named "
+                            "<app>-<env> (e.g. flight-api-dev); catalog.read gives an app's component name."}
+        apps = sorted((app_brief(o) for o in found), key=lambda b: (b["env"] is None, b["env"] or "", b["app"] or ""))
+        return {"app": app, "found": False, "resolvedBy": f"label {APP_LABEL}={app}", "applications": apps[:MAX_APPS],
+                "truncated": len(apps) > MAX_APPS,
+                "hint": "These are the app's Applications; an environment's is <app>-<env>. Call argo.app.get with one "
+                        "of these names for its sync, health, last operation and unhealthy resources."}
 
     def sync(self, app: str, project: str, who: dict[str, str] | None = None) -> dict[str, Any]:
         if self.syncer is None:
@@ -314,13 +352,81 @@ class BackstageOwnership:
         return apps
 
 
+# -- app.api.get -----------------------------------------------------------------------------------------------------
+
+MAX_API_PATH = 512
+MAX_API_BODY = 256 << 10
+_API_SERVICE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+# A path and optional query on the service's own base URL: no scheme, no authority, no dot segments, no fragment.
+_API_PATH = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*(\?[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?$")
+
+
+class AppAPIs:
+    """app.api.get: a GET on an application's own API, by service name. The deployment names each service and its
+    base URL (APP_API_SERVICES, a JSON object {service: base URL}); an agent names a service its definition allows
+    (profile.apis.allow, which the core checks: service_ok) and a path. Nothing else is reachable: the URL is the
+    configured base plus a path that cannot leave it (no scheme, host, `..` or `//`), the request is a GET with no
+    credential of any kind (an app API that needs one is not for app.api.get), redirects are not followed, the body is
+    cut at MAX_API_BODY, and a non-2xx answer comes back as data the agent can read."""
+
+    def __init__(self, services: dict[str, str], timeout: float = 10.0, opener: Opener | None = None):
+        self.services = {k: v.rstrip("/") for k, v in services.items()}
+        self.timeout = timeout
+        self._open = opener or _no_redirect_open
+
+    def get(self, service: str, path: str) -> dict[str, Any]:
+        base = self.services.get(service) if isinstance(service, str) and _API_SERVICE.match(service) else None
+        if base is None:
+            raise Denied("READ-API-SERVICE", f"{service!r} is not an application API this deployment knows",
+                         "Name one of the services your definition lists under profile.apis.allow; a person adds "
+                         f"new ones to the gateway's APP_API_SERVICES. Known: {', '.join(sorted(self.services)) or 'none'}.")
+        if (not isinstance(path, str) or len(path) > MAX_API_PATH or not _API_PATH.match(path) or "//" in path
+                or any(enc in path.lower() for enc in ("%2e", "%2f", "%5c", "%00", "%25"))   # %25: no double encoding
+                or any(seg in (".", "..") for seg in path.split("?")[0].split("/"))):
+            raise Denied("READ-API-PATH", f"{str(path)[:80]!r} is not a path on the service",
+                         "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').")
+        req = urllib.request.Request(base + path, method="GET", headers={"Accept": "application/json"})
+        try:
+            status, body = self._open(req, self.timeout)
+        except OSError as e:
+            raise ReadError(f"{service} API unreachable: {type(e).__name__}") from e
+        truncated = len(body) > MAX_API_BODY
+        body = body[:MAX_API_BODY]
+        try:
+            data: Any = json.loads(body) if body and not truncated else None
+        except ValueError:
+            data = None
+        out: dict[str, Any] = {"service": service, "path": path, "status": status, "truncated": truncated}
+        if data is not None:
+            out["json"] = data
+        else:
+            out["text"] = body.decode("utf-8", "replace")
+        return out
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):   # a 3xx is the answer, never followed off the configured host
+        return None
+
+
+_NO_REDIRECT = urllib.request.build_opener(_NoRedirect)
+
+
+def _no_redirect_open(req: urllib.request.Request, timeout: float) -> tuple[int, bytes]:
+    try:
+        with _NO_REDIRECT.open(req, timeout=timeout) as res:  # noqa: S310 - the base URL is configuration
+            return res.status, res.read(MAX_API_BODY + 1)
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(MAX_API_BODY + 1)
+
+
 class Reads:
-    """ReadBackend for the core read tools: PromQL, LogQL and the catalog, each when configured. app_api has no
-    adapter (serve.build_handlers drops app.api.get, so it is never called)."""
+    """ReadBackend for the core read tools: PromQL, LogQL, the catalog and application APIs, each when configured
+    (serve.build_handlers drops a tool whose backend is not)."""
 
     def __init__(self, prometheus: PrometheusAPI | None = None, loki: LokiAPI | None = None,
-                 backstage: BackstageCatalog | None = None):
-        self.prometheus, self.loki, self.backstage = prometheus, loki, backstage
+                 backstage: BackstageCatalog | None = None, apis: AppAPIs | None = None):
+        self.prometheus, self.loki, self.backstage, self.apis = prometheus, loki, backstage, apis
 
     def promql(self, q: str) -> Any:
         return self.prometheus.promql(q)
@@ -332,4 +438,4 @@ class Reads:
         return self.backstage.catalog(query)
 
     def app_api(self, service: str, path: str) -> Any:
-        raise NotImplementedError("app.api.get has no adapter")
+        return self.apis.get(service, path)

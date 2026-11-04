@@ -1,5 +1,5 @@
-# SESSION agent. A gate agent opens a chat in Tower; the agent answers questions and drafts
-# announcements. It never acts on its own: anything consequential goes through human.request.
+# SESSION agent. A gate agent asks from Tower; the agent answers questions and drafts announcements. It never
+# acts on its own: anything consequential, and every reply it needs, goes through human.request.
 name: gate-copilot
 description: "Chats with a gate agent in Tower: answers questions and drafts notices for one gate."
 owner: group:default/team-skyport
@@ -7,7 +7,9 @@ kind: session
 identity: { type: delegated }
 profile:
   tierCeiling: T0
-  tools: [app.api.get, catalog.read, chat.recv, chat.send, human.request]
+  # The gate agent's questions arrive as the run's prompt and its answers go back through the human inbox
+  # (human.request, read with human.request.get); chat.* has no backend until Tower's chat surface (A-8).
+  tools: [app.api.get, catalog.read, human.request, human.request.get]
   apis: { allow: [flight-api, boarding-api, baggage-api] }
   models: [claude-sonnet-5-5]
   network: clearance+model

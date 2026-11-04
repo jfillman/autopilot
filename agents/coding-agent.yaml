@@ -5,7 +5,9 @@ kind: task
 identity: { type: delegated }
 profile:
   tierCeiling: T1
-  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.pr.open, xr.request, argo.sync.lower, glidepath.run.rerun, glidepath.run.cancel, glidepath.live.list, glidepath.live.watch, glidepath.previews.list, glidepath.cicd.validate, glidepath.cicd.propose, run.spawn, run.close, human.request, repo.pr.open_upper]
+  # repo.file.get: an agent that opens a fix PR must read the files it changes first (2026-11-03: a live run had no
+  # file-read tool and answered that it could not make the change).
+  tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.file.get, repo.pr.open, xr.request, argo.sync.lower, glidepath.run.rerun, glidepath.run.cancel, glidepath.live.list, glidepath.live.watch, glidepath.previews.list, glidepath.cicd.validate, glidepath.cicd.propose, run.spawn, run.close, human.request, repo.pr.open_upper]
   repos: { allow: ["jfillman/*"] }
   glidepath: { apps: ["*"] }
   models: [claude-sonnet-5-5]

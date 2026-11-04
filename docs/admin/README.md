@@ -50,8 +50,14 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   Argo CD syncs of lower Applications (`ARGO_SYNC_ENABLED`), PRs as the agents' App through Glidepath's broker
   (`GITHUB_PR_ENABLED`), `catalog.read` (`BACKSTAGE_URL`), `metrics.query` and `logs.query`, the model proxy
   (`MODEL_KEY_FILE`), event and schedule triggers, `Agent` XR pins, and artifacts on the durable store.
-  `chat.*`, `app.api.get`, `xr.request` and `airframe.validate` have no handler in the image, so their calls are
-  refused as "no backend"; nothing is faked.
+  `xr.request` (with GitHub PRs; `XR_REQUEST_ENABLED=0` turns it off) and `app.api.get` (`APP_API_SERVICES`) too.
+  `chat.*` and `airframe.validate` have no handler in the image, so their calls are refused as "no backend", and no
+  bundled definition names them (`tests/test_definitions_backed.py`); nothing is faked.
+- **Logs to Loki.** `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` sends a copy of every INFO-and-above log line (DEBUG stays on stderr) to the cluster's OpenTelemetry
+  collector over OTLP/HTTP JSON (`otlp_logs.py`, standard library only; a bounded queue, batches with a 5 s deadline,
+  and a collector outage drops lines, never blocks a call). The read API (`autopilot-gateway api`) does the same as `autopilot-api`. On Hangar apron sets it with `OTEL_SERVICE_NAME` and the
+  pod's namespace and name, so `{service_name="autopilot-gateway"}` and `{k8s_namespace_name="autopilot-system"}`
+  find them in Loki.
 - **Triggers.** Event triggers (`EVENTS_ENABLED`) and interval triggers (`SCHEDULES_ENABLED`) launch once per
   (agent, trigger key) across restarts: the key is claimed in the gateway's database first. The event bridge saves
   its glidepath-api cursor there and resumes from it; a reconciliation sweep reads glidepath-api's run records so a

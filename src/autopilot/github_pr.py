@@ -18,7 +18,9 @@ no push to an existing branch.
 
 repo.file.get (read_file) uses the same per-call token: GET /repos/{o}/{r}/contents/{path}?ref=.
 
-xr.request (commit_xr) has no adapter yet; serve.build_handlers drops it.
+xr.request (commit_xr, xr_request.py) is one new file in tenants/<app>/xr-requests/ of the dev cluster's tenants repo,
+opened the same way with a broker token asked for <app> on the tenants repo. The broker must allow that repo for
+agent tokens (Glidepath agentToken); until it does it answers 403 and the agent is told so (XR-TENANTS-TOKEN).
 """
 from __future__ import annotations
 
@@ -76,13 +78,15 @@ class GitHubPRs:
     takes_meta = True   # gateway.hangar_handlers passes pr_meta(session)
 
     def __init__(self, token_file: str | Path, *, broker_url: str = BROKER_URL, api: str = GITHUB_API,
-                 timeout: float = 30.0, opener: Opener = _urlopen):
+                 timeout: float = 30.0, opener: Opener = _urlopen, registry: Any = None, contract: dict | None = None):
         self.token_file, self.broker, self.api = Path(token_file), broker_url.rstrip("/"), api.rstrip("/")
         self.timeout, self._open = timeout, opener
+        # xr.request's: the dev cluster, its tenants repo and owner (airframe_plan.Registry), and Airframe's contract.
+        self.registry, self.contract = registry, contract
 
     # -- the token ------------------------------------------------------------------------------------------------
-    def _installation_token(self, owner: str, repo: str) -> str:
-        body = json.dumps({"owner": owner, "repo": repo, "app": app_of(repo)}).encode()
+    def _installation_token(self, owner: str, repo: str, app: str | None = None) -> str:
+        body = json.dumps({"owner": owner, "repo": repo, "app": app or app_of(repo)}).encode()
         req = urllib.request.Request(self.broker + "/agent-installation-token", method="POST", data=body, headers={
             "Authorization": f"Bearer {self.token_file.read_text().strip()}", "Content-Type": "application/json"})
         try:
@@ -92,6 +96,11 @@ class GitHubPRs:
         doc = _json(out)
         if status == 200 and doc.get("token"):
             return doc["token"]
+        if status == 403 and app is not None:
+            raise Denied("XR-TENANTS-TOKEN", f"Glidepath's broker does not mint agent tokens for {owner}/{repo}",
+                         "xr.request needs the broker to allow the tenants repo for the agents' App (Glidepath "
+                         "agentToken) and the App installed there; ask a person, or open the XR file with repo.pr.open "
+                         "on the app's own repo for them to move.")
         if status == 403:
             # The broker's second check: not an onboarded app's own repo. An answer the agent can act on.
             raise Denied("GH-REPO-NOT-APP", f"{owner}/{repo} is not an onboarded app's repo",
@@ -111,7 +120,8 @@ class GitHubPRs:
 
     # -- GitBackend -----------------------------------------------------------------------------------------------
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
-                meta: dict[str, str] | None = None, body: str | None = None) -> dict[str, Any]:
+                meta: dict[str, str] | None = None, body: str | None = None, *, token_app: str | None = None,
+                token: str | None = None) -> dict[str, Any]:
         owner, name = _split(repo)
         for b in (branch, base):
             if not _BRANCH.match(b or "") or ".." in b or b.startswith("/") or b.endswith((".lock", "/")):
@@ -125,7 +135,7 @@ class GitHubPRs:
                 raise Denied("GH-FILES", "each file needs a path and text content under 1 MiB", "Fix the files list.")
             entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
         meta = meta or {}
-        token = self._installation_token(owner, name)
+        token = token or self._installation_token(owner, name, token_app)
         root = f"/repos/{owner}/{name}"
 
         status, ref = self._gh(token, "GET", f"{root}/git/ref/heads/{base}")
@@ -199,8 +209,35 @@ class GitHubPRs:
         except ValueError:
             return status, {}
 
-    def commit_xr(self, app: str, env: str, kind: str, spec: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError("xr.request has no adapter")
+    def commit_xr(self, app: str, env: str, kind: str, spec: dict[str, Any], name: str | None = None,
+                  meta: dict[str, str] | None = None) -> dict[str, Any]:
+        """xr.request: one new XR request file on the tenants repo, as a PR (xr_request.py builds the file)."""
+        from . import xr_request
+        if self.registry is None or self.contract is None:
+            raise NotImplementedError("xr.request needs the dev cluster's registry and Airframe's contract")
+        reg = self.registry
+        path, text, xr = xr_request.build(app, env, kind, spec, name, reg, self.contract)
+        owner, repo = reg.owner, reg.tenants_repo
+        token = self._installation_token(owner, repo, app)
+        for check, missing in ((f"tenants/{app}", "XR-APP-UNKNOWN"), (path, None)):
+            status, doc = self._gh_any(token, f"/repos/{owner}/{repo}/contents/{urllib.parse.quote(check)}?ref=main")
+            if status not in (200, 404):
+                raise GitHubError(f"contents: {status}")
+            if missing and status == 404:
+                raise Denied(missing, f"{app} has no tenants/{app}/ in {owner}/{repo}",
+                             "Request XRs for an onboarded app (its tenants directory exists).")
+            if not missing and status == 200:
+                raise Denied("XR-EXISTS", f"{path} already exists",
+                             "xr.request only adds a new request; change an existing one with repo.pr.open for a "
+                             "person to review, or pick another name.")
+        task = (meta or {}).get("task") or "task"
+        branch = f"agent/{task}-xr-{xr['metadata']['name']}"[:200]
+        out = self.open_pr(f"{owner}/{repo}", branch, f"Request {kind} {xr['metadata']['name']} for {app} ({env})",
+                           [{"path": path, "content": text}], "main", meta=meta, token=token,
+                           body=f"An XR request from xr.request: `{kind}` `{xr['metadata']['name']}` in "
+                                f"`app-{app}-cicd`, for {app}'s {env} environment. A person reviews and merges it; "
+                                f"Argo CD's {app}-xr-requests Application then applies it.")
+        return {**out, "path": path, "kind": kind, "name": xr["metadata"]["name"], "namespace": xr["metadata"]["namespace"]}
 
 
 def _json(b: bytes) -> dict:

@@ -25,9 +25,9 @@ class RunState(TypedDict):
 def build(model: loop.Model, gateway: loop.Gateway, toolset: T.Toolset, out: loop.Outcome, *, agent: str,
           task: dict[str, Any], model_name: str, max_turns: int, max_tokens: int, expires_at: datetime,
           ids: dict[str, str] | None = None, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-          log: Callable[[str], None] = print):
+          log: Callable[[str], None] = print, grant: list[str] | None = None):
     """The compiled graph for one run. `out` is filled in as it runs."""
-    system = loop.system_prompt(agent, task, ids=ids, scoped=bool(getattr(gateway, "scoped", False)))
+    system = loop.system_prompt(agent, task, ids=ids, scoped=loop.is_scoped(gateway, grant))
 
     def model_node(state: RunState) -> RunState:
         messages = state["messages"]
@@ -108,7 +108,7 @@ def run(model: loop.Model, gateway: loop.Gateway, *, agent: str, task: dict[str,
         return out
     log(f"start: graph=langgraph model={model_name} tools={len(toolset.tools)} max_turns={max_turns}")
     graph = build(model, gateway, toolset, out, agent=agent, task=task, model_name=model_name, max_turns=max_turns,
-                  max_tokens=max_tokens, expires_at=expires_at, ids=ids, clock=clock, log=log)
+                  max_tokens=max_tokens, expires_at=expires_at, ids=ids, clock=clock, log=log, grant=grant)
     # Each turn is two steps (model, tools), and pause_turn adds one: the turn limit, not this, is what stops a run.
     graph.invoke({"messages": [{"role": "user", "content": prompt}], "route": "model"},
                  config={"recursion_limit": 3 * max_turns + 5})

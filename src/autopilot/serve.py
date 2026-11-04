@@ -5,7 +5,8 @@ client) from environment variables and serves the engine's streamable-HTTP MCP a
 README.md, "Running the gateway", for the variables.
 
 Only real backends are registered (human.request and human.request.get are the Gateway's own inbox, durable on
-Postgres). A tool whose backend this deployment does not have (chat.*, app.api.get and xr.request today; catalog.read without BACKSTAGE_URL; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
+Postgres). A tool whose backend this deployment does not have (chat.* always; app.api.get without APP_API_SERVICES;
+xr.request without GITHUB_PR_ENABLED or with XR_REQUEST_ENABLED=0; catalog.read without BACKSTAGE_URL; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
 repo.pr.open and repo.pr.open_upper without GITHUB_PR_ENABLED; glidepath.* without GLIDEPATH_API_URL; metrics.query without
 PROMETHEUS_URL; logs.query without LOKI_URL; airframe.* with AIRFRAME_ENABLED=0; argo.app.get with ARGO_ENABLED=0;
 airframe.validate always, since the image carries no airframe-validate) has no handler, so a call to it is refused
@@ -27,12 +28,13 @@ the database first, so a lost connection is found within one interval even when 
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 
 import yaml
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -61,7 +63,7 @@ from .gateway import PACKS, AgentRunBackend, hangar_handlers
 from .glidepath_api import GlidepathAPI
 from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from .engine.results import MemoryResults
-from .reads import BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
+from .reads import AppAPIs, BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
 from .version import gateway_version
 
@@ -152,6 +154,10 @@ class Config:
     # Platform admins (principal globs, user:<login>) who may freeze, end, hold and release beside each agent's owner
     # group (clearance control.py).
     admins: tuple[str, ...] = ()
+    # xr.request (xr_request.py): a PR on the tenants repo through the agents' App; on with GitHub PRs unless said.
+    xr_request_enabled: bool = False
+    # app.api.get (reads.AppAPIs): {service: base URL}; empty means the tool has no backend.
+    app_api_services: Mapping[str, str] = field(default_factory=dict)
     # A-5 trigger durability: the reconciliation sweep (reconcile.py; 0 = off) and its window, and the Prometheus
     # metrics port (metrics.py; 0 = off).
     reconcile_seconds: float = 300.0
@@ -195,6 +201,27 @@ def _number(env: Mapping[str, str], name: str, default: float, kind: Callable[[s
 
 def _list(v: str) -> tuple[str, ...]:
     return tuple(x.strip() for x in v.split(",") if x.strip())
+
+
+def _app_api_services(raw: str) -> dict[str, str]:
+    """APP_API_SERVICES: a JSON object {service: base URL} (http or https, no query, no credentials in it)."""
+    if not raw.strip():
+        return {}
+    try:
+        v = json.loads(raw)
+    except ValueError as e:
+        raise ConfigError("APP_API_SERVICES is a JSON object {service: base URL}") from e
+    if not isinstance(v, dict):
+        raise ConfigError("APP_API_SERVICES is a JSON object {service: base URL}")
+    from urllib.parse import urlsplit
+    from .reads import _API_SERVICE
+    for k, u in v.items():
+        parts = urlsplit(u) if isinstance(u, str) else None
+        if (not isinstance(k, str) or not _API_SERVICE.match(k) or parts is None or parts.scheme not in ("http", "https")
+                or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment):
+            raise ConfigError(f"APP_API_SERVICES[{k!r}]: the key is a service name (a DNS label) and the value an http(s) "
+                              "base URL without credentials or query")
+    return dict(v)
 
 
 def config_from_env(env: Mapping[str, str] | None = None) -> Config:
@@ -274,6 +301,10 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     agent_xrs = _flag(env, "AGENT_XRS_ENABLED", github_prs)
     if agent_xrs and not github_prs:
         raise ConfigError("AGENT_XRS_ENABLED needs GITHUB_PR_ENABLED=1 (pinned definitions are read through the agents' App)")
+    xr_requests = _flag(env, "XR_REQUEST_ENABLED", github_prs)
+    if xr_requests and not github_prs:
+        raise ConfigError("XR_REQUEST_ENABLED needs GITHUB_PR_ENABLED=1 (an XR request is a PR opened as the agents' App)")
+    app_apis = _app_api_services(get("APP_API_SERVICES", ""))
     agent_xrs_interval = _number(env, "AGENT_XRS_INTERVAL", 60.0, float)
     if agent_xrs_interval < 5:
         raise ConfigError("AGENT_XRS_INTERVAL is at least 5 seconds")
@@ -297,6 +328,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         prometheus_url=get("PROMETHEUS_URL"), loki_url=get("LOKI_URL"), backstage_url=get("BACKSTAGE_URL"),
         backstage_token_file=Path(get("BACKSTAGE_TOKEN_FILE", "/var/run/clearance/backstage-token")),
         github_pr_enabled=github_prs, agent_xrs_enabled=agent_xrs, agent_xrs_interval=agent_xrs_interval,
+        xr_request_enabled=xr_requests, app_api_services=app_apis,
         agent_token_file=Path(get("AGENT_TOKEN_FILE", "/var/run/clearance/agent-installation-token")),
         broker_url=get("BROKER_URL", BROKER_URL),
         model_key_file=Path(model_key) if model_key else None, model_port=model_port, model_routes=routes,
@@ -333,19 +365,29 @@ def build_backends(cfg: Config) -> Backends:
         registry = airframe_plan.Registry(cfg.airframe_cluster, cfg.airframe_upper_clusters, cfg.airframe_tenants_repo)
         airframe = AirframeTools(reader, None, registry, cluster=cfg.airframe_cluster)
     read = None
-    if cfg.prometheus_url or cfg.loki_url or cfg.backstage_url:
+    apis = AppAPIs(dict(cfg.app_api_services)) if cfg.app_api_services else None
+    if cfg.prometheus_url or cfg.loki_url or cfg.backstage_url or apis:
         read = Reads(PrometheusAPI(cfg.prometheus_url) if cfg.prometheus_url else None,
                      LokiAPI(cfg.loki_url) if cfg.loki_url else None,
-                     BackstageCatalog(cfg.backstage_url, cfg.backstage_token_file) if cfg.backstage_url else None)
-    git = GitHubPRs(cfg.agent_token_file, broker_url=cfg.broker_url) if cfg.github_pr_enabled else None
+                     BackstageCatalog(cfg.backstage_url, cfg.backstage_token_file) if cfg.backstage_url else None,
+                     apis)
+    git = None
+    if cfg.github_pr_enabled:
+        # xr.request's registry: this cluster, its upper clusters and the tenants repo it watches (Airframe's contract).
+        from .airframe_tools import CONTRACT
+        reg = airframe_plan.Registry(cfg.airframe_cluster, cfg.airframe_upper_clusters, cfg.airframe_tenants_repo)
+        git = GitHubPRs(cfg.agent_token_file, broker_url=cfg.broker_url,
+                        registry=reg if cfg.xr_request_enabled else None, contract=CONTRACT)
     return Backends(git, argo, KubeAgentRuns(), read, None, None, glidepath, airframe)
 
 
 def build_handlers(b: Backends) -> dict[str, Handler]:
     """hangar_handlers, less every tool whose backend is absent (so it is "no backend", not "backend error")."""
     h = hangar_handlers(b)
-    # No adapter yet. (argo.sync.lower and repo.pr.open_upper have a handler only when hangar_handlers wired one.)
-    drop = {"app.api.get", "xr.request"}
+    # (argo.sync.lower and repo.pr.open_upper have a handler only when hangar_handlers wired one.)
+    drop = set()
+    if getattr(b.git, "registry", None) is None:
+        drop.add("xr.request")          # no tenants repo configured (XR_REQUEST_ENABLED=0), or a git backend without one
     if getattr(b.argo, "syncer", None) is None:
         drop.add("argo.sync.lower")   # core_handlers registers it for any Argo backend; only ArgoSync can sync
     if b.read is not None:
@@ -353,6 +395,8 @@ def build_handlers(b: Backends) -> dict[str, Handler]:
             drop.add("metrics.query")
         if getattr(b.read, "loki", None) is None:
             drop.add("logs.query")
+        if getattr(b.read, "apis", None) is None:
+            drop.add("app.api.get")
     if getattr(b.read, "backstage", None) is None:
         drop.add("catalog.read")
     if b.glidepath is None:
@@ -579,6 +623,8 @@ def describe(cfg: Config, gw: Gateway) -> str:
             + f" argo={'on (' + ','.join(cfg.argo_namespaces) + ')' if cfg.argo_enabled else 'off'}"
             + f" prometheus={cfg.prometheus_url or 'off'} loki={cfg.loki_url or 'off'} catalog={cfg.backstage_url or 'off'}"
             + f" github-prs={'on (broker ' + cfg.broker_url + ')' if cfg.github_pr_enabled else 'off'}"
+            + f" xr-requests={'on (' + cfg.airframe_tenants_repo + ')' if cfg.xr_request_enabled else 'off'}"
+            + f" app-apis={','.join(sorted(cfg.app_api_services or {})) or 'off'}"
             + (f" model-proxy=:{cfg.model_port} routes={','.join(sorted(cfg.model_routes))}" if cfg.model_key_file
                else " model-proxy=off")
             + f" events={'on' if cfg.events_enabled else 'off'}"
@@ -601,9 +647,12 @@ def main() -> int:
         return conformance_main(sys.argv[2:])
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from . import otlp_logs
     try:
         cfg = config_from_env()
-    except ConfigError as e:
+        # A copy of every log line to the OpenTelemetry collector, so it reaches Loki (otlp_logs.py).
+        otlp = otlp_logs.install()
+    except (ConfigError, ValueError) as e:
         log.error("configuration: %s", e)
         return 2
     import asyncio
@@ -660,6 +709,8 @@ def main() -> int:
         expirer.stop()
         if state is not None:
             state.close()
+        if otlp is not None:
+            otlp.close()
     return 0
 
 

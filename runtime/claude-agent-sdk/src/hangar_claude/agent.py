@@ -92,7 +92,7 @@ async def run(sdk: Any, gateway: loop.Gateway, *, agent: str, task: dict[str, An
         return out
     tools, names = clearance_tools(sdk, gateway, toolset, out, log)
     options = sdk.ClaudeAgentOptions(
-        system_prompt=loop.system_prompt(agent, task, ids=ids, scoped=bool(getattr(gateway, "scoped", False))),
+        system_prompt=loop.system_prompt(agent, task, ids=ids, scoped=loop.is_scoped(gateway, grant)),
         tools=[],                       # no built-in tools at all: Clearance's are the only ones
         allowed_tools=names,
         mcp_servers={SERVER: sdk.create_sdk_mcp_server(name=SERVER, version="1.0.0", tools=tools)},

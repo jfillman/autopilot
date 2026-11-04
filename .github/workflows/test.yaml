@@ -13,7 +13,8 @@ jobs:
     services:
       # Scratch databases for the gateway's own database and the R-4 cutover copy (tests/test_gateway_pg.py).
       postgres:
-        image: postgres:17
+        # postgres:17, multi-arch index (2026-11-03), pinned like every base image (tests/test_definitions_backed.py).
+        image: postgres:17@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
         env:
           POSTGRES_PASSWORD: pw
         ports: ["5432:5432"]

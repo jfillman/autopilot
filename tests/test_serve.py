@@ -332,13 +332,38 @@ def test_p5_backends_are_off_by_default():
     assert gw.models is None
 
 
-def test_github_prs_register_repo_pr_open_and_open_upper_not_xr_request():
+def test_github_prs_register_repo_pr_open_open_upper_and_xr_request():
     from autopilot.github_pr import GitHubPRs
     c = serve.config_from_env({**EPH, "GITHUB_PR_ENABLED": "1", "AIRFRAME_ENABLED": "0"})
     b = serve.build_backends(c)
     assert isinstance(b.git, GitHubPRs) and str(b.git.token_file) == "/var/run/clearance/agent-installation-token"
+    assert b.git.registry.tenants_repo == "gitops-hangar-dev-tenants" and b.git.registry.dev_cluster == "hangar-dev"
     h = serve.build_handlers(b)
-    assert {"repo.pr.open", "repo.pr.open_upper"} <= set(h) and "xr.request" not in h
+    assert {"repo.pr.open", "repo.pr.open_upper", "xr.request"} <= set(h)
+
+
+def test_xr_request_can_be_turned_off_and_needs_github_prs():
+    c = serve.config_from_env({**EPH, "GITHUB_PR_ENABLED": "1", "XR_REQUEST_ENABLED": "0"})
+    h = serve.build_handlers(serve.build_backends(c))
+    assert "repo.pr.open" in h and "xr.request" not in h
+    with pytest.raises(serve.ConfigError, match="XR_REQUEST_ENABLED needs GITHUB_PR_ENABLED"):
+        serve.config_from_env({**EPH, "XR_REQUEST_ENABLED": "1"})
+
+
+def test_app_api_get_has_a_backend_only_with_app_api_services():
+    assert "app.api.get" not in serve.build_handlers(serve.build_backends(serve.config_from_env(EPH)))
+    c = serve.config_from_env({**EPH, "APP_API_SERVICES": '{"flight-api": "http://flight-api.app-flight-api-dev.svc:8080"}'})
+    b = serve.build_backends(c)
+    assert "app.api.get" in serve.build_handlers(b) and b.read.apis.services == {
+        "flight-api": "http://flight-api.app-flight-api-dev.svc:8080"}
+    assert "app-apis=flight-api" in serve.describe(c, serve.build_gateway(c)[0])
+
+
+@pytest.mark.parametrize("raw", ["[]", "{", '{"a": "ftp://x"}', '{"a": "http://u:p@x"}', '{"a": "http://x?q=1"}',
+                                 '{"a": 1}', '{"": "http://x"}', '{"Flight-API": "http://x"}', '{"a/b": "http://x"}'])
+def test_app_api_services_must_be_plain_base_urls(raw):
+    with pytest.raises(serve.ConfigError, match="APP_API_SERVICES"):
+        serve.config_from_env({**EPH, "APP_API_SERVICES": raw})
 
 
 def test_argo_sync_lower_only_with_argo_sync_enabled():

@@ -1,5 +1,5 @@
 """The Skyport AI workloads: one definition per workload shape, and the behaviours that make each
-shape safe (event dedupe and rate brake, allowlisted APIs, chat only in sessions, narrower teams)."""
+shape safe (event dedupe and rate brake, allowlisted APIs, the inbox instead of chat, narrower teams)."""
 from datetime import timedelta
 from pathlib import Path
 
@@ -140,14 +140,14 @@ def test_app_api_paths_must_be_plain(sgw, path):
     assert not r.ok and r.decision["rule"] == "R008"
 
 
-def test_chat_exists_only_for_session_agents(sgw):
+def test_no_skyport_agent_is_granted_chat_and_the_copilot_answers_through_the_inbox(sgw):
+    """chat.* has no backend on Hangar (A-7): no definition may name it. The gate copilot asks and is answered through
+    the human inbox instead."""
     gw, b, _ = sgw
-    task = gw.open_session("gate-agent", "flight-briefer").data["session"]
-    assert gw.call("gate-agent", task, "chat.send", {"text": "hi"}).decision["rule"] in ("R006", "R018")
+    assert not any(t.startswith("chat.") for d in SKY.values() for t in d.limits.tools)
     sess = gw.open_session("gate-agent", "gate-copilot").data["session"]
-    assert gw.call("gate-agent", sess, "chat.send", {"text": "Gate B12"}).ok
-    assert gw.call("gate-agent", sess, "chat.recv", {}).ok
-    assert b.human.names() == ["human.send", "human.recv"]
+    assert gw.call("gate-agent", sess, "chat.send", {"text": "Gate B12"}).decision["rule"] == "R006"
+    assert {"human.request", "human.request.get"} <= SKY["gate-copilot"].limits.tools
 
 
 def test_the_public_service_agent_cannot_reach_write_tools_or_other_apis(sgw):

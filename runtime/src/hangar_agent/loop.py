@@ -67,6 +67,12 @@ UNSCOPED = ("The tool list is the deployment's whole registry, so some tools are
             "be refused.")
 
 
+def is_scoped(gateway: Any, grant: list[str] | None) -> bool:
+    """Whether the offered tools are the session's own: the gateway scoped tools_list to the session, or the run was
+    told its grant (HANGAR_LIMITS "tools") and the offer was narrowed to it (tools.build_toolset)."""
+    return bool(getattr(gateway, "scoped", False)) or grant is not None
+
+
 def system_prompt(agent: str, task: dict[str, Any], *, ids: dict[str, str] | None = None, scoped: bool = False) -> str:
     s = SYSTEM.format(agent=agent or "unnamed agent", tools_note=SCOPED if scoped else UNSCOPED)
     facts = {k: v for k, v in (ids or {}).items() if v}
@@ -109,7 +115,7 @@ def run(model: Model, gateway: Gateway, *, agent: str, task: dict[str, Any], mod
     log(f"start: model={model_name} tools={len(toolset.tools)} max_turns={max_turns}"
         + (f" skipped={','.join(toolset.skipped)}" if toolset.skipped else ""))
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
-    system = system_prompt(agent, task, ids=ids, scoped=bool(getattr(gateway, "scoped", False)))
+    system = system_prompt(agent, task, ids=ids, scoped=is_scoped(gateway, grant))
     while True:
         if expires_at - clock() < EXPIRY_MARGIN:
             out.status, out.reason = "expired", "less than 60s of the session left"

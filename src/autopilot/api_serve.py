@@ -81,15 +81,22 @@ def build(env: Mapping[str, str] | None = None):
 def main() -> int:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from . import otlp_logs
     try:
         cfg, access, app = build()
-    except serve.ConfigError as e:
+        # Its log lines to Loki too, as autopilot-api (otlp_logs.py; OTEL_SERVICE_NAME names it).
+        otlp = otlp_logs.install(default_service="autopilot-api")
+    except (serve.ConfigError, ValueError) as e:
         log.error("configuration: %s", e)
         return 2
     import uvicorn
     log.info(f"autopilot-api: port={cfg.port} agents={len(access.definitions)} auditors={list(access.auditors)} "
              f"notifiers={list(access.notifiers)} delegates={list(access.delegates)} "
              f"catalog={cfg.backstage_url or 'off'}")
-    uvicorn.run(app, host="0.0.0.0", port=cfg.port, log_level=os.environ.get("LOG_LEVEL", "info").lower(),
-                proxy_headers=False, server_header=False)
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=cfg.port, log_level=os.environ.get("LOG_LEVEL", "info").lower(),
+                    proxy_headers=False, server_header=False)
+    finally:
+        if otlp is not None:
+            otlp.close()
     return 0

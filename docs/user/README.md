@@ -27,7 +27,7 @@ plan.
 - **Ask Airframe through Clearance.** An agent with the `airframe.*` tools (`agents/airframe-operator.yaml`) can
   read what Airframe offers (`airframe.capabilities`), check env-file or values content before proposing it
   (`airframe.validate`, airframe's own validator: AF-* rule ids, JSON pointers, hints; not in Hangar's gateway image
-  yet, so there it answers "no backend"), look up a rule or a
+  yet, so the bundled airframe-operator does not hold it), look up a rule or a
   condition reason (`airframe.explain`), plan an AppSpec (`airframe.plan`: pass the app's current cicd.yaml as
   `baseCicd`), and read an app's XR conditions, an environment's Argo CD Application and Rollout, and an XR's verify
   checks (`airframe.status`, `airframe.describe`, `airframe.verify`). Those three read the cluster and are limited
@@ -73,7 +73,8 @@ plan.
   are deleted) instead of leaving it open until its TTL; only you can close your own session this way.
 
 ## Not yet
-Tools without a backend on Hangar (`chat.*`, `app.api.get`, `xr.request`, `airframe.validate`) and the agents that
-need them (the Skyport set); the README's "What is NOT built" has the full list.
+Tools without a backend on Hangar (`chat.*`, `airframe.validate`; no definition names them), `xr.request` waiting on
+Glidepath's broker to allow the tenants repo, `app.api.get` with no services configured, and the Skyport agents that
+need them; the README's "What is NOT built" has the full list.
 
 Run the tests: `./.venv/bin/python -m pytest -q` (no cluster needed).

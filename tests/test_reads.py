@@ -74,7 +74,42 @@ def test_get_app_searches_the_namespaces_in_order(token):
 
 def test_get_app_not_found_is_an_answer(token):
     a, _ = argo(token, {})
-    assert a.get_app("nope") == {"app": "nope", "found": False, "searched": ["argocd", "argocd-apps"]}
+    out = a.get_app("nope")
+    assert {k: out[k] for k in ("app", "found", "searched")} == {"app": "nope", "found": False,
+                                                                 "searched": ["argocd", "argocd-apps"]}
+    assert "<app>-<env>" in out["hint"]
+
+
+def _labelled(name, ns, env=None, role="tenant-onboarding", health="Healthy"):
+    labels = {"hangar.io/app": "flight-api", "hangar.io/subcomponent": role, **({"hangar.io/env": env} if env else {})}
+    return {"metadata": {"name": name, "namespace": ns, "labels": labels}, "spec": {"project": "flight-api"},
+            "status": {"sync": {"status": "Synced"}, "health": {"status": health}}}
+
+
+LIST = "/apis/argoproj.io/v1alpha1/namespaces/{ns}/applications?labelSelector=hangar.io%2Fapp%3Dflight-api&limit=500"
+
+
+def test_an_app_name_resolves_to_its_applications_by_hangars_label(token):
+    """A researcher holds the catalog component name (flight-api), not the Application's (flight-api-dev): Hangar's
+    tenant-onboarding labels every Application it makes hangar.io/app=<app>, so the name resolves by that label."""
+    items = [_labelled("flight-api-xr-requests", "argocd-apps", role="xr-requests"),
+             _labelled("flight-api-dev", "argocd-apps", env="dev", health="Degraded")]
+    a, k = argo(token, {LIST.format(ns="argocd"): {"items": []}, LIST.format(ns="argocd-apps"): {"items": items}})
+    out = a.get_app("flight-api")
+    assert out["resolvedBy"] == "label hangar.io/app=flight-api" and out["found"] is False
+    assert [x["app"] for x in out["applications"]] == ["flight-api-dev", "flight-api-xr-requests"]
+    assert out["applications"][0] == {"app": "flight-api-dev", "namespace": "argocd-apps", "env": "dev",
+                                      "role": "tenant-onboarding", "project": "flight-api", "sync": "Synced",
+                                      "health": "Degraded"}
+    # the exact name is tried first in every namespace, then the label, in the same namespaces and nowhere else
+    assert k.paths[:2] == ["/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/flight-api",
+                           "/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications/flight-api"]
+    assert k.paths[2:] == [LIST.format(ns="argocd"), LIST.format(ns="argocd-apps")]
+
+
+def test_an_exact_application_name_wins_over_the_label(token):
+    a, k = argo(token, {"/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/flight-api-dev": APP})
+    assert a.get_app("flight-api-dev")["app"] == "flight-api-dev" and len(k.paths) == 1
 
 
 @pytest.mark.parametrize("name", ["../secrets", "Flight", "a/b", "", "x" * 300])
@@ -88,7 +123,8 @@ def test_get_app_refuses_a_name_before_any_request(token, name):
 def test_argo_reads_stay_on_the_allowlist(token):
     a, k = argo(token, {}, namespaces=("argocd", "kube-system"))
     a.get_app("x")
-    assert all(p.startswith("/apis/argoproj.io/v1alpha1/namespaces/") and "/applications/" in p for p in k.paths)
+    assert all(p.startswith("/apis/argoproj.io/v1alpha1/namespaces/") and ("/applications/" in p or "/applications?" in p)
+               for p in k.paths)
     with pytest.raises(PathRefused):
         a.kube.get("/api/v1/namespaces/argocd/secrets")
 
@@ -270,3 +306,67 @@ def test_directory_reads_memberof_and_caches_and_fails_closed(tmp_path):
     assert len(calls) == 2
     assert d.groups("user:nobody") == set() and d.groups("ns/sa") == set() and d.groups("user:../x") == set()
     assert calls[0] == "http://bs/api/catalog/entities/by-name/user/default/jfillman"
+
+
+# -- app.api.get ------------------------------------------------------------------------------------------------------
+
+class API:
+    def __init__(self, status=200, body=b'{"flights": []}'):
+        self.status, self.body, self.reqs = status, body, []
+
+    def __call__(self, req, timeout):
+        self.reqs.append(req)
+        return self.status, self.body
+
+
+def apis(op):
+    return reads.AppAPIs({"flight-api": "http://flight-api.app-flight-api-dev.svc:8080/"}, opener=op)
+
+
+def test_app_api_get_is_a_credential_free_get_on_the_configured_base():
+    op = API()
+    out = apis(op).get("flight-api", "/api/flights?date=2026-11-03")
+    req = op.reqs[0]
+    assert req.get_method() == "GET" and req.full_url == "http://flight-api.app-flight-api-dev.svc:8080/api/flights?date=2026-11-03"
+    assert req.get_header("Authorization") is None and req.get_header("Cookie") is None
+    assert out == {"service": "flight-api", "path": "/api/flights?date=2026-11-03", "status": 200, "truncated": False,
+                   "json": {"flights": []}}
+
+
+def test_app_api_get_returns_an_error_status_and_text_as_data():
+    out = apis(API(503, b"upstream down")).get("flight-api", "/health")
+    assert out["status"] == 503 and out["text"] == "upstream down" and "json" not in out
+
+
+def test_app_api_get_cuts_a_large_body():
+    out = apis(API(200, b"x" * (reads.MAX_API_BODY + 10))).get("flight-api", "/big")
+    assert out["truncated"] and len(out["text"]) == reads.MAX_API_BODY
+
+
+@pytest.mark.parametrize("path", ["api/flights", "//evil.test/x", "/a/../b", "/..", "/a/%2e%2e/b", "/a%2fb", "/a/%252e%252e/b", "/a%252fb",
+                                  "http://evil.test/", "/a#frag", "/a b", "/" + "a" * 600, "/a\\b", "/a%00", None])
+def test_app_api_paths_cannot_leave_the_service(path):
+    op = API()
+    with pytest.raises(Denied) as e:
+        apis(op).get("flight-api", path)
+    assert e.value.rule == "READ-API-PATH" and op.reqs == []
+
+
+@pytest.mark.parametrize("service", ["baggage-api", "Flight-API", "../x", ""])
+def test_app_api_unknown_services_are_refused(service):
+    op = API()
+    with pytest.raises(Denied) as e:
+        apis(op).get(service, "/x")
+    assert e.value.rule == "READ-API-SERVICE" and "flight-api" in e.value.hint and op.reqs == []
+
+
+def test_app_api_unreachable_is_a_hidden_failure():
+    def boom(req, timeout):
+        raise OSError("refused")
+    with pytest.raises(ReadError):
+        apis(boom).get("flight-api", "/x")
+
+
+def test_app_api_redirects_are_not_followed():
+    assert reads._NO_REDIRECT.handlers and any(isinstance(h, reads._NoRedirect) for h in reads._NO_REDIRECT.handlers)
+    assert reads._NoRedirect().redirect_request(None, None, 302, "Found", {}, "http://elsewhere/") is None

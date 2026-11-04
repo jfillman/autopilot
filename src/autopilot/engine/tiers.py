@@ -49,7 +49,11 @@ _TOOLS = [
              "entity names, titles and descriptions. Apps and services are kind=component", ("query",)),
     ToolSpec("metrics.query", Tier.T0, "Run a read-only PromQL query", ("promql",)),
     ToolSpec("logs.query", Tier.T0, "Run a read-only LogQL query", ("logql",)),
-    ToolSpec("argo.app.get", Tier.T0, "Read an ArgoCD application", ("app",)),
+    # A researcher holding only an app's catalog name could not find its Application (autopilot, 2026-11-03): the
+    # description names the convention, and the backend resolves an app name (reads.KubeArgo.get_app).
+    ToolSpec("argo.app.get", Tier.T0, "Read an Argo CD Application: `app` is its name (an environment's is <app>-<env>, "
+             "e.g. flight-api-dev) or an app's catalog component name (flight-api), which lists that app's "
+             "Applications to read by name", ("app",)),
     ToolSpec("app.api.get", Tier.T0, "GET a path on an allowlisted application API", ("service", "path")),
     ToolSpec("chat.recv", Tier.T0, "Receive pending messages from the human in this session", ()),
     ToolSpec("chat.send", Tier.T0, "Send a message to the human in this session", ("text",)),
@@ -57,7 +61,10 @@ _TOOLS = [
              "at a ref (default main)", ("repo",), github_cost=2, reads_repo=True),
     ToolSpec("repo.pr.open", Tier.T1, "Open a PR on an app repo", ("repo", "branch", "title", "files"),
              github_cost=4, target="lower", writes_files=True, receipt=("pr", "commit", "branch")),
-    ToolSpec("xr.request", Tier.T1, "Commit an XR request for a lower environment", ("app", "env", "kind", "spec"),
+    ToolSpec("xr.request", Tier.T1, "Request an Airframe XR (a dependency such as MessageQueue or ManagedPostgreSQL, "
+             "an SLO or RolloutWatch, or a lower ApplicationEnvironment) for an app's lower environment: opens a PR "
+             "adding tenants/<app>/xr-requests/<name>.yaml for a person to merge (name optional)",
+             ("app", "env", "kind", "spec"),
              github_cost=3, target="lower"),
     ToolSpec("argo.sync.lower", Tier.T1, "Sync a lower-environment application", ("app", "project"),
              target="lower"),
