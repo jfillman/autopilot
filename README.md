@@ -31,7 +31,7 @@ behaviour unchanged: `src/autopilot/engine/` is clearance's `server.py`, `dispat
 
 **R-3b (Built, live on hangar-dev since R-4, 2026-11-03):** the gateway stopped deciding and recording in process. Every tool call,
 model call, session open and spawn is an evaluation the Clearance core decides and records
-(`POST /access/v1/evaluation`, through `clearance-core-client` pinned at clearance v0.30.0); the gateway applies the
+(`POST /access/v1/evaluation`, through `clearance-core-client` pinned at clearance v0.31.0); the gateway applies the
 spend the core names to its own session, acts only on an allow, and reports the result
 (`POST /v1/decisions/{id}/outcome`). Its runtime records (`run.launch`, `run.delete`, `human.answer`,
 `session.freeze`, `trigger.hold`; from R-3f also `run.finish`, `session.end`, `trigger.release`) go to
@@ -77,7 +77,7 @@ clearance-api's; `/v1/contract` names it (`CLEARANCE_API_URL`). See [Running the
 
 | Part | Where | What it owns |
 |---|---|---|
-| The Clearance core (a service) | `clearance core` (ghcr.io/jfillman/clearance), called through `clearance-core-client @ git+https://github.com/jfillman/clearance@v0.30.0#subdirectory=clients/python` | the decision (CEL rules, the core's and Hangar's policy bundle, scope, tiers, the narrow-only rule, spawn and open checks, the model decision), the evidence chain and its store, the cluster-pinned definitions the gateway publishes and their `definition.*` records, the deployment gate, PR provenance, definition review and the GitHub App |
+| The Clearance core (a service) | `clearance core` (ghcr.io/jfillman/clearance), called through `clearance-core-client @ git+https://github.com/jfillman/clearance@<ref>#subdirectory=clients/python` (`pyproject.toml`: v0.31.0, the release that carries A-4's outcome and record fields) | the decision (CEL rules, the core's and Hangar's policy bundle, scope, tiers, the narrow-only rule, spawn and open checks, the model decision), the evidence chain and its store, the cluster-pinned definitions the gateway publishes and their `definition.*` records, the deployment gate, PR provenance, definition review and the GitHub App |
 | The gateway engine | `src/autopilot/engine/` (from clearance v0.26.1; R-3b adds `core.py`, `outbox.py`, `pg.py`, and the copied `auth.py`, `definitions.py`, `scope.py`) | the MCP surface over stdio and streamable HTTP (`server.py`), sessions, the run tree and `Gateway.expire` (`session.py`, `dispatch.py`), budgets and requested limits (`limits.py`), the tool registry and tier vocabulary (`tiers.py`), dispatch to backends (`dispatch.py`, the protocols and fakes in `backends.py`), the model proxy (`modelproxy.py`, streaming in `server.py`), agent definitions and their schema (`profile.py`), the runtime catalog (`runtimes.py`), the human inbox, person controls, run results and trigger history (`inbox.py`, `control.py`, `results.py`, `events.py`), callers' authentication (`auth.py`), the cluster pin set (`definitions.py`), the gateway's own database (`pg.py`) and outbox (`outbox.py`); `core.py` is the core's client |
 | Autopilot | `src/autopilot/` | Hangar's tool implementations and everything around agents on Hangar: `glidepath_api.py`, `airframe_api.py`, `airframe_tools.py`, the planner `airframe_plan.py`, the AgentRun manifest `manifests.py`, `triggers.py`, `preflight.py`, the Hangar backends and fakes `backends.py`, the AgentRun store over the Kubernetes API `kube_runs.py`, the T0 read adapters `reads.py`, the deployable server `serve.py`, the vendored airframe files `vendor/`, `hangar_tools.py` (the `glidepath.*` and `airframe.*` tool specs: the gateway's registry, which `policy/hangar/bundle.json` governs), and `gateway.py`, which builds the Hangar Gateway: the engine's Gateway + Hangar's tools + a handler per tool + AgentRun as the run backend + the core |
 
@@ -126,7 +126,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 912 tests (A-7 on A-1 and A-5, 2026-11-03; 902 pass and 10 skip without the extras below), no cluster needed, against a real Clearance core:
+`./.venv/bin/python -m pytest -q` runs 925 tests (A-7 on main with A-1, A-4 and A-5, clearance v0.31.0, 2026-11-04: 915 pass and 10 skip without `AUTOPILOT_TEST_PG` or a core container), no cluster needed, against a real Clearance core:
 `tests/conftest.py` builds the unmodified clearance binary from a checkout (`go build ./cmd/clearance`;
 `CLEARANCE_SRC`, or `$HANGAR_TECH/clearance`; CI checks out the ref the client is pinned at) and runs it as
 `clearance core --memory --insecure-dev-auth --max-clock-skew 0 --listen 127.0.0.1:0` (the tests run on a fixed
@@ -156,6 +156,7 @@ One more skips without a gitops-cluster-dev checkout.
 | Gateway core | `engine/dispatch.py`, `engine/backends.py`, `engine/core.py` | authenticate, ask the core, apply its spend, call, report the outcome; handlers are registered per tool, the run tree goes through an injected run backend |
 | Outbox and the gateway's database | `engine/outbox.py`, `engine/pg.py`, `tools/cutover/copy_runtime_tables.py` | what the core is owed, posted in order; sessions, inbox, results, artifacts, events, holds, pins; the R-4 copy from clearance-pg ([docs/admin/gateway-database.md](docs/admin/gateway-database.md)) |
 | Model access | `engine/modelproxy.py` | the core decides each call (allowlist, network mode, breaker, budget); the gateway charges the usage and reports each allowed call's outcome (`receipt.stream`, `upstream_status`) |
+| Flight recorder and cost (A-4: AP-C1, AP-C2) | `engine/server.py` (`create_model_app`), `engine/dispatch.py` (`model_usage`, `_record`, `pinned_model`, `preflight_of`, `run_cost`), `engine/modelproxy.py` (`usage_record`), `engine/session.py` (`Session.usage`) | the same one outcome per allowed model call (A-1's, `ok` or `error:<Kind>`) carries `model_version` (the model that answered: the response's `model`, a stream's `message_start`, else the route's upstream model) and `usage` (the four token kinds and `charged_tokens`, the call's weighted charge by `USAGE_WEIGHTS`; the session's `model_tokens` budget counts it up to its limit, and a call that overruns trips the breaker while the record keeps the whole charge). `run.launch`, `run.finish` and `run.delete` carry `model_version` (the definition's first model through its route) and `preflight` (`Gateway.preflight`, a callable A-6 fills; `not-run` until then); `run.finish` carries `cost` (the session's usage, model and tool calls, wall seconds, compute class). The session keeps its running cost as `usage` (the read API's sessions show it; `GET /v1/tasks/{id}` sums it as `cost`). clearance-api's `GET /v1/evidence/counts?by=cost&per=task|session|agent|principal` sums the records |
 | Triggers | `autopilot/triggers.py` | interval and alert triggers for scheduled and event agents |
 | Preflight | `autopilot/preflight.py`, `preflight/cases/` | deterministic scoring, self-check that a case can fail |
 | MCP surface | `engine/server.py` | six tools on the mcp SDK v2 (`tools_list`, `agents_list`, `session_open`, `call`, `run_finish`, `session_close`); `tools_list` lists the Gateway's own registry |
@@ -291,9 +292,9 @@ the person controls, running an agent) stay on the gateway.
 | Operation | Path | |
 |---|---|---|
 | listAgents, getAgent | `GET /v1/agents`, `/v1/agents/{name}` | the definitions with each one's trigger `hold`, `source` and the `rejected` pins; `full=1` (auditors) adds the instructions |
-| listSessions, getSession | `GET /v1/sessions`, `/v1/sessions/{id}` | sessions you may see, newest first (`agent`, `principal`, `task`, `state`, `limit`, `after`) |
+| listSessions, getSession | `GET /v1/sessions`, `/v1/sessions/{id}` | sessions you may see, newest first (`agent`, `principal`, `task`, `state`, `limit`, `after`); each with `usage`, its model calls' tokens and charge (A-4; zeros on a session saved before it) |
 | getSessionResult | `GET /v1/sessions/{id}/result` | a finished run's answer, kept 30 days |
-| getTask | `GET /v1/tasks/{task_id}` | the run tree: the task's sessions and their totals (sessions only, no evidence: nothing is asked of Clearance) |
+| getTask | `GET /v1/tasks/{task_id}` | the run tree: the task's sessions and their totals, `used` (budgets) and `cost` (the sessions' model usage summed, A-4) (sessions only, no evidence: nothing is asked of Clearance) |
 | listHumanRequests | `GET /v1/human/requests` | the human inbox, and a notifier's feed of every pending request |
 | listEvents | `GET /v1/events` | the trigger bridge's history |
 | listRuntimes | `GET /v1/runtimes` | the runtime catalog and the custom-image globs |

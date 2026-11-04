@@ -46,7 +46,10 @@ Every record has a `provider` (`{name, version}`), and the core sets it, never t
   {"tool": "model.call", "result": "ok", "outcome_of": {"seq": 812, "hash": "..."},
    "provider": {"name": "autopilot-gateway", "version": "gateway-v0.4.2"},
    "receipt": {"stream": true, "upstream_status": 200},
-   "subject": {"kind": "tool-call", "name": "model.call", "digests": {"sha256": "<args_sha256>"}}}
+   "model_version": "claude-sonnet-5-5-20261015",
+   "usage": {"input_tokens": 1000, "output_tokens": 50, "cache_creation_input_tokens": 0,
+             "cache_read_input_tokens": 3000, "charged_tokens": 1350},
+   "subject": {"kind": "model-call", "name": "claude-sonnet-5-5", "digests": {"sha256": "<args_sha256>"}}}
   ```
 
   Results: `ok` (a 2xx answer, and for a stream one that ran to its end), `error:Upstream<status>`,
@@ -55,9 +58,12 @@ Every record has a `provider` (`{name, version}`), and the core sets it, never t
   for a model the core allowed. `receipt` is claimed (the gateway says it); `result`'s link to the decision and the
   copied identity fields are verified. A denied model call has no outcome.
 
-  The subject kind is `tool-call` with name `model.call` today: Clearance's subject kinds are `tool-call`,
-  `manifest-tree`, `terraform-plan` and `definition`, and the core derives a model call's subject like a tool
-  call's. A `model-call` subject kind is a Clearance change (below).
+  The subject kind is `model-call`, named by the model the call asked for (its `target`, the route alias), with
+  the digest of its arguments: the core derives it for `tool: model.call` from evidence schema revision 3
+  (clearance#53, A-4). The gateway sends no subject; the decision and its outcome both carry it. Older rows keep
+  the `tool-call` subject they were written with. The same outcome carries A-4's `model_version` (the model that
+  answered) and, for a call that used tokens, `usage` (the four token kinds and `charged_tokens`, the call's
+  weighted charge), all claimed.
 
 The start line (`serve.describe`) prints `provider=autopilot-gateway/<version>`: the image's own version (the
 `gateway-v*` tag it was built from, `AUTOPILOT_GATEWAY_VERSION`). It should equal the core's registration. When it
@@ -112,9 +118,6 @@ PASS clearance-conformance/v1 runtime provider http://127.0.0.1:9091 (autopilot-
 
 ## Not built
 
-- **A `model-call` subject kind** (Proposal, a Clearance change): add `model-call` to the v1 schema's subject kinds
-  and derive it for `tool: model.call` (name the model, `target`; digest `args_sha256`), so a model call's decision
-  and outcome name a model, not a tool. The gateway needs no change for it: the core derives the subject.
 - **`provider.conformance` on records**: reserved in Clearance's v1 schema; `CLEARANCE_PROVIDERS` has no field for it
   yet. The report's `suite` (`clearance-conformance/v1`) is the value to stamp.
 - **The suite's model-call scenario**: the harness drives tool calls only; model-call outcomes are tested in this

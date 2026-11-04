@@ -34,7 +34,6 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from . import control, inbox
 from .core import OUTAGE_RULE
 from .dispatch import AuthError, Authenticator, Gateway
-from .modelproxy import charged_tokens
 
 
 class GatewayTokenVerifier:
@@ -292,6 +291,7 @@ class StreamUsage:
 
     def __init__(self):
         self.usage: dict[str, Any] = {}
+        self.model: str | None = None   # message_start's message.model: the model that answered (AP-C1)
         self._buf = b""
 
     def feed(self, chunk: bytes) -> None:
@@ -306,6 +306,8 @@ class StreamUsage:
                 continue
             if not isinstance(ev, dict):
                 continue
+            if ev.get("type") == "message_start" and isinstance((ev.get("message") or {}).get("model"), str):
+                self.model = ev["message"]["model"]
             u = (ev.get("message") or {}).get("usage") if ev.get("type") == "message_start" else ev.get("usage")
             if ev.get("type") in ("message_start", "message_delta") and isinstance(u, dict):
                 self.usage.update({k: v for k, v in u.items() if isinstance(v, (int, float))})
@@ -338,9 +340,9 @@ def _result(status: int) -> str:
 
 
 def _locked(gateway: Gateway, fn: Callable[..., Any]) -> Callable[..., Any]:
-    def run(*a):
+    def run(*a, **kw):
         with gateway.lock:
-            return fn(*a)
+            return fn(*a, **kw)
     return run
 
 
@@ -363,6 +365,9 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
     Every allowed call gets exactly one outcome (Gateway.model_outcome, POST /v1/decisions/{id}/outcome), written as
     the gateway's provider: "ok" for a 2xx answer (a stream that ran to its end), else "error:<Kind>", with the
     receipt `stream` (true for a streamed call) and `upstream_status`. A streamed call is provable from the chain.
+    The same outcome carries the flight recorder's fields (A-4): `model_version` (the model that answered) and,
+    for a call that used tokens, `usage` (the four kinds and `charged_tokens`, the call's weighted charge;
+    the session's budget counts it up to its limit, and an overrun trips the breaker while the record keeps it whole).
 
     Refusals are Anthropic-shaped errors with the Clearance rule: 401 for a bad token, 403 for a policy denial, 429
     for the token budget (M007), 400 for a request the proxy does not take (no model)."""
@@ -401,11 +406,20 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
                           "rate_limit_error" if d.rule == "M007" else "permission_error", d.message, d.rule)
         streamed = bool(payload.get("stream"))
 
-        async def report(result: str, upstream_status: int | None = None) -> None:
+        async def report(result: str, upstream_status: int | None = None, usage: dict | None = None,
+                         answered: Any = None) -> None:
+            """The call's one outcome. A call that used tokens is charged first (Gateway.model_usage: the budget, the
+            session's running cost) and its usage and charge go on this outcome with the model that answered (the
+            answer's own `model`, else the route's upstream model): A-4's flight recorder fields."""
+            version = answered if isinstance(answered, str) and answered else d.route.upstream_model
             with anyio.CancelScope(shield=True):
+                rec = None
+                if isinstance(usage, dict) and usage:
+                    rec = await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, usage)
                 await anyio.to_thread.run_sync(functools.partial(
                     _locked(gateway, functools.partial(gateway.model_outcome, stream=streamed,
-                                                       upstream_status=upstream_status)), d.decision_id, result))
+                                                       upstream_status=upstream_status, usage=rec,
+                                                       model_version=version)), d.decision_id, result))
 
         if d.route.backend != "anthropic":
             await report("error:UnsupportedBackend")
@@ -429,10 +443,8 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
             await report("error:BadUpstreamAnswer", status)
             return _error(502, "api_error", f"the model provider answered {status} with no JSON")
         usage = doc.get("usage") if isinstance(doc, dict) else None
-        if isinstance(usage, dict):
-            used = charged_tokens(usage)
-            await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
-        await report(_result(status), status)
+        await report(_result(status), status, usage if isinstance(usage, dict) else None,
+                     doc.get("model") if isinstance(doc, dict) else None)
         return JSONResponse(doc, status_code=status)
 
     async def _relay(session_id: str, url: str, key: str, version: str, body: bytes, extra: dict, report) -> Response:
@@ -462,12 +474,9 @@ def create_model_app(gateway: Gateway, *, key_file: str, timeout: float = 300.0,
                 close = getattr(chunks, "close", None)
                 if close:
                     close()
-                if meter.usage:
-                    used = charged_tokens(meter.usage)
-                    with anyio.CancelScope(shield=True):
-                        await anyio.to_thread.run_sync(_locked(gateway, gateway.model_usage), session_id, used)
-                # A stream that did not run to its end (the run went away, the provider dropped it) is not "ok".
-                await report("ok" if ended else "error:StreamInterrupted", status)
+                # A stream that did not run to its end (the run went away, the provider dropped it) is not "ok";
+                # what was metered before it broke is still charged and recorded.
+                await report("ok" if ended else "error:StreamInterrupted", status, meter.usage or None, meter.model)
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"cache-control": "no-cache"})
 

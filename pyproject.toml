@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 # from its contract (clearance clients/python), pinned by the clearance release tag; CI builds the core under test from
 # the same tag (.github/workflows/test.yaml CLEARANCE_REF), so the two move together.
 # Nothing here imports the `clearance` package (it left clearance in v0.30.0; tests/engine/test_boundary.py).
-dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@v0.30.0#subdirectory=clients/python",
+dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@v0.31.0#subdirectory=clients/python",
                 "jsonschema>=4.20", "pyyaml>=6", "mcp>=2", "pyjwt[crypto]>=2.8", "uvicorn>=0.30",
                 "psycopg[binary]>=3.2"]
 
