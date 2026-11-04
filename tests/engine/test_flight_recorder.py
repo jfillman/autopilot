@@ -194,3 +194,12 @@ def test_an_overrun_trips_the_breaker_and_the_record_keeps_the_whole_charge(g, a
     assert out["usage"]["charged_tokens"] == room + 5000 == s.usage["charged_tokens"]
     assert s.used["model_tokens"] == room and s.remaining("model_tokens") == 0
     assert s.tripped and s.trip_reason == "model-token overrun"
+
+
+def test_a_bare_charge_is_in_the_running_cost_too(g):  # noqa: F811
+    """model_usage with an int (no usage block) charges the budget and the session's running cost alike."""
+    sid = launched(g)
+    rec = g.model_usage(sid, 700)
+    s = g.store.get(sid)
+    assert rec["charged_tokens"] == 700 and rec["input_tokens"] == 0
+    assert s.used["model_tokens"] == 700 == s.usage["charged_tokens"] and s.usage["model_calls"] == 1

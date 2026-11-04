@@ -805,7 +805,10 @@ class Gateway:
             self.models.record_usage(session_id, rec["charged_tokens"], rec)
             return rec
         if isinstance(usage, int) and not isinstance(usage, bool):
-            self.models.record_usage(session_id, usage)
+            # A bare charge: no token breakdown, but the same one call in the session's running cost as in its budget.
+            rec = {**usage_record(None), "charged_tokens": max(usage, 0)}
+            self.models.record_usage(session_id, rec["charged_tokens"], rec)
+            return rec
         return None
 
     @_durable
