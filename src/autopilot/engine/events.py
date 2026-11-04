@@ -3,7 +3,8 @@
 The bridge (autopilot event_bridge.py) reads glidepath-api's event stream and, per event, starts the agents whose
 Glidepath trigger matches, under each one's storm brake. Until now that left only log lines. This module keeps one
 row per event for RETENTION: the event's summary (the same one a run is given: id, app, routing key, type, subject)
-and the outcome per agent (launched, deduped, braked, refused, launch-failed), so that
+and the outcome per agent (launched, deduped, braked, held, refused, launch-failed) with the path that decided it
+(`via`: stream, recent, reconcile; A-5), so that
 
   - a trigger dry run (Autopilot's New agent profile, board A3) can replay the last days' events against a draft
     trigger without the bridge knowing about drafts,
@@ -25,7 +26,7 @@ RETENTION = timedelta(days=30)
 MAX_SUBJECT_BYTES = 2000
 MAX_OUTCOMES = 50
 
-OUTCOME_KEYS = ("agent", "result", "session", "run", "rule")
+OUTCOME_KEYS = ("agent", "result", "session", "run", "rule", "via")
 
 
 @dataclass
