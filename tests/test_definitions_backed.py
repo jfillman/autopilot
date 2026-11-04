@@ -52,18 +52,22 @@ def test_every_bundled_definition_runs_on_a_catalog_runtime_that_calls_finish():
     assert "gateway.finish(" in main
 
 
-def _from_lines(text):
-    return [ln.split()[1] for ln in text.splitlines() if re.match(r"^\s*FROM\s", ln, re.I)]
+def _dockerfiles():
+    """This repo's own Dockerfiles: git's tracked files (CI checks other repos out under tech/, which are not ours)."""
+    import subprocess
+    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "*Dockerfile*"], capture_output=True, text=True, check=True)
+    return sorted(ROOT / f for f in out.stdout.split())
 
 
-DOCKERFILES = sorted(p for p in ROOT.rglob("Dockerfile*") if ".venv" not in p.parts and "node_modules" not in p.parts)
+DOCKERFILES = _dockerfiles()
 
 
 @pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_dockerfile_base_is_pinned_by_digest(path):
+    assert len(DOCKERFILES) >= 5
     stages = set()
     for line in path.read_text().splitlines():
-        m = re.match(r"^\s*FROM\s+(\S+)(?:\s+AS\s+(\S+))?", line, re.I)
+        m = re.match(r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?", line, re.I)
         if not m:
             continue
         image, alias = m.group(1), m.group(2)

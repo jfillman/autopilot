@@ -200,11 +200,13 @@ def _app_api_services(raw: str) -> dict[str, str]:
     if not isinstance(v, dict):
         raise ConfigError("APP_API_SERVICES is a JSON object {service: base URL}")
     from urllib.parse import urlsplit
+    from .reads import _API_SERVICE
     for k, u in v.items():
         parts = urlsplit(u) if isinstance(u, str) else None
-        if (not isinstance(k, str) or not k or parts is None or parts.scheme not in ("http", "https")
+        if (not isinstance(k, str) or not _API_SERVICE.match(k) or parts is None or parts.scheme not in ("http", "https")
                 or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment):
-            raise ConfigError(f"APP_API_SERVICES[{k!r}] must be an http(s) base URL without credentials or query")
+            raise ConfigError(f"APP_API_SERVICES[{k!r}]: the key is a service name (a DNS label) and the value an http(s) "
+                              "base URL without credentials or query")
     return dict(v)
 
 

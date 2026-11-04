@@ -360,7 +360,7 @@ def test_app_api_get_has_a_backend_only_with_app_api_services():
 
 
 @pytest.mark.parametrize("raw", ["[]", "{", '{"a": "ftp://x"}', '{"a": "http://u:p@x"}', '{"a": "http://x?q=1"}',
-                                 '{"a": 1}', '{"": "http://x"}'])
+                                 '{"a": 1}', '{"": "http://x"}', '{"Flight-API": "http://x"}', '{"a/b": "http://x"}'])
 def test_app_api_services_must_be_plain_base_urls(raw):
     with pytest.raises(serve.ConfigError, match="APP_API_SERVICES"):
         serve.config_from_env({**EPH, "APP_API_SERVICES": raw})
