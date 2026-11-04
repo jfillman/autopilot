@@ -9,7 +9,7 @@ Once per slot, across restarts (A-5): the slot's key (`slot:<every>:<n>`) is cla
 (engine/trigger_ledger.py; gateway_trigger_launches) before the session is opened, so a gateway restarted inside the
 grace window after the slot has fired, its run finished or not, does not fire it again. The grace window keeps a
 restart from firing a slot long after it began: a slot whose window passed with no firing (the gateway was down for
-all of it) is recorded `missed` in the ledger, once, and counted in autopilot_schedule_missed_total{agent}; it is
+all of it) is recorded `missed` in the ledger, once per slot (back to the floor), and counted in autopilot_schedule_missed_total{agent}; it is
 not run late. Slots that began before the ledger's floor (the first start with A-5) are never counted missed.
 autopilot_schedule_lag_seconds{agent} is how long after its slot's start the last firing came (one tick, 30 s, at
 most when the gateway is up).
@@ -30,6 +30,7 @@ log = logging.getLogger("autopilot.scheduler")
 
 GRACE = timedelta(minutes=10)
 TICK_SECONDS = 30.0
+MISSED_LOOKBACK = 744   # slots checked back per agent at most (31 days of hourly slots)
 SOURCE = "schedule"     # the ledger floor's row in gateway_event_cursors (no cursor id: only the floor is used)
 
 
@@ -79,35 +80,38 @@ class Scheduler:
         return self._floor
 
     def _check_missed(self, agent: str, every_s: str, every: timedelta, slot: int, start: datetime,
-                      now: datetime) -> dict[str, Any] | None:
-        """The latest slot whose grace window has passed: if nothing fired it, record it missed (once)."""
+                      now: datetime) -> list[dict[str, Any]]:
+        """Every slot whose grace window has passed, back to the ledger's floor (at most MISSED_LOOKBACK slots):
+        each one nothing fired is recorded missed, once. A gateway down for three nights records three."""
         if every <= GRACE:     # windows overlap: a short interval's next slot comes before a miss could be told
-            return None
+            return []
         last, last_start = (slot, start) if now - start > GRACE else (slot - 1, start - every)
-        if (agent, last) in self._checked or (agent, last) in self.fired:
-            return None
-        self._checked.add((agent, last))
-        if last_start < self.floor(now):
-            return None
-        key = tl.slot_key(every_s, last)
-        # Any row means the slot was being fired: a `claimed` orphan (a process that died between claim and decision)
-        # may have launched its run, so it is not called missed, and it is not fired late either.
-        if self._db(self.ledger.get, agent, key) is not None:
-            return None
-        if not self._db(self.ledger.claim, agent, key, "schedule", None, now):
-            return None
-        self._db(self.ledger.decide, agent, key, "missed")
-        self.metrics.slot_missed.inc(agent=agent)
-        log.warning("schedule %s slot %s (%s) passed with no firing: missed", agent, last, last_start.isoformat())
-        return {"agent": agent, "slot": last, "result": "missed"}
+        floor, out = self.floor(now), []
+        for n in range(MISSED_LOOKBACK):
+            s, s_start = last - n, last_start - n * every
+            if s_start < floor or (agent, s) in self._checked:
+                break           # before the ledger existed, or already checked (and so is everything older)
+            self._checked.add((agent, s))
+            if (agent, s) in self.fired:
+                break
+            key = tl.slot_key(every_s, s)
+            # Any row means the slot was fired or already called missed, and every slot before it was accounted for
+            # then: stop. (A `claimed` orphan a dead process left may have launched its run: not missed either.)
+            if self._db(self.ledger.get, agent, key) is not None:
+                break
+            if not self._db(self.ledger.claim, agent, key, "schedule", None, now):
+                continue
+            self._db(self.ledger.decide, agent, key, "missed")
+            self.metrics.slot_missed.inc(agent=agent)
+            log.warning("schedule %s slot %s (%s) passed with no firing: missed", agent, s, s_start.isoformat())
+            out.append({"agent": agent, "slot": s, "result": "missed"})
+        return out
 
     def tick(self) -> list[dict[str, Any]]:
         now, done = self.clock(), []
         for agent, every_s, every in self.schedules():
             slot, start = slot_of(now, every)
-            missed = self._check_missed(agent, every_s, every, slot, start, now)
-            if missed:
-                done.append(missed)
+            done += self._check_missed(agent, every_s, every, slot, start, now)
             if (agent, slot) in self.fired or now - start > GRACE:
                 continue
             self.fired.add((agent, slot))

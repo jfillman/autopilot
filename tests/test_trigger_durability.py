@@ -545,3 +545,14 @@ def test_a_slot_a_dead_process_was_firing_is_not_called_missed():
     assert sch.Scheduler(gw, clock=lambda: at(2, 0, 15), ledger=led, metrics=m).tick() == [] and gw.opened == []
     assert m.slot_missed.value(agent="nightly-reviewer") == 0
     assert led.get("nightly-reviewer", tl.slot_key("24h", slot))["state"] == "claimed"
+
+
+def test_a_gateway_down_for_three_nights_records_three_missed_slots():
+    led, m = tl.MemoryTriggers(), mx.TriggerMetrics()
+    led.cursor(sch.SOURCE, at(1, 12))
+    gw = GW()
+    out = sch.Scheduler(gw, clock=lambda: at(4, 9), ledger=led, metrics=m).tick()       # down 2nd, 3rd, 4th 00:00
+    assert [d["result"] for d in out] == ["missed"] * 3 and gw.opened == []
+    assert m.slot_missed.value(agent="nightly-reviewer") == 3
+    assert sch.Scheduler(gw, clock=lambda: at(4, 10), ledger=led, metrics=m).tick() == [], "each recorded once"
+    assert m.slot_missed.value(agent="nightly-reviewer") == 3

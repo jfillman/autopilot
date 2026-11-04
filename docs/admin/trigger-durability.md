@@ -81,7 +81,7 @@ them back from. The storm brake's window is in memory, so a restart resets it.
 Unchanged: each interval is a UTC-aligned slot (every 24h: 00:00 UTC), fired within 10 minutes of its start, once.
 What changed: the slot is claimed in the ledger, so a restart at 00:04 after the 00:00 slot fired (its run finished
 or not) does not fire it again. A slot whose window passed with no firing (the gateway was down from 00:00 to past
-00:10) is recorded `missed`, once (a slot with any ledger row, even a `claimed` one a dead process left, is not), counted in `autopilot_schedule_missed_total{agent}` (alert
+00:10) is recorded `missed`, once per slot back to the ledger's floor (a gateway down for three nights records three; a slot with any ledger row, even a `claimed` one a dead process left, is not), counted in `autopilot_schedule_missed_total{agent}` (alert
 `AutopilotScheduleSlotMissed`) and not run late. `autopilot_schedule_lag_seconds{agent}` is how long after its slot's
 start the last firing came: one 30-second tick at most while the gateway is up.
 
