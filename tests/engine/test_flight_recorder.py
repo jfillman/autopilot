@@ -81,7 +81,7 @@ def test_a_failed_call_still_reports_an_outcome_and_charges_nothing(g, app):  # 
     answers.append((529, {"type": "error", "error": {"type": "overloaded_error", "message": "busy"}}))
     assert call(client, sid).status_code == 529
     [out] = outcomes(g, sid)
-    assert out["result"] == "error:http-529" and "usage" not in out
+    assert out["result"] == "error:Upstream529" and "usage" not in out
     assert g.store.get(sid).used["model_tokens"] == 0 and g.store.get(sid).usage["model_calls"] == 0
 
 
@@ -165,7 +165,7 @@ def test_a_stream_that_breaks_is_not_an_ok_call(g, tmp_path):  # noqa: F811
     except ConnectionResetError:
         pass
     [out] = outcomes(g, sid)
-    assert out["result"] == "error:ProviderUnreachable"
+    assert out["result"] == "error:StreamInterrupted"
     assert out["usage"]["charged_tokens"] == g.store.get(sid).used["model_tokens"] > 0
 
 

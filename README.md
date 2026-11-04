@@ -31,8 +31,8 @@ behaviour unchanged: `src/autopilot/engine/` is clearance's `server.py`, `dispat
 
 **R-3b (Built, live on hangar-dev since R-4, 2026-11-03):** the gateway stopped deciding and recording in process. Every tool call,
 model call, session open and spawn is an evaluation the Clearance core decides and records
-(`POST /access/v1/evaluation`, through `clearance-core-client`, pinned at clearance v0.29.0 until A-4, which pins the commit of clearance's
-`w2-a4-cost-counts` branch until the release that carries it); the gateway applies the
+(`POST /access/v1/evaluation`, through `clearance-core-client` pinned at clearance v0.30.0 by A-1, and by A-4 at the commit of
+clearance's `w2-a4-cost-counts` branch until the release that carries it); the gateway applies the
 spend the core names to its own session, acts only on an allow, and reports the result
 (`POST /v1/decisions/{id}/outcome`). Its runtime records (`run.launch`, `run.delete`, `human.answer`,
 `session.freeze`, `trigger.hold`; from R-3f also `run.finish`, `session.end`, `trigger.release`) go to
@@ -57,6 +57,15 @@ tests (it left clearance in v0.30.0). The only Clearance dependency is the gener
 with clearance v0.26.1 (the tables it created, its read API's operations) is vendored in `tests/fixtures/clearance-v0.26.1-*`.
 `tests/engine/test_boundary.py` fails on any `clearance` import under `src`, `tools`, `tests` or `runtime`, and on a
 `clearance` requirement in `pyproject.toml`.
+
+**A-1 (Built; not yet on hangar-dev):** the gateway is a conformant Clearance runtime provider
+([docs/admin/provider.md](docs/admin/provider.md)). It passes `clearance conformance --role runtime` in CI, against
+the released core image and the plain binary, through a test-only control interface (`autopilot-gateway
+conformance-control`, off unless `GATEWAY_CONFORMANCE_CONTROL=1`, loopback only). The model proxy reports every
+allowed model call's outcome as the gateway's provider, with `receipt.stream` saying whether it streamed. The MCP
+tool `session_close` lets a session's own caller end it (owner-only; `session.end`, its runs deleted). The image
+knows its own tag (`AUTOPILOT_GATEWAY_VERSION`), and the start line prints `provider=autopilot-gateway/<tag>`; the
+core's `CLEARANCE_PROVIDERS` entry must carry the same version, since that is what every record names.
 
 **R-3c (Built, live on hangar-dev since R-4):** the gateway serves its own read API, the `autopilot-api` Deployment
 (two replicas, on the gateway's own database `autopilot-pg`, `gateway_*` only); Tower reads it through
@@ -118,7 +127,7 @@ Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).
 
 ## What is built and tested
 
-`./.venv/bin/python -m pytest -q` runs 763 tests (A-4, 2026-11-03: 755 pass and 8 skip without `AUTOPILOT_TEST_PG` and the core container), no cluster needed, against a real Clearance core:
+`./.venv/bin/python -m pytest -q` runs 799 tests (A-4 on A-1, 2026-11-03: 790 pass and 9 skip without `AUTOPILOT_TEST_PG` and the core container), no cluster needed, against a real Clearance core:
 `tests/conftest.py` builds the unmodified clearance binary from a checkout (`go build ./cmd/clearance`;
 `CLEARANCE_SRC`, or `$HANGAR_TECH/clearance`; CI checks out the ref the client is pinned at) and runs it as
 `clearance core --memory --insecure-dev-auth --max-clock-skew 0 --listen 127.0.0.1:0` (the tests run on a fixed
@@ -146,11 +155,12 @@ One more skips without a gitops-cluster-dev checkout.
 | Policy and the record | the Clearance core | CEL deny rules with ids, an explicit order and fix hints, core plus Hangar's policy bundle; the evidence chain; fails closed |
 | Gateway core | `engine/dispatch.py`, `engine/backends.py`, `engine/core.py` | authenticate, ask the core, apply its spend, call, report the outcome; handlers are registered per tool, the run tree goes through an injected run backend |
 | Outbox and the gateway's database | `engine/outbox.py`, `engine/pg.py`, `tools/cutover/copy_runtime_tables.py` | what the core is owed, posted in order; sessions, inbox, results, artifacts, events, holds, pins; the R-4 copy from clearance-pg ([docs/admin/gateway-database.md](docs/admin/gateway-database.md)) |
-| Model access | `engine/modelproxy.py` | the core decides each call (allowlist, network mode, breaker, budget); the gateway charges the usage |
-| Flight recorder and cost (A-4: AP-C1, AP-C2) | `engine/server.py` (`create_model_app`), `engine/dispatch.py` (`model_usage`, `_record`, `pinned_model`, `preflight_of`, `run_cost`), `engine/modelproxy.py` (`usage_record`), `engine/session.py` (`Session.usage`) | every allowed model call's outcome goes to the core however it ended (`ok`, `error:http-<status>`, `error:ProviderUnreachable`), with `model_version` (the model that answered: the response's `model`, a stream's `message_start`, else the route's upstream model) and `usage` (the four token kinds and `charged_tokens`, what the session's `model_tokens` budget was charged by `USAGE_WEIGHTS`). `run.launch`, `run.finish` and `run.delete` carry `model_version` (the definition's first model through its route) and `preflight` (`Gateway.preflight`, a callable A-6 fills; `not-run` until then); `run.finish` carries `cost` (the session's usage, model and tool calls, wall seconds, compute class). The session keeps its running cost as `usage` (the read API's sessions show it; `GET /v1/tasks/{id}` sums it as `cost`). clearance-api's `GET /v1/evidence/counts?by=cost&per=task|session|agent|principal` sums the records |
+| Model access | `engine/modelproxy.py` | the core decides each call (allowlist, network mode, breaker, budget); the gateway charges the usage and reports each allowed call's outcome (`receipt.stream`, `upstream_status`) |
+| Flight recorder and cost (A-4: AP-C1, AP-C2) | `engine/server.py` (`create_model_app`), `engine/dispatch.py` (`model_usage`, `_record`, `pinned_model`, `preflight_of`, `run_cost`), `engine/modelproxy.py` (`usage_record`), `engine/session.py` (`Session.usage`) | the same one outcome per allowed model call (A-1's, `ok` or `error:<Kind>`) carries `model_version` (the model that answered: the response's `model`, a stream's `message_start`, else the route's upstream model) and `usage` (the four token kinds and `charged_tokens`, what the session's `model_tokens` budget was charged by `USAGE_WEIGHTS`). `run.launch`, `run.finish` and `run.delete` carry `model_version` (the definition's first model through its route) and `preflight` (`Gateway.preflight`, a callable A-6 fills; `not-run` until then); `run.finish` carries `cost` (the session's usage, model and tool calls, wall seconds, compute class). The session keeps its running cost as `usage` (the read API's sessions show it; `GET /v1/tasks/{id}` sums it as `cost`). clearance-api's `GET /v1/evidence/counts?by=cost&per=task|session|agent|principal` sums the records |
 | Triggers | `autopilot/triggers.py` | interval and alert triggers for scheduled and event agents |
 | Preflight | `autopilot/preflight.py`, `preflight/cases/` | deterministic scoring, self-check that a case can fail |
-| MCP surface | `engine/server.py` | three tools on the mcp SDK v2; `tools_list` lists the Gateway's own registry |
+| MCP surface | `engine/server.py` | six tools on the mcp SDK v2 (`tools_list`, `agents_list`, `session_open`, `call`, `run_finish`, `session_close`); `tools_list` lists the Gateway's own registry |
+| Provider conformance (A-1) | `autopilot/conformance.py`, `tests/test_conformance.py` | the test-only control interface Clearance's `conformance --role runtime` drives; off by default, loopback only ([docs/admin/provider.md](docs/admin/provider.md)) |
 | AppSpec and the planner | `autopilot/airframe_plan.py`, `schemas/appspec.schema.json` (vendored from airframe's contract) | the parachute test: one statement of intent to an ordered change set; its cicd.yaml patch is split by Glidepath's scope rules: the agent's half (Ground environments and their deploy steps, added without dropping a step) passes R021, and Flight environments, the release step and retiring pre-ADR-0019 keys are a separate `cicd-flight` step a human merges; `config`/`overrides` take any human-owned chart value (second sentence: `examples/mynewpythonapp.appspec.yaml`, five environments, canary with pauses, HPA, PDB, a prod-only route); validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` of every environment |
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | lives in airframe (`xrds/agentrun.yaml`, `compositions/agentrun/`, `functions/function-agentrun/`); `src/autopilot/vendor/agentrun_compose.py` and `schemas/agentrun.xrd.yaml` are byte-identical copies | the canary renders with the vendored `compose()`; Clearance's AgentRun manifests are validated against the vendored XRD; `tests/test_agentrun_vendor.py` fails on drift |

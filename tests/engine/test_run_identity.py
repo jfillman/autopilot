@@ -188,3 +188,89 @@ def test_a_streaming_error_from_the_provider_comes_back_as_json(g, tmp_path):
     r = TestClient(app).post("/v1/messages", json={**BODY, "stream": True}, headers={"x-api-key": "run-a", "x-hangar-session": sid})
     assert r.status_code == 529 and r.json()["error"]["type"] == "overloaded_error"
     assert g.store.get(sid).used["model_tokens"] == 0
+
+
+# -- A-1: the model proxy reports each allowed call as the gateway's provider, with whether it streamed ---------------
+
+def _model_records(g):
+    """The model.call decisions and outcomes the core recorded for this test's gateway, in order."""
+    return [r for r in g.core.records if r.get("tool") == "model.call"]
+
+
+def _pair(g):
+    """The last model.call decision and the outcome that references it."""
+    recs = _model_records(g)
+    decision = [r for r in recs if "outcome_of" not in r][-1]
+    outs = [r for r in recs if (r.get("outcome_of") or {}).get("seq") == decision["seq"]]
+    return decision, outs
+
+
+@pytest.mark.parametrize("streamed", [False, True])
+def test_an_allowed_model_call_has_one_outcome_written_as_the_gateway_with_stream(g, proxy, streamed):
+    client, _ = proxy
+    sid = launched(g)
+    r = client.post("/v1/messages", json={**BODY, "stream": streamed}, headers={"x-api-key": "run-a", "x-hangar-session": sid})
+    assert r.status_code == 200
+    decision, outs = _pair(g)
+    assert decision["decision"] == "allow" and decision["caller"]["provider"] == "autopilot-gateway"
+    assert len(outs) == 1, outs
+    o = outs[0]
+    assert o["provider"] == {"name": "autopilot-gateway", "version": "test"}, "the core stamps the registered provider"
+    assert o["outcome_of"]["hash"] == decision["hash"] and o["result"] == "ok"
+    assert o["receipt"] == {"stream": streamed, "upstream_status": 200}
+    # A model call's subject is model-call, named by the model it asked for (clearance A-4, revision 3).
+    assert o["subject"]["kind"] == "model-call" and o["subject"]["name"] == decision["target"] and o["subject"]["digests"]["sha256"] == decision["args_sha256"]
+    assert "receipt" in o["claimed"], "what the gateway says about the call is claimed, not verified"
+
+
+def test_a_refused_model_call_has_no_outcome(g, proxy):
+    client, _ = proxy
+    sid = launched(g)
+    r = client.post("/v1/messages", json={**BODY, "max_tokens": 10**9}, headers={"x-api-key": "run-a", "x-hangar-session": sid})
+    assert r.status_code == 429
+    decision, outs = _pair(g)
+    assert decision["decision"] == "deny" and outs == []
+
+
+def test_an_upstream_error_is_the_outcome_and_still_says_it_streamed(g, tmp_path):
+    key = tmp_path / "key"
+    key.write_text("sk-real\n")
+    err = json.dumps({"type": "error", "error": {"type": "overloaded_error", "message": "busy"}}).encode()
+    app = create_model_app(g, key_file=str(key), post=lambda *a, **k: (500, b"{}"), stream=lambda *a, **k: (529, iter([err])))
+    sid = launched(g)
+    c = TestClient(app)
+    assert c.post("/v1/messages", json={**BODY, "stream": True}, headers={"x-api-key": "run-a", "x-hangar-session": sid}).status_code == 529
+    _, [o] = _pair(g)
+    assert o["result"] == "error:Upstream529" and o["receipt"] == {"stream": True, "upstream_status": 529}
+    assert c.post("/v1/messages", json=BODY, headers={"x-api-key": "run-a", "x-hangar-session": sid}).status_code == 500
+    _, [o] = _pair(g)
+    assert o["result"] == "error:Upstream500" and o["receipt"] == {"stream": False, "upstream_status": 500}
+
+
+def test_an_unreachable_provider_is_the_outcome(g, tmp_path):
+    key = tmp_path / "key"
+    key.write_text("sk-real\n")
+
+    def down(*a, **k):
+        raise OSError("connection refused")
+    app = create_model_app(g, key_file=str(key), post=down, stream=down)
+    sid = launched(g)
+    r = TestClient(app).post("/v1/messages", json={**BODY, "stream": True}, headers={"x-api-key": "run-a", "x-hangar-session": sid})
+    assert r.status_code == 502
+    _, [o] = _pair(g)
+    assert o["result"] == "error:ModelUnreachable" and o["receipt"] == {"stream": True}
+
+
+def test_a_stream_cut_short_is_not_ok(g, tmp_path):
+    key = tmp_path / "key"
+    key.write_text("sk-real\n")
+
+    def broken():
+        yield STREAM[0]
+        raise OSError("the provider dropped the connection")
+    app = create_model_app(g, key_file=str(key), post=lambda *a, **k: (500, b""), stream=lambda *a, **k: (200, broken()))
+    sid = launched(g)
+    with pytest.raises(OSError):
+        TestClient(app).post("/v1/messages", json={**BODY, "stream": True}, headers={"x-api-key": "run-a", "x-hangar-session": sid})
+    _, [o] = _pair(g)
+    assert o["result"] == "error:StreamInterrupted" and o["receipt"] == {"stream": True, "upstream_status": 200}

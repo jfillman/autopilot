@@ -40,7 +40,7 @@ from typing import Any, Callable, Mapping
 from .engine import profile
 from .engine.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
                           RoutingAuthenticator, WorkloadAuthenticator)
-from .engine.core import DEFINITIONS_TIMEOUT, Core, client_from_env
+from .engine.core import DEFINITIONS_TIMEOUT, PROVIDER, Core, client_from_env
 from .engine.definitions import Definitions, MemoryDefinitions
 from .engine.outbox import MemoryOutbox
 from .engine.backends import Handler
@@ -62,6 +62,7 @@ from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from .engine.results import MemoryResults
 from .reads import BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
+from .version import gateway_version
 
 log = logging.getLogger("autopilot.gateway")
 
@@ -397,6 +398,9 @@ class SerializedGateway(Gateway):
     def model_usage(self, *a, **k):
         return self._locked(super().model_usage, *a, **k)
 
+    def model_outcome(self, *a, **k):
+        return self._locked(super().model_outcome, *a, **k)
+
     def ping(self) -> None:
         """One round trip to the database, under the lock (a no-op when ephemeral)."""
         if self.state is None:
@@ -503,9 +507,13 @@ class Expirer:
 
 
 def describe(cfg: Config, gw: Gateway) -> str:
-    """The start line: what is enabled. No DSN, no token, no file contents."""
+    """The start line: what is enabled, and the provider contract (docs/admin/provider.md): the provider name and
+    this image's version, which the core's CLEARANCE_PROVIDERS entry must carry for every record to name it. No DSN,
+    no token, no file contents."""
     backed = sorted(gw._handlers)
-    return (f"autopilot-gateway: port={cfg.port} store={'memory (ephemeral)' if cfg.ephemeral else 'postgres'} "
+    return (f"autopilot-gateway: provider={PROVIDER}/{gateway_version()} (runtime role; records name the version "
+            f"of the core's CLEARANCE_PROVIDERS entry; model calls report as {PROVIDER}, tool model.call) "
+            f"port={cfg.port} store={'memory (ephemeral)' if cfg.ephemeral else 'postgres'} "
             f"agents={len(gw.defs)} from {cfg.agents_dir} tools={len(gw.tools)} backed={len(backed)} "
             f"auth=workload(aud={cfg.audience})" + (f"+oidc({cfg.oidc_issuer})" if cfg.oidc_issuer else "")
             + f" resource={cfg.resource_url} glidepath={cfg.glidepath_url or 'off'}"
@@ -528,6 +536,9 @@ def main() -> int:
     if sys.argv[1:2] == ["api"]:   # `autopilot-gateway api`: clearance-api, the read-only process (api_serve.py)
         from .api_serve import main as api_main
         return api_main()
+    if sys.argv[1:2] == ["conformance-control"]:   # test only, off by default (conformance.py)
+        from .conformance import main as conformance_main
+        return conformance_main(sys.argv[2:])
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:
