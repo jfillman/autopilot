@@ -3,7 +3,7 @@
 
 TEST ONLY, OFF BY DEFAULT. It is served by its own subcommand, `autopilot-gateway conformance-control`, which refuses
 to start unless GATEWAY_CONFORMANCE_CONTROL=1 is set as well, and binds only a loopback address, on its own port
-(default 127.0.0.1:9090). No chart, manifest or Apron template sets either switch (tests/test_conformance.py
+(default 127.0.0.1:9091). No chart, manifest or Apron template sets either switch (tests/test_conformance.py
 checks the repo's manifests). It never starts the deployable gateway (serve.main): it reads no GATEWAY_DSN, no core
 token file, no model key, no backend credential.
 
@@ -49,7 +49,7 @@ from .version import gateway_version
 log = logging.getLogger("autopilot.conformance")
 
 ENABLE_ENV = "GATEWAY_CONFORMANCE_CONTROL"
-DEFAULT_LISTEN = "127.0.0.1:9090"
+DEFAULT_LISTEN = "127.0.0.1:9091"
 
 MAX_BODY = 1 << 20
 MAX_APPLIES = 256
@@ -373,7 +373,7 @@ def listen_address(value: str) -> tuple[str, int]:
 
 
 def main(argv: list[str], env: Mapping[str, str] | None = None) -> int:
-    """`autopilot-gateway conformance-control [--listen 127.0.0.1:9090]`, with GATEWAY_CONFORMANCE_CONTROL=1."""
+    """`autopilot-gateway conformance-control [--listen 127.0.0.1:9091]`, with GATEWAY_CONFORMANCE_CONTROL=1."""
     import argparse
 
     env = os.environ if env is None else env
