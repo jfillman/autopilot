@@ -381,7 +381,7 @@ class AppAPIs:
                          "Name one of the services your definition lists under profile.apis.allow; a person adds "
                          f"new ones to the gateway's APP_API_SERVICES. Known: {', '.join(sorted(self.services)) or 'none'}.")
         if (not isinstance(path, str) or len(path) > MAX_API_PATH or not _API_PATH.match(path) or "//" in path
-                or any(enc in path.lower() for enc in ("%2e", "%2f", "%5c", "%00"))
+                or any(enc in path.lower() for enc in ("%2e", "%2f", "%5c", "%00", "%25"))   # %25: no double encoding
                 or any(seg in (".", "..") for seg in path.split("?")[0].split("/"))):
             raise Denied("READ-API-PATH", f"{str(path)[:80]!r} is not a path on the service",
                          "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').")

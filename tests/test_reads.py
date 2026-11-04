@@ -343,7 +343,7 @@ def test_app_api_get_cuts_a_large_body():
     assert out["truncated"] and len(out["text"]) == reads.MAX_API_BODY
 
 
-@pytest.mark.parametrize("path", ["api/flights", "//evil.test/x", "/a/../b", "/..", "/a/%2e%2e/b", "/a%2fb",
+@pytest.mark.parametrize("path", ["api/flights", "//evil.test/x", "/a/../b", "/..", "/a/%2e%2e/b", "/a%2fb", "/a/%252e%252e/b", "/a%252fb",
                                   "http://evil.test/", "/a#frag", "/a b", "/" + "a" * 600, "/a\\b", "/a%00", None])
 def test_app_api_paths_cannot_leave_the_service(path):
     op = API()
