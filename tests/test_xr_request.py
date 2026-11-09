@@ -54,8 +54,8 @@ def test_a_dependency_request_is_one_new_file_opened_as_a_pr_on_the_tenants_repo
     assert out["path"] == "tenants/flight-api/xr-requests/orders.yaml" and out["pr"] == 3
     assert out["namespace"] == "app-flight-api-cicd" and out["kind"] == "MessageQueue"
     broker = g.reqs[0]
-    # one token, for the tenants repo, asked for the app the request is for
-    assert broker[3] == {"owner": "jfillman", "repo": "gitops-hangar-dev-tenants", "app": "flight-api"}
+    # one token, for the tenants repo, asked for with no app: the broker refuses that repo when an app is named
+    assert broker[3] == {"owner": "jfillman", "repo": "gitops-hangar-dev-tenants"}
     assert sum(1 for r in g.reqs if r[1].endswith("/agent-installation-token")) == 1
     tree = next(r[3] for r in g.reqs if r[1].endswith("/git/trees"))
     [entry] = tree["tree"]

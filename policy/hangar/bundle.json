@@ -1,7 +1,7 @@
 {
   "apiVersion": "clearance.policy/v1",
   "name": "hangar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Hangar's policy over the Autopilot gateway's glidepath.* and airframe.* tools: R021 Glidepath's cicd.yaml field scope (read from glidepath-api's contract at load) on any file-writing tool, R022 and R023 the per-agent app allowlists (profile.glidepath.apps, profile.airframe.apps), and the tools' argument checks (R008).",
   "tools": [
     {
@@ -450,10 +450,29 @@
       "writes_files": false,
       "reads_repo": false,
       "receipt": []
+    },
+    {
+      "name": "airframe.apply",
+      "tier": 1,
+      "description": "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull request on the tenants repo or the app's repo for a person to merge (one PR per call; call again with the same spec after each merge, or after an interruption: it resumes). The Flight half is left to people",
+      "required_args": [
+        "spec"
+      ],
+      "github_cost": 15,
+      "target": "lower",
+      "propose_only": false,
+      "writes_files": false,
+      "reads_repo": false,
+      "receipt": [
+        "pr",
+        "commit",
+        "branch"
+      ]
     }
   ],
   "pr_tools": [
-    "glidepath.cicd.propose"
+    "glidepath.cicd.propose",
+    "airframe.apply"
   ],
   "profile_sections": [
     "glidepath",
@@ -482,12 +501,12 @@
     {
       "name": "has_airframe_app",
       "type": "bool",
-      "expr": "tool.name.startsWith('airframe.') && 'app' in args && type(args['app']) == string"
+      "expr": "tool.name.startsWith('airframe.') && (tool.name == 'airframe.apply' || ('app' in args && type(args['app']) == string))"
     },
     {
       "name": "airframe_app_ok",
       "type": "bool",
-      "expr": "!(ctx.has_airframe_app && args['app'] != '') || glob.any(args['app'], py.strlist(py.get(py.get(profile, 'airframe'), 'apps')))"
+      "expr": "!ctx.has_airframe_app || (tool.name == 'airframe.apply' ? ((('spec' in args && type(args['spec']) == map && 'app' in args['spec'] && type(args['spec']['app']) == string) ? string(args['spec']['app']) : '') != '' && glob.any((('spec' in args && type(args['spec']) == map && 'app' in args['spec'] && type(args['spec']['app']) == string) ? string(args['spec']['app']) : ''), py.strlist(py.get(py.get(profile, 'airframe'), 'apps')))) : (args['app'] == '' || glob.any(args['app'], py.strlist(py.get(py.get(profile, 'airframe'), 'apps')))))"
     }
   ],
   "arg_checks": [
@@ -647,7 +666,7 @@
       ]
     }
   ],
-  "app": "(tool.name.startsWith('glidepath.') || tool.name.startsWith('airframe.') || tool.name == 'xr.request') ? ('app' in args && type(args['app']) == string ? string(args['app']) : '') : (tool.name.startsWith('repo.') && 'repo' in args && type(args['repo']) == string && args['repo'].contains('/') ? py.trim_prefix(string(args['repo']).substring(string(args['repo']).lastIndexOf('/') + 1), ['gitops-infra-', 'gitops-']) : '')",
+  "app": "(tool.name.startsWith('glidepath.') || tool.name.startsWith('airframe.') || tool.name == 'xr.request') ? (tool.name == 'airframe.apply' ? ('spec' in args && type(args['spec']) == map && 'app' in args['spec'] && type(args['spec']['app']) == string ? string(args['spec']['app']) : '') : ('app' in args && type(args['app']) == string ? string(args['app']) : '')) : (tool.name.startsWith('repo.') && 'repo' in args && type(args['repo']) == string && args['repo'].contains('/') ? py.trim_prefix(string(args['repo']).substring(string(args['repo']).lastIndexOf('/') + 1), ['gitops-infra-', 'gitops-']) : '')",
   "rules": [
     {
       "id": "R022",

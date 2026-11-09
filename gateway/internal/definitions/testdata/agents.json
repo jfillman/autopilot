@@ -713,6 +713,164 @@
    "limits": {
     "children": 0,
     "compute": "small",
+    "github_calls": 150,
+    "model_tokens": 300000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 6,
+    "tier_ceiling": "T1",
+    "tool_calls": 60,
+    "tools": [
+     "airframe.apply",
+     "airframe.capabilities",
+     "airframe.describe",
+     "airframe.explain",
+     "airframe.plan",
+     "airframe.status",
+     "airframe.verify",
+     "human.request",
+     "human.request.get"
+    ],
+    "ttl_minutes": 30
+   },
+   "name": "parachute",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Provisions an app from an AppSpec: opens each step of its plan as a pull request for a person to merge, and picks up where an earlier run stopped.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "task",
+   "name": "parachute",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "airframe": {
+     "apps": [
+      "parachute"
+     ]
+    },
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 150,
+     "modelTokens": 300000,
+     "openPrs": 6,
+     "toolCalls": 60,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "repos": {
+     "allow": [
+      "jfillman/parachute",
+      "jfillman/gitops-hangar-dev-tenants"
+     ]
+    },
+    "tierCeiling": "T1",
+    "tools": [
+     "airframe.capabilities",
+     "airframe.explain",
+     "airframe.plan",
+     "airframe.apply",
+     "airframe.status",
+     "airframe.describe",
+     "airframe.verify",
+     "human.request"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "instructions": "Bring the app described by the AppSpec in your input (app `parachute`) up through airframe.apply, and change nothing any other way. 1. airframe.plan the spec (pass baseCicd when you have the app's cicd.yaml). If it answers needsInput or an AF-SPEC error, stop and report the question; do not guess an answer. 2. airframe.apply with the same spec. It opens ONE pull request per call, or returns the one already open. Read `state`: `awaiting-merge` means a person must merge `url` (say so and stop; do not call again until told it is merged, or ask with human.request); `waiting` always carries a `reason`: read it. If the platform is still creating something, report and stop; if it says a PR was closed, stop and ask a person with human.request, and do not call again until they answer. `agent-steps-merged` means everything this tool opens is merged. 3. After a merge, call airframe.apply again with the identical spec to open the next step. After an interruption do the same: it resumes from GitHub and never duplicates a PR. 4. `humanSteps` are the Flight half: report them (repo, paths, reason) for a person; never try to open them another way. Check progress with airframe.status and airframe.describe, and airframe.verify when the environments are up. Report each PR link, what is merged, what is waiting and on whom, and anything that failed with its rule id."
+   },
+   "triggers": [
+    {
+     "type": "manual"
+    }
+   ]
+  },
+  "name": "parachute",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "task",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "airframe": {
+     "apps": [
+      "parachute"
+     ]
+    },
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 150,
+     "modelTokens": 300000,
+     "openPrs": 6,
+     "toolCalls": 60,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "repos": {
+     "allow": [
+      "jfillman/parachute",
+      "jfillman/gitops-hangar-dev-tenants"
+     ]
+    },
+    "tierCeiling": "T1",
+    "tools": [
+     "airframe.capabilities",
+     "airframe.explain",
+     "airframe.plan",
+     "airframe.apply",
+     "airframe.status",
+     "airframe.describe",
+     "airframe.verify",
+     "human.request"
+    ]
+   },
+   "repos_allow": [
+    "jfillman/parachute",
+    "jfillman/gitops-hangar-dev-tenants"
+   ]
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "task",
+   "limits": {
+    "children": 0,
+    "compute": "small",
     "github_calls": 0,
     "model_tokens": 200000,
     "models": [

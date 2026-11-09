@@ -56,15 +56,27 @@ def _clearance_src() -> Path | None:
     return None
 
 
-def test_the_corpus_replays_identically_with_this_bundle():
+def test_the_corpus_replays_identically_with_this_bundle(tmp_path):
     """Every decision of Clearance's golden corpus (the Python engine with the Hangar pack, over its whole test suite
     and the fixture agents' calls): same decision, rule id, message, hint, tier, problems, spend and record fields,
     with autopilot's bundle in place of the clearance test fixture (CLEARANCE_GOLDEN_BUNDLE)."""
     src = _clearance_src()
     if src is None or shutil.which("go") is None:
         pytest.skip("no clearance checkout with the golden corpus, or no Go toolchain")
+    # The corpus froze the Python pack: its tools, rules and PR tools. TestBundleMatchesPython compares the bundle's to
+    # them exactly, so a tool added since cannot be in the bundle it replays. airframe.apply (A-3) is one: a T1 PR tool.
+    # Adding it changes no decision the corpus holds (it is a tool the corpus never calls, and its policy is R023's
+    # app-from-spec reading), so the corpus replays on the bundle without that tool and its pr_tools name, and the
+    # bundle is checked to differ from that one in nothing else.
+    since_corpus = {"airframe.apply"}
+    assert {t["name"] for t in BUNDLE["tools"]} - {t["name"] for t in BUNDLE["tools"] if t["name"] not in since_corpus} == since_corpus
+    assert set(BUNDLE["pr_tools"]) - since_corpus == {"glidepath.cicd.propose"}
+    frozen = dict(BUNDLE, tools=[t for t in BUNDLE["tools"] if t["name"] not in since_corpus],
+                  pr_tools=[t for t in BUNDLE["pr_tools"] if t not in since_corpus])
+    frozen_path = tmp_path / "bundle.json"
+    frozen_path.write_text(json.dumps(frozen))
     out = subprocess.run(["go", "test", "-count=1", "-v", "-run", "TestBundleMatchesPython|TestCorpusReplays|TestCorpusCoverage",
                           "./internal/decide/golden/"], cwd=src, capture_output=True, text=True,
-                         env={**os.environ, "CLEARANCE_GOLDEN_BUNDLE": str(HANGAR_BUNDLE)})
+                         env={**os.environ, "CLEARANCE_GOLDEN_BUNDLE": str(frozen_path)})
     assert out.returncode == 0, out.stdout[-4000:] + out.stderr[-2000:]
     assert "--- PASS: TestCorpusReplays" in out.stdout and "replayed" in out.stdout, out.stdout[-2000:]

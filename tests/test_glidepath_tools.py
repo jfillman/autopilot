@@ -408,7 +408,9 @@ GITHUB_WRITERS = {n for n, t in TOOLS.items() if (t.github_cost > 0 and t.tier >
 def test_the_registry_has_no_tool_that_merges_or_approves():
     # glidepath.cicd.propose (2026-10-31) opens one PR of cicd.yaml on the app repo, as repo.pr.open does; release-proposer
     # does not list it (the test below holds that), and like every PR tool it cannot merge, approve or push to a branch.
-    assert GITHUB_WRITERS == {"repo.pr.open", "repo.pr.open_upper", "xr.request", "glidepath.cicd.propose"}, \
+    # airframe.apply (A-3) opens a plan's PRs the same way, one per call; tests/test_airframe_apply.py reads its requests.
+    assert GITHUB_WRITERS == {"repo.pr.open", "repo.pr.open_upper", "xr.request", "glidepath.cicd.propose",
+                              "airframe.apply"}, \
         "a new GitHub-writing tool: decide whether release-proposer may ever see it"
     for name in TOOLS:
         # \breview: "previews" (glidepath.previews.list, a read) is not a review.

@@ -6,7 +6,8 @@ identity: { type: delegated }
 profile:
   tierCeiling: T0
   # No airframe.validate: the gateway image carries no airframe-validate, so the tool has no backend on Hangar (A-7:
-  # no tool in a loaded definition lacks one). A-3 restores it here with the validator in the image.
+  # no tool in a loaded definition lacks one). A-3 removed it from every definition rather than add the validator (and
+  # helm) to the image. Read-only: airframe.apply is agents/parachute.yaml's.
   tools: [airframe.capabilities, airframe.explain, airframe.plan, airframe.status, airframe.describe, airframe.verify]
   airframe: { apps: ["*"] }
   models: [claude-sonnet-5-5]

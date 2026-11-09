@@ -9,7 +9,7 @@ Postgres). A tool whose backend this deployment does not have (chat.* always; ap
 xr.request without GITHUB_PR_ENABLED or with XR_REQUEST_ENABLED=0; catalog.read without BACKSTAGE_URL; artifact.* when ephemeral; argo.sync.lower without ARGO_SYNC_ENABLED;
 repo.pr.open and repo.pr.open_upper without GITHUB_PR_ENABLED; glidepath.* without GLIDEPATH_API_URL; metrics.query without
 PROMETHEUS_URL; logs.query without LOKI_URL; airframe.* with AIRFRAME_ENABLED=0; argo.app.get with ARGO_ENABLED=0;
-airframe.validate always, since the image carries no airframe-validate) has no handler, so a call to it is refused
+airframe.validate always, since the image carries no airframe-validate; airframe.apply without GITHUB_PR_ENABLED) has no handler, so a call to it is refused
 as having no backend. Nothing here registers a fake.
 
 Every gateway entry point, the MCP server's calls and the expiry sweep alike, runs under one lock

@@ -59,6 +59,11 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   `xr.request` (with GitHub PRs; `XR_REQUEST_ENABLED=0` turns it off) and `app.api.get` (`APP_API_SERVICES`) too.
   `chat.*` and `airframe.validate` have no handler in the image, so their calls are refused as "no backend", and no
   bundled definition names them (`tests/test_definitions_backed.py`); nothing is faked.
+  `airframe.apply` (A-3) needs `GITHUB_PR_ENABLED=1` and `AIRFRAME_ENABLED=1`: it opens PRs through the same broker and
+  token file as `repo.pr.open`, asking the broker for the tenants repo (`AIRFRAME_TENANTS_REPO`) with no `app`, so Glidepath's
+  `agentToken` must allow that repo (`AGENT_PIN_TENANTS_REPO`) and the agents' App be installed there, and it asks glidepath-api
+  to check the cicd.yaml change (`GLIDEPATH_API_URL`). It keeps no state: a restarted core resumes from GitHub. It writes to
+  GitHub only by creating new branches and PRs; the Flight half and every merge are people's.
 - **Logs to Loki.** `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` sends a copy of every INFO-and-above log line (DEBUG stays on stderr) to the cluster's OpenTelemetry
   collector over OTLP/HTTP JSON (`otlp_logs.py`, standard library only; a bounded queue, batches with a 5 s deadline,
   and a collector outage drops lines, never blocks a call). The read API (`autopilot-gateway api`) does the same as `autopilot-api`. On Hangar apron sets it with `OTEL_SERVICE_NAME` and the
@@ -111,7 +116,8 @@ history and the runtime catalog, with the same paths, answers and roles clearanc
   allowlist itself, GET only, so an RBAC mistake alone still reads nothing more. It needs the API server URL, the
   CA file and a projected ServiceAccount token file (re-read every call). `airframe.validate` needs airframe's
   `airframe-validate`: the script from an airframe checkout with python3, pyyaml, jsonschema and helm, or the
-  `tools/validate.Containerfile` image run with the content directory mounted read-only.
+  `tools/validate.Containerfile` image run with the content directory mounted read-only. The image has neither, so no
+  definition names it (A-3 removed it from the definitions instead of adding the validator to the image).
 - **Live check**: `tools/airframe_smoke.py` drives the tools through MCP against a cluster with a 10-minute token
   (`kubectl create token clearance -n autopilot-system --duration=10m`) and compares them with `kubectl get`.
 - **provider-kubernetes RBAC** for the objects an `AgentRun` renders (Namespace, ResourceQuota, ServiceAccount,
