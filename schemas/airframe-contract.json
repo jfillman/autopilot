@@ -3417,8 +3417,8 @@
     "AgentRun": {
       "agentSummary": "One bounded, disposable run of an Autopilot agent in its own sandboxed namespace, with a hard deadline that needs no gateway to enforce.",
       "apiVersion": "catalog.hangar.io/v1alpha1",
-      "fieldsDescribed": 25,
-      "fieldsTotal": 25,
+      "fieldsDescribed": 26,
+      "fieldsTotal": 27,
       "file": "agentrun.yaml",
       "group": "catalog.hangar.io",
       "plural": "agentruns"

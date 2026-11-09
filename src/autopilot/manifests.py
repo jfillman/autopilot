@@ -35,8 +35,8 @@ def agentrun_manifest(session: Session, definition: AgentDefinition, *, image: s
         "taskId": session.task_id,
         "sessionId": session.id,
         # The run's own copy of its budgets, and its tool grant (HANGAR_LIMITS "tools"): the runtime offers the model
-        # only these. For the run's information; the gateway still decides every call. Until airframe's AgentRun XRD
-        # declares limits.tools, the API server prunes it and the runtime reads the scoped tools_list instead.
+        # only these. For the run's information; the gateway still decides every call. Airframe's AgentRun XRD
+        # declares limits.tools (vendored schemas/agentrun.xrd.yaml), so the API server keeps it.
         "limits": {"toolCalls": lim.tool_calls, "githubCalls": lim.github_calls,
                    "modelTokens": lim.model_tokens, "tools": sorted(lim.tools)},
     }

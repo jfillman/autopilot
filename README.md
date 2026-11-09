@@ -475,8 +475,9 @@ Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core),
   the tenants repo (403, `XR-TENANTS-TOKEN`) until its `agentToken` allows it and the agents' App is installed there.
 * `app.api.get` live: built (A-7); Hangar's gateway sets no `APP_API_SERVICES` yet (the Skyport definitions that use
   it are not loaded).
-* `HANGAR_LIMITS.tools` in a run: the gateway writes the grant into the AgentRun's `spec.limits.tools`, but airframe's
-  AgentRun XRD does not declare the field yet, so the API server prunes it; runs read the scoped `tools_list` instead.
+* `HANGAR_LIMITS.tools` in a run: the gateway writes the grant into the AgentRun's `spec.limits.tools`; airframe's
+  AgentRun XRD declares the field (jfillman/airframe#140, vendored here), so the API server keeps it once that XRD is
+  applied on the cluster.
 * Backstage MCP federation.
 * A durable event cursor: the event bridge holds glidepath-api's `/v1/events` stream, which is an in-memory buffer
   (glidepath known gap #44), and keeps no cursor of its own, so events sent while it is down are not replayed.
