@@ -6,6 +6,12 @@ people-dex, the AgentRun grants, agent-sandbox and the run reaper, all on hangar
 keys turn each feature on. The image is pinned by tag and digest: gateway-v0.4.0, calling clearance v0.29.0's core
 (apron `55-clearance`), since the R-4 cutover on 2026-11-03.
 
+## The Go gateway (A-9, first slice, not deployed)
+`gateway/` is the same gateway in Go, built so far to the hot path (MCP on the official SDK, decisions and outcomes through
+Clearance's Go client, sessions in the same database, a streaming model proxy). It is off by default and **not** the
+image any cluster runs; the Python gateway stays the reference until the rest is ported and a canary has run. What it
+carries, how it is proven equal, and what remains: [go-gateway.md](go-gateway.md).
+
 ## The gateway image
 `autopilot-gateway` (`src/autopilot/serve.py`, the repo's `Dockerfile`) is the deployable gateway for Hangar. Its code
 is this repo's `src/autopilot/engine/` (moved from clearance v0.26.1 in R-3a). From R-3b it asks the Clearance core
