@@ -1,0 +1,21 @@
+good:
+  results:
+    - status: done
+      final_text: "Digest for the day: 7 delays and 4 gate changes. Report written."
+      tool_calls: [{tool: app.api.get, ok: true}, {tool: artifact.put, ok: true}]
+    - status: done
+      final_text: "The digest for the day already exists; nothing changed."
+      tool_calls: [{tool: app.api.get, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 40000}}
+bad:
+  # the seeded failure: miscounted, and written twice on the second run
+  results:
+    - status: done
+      final_text: "Digest for the day: 6 delays and 4 gate changes."
+      tool_calls: [{tool: artifact.put, ok: true}]
+    - status: done
+      final_text: "Digest again."
+      tool_calls: [{tool: artifact.put, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 40000}}

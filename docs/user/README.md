@@ -19,7 +19,8 @@ plan.
   current content as `before`: without it the file counts as new, and a new cicd.yaml is a human's change.
   `op: merge-patch` content is applied to `before` first. The generated `.tekton/` stays denied whole.
 - **Score it with Preflight.** Cases in `preflight/cases/` run deterministically against a definition; a case must
-  be able to fail, and the harness checks that it can.
+  be able to fail, and the harness checks that it can: `autopilot preflight run --case <id>` scores a
+  scripted good run, `--seeded-bad` the run the case exists to catch (docs/admin/preflight.md).
 - **Plan an application from one statement.** The AppSpec planner (`src/autopilot/airframe_plan.py`, example in
   `examples/parachute.appspec.yaml`) produces the ordered change set that creates an app, its environments and
   their configuration, without touching a repo.

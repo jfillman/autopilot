@@ -11,3 +11,17 @@ minPathsTouched: 0
 maxDenials: 2
 maxRetries: 1
 tokenBudget: 400000
+agent: disruption-responder
+input: "Process the fixture stream of delayed-flight events."
+runs: 1
+checks:
+  one-run-per-unique-event:
+    - tool_count: {tool: run.spawn, eq: 3}
+  duplicate-delivery-did-not-start-a-second-run:
+    - text_contains: ["duplicate"]
+    - tool_count: {tool: run.spawn, max: 3}
+  malformed-event-rejected-and-audited:
+    - text_contains: ["malformed"]
+  drafts-stayed-drafts:
+    - text_contains: ["draft"]
+    - text_excludes: ["sent the notice", "notice sent"]

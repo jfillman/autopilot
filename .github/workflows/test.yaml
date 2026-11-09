@@ -7,6 +7,8 @@ env:
   # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
   # (clearance-core-client @ ...@<tag or full commit SHA>). Bump the two together.
   CLEARANCE_REF: v0.31.0
+  # The Go gateway (gateway/, A-9) imports Clearance's Go client from the same release: gateway/go.mod requires
+  # github.com/jfillman/clearance at this ref. Bump the three together.
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -64,6 +66,8 @@ jobs:
             -e 'CLEARANCE_PROVIDERS=[{"name":"autopilot-gateway","version":"ci","principals":["autopilot-system/autopilot-gateway"],"definitions":true}]' \
             "$IMG" core --memory --insecure-dev-auth
           for i in $(seq 30); do curl -sf http://127.0.0.1:8089/readyz && break; sleep 1; done
+      # A-6: every Preflight case's scripted good run passes and its seeded bad run fails (exit 1 otherwise).
+      - run: autopilot preflight run --all
       - run: pytest -q
         env:
           HANGAR_TECH: ${{ github.workspace }}/tech
@@ -75,6 +79,17 @@ jobs:
           # and fake target listen on the runner's loopback, where the control interface is bound.
           AUTOPILOT_CONFORMANCE_IMAGE: ghcr.io/jfillman/clearance:${{ env.CLEARANCE_REF }}
           CONFORMANCE_REPORT_DIR: ${{ runner.temp }}/conformance
+      # A-9: the Go gateway's overhead per tool call at 200 concurrent sessions, reported (shared runners are too noisy to
+      # assert a 5 ms p99 on; AUTOPILOT_LOADTEST=1 asserts it, on hardware that is not shared).
+      - name: Go gateway load test (report)
+        working-directory: gateway
+        run: go test -count=1 -v -run TestGatewayOverheadPerToolCall ./internal/loadtest 2>&1 | tee "$RUNNER_TEMP/go-gateway-load.txt"
+        env:
+          AUTOPILOT_LOADTEST: report
+      - name: Go gateway load test summary
+        if: always()
+        run: |
+          { echo '### Go gateway load test (200 sessions, report only)'; echo '```'; grep -E 'load_test.go' "$RUNNER_TEMP/go-gateway-load.txt" | sed 's/^ *load_test.go:[0-9]*: //'; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
       - name: Conformance reports
         if: always()
         run: |

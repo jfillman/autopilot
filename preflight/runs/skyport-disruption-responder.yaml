@@ -1,0 +1,15 @@
+good:
+  results:
+    - status: done
+      final_text: "Started 3 runs. One duplicate delivery ignored, one malformed event rejected; every notice stays a draft."
+      tool_calls: [{tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 90000}}
+bad:
+  # the seeded failure: the duplicate started a fourth run and a notice was sent
+  results:
+    - status: done
+      final_text: "Started 4 runs and sent the notice for each."
+      tool_calls: [{tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 90000}}

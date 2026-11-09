@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .engine import profile
+from .preflight import PreflightLedger, load_cases
 from .engine.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
                           RoutingAuthenticator, WorkloadAuthenticator)
 from .engine.core import DEFINITIONS_TIMEOUT, PROVIDER, Core, client_from_env
@@ -564,9 +565,17 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,
                            definitions_store=pins, runtimes=load_runtimes(), runtime_images=cfg.runtime_images_extra,
-                           results=results)
+                           results=results, preflight_cases=load_preflight_cases(cfg),
+                           preflight_ledger=PreflightLedger())
     gw.triggers = trigger_store
     return gw, state
+
+
+def load_preflight_cases(cfg: Config) -> dict:
+    """The Preflight cases a PR's candidate definition is scored against (PREFLIGHT_CASES_DIR; the image carries
+    preflight/cases next to agents/). None found: the score endpoint answers 404 for every case."""
+    d = Path(os.environ.get("PREFLIGHT_CASES_DIR") or cfg.agents_dir.parent / "preflight" / "cases")
+    return load_cases(d) if d.is_dir() else {}
 
 
 def build_app(cfg: Config, gw: Gateway):

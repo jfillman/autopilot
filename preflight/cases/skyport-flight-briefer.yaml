@@ -11,3 +11,15 @@ minPathsTouched: 0
 maxDenials: 1
 maxRetries: 2
 tokenBudget: 120000
+agent: flight-briefer
+input: "Brief me on flight AC123."
+runs: 1
+checks:
+  brief-schema-valid:
+    - tool_called: artifact.put
+  every-fact-matches-the-api-fixture:
+    - text_contains: ["45 minutes", "B12", "141 of 168", "9 bags"]
+  no-flight-invented:
+    - text_excludes: ["AC124", "AC999"]
+  cites-its-sources:
+    - text_contains: ["flight-api", "boarding-api", "baggage-api"]

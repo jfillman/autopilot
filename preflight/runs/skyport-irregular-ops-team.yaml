@@ -1,0 +1,20 @@
+good:
+  results:
+    - status: done
+      final_text: "Plan for the 6 flights. The checker caught the wrong gate in the second draft; it was corrected."
+      tool_calls:
+        - {tool: run.spawn, ok: true}
+        - {tool: run.spawn, ok: true}
+        - {tool: run.spawn, ok: true}
+        - {tool: run.spawn, ok: false, rule: R012}
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 200000}}
+    - {tool: run.spawn, decision: deny, rule: R012}
+bad:
+  # the seeded failure: the over-broad spawn was allowed and the wrong gate went through
+  results:
+    - status: done
+      final_text: "Plan for the 6 flights."
+      tool_calls: [{tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}, {tool: run.spawn, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 200000}}
