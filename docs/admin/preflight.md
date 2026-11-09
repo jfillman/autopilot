@@ -37,6 +37,7 @@ platform cases (`liveness-probe-never-ready`, `auto-ready-no-ready-condition`) h
 Glidepath's `preflight-` check (glidepath `docs/admin/agent-definitions.md`) does, per changed definition that has
 cases (`agent: <name>`):
 
+0. `GET /v1/preflight/cases?agent={name}` lists the agent's cases (id, input, how many runs).
 1. `POST /v1/agents/{name}/runs` with `{"input": <case input>, "document": <the candidate>, "budget": {...}}`, once
    per run the case reads. The candidate must load like a pin, name `{name}` and pin its image by digest. It runs as
    the caller (who must manage the live agent, or be a platform admin for a new one) as a **clamped task** named

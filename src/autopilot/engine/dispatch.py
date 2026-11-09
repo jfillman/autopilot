@@ -620,6 +620,16 @@ class Gateway:
         return dataclasses.replace(cand, name=name, kind="task", identity_type="delegated", service_account=None,
                                    triggers=({"type": "manual"},), limits=limits), fp
 
+    def preflight_case_list(self, token: str, agent: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """The Preflight cases of an agent, for the PR check that launches their runs: id, title, the run's input and
+        how many runs the case reads. Any authenticated caller; the cases are in the repo."""
+        self.auth.authenticate(token)
+        if not isinstance(agent, str) or not agent:
+            raise ctl.ControlError("R008", "agent is the definition's name", "", 400)
+        return {"agent": agent, "cases": [{"id": c.id, "title": c.title, "input": c.input, "runs": c.runs}
+                                          for c in sorted(self.preflight_cases.values(), key=lambda c: c.id)
+                                          if c.agent == agent]}
+
     def preflight_score(self, token: str, body: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
         """Score the Preflight runs of a candidate: {"agent": name, "cases": [{"case": id, "sessions": [sid, ...]}]}
         (one session per run the case reads, in order). Each case's result(s) are scored (preflight.py) with the

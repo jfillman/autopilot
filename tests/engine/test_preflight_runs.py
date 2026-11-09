@@ -137,3 +137,13 @@ def test_the_routes(g):
     s = c.post("/v1/preflight/score", json={"agent": "researcher", "cases": [{"case": CASE.id, "sessions": [r.json()["session"]]}]}, headers=h)
     assert s.status_code == 200 and s.json()["finished"] is False
     assert c.post("/v1/preflight/score", json={}, headers=h).status_code == 400
+
+
+def test_the_case_list_route(g):
+    c = TestClient(create_http_app(g, resource_url="http://x/mcp", issuer_url="http://x"))
+    r = c.get("/v1/preflight/cases?agent=researcher", headers={"Authorization": "Bearer sam"})
+    assert r.status_code == 200 and r.json()["cases"] == [
+        {"id": CASE.id, "title": "t", "input": CASE.input, "runs": 1}]
+    assert c.get("/v1/preflight/cases?agent=other", headers={"Authorization": "Bearer sam"}).json()["cases"] == []
+    assert c.get("/v1/preflight/cases", headers={"Authorization": "Bearer sam"}).status_code == 400
+    assert c.get("/v1/preflight/cases?agent=x").status_code == 401

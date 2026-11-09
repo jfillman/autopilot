@@ -230,6 +230,11 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
             res.status_code = 201
         return res
 
+    @mcp.custom_route("/v1/preflight/cases", methods=["GET"], include_in_schema=False)
+    async def preflight_cases(request: Request) -> JSONResponse:
+        """The Preflight cases of an agent: ?agent=<name>."""
+        return await _people(request, gateway.preflight_case_list, request.query_params.get("agent"))
+
     @mcp.custom_route("/v1/preflight/score", methods=["POST"], include_in_schema=False)
     async def preflight_score(request: Request) -> JSONResponse:
         """Score a candidate's Preflight runs: {"agent": name, "cases": [{"case": id, "sessions": [id, ...]}]}."""
