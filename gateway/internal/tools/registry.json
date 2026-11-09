@@ -738,6 +738,24 @@
    "target": "none",
    "tier": 0,
    "writes_files": false
+  },
+  {
+   "description": "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull request on the tenants repo or the app's repo for a person to merge (one PR per call; call again with the same spec after each merge, or after an interruption: it resumes). The Flight half is left to people",
+   "github_cost": 15,
+   "name": "airframe.apply",
+   "propose_only": false,
+   "reads_repo": false,
+   "receipt": [
+    "pr",
+    "commit",
+    "branch"
+   ],
+   "required_args": [
+    "spec"
+   ],
+   "target": "lower",
+   "tier": 1,
+   "writes_files": false
   }
  ],
  "tripwires": [
