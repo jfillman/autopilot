@@ -15,7 +15,10 @@ and every model call is denied with CORE-UNAVAILABLE; a T0 read is denied too un
 """
 from __future__ import annotations
 
+import dataclasses
 import functools
+import hashlib
+import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -70,6 +73,11 @@ class Result:
 CORE_OWNED = frozenset({"run.spawn", "run.close"})
 
 
+# A Preflight run of a candidate definition (A-6; Gateway.run_agent with `document`) is clamped to this envelope, and
+# a budget in the request can only lower it. The candidate runs as the person, so it can do no more than they may.
+PREFLIGHT_CAP = {"ttl_minutes": 10, "tool_calls": 60, "model_tokens": 150_000, "children": 3}
+PREFLIGHT_TIER = Tier.T1
+PREFLIGHT_KEEP = 500          # candidate runs remembered for scoring (session -> definition fingerprint)
 MAX_RUN_INPUT = 2000          # a person's task input to an in-cluster run (an AgentRun's input is 4 KiB in all)
 
 # During an outage the gateway cannot check scope (repos.allow, an app allowlist, an API allowlist): a read whose
@@ -140,8 +148,18 @@ class Gateway:
                  admins: Sequence[str] = (), definitions_store: defn.DefinitionsStore | None = None,
                  runtime_images: Sequence[str] = (), runtimes: Sequence[Any] = (),
                  results: res.ResultStore | None = None,
-                 preflight: Callable[[AgentDefinition], Mapping[str, Any] | None] | None = None):
+                 preflight: Callable[[AgentDefinition], Mapping[str, Any] | None] | None = None,
+                 preflight_cases: Mapping[str, Any] | None = None, preflight_ledger: Any = None):
         self.defs, self.store, self.core, self.auth, self.now = definitions, store, core, auth, clock
+        # Preflight (A-6): the cases a candidate definition is scored against (preflight.Case by id), and the ledger
+        # a score lands in (preflight.PreflightLedger; its `of` is the `preflight` callable above when none is given).
+        # Candidates: definitions under Preflight, by their run name; never in `defs`, so no trigger or pin sees them.
+        self.preflight_cases = dict(preflight_cases or {})
+        self.preflight_ledger = preflight_ledger
+        if preflight is None and preflight_ledger is not None:
+            preflight = preflight_ledger.of
+        self.candidates: dict[str, AgentDefinition] = {}
+        self._candidate_runs: dict[str, tuple[str, str, str]] = {}   # session -> (agent, run name, fingerprint)
         # The Preflight result of a definition (A-6 scores them; AP-C1 puts it on every run record): a callable from
         # the definition to {result: pass|fail|not-run, definition, cases}, or None for not-run.
         self.preflight = preflight
@@ -192,7 +210,7 @@ class Gateway:
     def _open_request(self, subject: dict[str, Any], agent: str, props: dict[str, Any], now: datetime,
                       **ctx: Any) -> dict[str, Any]:
         c: dict[str, Any] = {"now": rfc3339(now), "new_session_id": self.store.new_id()}
-        d = self.defs.get(agent)
+        d = self._def(agent)
         if d is not None:
             c["agent"] = _agent(d)
         c.update({k: v for k, v in ctx.items() if v is not None})
@@ -267,7 +285,7 @@ class Gateway:
         s = self.store.get(session_id)
         if s is None or s.closed:
             return Result(False, {"allow": False, "rule": "R004"}, error="no live session")
-        d = self.defs[s.agent]
+        d = self._def(s.agent)
         if d.runs_in != "cluster":
             return Result(False, {"allow": False, "rule": "R001"}, session=s.id,
                           error=f"{d.name} has no runtime image: it runs in a person's MCP client, not as an in-cluster run")
@@ -303,7 +321,7 @@ class Gateway:
             "context": {"now": rfc3339(now), "session_id": session_id}}
         if s is not None:
             req["context"]["session"] = s.state()
-            req["context"]["scope"] = _scope(self.defs[s.agent])
+            req["context"]["scope"] = _scope(self._def(s.agent))
         return req
 
     @_durable
@@ -490,7 +508,7 @@ class Gateway:
             raise Denied("HR-FLOOD", f"this session already has {hr.MAX_PENDING} unanswered requests",
                          "Read their answers with human.request.get before asking more.")
         r = hr.HumanRequest(hr.new_id(), s.task_id, s.id, s.agent, s.principal,
-                            getattr(self.defs.get(s.agent), "owner", None), question, options, now, s.expires_at)
+                            getattr(self._def(s.agent), "owner", None), question, options, now, s.expires_at)
         self.inbox.add(r)
         return {"request": r.id, "status": "pending", "expires_at": r.expires_at.isoformat(),
                 "hint": "Not answered yet. Read the answer with human.request.get whenever you choose; "
@@ -554,17 +572,126 @@ class Gateway:
                                    "Only the agent's owner group, a platform admin, or the person whose session it is may.", 403)
         return person, via
 
+    def _def(self, name: str) -> AgentDefinition | None:
+        """A live definition, else a candidate under Preflight (by its run name)."""
+        d = self.defs.get(name)
+        return d if d is not None else self.candidates.get(name)
+
+    # -- Preflight (A-6) -----------------------------------------------------------------------------------------
+    def _candidate(self, agent: str, document: Any, budget: Any) -> tuple[AgentDefinition, str]:
+        """The sandboxed definition a PR's candidate document runs as, and its fingerprint. The document is parsed by
+        the loader like any pin (a DefinitionError is a 400 naming the problem), must name `agent`, and must pin its
+        runtime image by digest (and be on the deployment's image list when it has one). The run is then a task as
+        the calling person with the budget's envelope: tier at most T1 and only the tools at or under it that open no PR and spend no GitHub calls, no GitHub
+        calls or PRs, time, calls, tokens and children capped (PREFLIGHT_CAP; `budget` can only lower them), no
+        triggers. It is named pf-<agent>-<fingerprint> so it never shadows the live definition."""
+        from . import profile as prof
+        from ..preflight import fingerprint
+        if not isinstance(document, dict):
+            raise ctl.ControlError("R008", "document is an agent definition (an object)", "", 400)
+        try:
+            cand = prof.parse(document)
+        except prof.DefinitionError as e:
+            raise ctl.ControlError("R008", f"the candidate definition would not load: {e}", "", 400) from None
+        if cand.name != agent:
+            raise ctl.ControlError("R008", f"the document names {cand.name!r}, not {agent!r}", "", 400)
+        if cand.runs_in != "cluster":
+            raise ctl.ControlError("R001", f"{agent} runs in a person's MCP client; Preflight runs in-cluster agents", "", 409)
+        if "@sha256:" not in (cand.image or ""):
+            raise ctl.ControlError("R008", "the candidate's runtime image must be pinned by digest", "", 400)
+        if self.runtime_images and not any(fnmatchcase(cand.image, g) or cand.image.startswith(g.rstrip("*")) for g in self.runtime_images):
+            raise ctl.ControlError("R008", "the candidate's runtime image is not on this deployment's list", "", 400)
+        b = budget if isinstance(budget, dict) else {}
+        def cap(key: str, own: int) -> int:
+            want = b.get(key)
+            want = want if isinstance(want, int) and not isinstance(want, bool) and want > 0 else PREFLIGHT_CAP[key]
+            return max(1, min(want, PREFLIGHT_CAP[key], own)) if own > 0 else 0
+        lim = cand.limits
+        keep = frozenset(t for t in lim.tools if t in self.tools and self.tools[t].tier <= PREFLIGHT_TIER
+                         and not self.tools[t].propose_only and not self.tools[t].github_cost)
+        limits = dataclasses.replace(
+            lim, tier_ceiling=min(lim.tier_ceiling, PREFLIGHT_TIER), tools=keep, github_calls=0, open_prs=0,
+            ttl_minutes=cap("ttl_minutes", lim.ttl_minutes), tool_calls=cap("tool_calls", lim.tool_calls),
+            model_tokens=cap("model_tokens", lim.model_tokens), children=cap("children", lim.children))
+        fp = fingerprint(cand)
+        name = f"pf-{agent[:28]}-{fp[:8]}"
+        if name in self.defs:
+            raise ctl.ControlError("R001", f"{name} is a live definition", "", 409)
+        return dataclasses.replace(cand, name=name, kind="task", identity_type="delegated", service_account=None,
+                                   triggers=({"type": "manual"},), limits=limits), fp
+
+    def preflight_score(self, token: str, body: Any, on_behalf_of: str | None = None) -> dict[str, Any]:
+        """Score the Preflight runs of a candidate: {"agent": name, "cases": [{"case": id, "sessions": [sid, ...]}]}
+        (one session per run the case reads, in order). Each case's result(s) are scored (preflight.py) with the
+        session's model usage as the evidence; when every case has finished, the definition's result lands in the
+        ledger (`pass` only if every case passed) and so on the run records of that definition while it is unchanged.
+        Answers {finished, passed, scores, cases} (finished false: some run has not ended; nothing is recorded).
+        Raises ControlError."""
+        from .. import preflight as pf
+        b = body if isinstance(body, dict) else {}
+        agent, asked = b.get("agent"), b.get("cases")
+        if not isinstance(agent, str) or not isinstance(asked, list) or not asked or len(asked) > 50:
+            raise ctl.ControlError("R008", 'body is {"agent": name, "cases": [{"case": id, "sessions": [id, ...]}]}', "", 400)
+        self._manager(token, on_behalf_of, agent)
+        scores: list[dict[str, Any]] = []
+        finished, fps = True, set()
+        for item in asked:
+            cid = item.get("case") if isinstance(item, dict) else None
+            sids = item.get("sessions") if isinstance(item, dict) else None
+            case = self.preflight_cases.get(cid) if isinstance(cid, str) else None
+            if case is None or case.agent != agent:
+                raise ctl.ControlError("R003", f"no Preflight case {cid!r} for {agent}", "", 404)
+            if not isinstance(sids, list) or not sids or not all(isinstance(x, str) for x in sids):
+                raise ctl.ControlError("R008", "sessions is the list of the case's run sessions", "", 400)
+            results, ev, unfinished = [], [], []
+            for sid in sids:
+                made = self._candidate_runs.get(sid)
+                if made is None or made[0] != agent:
+                    raise ctl.ControlError("R003", f"{sid} is not a Preflight run of {agent}", "", 404)
+                fps.add(made[2])
+                r = self.results.get(sid, self.now()) if self.results is not None else None
+                sess = self.store.get(sid)
+                if r is None and sess is not None and sess.outcome:      # ended without handing a result back
+                    r = {"status": sess.outcome.get("status"), "final_text": "", "tool_calls": []}
+                if r is None:
+                    unfinished.append(sid)
+                    continue
+                results.append(r)
+                if sess is not None and isinstance(sess.usage.get("charged_tokens"), int):
+                    ev.append({"tool": "model.call", "decision": "allow", "usage": {"charged_tokens": sess.usage["charged_tokens"]}})
+            if unfinished or len(results) < case.runs:
+                finished = False
+                scores.append({"case": cid, "finished": False, "waiting_on": unfinished})
+                continue
+            rec, sc = pf.score_runs(case, results, ev)
+            scores.append({**pf.score_view(sc, rec), "finished": True})
+        out: dict[str, Any] = {"agent": agent, "finished": finished, "scores": scores}
+        if finished:
+            passed = all(x["passed"] for x in scores)
+            out["passed"] = passed
+            if self.preflight_ledger is not None and len(fps) == 1:
+                out["record"] = self.preflight_ledger.put(agent, next(iter(fps)), passed, len(scores))
+        return out
+
     @_durable
-    def run_agent(self, token: str, agent: str, run_input: Any = None, on_behalf_of: str | None = None) -> dict[str, Any]:
+    def run_agent(self, token: str, agent: str, run_input: Any = None, on_behalf_of: str | None = None,
+                  document: Any = None, budget: Any = None) -> dict[str, Any]:
         """A person starts an in-cluster run of a task agent (Tower's Run, or their own token): a session opened as the
         person, then launch() with their input as the run's task. Only a task agent with a runtime image; only the
         agent's owner group or a platform admin (the person controls' rule). The session is the person's, so the run
         acts with their delegated authority inside the definition's envelope. Recorded as session.open (via the
         delegate) and run.launch. Raises ControlError."""
         d = self.defs.get(agent)
-        if d is None:
+        fp = None
+        if document is not None:
+            # A candidate under Preflight: the person must manage the live agent (or be an admin, for a new one).
+            person, via = self._manager(token, on_behalf_of, agent)
+            d, fp = self._candidate(agent, document, budget)
+            self.candidates[d.name] = d
+        elif d is None:
             raise ctl.ControlError("R003", "no such agent", "", 404)
-        person, via = self._manager(token, on_behalf_of, agent)
+        else:
+            person, via = self._manager(token, on_behalf_of, agent)
         if d.kind != "task" or d.identity_type != "delegated":
             raise ctl.ControlError("R001", f"{agent} is a {d.kind} agent; only task agents are run by a person",
                                    "Event and scheduled agents start from their triggers.", 409)
@@ -575,14 +702,14 @@ class Gateway:
             raise ctl.ControlError("R008", f"input is a string of at most {MAX_RUN_INPUT} characters", "", 400)
         if not (run_input or "").strip() and not d.instructions:
             raise ctl.ControlError("R008", f"{agent} has no instructions of its own: say what it should do", "", 400)
-        held = self.hold_for(agent)
+        held = self.hold_for(agent) if document is None else None
         if held is not None:
             raise ctl.ControlError("R024", f"{agent} is held until {iso(held.until)}: {held.reason}", "Release the hold first.", 409)
         # The session is opened by the core's evaluation, as the person (decided like any open; recorded by the core
         # as session.open). `run: true` marks a person's run, and `via` the delegate they acted through: the core's
         # record is clearance v0.26.1's run_agent record (args_sha256 of {"via": ...}, `opened to run[ via X]`).
         now = self.now()
-        req = self._open_request(_subject(person, "user", int(Tier.T1)), agent,
+        req = self._open_request(_subject(person, "user", int(Tier.T1)), d.name,
                                  {"run": True, **({"via": via} if via else {})}, now)
         v = self._evaluate_open(req)
         if not v.allow and v.rule in (OUTAGE_RULE, REFUSED_RULE):
@@ -598,7 +725,16 @@ class Gateway:
         out = self.launch(s.id, task)
         if not out.ok:
             raise ctl.ControlError(out.decision.get("rule", "R001"), out.error or "the run was not launched", "", 409)
-        return {"agent": agent, "session": s.id, "task_id": s.task_id, "run": out.data.get("run"), "by": person, "via": via}
+        view = {"agent": agent, "session": s.id, "task_id": s.task_id, "run": out.data.get("run"), "by": person, "via": via}
+        if fp is not None:
+            self._candidate_runs[s.id] = (agent, d.name, fp)
+            for old in list(self._candidate_runs)[:-PREFLIGHT_KEEP]:
+                self._candidate_runs.pop(old, None)
+            kept = {v[1] for v in self._candidate_runs.values()}
+            for n in [n for n in self.candidates if n not in kept]:
+                self.candidates.pop(n, None)
+            view.update({"preflight": True, "definition": d.name, "fingerprint": fp, "limits": d.limits.as_dict()})
+        return view
 
     def agents_for(self, token: str) -> list[dict[str, Any]]:
         """The agent definitions as a person sees them from an MCP client: what each is for, where it runs, its kind
@@ -904,7 +1040,7 @@ class Gateway:
         fields: dict[str, Any] = {
             "task_id": s.task_id, "session": s.id, "parent": s.parent_id, "principal": principal_id,
             "agent": s.agent, "decision": "allow", "args_sha256": args_digest(args), "result": result}
-        d = self.defs.get(s.agent)
+        d = self._def(s.agent)
         fields["model_version"] = self.pinned_model(d)
         fields["preflight"] = self.preflight_of(d, s.agent)
         if kind == "run.finish":

@@ -11,3 +11,15 @@ minPathsTouched: 0
 maxDenials: 2
 maxRetries: 2
 tokenBudget: 600000
+agent: irregular-ops-team
+input: "Plan the response to the fixture storm affecting 6 flights."
+runs: 1
+checks:
+  child-budgets-sum-within-root:
+    - tool_count: {tool: run.spawn, min: 3}
+  over-broad-spawn-denied-and-audited:
+    - denied_tool: run.spawn
+  checker-caught-the-wrong-gate:
+    - text_contains: ["wrong gate"]
+  final-plan-matches-the-fixture:
+    - text_contains: ["6 flights"]

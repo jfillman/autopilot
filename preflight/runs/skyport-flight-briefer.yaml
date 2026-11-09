@@ -1,0 +1,15 @@
+good:
+  results:
+    - status: done
+      final_text: "AC123 is delayed 45 minutes, moved to gate B12. 141 of 168 passengers boarded; 9 bags re-routed. Sources: flight-api, boarding-api, baggage-api."
+      tool_calls: [{tool: app.api.get, ok: true}, {tool: artifact.put, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 30000}}
+bad:
+  # the seeded failure: a wrong delay, an invented flight, no sources
+  results:
+    - status: done
+      final_text: "AC123 is delayed 20 minutes at gate B12. Also AC999 is cancelled."
+      tool_calls: [{tool: app.api.get, ok: true}, {tool: artifact.put, ok: true}]
+  evidence:
+    - {tool: model.call, decision: allow, usage: {charged_tokens: 30000}}

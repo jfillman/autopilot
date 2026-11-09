@@ -146,14 +146,14 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
         auth = request.headers.get("authorization", "")
         return auth[7:].strip() if auth.lower().startswith("bearer ") and auth[7:].strip() else None
 
-    async def _people(request: Request, op, *args) -> JSONResponse:
+    async def _people(request: Request, op, *args, **kw) -> JSONResponse:
         """A person's human-inbox call (inbox.py): their own token, or a delegate's with X-Hangar-On-Behalf-Of."""
         token = _bearer(request)
         if token is None:
             return JSONResponse({"error": "a bearer token is required"}, status_code=401)
         who = request.headers.get("x-hangar-on-behalf-of") or None
         try:
-            out = await anyio.to_thread.run_sync(_locked(gateway, functools.partial(op, on_behalf_of=who)), token, *args)
+            out = await anyio.to_thread.run_sync(_locked(gateway, functools.partial(op, on_behalf_of=who, **kw)), token, *args)
         except AuthError:
             return JSONResponse({"error": "token not accepted"}, status_code=401)
         except (inbox.InboxError, control.ControlError) as e:
@@ -218,14 +218,25 @@ def create_http_app(gateway: Gateway, *, resource_url: str, issuer_url: str, pat
 
     @mcp.custom_route("/v1/agents/{agent}/runs", methods=["POST"], include_in_schema=False)
     async def run(request: Request) -> JSONResponse:
-        """Start an in-cluster run of a task agent as the person: {"input": "..."} (optional). 201 on success."""
+        """Start an in-cluster run of a task agent as the person: {"input": "..."} (optional). With a `document` (a
+        candidate agent definition, a PR's) and optional `budget` {ttl_minutes, tool_calls, model_tokens, children},
+        a budgeted Preflight run of that candidate instead (Gateway._candidate). 201 on success."""
         body = await _body(request)
         if isinstance(body, JSONResponse):
             return body
-        res = await _people(request, gateway.run_agent, request.path_params["agent"], body.get("input"))
+        res = await _people(request, gateway.run_agent, request.path_params["agent"], body.get("input"),
+                            document=body.get("document"), budget=body.get("budget"))
         if res.status_code == 200:
             res.status_code = 201
         return res
+
+    @mcp.custom_route("/v1/preflight/score", methods=["POST"], include_in_schema=False)
+    async def preflight_score(request: Request) -> JSONResponse:
+        """Score a candidate's Preflight runs: {"agent": name, "cases": [{"case": id, "sessions": [id, ...]}]}."""
+        body = await _body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        return await _people(request, gateway.preflight_score, body)
 
     @mcp.custom_route("/v1/agents/{agent}/hold", methods=["DELETE"], include_in_schema=False)
     async def release(request: Request) -> JSONResponse:
