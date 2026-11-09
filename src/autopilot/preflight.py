@@ -303,7 +303,7 @@ def harness(case: Case, scripted: Mapping[str, Any] | None) -> HarnessOutcome:
 
 def _plain(x: Any) -> Any:
     if dataclasses.is_dataclass(x) and not isinstance(x, type):
-        return {f.name: _plain(getattr(x, f.name)) for f in dataclasses.fields(x) if f.name != "raw_profile"}
+        return {f.name: _plain(getattr(x, f.name)) for f in dataclasses.fields(x)}
     if isinstance(x, enum.Enum):
         return x.name
     if isinstance(x, Mapping):
@@ -316,7 +316,7 @@ def _plain(x: Any) -> Any:
 
 
 def fingerprint(d: Any) -> str:
-    """A stable digest of a parsed AgentDefinition (everything the loader reads from the file), so a score belongs to
+    """A stable digest of a parsed AgentDefinition (everything the loader reads from the file, the pack-read profile sections included), so a score belongs to
     the definition it scored and to no later edit of it."""
     return hashlib.sha256(json.dumps(_plain(d), sort_keys=True, default=str).encode()).hexdigest()
 

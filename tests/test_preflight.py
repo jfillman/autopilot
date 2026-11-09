@@ -176,3 +176,14 @@ def test_cli_all_passes_only_when_every_case_is_sound(tmp_path, capsys):
     f.write_text(yaml.safe_dump(s))
     assert cli.main(["preflight", "run", "--all", "--runs", str(d)]) == 1
     assert "UNSOUND" in capsys.readouterr().out
+
+
+def test_the_fingerprint_covers_the_pack_read_profile_sections():
+    import dataclasses
+    from autopilot.engine import profile
+    d = profile.load_dir(Path(__file__).resolve().parents[1] / "agents" / "skyport")["flight-briefer"]
+    edited = dataclasses.replace(d, raw_profile={**d.raw_profile, "glidepath": {"apps": ["somewhere-else"]}})
+    assert cr.fingerprint(edited) != cr.fingerprint(d)
+    ledger = cr.PreflightLedger()
+    ledger.put(d.name, cr.fingerprint(d), True, 1)
+    assert ledger.of(edited) is None

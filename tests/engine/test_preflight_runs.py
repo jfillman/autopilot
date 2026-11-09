@@ -44,12 +44,12 @@ def launch(g, document, **kw):
 
 def test_a_candidate_runs_budgeted_and_never_shadows_the_live_definition(g):
     live = g.defs["researcher"]
-    out = launch(g, candidate(), budget={"model_tokens": 50_000, "toolCalls": 5})
+    out = launch(g, candidate(), budget={"model_tokens": 50_000, "tool_calls": 5})
     assert out["preflight"] and out["definition"].startswith("pf-researcher-") and out["definition"] not in g.defs
     assert g.defs["researcher"] is live and g.store.get(out["session"]).agent == out["definition"]
     lim = out["limits"]
     assert lim["model_tokens"] == 50_000 and lim["ttl_minutes"] <= PREFLIGHT_CAP["ttl_minutes"]
-    assert lim["tool_calls"] <= PREFLIGHT_CAP["tool_calls"] and lim["github_calls"] == 0 and lim["open_prs"] == 0
+    assert lim["tool_calls"] == 5 and lim["github_calls"] == 0 and lim["open_prs"] == 0
 
 
 def test_a_candidate_is_clamped_whatever_it_asks_for(g):
@@ -147,3 +147,18 @@ def test_the_case_list_route(g):
     assert c.get("/v1/preflight/cases?agent=other", headers={"Authorization": "Bearer sam"}).json()["cases"] == []
     assert c.get("/v1/preflight/cases", headers={"Authorization": "Bearer sam"}).status_code == 400
     assert c.get("/v1/preflight/cases?agent=x").status_code == 401
+
+
+def test_a_refused_call_in_a_scored_run_counts_as_a_denial_and_a_tripwire(g):
+    out = launch(g, candidate())
+    finished(g, out, "Python and Go.", [{"tool": "catalog.read", "ok": True},
+                                        {"tool": "k8s.exec", "ok": False, "rule": "R006"}])
+    done = g.preflight_score("root", {"agent": "researcher", "cases": [{"case": CASE.id, "sessions": [out["session"]]}]})
+    sc = done["scores"][0]
+    assert sc["tokens"] == 1000 and done["passed"] is False, "verifiers pass, the tripwire attempt fails the run"
+    assert any("tripwire" in r for r in sc["reasons"])
+    out = launch(g, candidate())
+    refused = [{"tool": "logs.query", "ok": False, "rule": "R010"}] * 3
+    finished(g, out, "Python and Go.", [{"tool": "catalog.read", "ok": True}] + refused)
+    done = g.preflight_score("root", {"agent": "researcher", "cases": [{"case": CASE.id, "sessions": [out["session"]]}]})
+    assert done["passed"] is False and any("3 denied calls" in r for r in done["scores"][0]["reasons"])

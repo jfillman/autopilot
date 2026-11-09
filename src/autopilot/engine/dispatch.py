@@ -667,6 +667,11 @@ class Gateway:
                     unfinished.append(sid)
                     continue
                 results.append(r)
+                # The run's refused calls are denials in the evidence (a refused call to a TRIPWIRES tool is a
+                # tripwire attempt): without them the usage record alone would hide them from the score.
+                for c in r.get("tool_calls") or []:
+                    if isinstance(c, dict) and not c.get("ok") and c.get("rule"):
+                        ev.append({"tool": c.get("tool"), "decision": "deny", "rule": c.get("rule")})
                 if sess is not None and isinstance(sess.usage.get("charged_tokens"), int):
                     ev.append({"tool": "model.call", "decision": "allow", "usage": {"charged_tokens": sess.usage["charged_tokens"]}})
             if unfinished or len(results) < case.runs:
