@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -211,17 +212,19 @@ func TestOpenAdoptsTheCoresGrantAndGivesBackADeniedId(t *testing.T) {
 			Context: client.DecisionContext{Grant: &client.Grant{Session: req.Context.NewSessionID, TaskID: "t-9", Principal: "user:alice", Agent: "coding-agent",
 				Limits: client.Limits{TierCeiling: "T1", TTLMinutes: 30, Tools: []string{}, Models: []string{}}, ExpiresAt: time.Now().Add(time.Hour)}}}
 	}
-	r.store.SetIDs(func() string { return "s-new" })
+	n := 0
+	r.store.SetIDs(func() string { n++; return fmt.Sprintf("s-new-%d", n) })
 	res, err := r.g.Open(context.Background(), "t", "coding-agent", nil, "")
-	if err != nil || !res.OK || r.store.Get("s-new") == nil {
+	if err != nil || !res.OK || r.store.Get("s-new-1") == nil {
 		t.Fatalf("%+v %v", res, err)
 	}
 	res, _ = r.g.Open(context.Background(), "t", "nope", nil, "")
 	if res.OK || res.Decision["rule"] != "R003" {
 		t.Fatalf("%+v", res)
 	}
-	if id := r.store.NewID(); id != "s-new" && id == "" {
-		t.Fatal(id)
+	// the denied open took s-new-2 and must have given it back: the next session gets it, so ids are spent only on sessions that exist
+	if id := r.store.NewID(); id != "s-new-2" {
+		t.Fatalf("a denied open did not give its id back: next is %q", id)
 	}
 }
 

@@ -4,7 +4,7 @@ baseline deny lists), gateway/internal/pgstate/schema.sql (the gateway database'
 gateway/internal/definitions/testdata/agents.json (each bundled agent definition with the scope and agent the Python
 gateway sends the core for it, which the Go parser must reproduce).
 
-tests/test_gateway_go_registry.py fails when the committed file differs from what this prints, so the two
+tests/test_gateway_go.py fails when the committed file differs from what this prints, so the two
 implementations cannot drift while both exist.   python tools/gen_gateway_registry.py [--check]
 """
 from __future__ import annotations
