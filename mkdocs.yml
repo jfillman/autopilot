@@ -10,6 +10,7 @@ nav:
       - The gateway database: admin/gateway-database.md
       - The provider contract: admin/provider.md
       - Trigger durability: admin/trigger-durability.md
+      - The Go gateway (A-9): admin/go-gateway.md
   - Brand:
       - Marks and files: brand/README.md
 

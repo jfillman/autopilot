@@ -1,0 +1,1138 @@
+[
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "task",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 0,
+    "model_tokens": 200000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 0,
+    "tier_ceiling": "T0",
+    "tool_calls": 60,
+    "tools": [
+     "airframe.capabilities",
+     "airframe.describe",
+     "airframe.explain",
+     "airframe.plan",
+     "airframe.status",
+     "airframe.verify"
+    ],
+    "ttl_minutes": 15
+   },
+   "name": "airframe-operator",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Answers what Airframe can build for an app, explains XRs and their conditions, and plans changes; read-only, opens no PRs.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "task",
+   "name": "airframe-operator",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "airframe": {
+     "apps": [
+      "*"
+     ]
+    },
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 200000,
+     "openPrs": 0,
+     "toolCalls": 60,
+     "ttlMinutes": 15
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "airframe.capabilities",
+     "airframe.explain",
+     "airframe.plan",
+     "airframe.status",
+     "airframe.describe",
+     "airframe.verify"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+   }
+  },
+  "name": "airframe-operator",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "task",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "airframe": {
+     "apps": [
+      "*"
+     ]
+    },
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 200000,
+     "openPrs": 0,
+     "toolCalls": 60,
+     "ttlMinutes": 15
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "airframe.capabilities",
+     "airframe.explain",
+     "airframe.plan",
+     "airframe.status",
+     "airframe.describe",
+     "airframe.verify"
+    ]
+   },
+   "repos_allow": []
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "task",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 0,
+    "model_tokens": 200000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 0,
+    "tier_ceiling": "T0",
+    "tool_calls": 40,
+    "tools": [
+     "glidepath.contract",
+     "glidepath.events.recent",
+     "glidepath.evidence.get",
+     "glidepath.explain",
+     "glidepath.live.list",
+     "glidepath.live.logs.get",
+     "glidepath.logs.get",
+     "glidepath.previews.list",
+     "glidepath.releases.get",
+     "glidepath.run.get",
+     "glidepath.runs.list",
+     "glidepath.tests.list",
+     "glidepath.tests.report"
+    ],
+    "ttl_minutes": 15
+   },
+   "name": "cicd-explainer",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Explains a Glidepath pipeline run or release: what ran, what failed and why; changes nothing.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "task",
+   "name": "cicd-explainer",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "*"
+     ]
+    },
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 200000,
+     "openPrs": 0,
+     "toolCalls": 40,
+     "ttlMinutes": 15
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "glidepath.runs.list",
+     "glidepath.run.get",
+     "glidepath.logs.get",
+     "glidepath.explain",
+     "glidepath.releases.get",
+     "glidepath.contract",
+     "glidepath.live.list",
+     "glidepath.live.logs.get",
+     "glidepath.tests.list",
+     "glidepath.tests.report",
+     "glidepath.evidence.get",
+     "glidepath.events.recent",
+     "glidepath.previews.list"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+   }
+  },
+  "name": "cicd-explainer",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "task",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "*"
+     ]
+    },
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 200000,
+     "openPrs": 0,
+     "toolCalls": 40,
+     "ttlMinutes": 15
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "glidepath.runs.list",
+     "glidepath.run.get",
+     "glidepath.logs.get",
+     "glidepath.explain",
+     "glidepath.releases.get",
+     "glidepath.contract",
+     "glidepath.live.list",
+     "glidepath.live.logs.get",
+     "glidepath.tests.list",
+     "glidepath.tests.report",
+     "glidepath.evidence.get",
+     "glidepath.events.recent",
+     "glidepath.previews.list"
+    ]
+   },
+   "repos_allow": []
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "task",
+   "limits": {
+    "children": 2,
+    "compute": "small",
+    "github_calls": 300,
+    "model_tokens": 500000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T1",
+    "tool_calls": 200,
+    "tools": [
+     "argo.app.get",
+     "argo.sync.lower",
+     "catalog.read",
+     "glidepath.cicd.propose",
+     "glidepath.cicd.validate",
+     "glidepath.live.list",
+     "glidepath.live.watch",
+     "glidepath.previews.list",
+     "glidepath.run.cancel",
+     "glidepath.run.rerun",
+     "human.request",
+     "human.request.get",
+     "logs.query",
+     "metrics.query",
+     "repo.file.get",
+     "repo.pr.open",
+     "repo.pr.open_upper",
+     "run.close",
+     "run.spawn",
+     "xr.request"
+    ],
+    "ttl_minutes": 30
+   },
+   "name": "coding-agent",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Makes a change in an app's repository and opens it as a pull request for a person to review and merge.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "task",
+   "name": "coding-agent",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "*"
+     ]
+    },
+    "limits": {
+     "children": 2,
+     "githubCalls": 300,
+     "modelTokens": 500000,
+     "openPrs": 3,
+     "toolCalls": 200,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "repos": {
+     "allow": [
+      "jfillman/*"
+     ]
+    },
+    "tierCeiling": "T1",
+    "tools": [
+     "catalog.read",
+     "metrics.query",
+     "logs.query",
+     "argo.app.get",
+     "repo.file.get",
+     "repo.pr.open",
+     "xr.request",
+     "argo.sync.lower",
+     "glidepath.run.rerun",
+     "glidepath.run.cancel",
+     "glidepath.live.list",
+     "glidepath.live.watch",
+     "glidepath.previews.list",
+     "glidepath.cicd.validate",
+     "glidepath.cicd.propose",
+     "run.spawn",
+     "run.close",
+     "human.request",
+     "repo.pr.open_upper"
+    ]
+   },
+   "runtime": {
+    "framework": "claude-agent-sdk",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "sandbox": "standard"
+   },
+   "triggers": [
+    {
+     "type": "manual"
+    }
+   ]
+  },
+  "name": "coding-agent",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "task",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "*"
+     ]
+    },
+    "limits": {
+     "children": 2,
+     "githubCalls": 300,
+     "modelTokens": 500000,
+     "openPrs": 3,
+     "toolCalls": 200,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "repos": {
+     "allow": [
+      "jfillman/*"
+     ]
+    },
+    "tierCeiling": "T1",
+    "tools": [
+     "catalog.read",
+     "metrics.query",
+     "logs.query",
+     "argo.app.get",
+     "repo.file.get",
+     "repo.pr.open",
+     "xr.request",
+     "argo.sync.lower",
+     "glidepath.run.rerun",
+     "glidepath.run.cancel",
+     "glidepath.live.list",
+     "glidepath.live.watch",
+     "glidepath.previews.list",
+     "glidepath.cicd.validate",
+     "glidepath.cicd.propose",
+     "run.spawn",
+     "run.close",
+     "human.request",
+     "repo.pr.open_upper"
+    ]
+   },
+   "repos_allow": [
+    "jfillman/*"
+   ]
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "workload",
+   "kind": "scheduled",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 0,
+    "model_tokens": 300000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 0,
+    "tier_ceiling": "T0",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query"
+    ],
+    "ttl_minutes": 30
+   },
+   "name": "nightly-reviewer",
+   "service_account": "autopilot-runs/nightly-reviewer"
+  },
+  "doc": {
+   "description": "Every night, reviews the fleet's catalog, Argo apps and metrics and reports what needs a person.",
+   "identity": {
+    "serviceAccount": "autopilot-runs/nightly-reviewer",
+    "type": "workload"
+   },
+   "kind": "scheduled",
+   "name": "nightly-reviewer",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 300000,
+     "openPrs": 0,
+     "toolCalls": 100,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "catalog.read",
+     "argo.app.get",
+     "metrics.query"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "instructions": "Review the fleet's apps on hangar-dev for what a person should look at today. Change nothing. 1. catalog.read `kind=component,spec.type=service` (a query without `=` is a full-text search, not a filter). The apps are the results whose system is `app-<name>-cicd`; skip the rest. 2. argo.app.get `<name>-dev` (e.g. boarding-api-dev) for each app: sync and health. 3. metrics.query, all apps at once: `sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"app-.*-dev\"}[24h]))`; `sum by (namespace) (kube_pod_status_ready{condition=\"false\",namespace=~\"app-.*-dev\"})`; `sum by (service, status_code) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\",service=~\".*-dev\"}[24h]))` (STATUS_CODE_ERROR is the error share); p95 `histogram_quantile(0.95, sum by (service, le) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\",service=~\".*-dev\"}[24h])))`. An app missing from the traces results had no requests (dev is often idle): say \"no traffic\", not a fault. Report one line per app that needs attention (what and why), then one all-clear line naming the apps checked and fine. If a step fails, say which and why."
+   },
+   "triggers": [
+    {
+     "every": "24h",
+     "type": "interval"
+    }
+   ]
+  },
+  "name": "nightly-reviewer",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "scheduled",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 300000,
+     "openPrs": 0,
+     "toolCalls": 100,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "catalog.read",
+     "argo.app.get",
+     "metrics.query"
+    ]
+   },
+   "repos_allow": []
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "team",
+   "limits": {
+    "children": 3,
+    "compute": "small",
+    "github_calls": 300,
+    "model_tokens": 900000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T1",
+    "tool_calls": 300,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "human.request",
+     "human.request.get",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "name": "orchestrator",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Splits a job into parts and hands each to a child agent run; does no work itself.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "team",
+   "name": "orchestrator",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "limits": {
+     "children": 3,
+     "githubCalls": 300,
+     "modelTokens": 900000,
+     "openPrs": 3,
+     "toolCalls": 300,
+     "ttlMinutes": 60
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T1",
+    "tools": [
+     "catalog.read",
+     "argo.app.get",
+     "run.spawn",
+     "run.close",
+     "human.request"
+    ]
+   },
+   "runtime": {
+    "framework": "langgraph",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "instructions": "Split the task you are given into independent parts, start a child run for each (run.spawn, at most your child budget), wait for their results, and combine them into one answer. Ask a person (human.request) when the task is ambiguous. Do no other work yourself."
+   }
+  },
+  "name": "orchestrator",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "team",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "limits": {
+     "children": 3,
+     "githubCalls": 300,
+     "modelTokens": 900000,
+     "openPrs": 3,
+     "toolCalls": 300,
+     "ttlMinutes": 60
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T1",
+    "tools": [
+     "catalog.read",
+     "argo.app.get",
+     "run.spawn",
+     "run.close",
+     "human.request"
+    ]
+   },
+   "repos_allow": []
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "task",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 0,
+    "model_tokens": 200000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 0,
+    "tier_ceiling": "T1",
+    "tool_calls": 40,
+    "tools": [
+     "glidepath.contract",
+     "glidepath.environments.list",
+     "glidepath.environments.rollbackPlan",
+     "glidepath.evidence.get",
+     "glidepath.explain",
+     "glidepath.live.watch",
+     "glidepath.promote",
+     "glidepath.releaseRun.get",
+     "glidepath.releases.get",
+     "glidepath.rollback",
+     "glidepath.run.get",
+     "glidepath.runs.list"
+    ],
+    "ttl_minutes": 30
+   },
+   "name": "release-proposer",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Proposes a gate-api promotion or rollback through Glidepath; a person merges the release PR.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "task",
+   "name": "release-proposer",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "gate-api"
+     ]
+    },
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 200000,
+     "openPrs": 0,
+     "toolCalls": 40,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T1",
+    "tools": [
+     "glidepath.environments.list",
+     "glidepath.environments.rollbackPlan",
+     "glidepath.releases.get",
+     "glidepath.runs.list",
+     "glidepath.run.get",
+     "glidepath.explain",
+     "glidepath.contract",
+     "glidepath.promote",
+     "glidepath.rollback",
+     "glidepath.releaseRun.get",
+     "glidepath.evidence.get",
+     "glidepath.live.watch"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+   }
+  },
+  "name": "release-proposer",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "task",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "gate-api"
+     ]
+    },
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 200000,
+     "openPrs": 0,
+     "toolCalls": 40,
+     "ttlMinutes": 30
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T1",
+    "tools": [
+     "glidepath.environments.list",
+     "glidepath.environments.rollbackPlan",
+     "glidepath.releases.get",
+     "glidepath.runs.list",
+     "glidepath.run.get",
+     "glidepath.explain",
+     "glidepath.contract",
+     "glidepath.promote",
+     "glidepath.rollback",
+     "glidepath.releaseRun.get",
+     "glidepath.evidence.get",
+     "glidepath.live.watch"
+    ]
+   },
+   "repos_allow": []
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "delegated",
+   "kind": "task",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 0,
+    "model_tokens": 300000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 0,
+    "tier_ceiling": "T0",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "logs.query",
+     "metrics.query"
+    ],
+    "ttl_minutes": 20
+   },
+   "name": "researcher",
+   "service_account": null
+  },
+  "doc": {
+   "description": "Investigates a service read-only: catalog entries, metrics, logs and Argo state.",
+   "identity": {
+    "type": "delegated"
+   },
+   "kind": "task",
+   "name": "researcher",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 300000,
+     "openPrs": 0,
+     "toolCalls": 100,
+     "ttlMinutes": 20
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "catalog.read",
+     "metrics.query",
+     "logs.query",
+     "argo.app.get"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+   }
+  },
+  "name": "researcher",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "task",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "limits": {
+     "children": 0,
+     "githubCalls": 0,
+     "modelTokens": 300000,
+     "openPrs": 0,
+     "toolCalls": 100,
+     "ttlMinutes": 20
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "tierCeiling": "T0",
+    "tools": [
+     "catalog.read",
+     "metrics.query",
+     "logs.query",
+     "argo.app.get"
+    ]
+   },
+   "repos_allow": []
+  }
+ },
+ {
+  "agent": {
+   "identity_type": "workload",
+   "kind": "event",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 40,
+    "model_tokens": 400000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 1,
+    "tier_ceiling": "T1",
+    "tool_calls": 60,
+    "tools": [
+     "glidepath.explain",
+     "glidepath.live.list",
+     "glidepath.live.logs.get",
+     "glidepath.logs.get",
+     "glidepath.run.get",
+     "glidepath.runs.list",
+     "glidepath.tests.list",
+     "glidepath.tests.report",
+     "repo.file.get",
+     "repo.pr.open"
+    ],
+    "ttl_minutes": 20
+   },
+   "name": "triage-agent",
+   "service_account": "autopilot-runs/triage-agent"
+  },
+  "doc": {
+   "description": "Reads a failed gate-api pipeline run and proposes a fix as one pull request on the app's repository.",
+   "identity": {
+    "serviceAccount": "autopilot-runs/triage-agent",
+    "type": "workload"
+   },
+   "kind": "event",
+   "name": "triage-agent",
+   "owner": "group:default/team-platform",
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "gate-api"
+     ]
+    },
+    "limits": {
+     "children": 0,
+     "githubCalls": 40,
+     "modelTokens": 400000,
+     "openPrs": 1,
+     "toolCalls": 60,
+     "ttlMinutes": 20
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "repos": {
+     "allow": [
+      "jfillman/gate-api"
+     ]
+    },
+    "tierCeiling": "T1",
+    "tools": [
+     "glidepath.runs.list",
+     "glidepath.run.get",
+     "glidepath.logs.get",
+     "glidepath.explain",
+     "glidepath.live.list",
+     "glidepath.live.logs.get",
+     "glidepath.tests.list",
+     "glidepath.tests.report",
+     "repo.file.get",
+     "repo.pr.open"
+    ]
+   },
+   "runtime": {
+    "framework": "generic",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "instructions": "A Glidepath pipeline run for this app failed; the event in your input names it (subject.id is the PipelineRun, app is the app). Find out why: list the app's recent runs (glidepath.runs.list) to get the failed run's result id, read it (glidepath.run.get), read the failing TaskRun's log (glidepath.logs.get) and Glidepath's own explanation (glidepath.explain), and read the code involved (repo.file.get, repo jfillman/<app>). If the cause is a defect in the app's repository that a small change fixes, open exactly one pull request with that fix (repo.pr.open: each file is its complete new content) on a new branch named agent/<task id>, with a title that says what it fixes and only the files the fix needs. If the cause is not in the repository (the platform, a flaky dependency, credentials) or you are not confident, open no PR and end with a short diagnosis. Never change .tekton/, .github/ or cicd.yaml governance fields; Clearance refuses them. Finish with one paragraph: the cause, the evidence, and what you did."
+   },
+   "triggers": [
+    {
+     "bindingKey": "gate-api.pipelinerun.finished",
+     "match": {
+      "subject.content.outcome": "failure"
+     },
+     "maxPerHour": 4,
+     "source": "glidepath",
+     "type": "event"
+    }
+   ]
+  },
+  "name": "triage-agent",
+  "runs_in": "cluster",
+  "scope": {
+   "agent_kind": "event",
+   "api_allow": [],
+   "deny_paths": [
+    ".tekton/**",
+    "**/.tekton/**",
+    "CODEOWNERS",
+    "**/CODEOWNERS",
+    ".github/**",
+    "**/appproject*.yaml",
+    "**/AppProject*.yaml",
+    "release.yaml",
+    "**/release.yaml",
+    "*.release.yaml",
+    "**/*.release.yaml"
+   ],
+   "field_allow": [],
+   "field_deny": [
+    "/extraManifests",
+    "/networkPolicy",
+    "/httpRoute",
+    "/release",
+    "/releaseTracking",
+    "/rollout/image"
+   ],
+   "profile": {
+    "compute": "small",
+    "glidepath": {
+     "apps": [
+      "gate-api"
+     ]
+    },
+    "limits": {
+     "children": 0,
+     "githubCalls": 40,
+     "modelTokens": 400000,
+     "openPrs": 1,
+     "toolCalls": 60,
+     "ttlMinutes": 20
+    },
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "repos": {
+     "allow": [
+      "jfillman/gate-api"
+     ]
+    },
+    "tierCeiling": "T1",
+    "tools": [
+     "glidepath.runs.list",
+     "glidepath.run.get",
+     "glidepath.logs.get",
+     "glidepath.explain",
+     "glidepath.live.list",
+     "glidepath.live.logs.get",
+     "glidepath.tests.list",
+     "glidepath.tests.report",
+     "repo.file.get",
+     "repo.pr.open"
+    ]
+   },
+   "repos_allow": [
+    "jfillman/gate-api"
+   ]
+  }
+ }
+]
