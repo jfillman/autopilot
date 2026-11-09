@@ -201,6 +201,13 @@ spec:
                     toolCalls: {type: integer, minimum: 0, description: Tool calls the session may make through Clearance.}
                     githubCalls: {type: integer, minimum: 0, description: GitHub API calls the session may cause.}
                     modelTokens: {type: integer, minimum: 0, description: Model tokens the session may spend through the model proxy.}
+                    tools:
+                      type: array
+                      maxItems: 128
+                      description: >-
+                        The session's tool grant, so the runtime offers the model only these (Autopilot A-7). For the
+                        run's information, like the budgets: the gateway still decides every call.
+                      items: {type: string, maxLength: 128, pattern: '^[a-z0-9][a-z0-9._-]*$'}
                 sidecars:
                   type: array
                   maxItems: 4
