@@ -6,6 +6,14 @@ says what each gateway tag adds. The manager cuts the tags.
 ## Unreleased
 
 ### Added
+- Preflight (A-6; [docs/admin/preflight.md](docs/admin/preflight.md)):
+  - `RunRecord`s from real runs (`record_from_run`: a run's result plus its evidence), checks per verifier in the case
+    files, and the local harness `autopilot preflight run --case <id> [--seeded-bad | --run file | --all]`. The six
+    Skyport cases have a scripted good run and a seeded bad run in `preflight/runs/`; CI runs `--all`.
+  - `POST /v1/agents/{name}/runs` takes a `document` (a PR's candidate definition) and a `budget`: a Preflight run as a
+    clamped task named `pf-<agent>-<fingerprint>`. `GET /v1/preflight/cases?agent=` lists an agent's cases and `POST /v1/preflight/score` scores the runs against the agent's cases and
+    records the definition's result (`pass`/`fail`, cases) on its run records while it is unchanged.
+  - The image carries `preflight/cases` (`PREFLIGHT_CASES_DIR`).
 - The Go AI gateway, first slice (A-9; [docs/admin/go-gateway.md](docs/admin/go-gateway.md)): `gateway/`, one binary with
   `serve`, `conformance-control` and `version` (`api` exits "not ported yet"), on the official MCP Go SDK, Clearance's Go
   client, a streaming model proxy that never buffers a response, and the same gateway database. Off by default and not

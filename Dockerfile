@@ -13,6 +13,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ src/
 COPY agents/ agents/
+COPY preflight/cases/ preflight/cases/
 COPY schemas/ schemas/
 COPY runtime/catalog.yaml runtime/catalog.yaml
 # Editable, so the package resolves /app/schemas and /app/agents from its own location (airframe_tools, serve).

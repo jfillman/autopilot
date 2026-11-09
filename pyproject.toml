@@ -18,6 +18,8 @@ dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearan
 [project.scripts]
 # The deployable gateway (src/autopilot/serve.py; README "Running the gateway").
 autopilot-gateway = "autopilot.serve:main"
+# The local tools (src/autopilot/cli.py): `autopilot preflight run --case <id>`.
+autopilot = "autopilot.cli:main"
 
 [tool.hatch.metadata]
 allow-direct-references = true

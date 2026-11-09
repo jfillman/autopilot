@@ -10,3 +10,13 @@ minPathsTouched: 0
 maxDenials: 0
 maxRetries: 1
 tokenBudget: 300000
+agent: delay-digest
+input: "Write today's digest from the fixture event log."
+runs: 2
+checks:
+  counts-equal-the-event-log:
+    - text_contains: ["7 delays", "4 gate changes"]
+  report-written-once-for-the-day:
+    - tool_count: {tool: artifact.put, eq: 1}
+  second-run-changes-nothing:
+    - {run: 2, tool_count: {tool: artifact.put, eq: 0}}
