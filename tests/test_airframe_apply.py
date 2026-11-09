@@ -61,6 +61,11 @@ class Hub:
         self.repos[repo]["main"].update(self.repos[repo][pr["head"]])
         pr["merged_at"], pr["state"] = "2026-11-09T12:00:00Z", "closed"
 
+    def delete_branch(self, repo: str, branch: str) -> None:
+        """A person deletes the branch of a closed PR."""
+        del self.repos[repo][branch]
+        self.repos[repo].pop(branch + "\0commit", None)
+
     def close(self, repo: str, number: int) -> None:
         next(p for p in self.prs[repo] if p["number"] == number)["state"] = "closed"
 
@@ -120,6 +125,10 @@ class Hub:
                     "head": {"ref": p["head"], "sha": branches.get(p["head"] + "\0commit", "0" * 40)}}
                    for p in self.prs.get(repo, []) if p["head"] == head]
             return 200, json.dumps(out).encode()
+        if method == "GET" and (g := re.match(r"/pulls/(\d+)/files", rest)):
+            pr = next(p for p in self.prs[repo] if p["number"] == int(g.group(1)))
+            head, main = branches[pr["head"]], branches["main"]
+            return 200, json.dumps([{"filename": k} for k, v in head.items() if main.get(k) != v]).encode()
         if method == "GET" and (g := re.match(r"/contents/([^?]+)\?ref=(.+)$", rest)):
             ref = urllib.parse.unquote(g.group(2))
             text = branches.get(ref, {}).get(g.group(1)) if isinstance(branches.get(ref), dict) else None
@@ -325,12 +334,34 @@ def test_a_run_killed_between_steps_resumes_from_github_not_from_memory(token, g
     assert [len(v) for v in hub.prs.values()] == [1, 1]
 
 
-def test_a_pr_a_person_closed_is_never_reopened_or_replaced(git, gp, hub):
+def test_a_pr_a_person_closed_is_never_reopened_or_replaced_until_they_delete_its_branch(git, gp, hub):
     out = apply(git, gp)
     hub.close(TENANTS, out["pr"])
     again = apply(git, gp)
     assert again["state"] == "waiting" and "closed without merging" in again["reason"] and "pr" not in again
-    assert len(hub.prs[TENANTS]) == 1
+    assert "delete its branch" in again["reason"] and len(hub.prs[TENANTS]) == 1
+    # the message and the behaviour agree: with the branch deleted the next call opens a new PR
+    hub.delete_branch(TENANTS, "agent/airframe-parachute-tenants")
+    fresh = apply(git, gp)
+    assert fresh["state"] == "awaiting-merge" and fresh["resumed"] is False and fresh["pr"] != out["pr"]
+    assert len(hub.prs[TENANTS]) == 2
+
+
+def test_a_resumed_receipt_names_only_what_the_pr_carries(git, gp, hub, monkeypatch):
+    """The plan's cicd.yaml change was a no-op when the PR opened (so the PR carries the environment files only). A later
+    call, when the plan has a cicd.yaml change again, must not put cicd.yaml in the receipt of the PR it returns."""
+    out = apply(git, gp)
+    hub.merge(TENANTS, out["pr"])
+    hub.create_repo(APP)
+    real = gp.validate_cicd
+    monkeypatch.setattr(gp, "validate_cicd", lambda app, body, who: {**real(app, body, who), "changes": []})
+    first = apply(git, gp)
+    assert first["paths"] == ["glidepath/envs/dev.yaml", "glidepath/envs/test.yaml"]
+    monkeypatch.setattr(gp, "validate_cicd", real)
+    again = apply(git, gp)
+    assert again["resumed"] is True and again["pr"] == first["pr"]
+    assert again["paths"] == first["paths"] and "cicd.yaml" not in again["paths"]
+    assert [s for s in again["steps"] if s["id"] == "app-repo"][0]["status"] == "open"
 
 
 # -- the seeded bad run -----------------------------------------------------------------------------------------------

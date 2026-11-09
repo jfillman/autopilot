@@ -146,12 +146,14 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
             continue
         if found and found["state"] == "closed":
             waiting = (f"PR #{found['pr']} for step {st.id} was closed without merging; apply never reopens or replaces a "
-                       "PR a person closed. They decide: reopen it, or delete the branch to have it opened again")
+                       "PR a person closed. They decide: reopen it, or delete its branch, after which the next call opens a new PR")
             row.update(status="closed", pr=found["pr"], url=found["url"], reason=waiting)
             continue
         if found:
             row.update(status="open", pr=found["pr"], url=found["url"])
-            current = {**found, "resumed": True, "step": st.id, "repo": repo, "paths": sorted(f.path for f in st.files)}
+            # The receipt names what the PR carries, read from GitHub: a plan file that was a no-op (cicd.yaml already as
+            # wanted) is not in the PR, and provenance would vouch for a path the PR never wrote.
+            current = {**found, "resumed": True, "step": st.id, "repo": repo, "paths": git.pr_paths(repo, found["pr"], tenants=tenants)}
             continue
         if not tenants and not git.repo_ready(repo):
             waiting = f"{repo} does not exist yet or is not onboarded: the tenants PR is merged, the platform is still creating it"
@@ -180,7 +182,8 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
             continue
         pr = git.ensure_pr(repo, branch, st.title, files, "main", meta=meta, body=_body(st, cs, verdict), tenants=tenants)
         row.update(status="open", pr=pr["pr"], url=pr["url"])
-        current = {**pr, "step": st.id, "repo": repo, "paths": sorted(f["path"] for f in files)}
+        paths = git.pr_paths(repo, pr["pr"], tenants=tenants) if pr.get("resumed") else sorted(f["path"] for f in files)
+        current = {**pr, "step": st.id, "repo": repo, "paths": paths}
 
     out: dict[str, Any] = {"app": app, "steps": steps, "humanSteps": human, "assumptions": cs.assumptions,
                            "warnings": cs.warnings}

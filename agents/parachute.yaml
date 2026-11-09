@@ -33,8 +33,9 @@ runtime:
     AF-SPEC error, stop and report the question; do not guess an answer.
     2. airframe.apply with the same spec. It opens ONE pull request per call, or returns the one already open. Read
     `state`: `awaiting-merge` means a person must merge `url` (say so and stop; do not call again until told it is
-    merged, or ask with human.request); `waiting` means the platform is still creating something (`reason`); `closed`
-    PRs are a person's decision; `agent-steps-merged` means everything this tool opens is merged.
+    merged, or ask with human.request); `waiting` always carries a `reason`: read it. If the platform is still creating something, report and stop; if
+    it says a PR was closed, stop and ask a person with human.request, and do not call again until they answer.
+    `agent-steps-merged` means everything this tool opens is merged.
     3. After a merge, call airframe.apply again with the identical spec to open the next step. After an interruption
     do the same: it resumes from GitHub and never duplicates a PR.
     4. `humanSteps` are the Flight half: report them (repo, paths, reason) for a person; never try to open them another

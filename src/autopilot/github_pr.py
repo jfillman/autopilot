@@ -192,12 +192,29 @@ class GitHubPRs:
         if status != 200:
             raise GitHubError(f"pulls: {status}")
         prs = [p for p in doc if isinstance(p, dict) and (p.get("head") or {}).get("ref") == branch] if isinstance(doc, list) else []
-        if not prs:
+        # merged first, then open, then closed; a closed PR whose branch a person deleted is gone: the branch name is free
+        prs.sort(key=lambda p: 0 if p.get("merged_at") else 1 if p.get("state") == "open" else 2)
+        pr = prs[0] if prs else None
+        if pr is not None and not pr.get("merged_at") and pr.get("state") != "open":
+            status, _ = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{branch}")
+            if status == 404:
+                return None
+            if status != 200:
+                raise GitHubError(f"ref: {status}")
+        if pr is None:
             return None
-        pr = prs[0]
         state = "merged" if pr.get("merged_at") else pr.get("state", "open")
         return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch,
                 "commit": (pr.get("head") or {}).get("sha"), "state": state}
+
+    def pr_paths(self, repo: str, number: int, *, tenants: bool = False) -> list[str]:
+        """The paths a PR actually carries (GET /pulls/{n}/files, first 100), for a receipt that names only those."""
+        owner, name = _split(repo)
+        token = self._installation_token(owner, name, tenants=tenants)
+        status, doc = self._gh_any(token, f"/repos/{owner}/{name}/pulls/{int(number)}/files?per_page=100")
+        if status != 200 or not isinstance(doc, list):
+            raise GitHubError(f"pull files: {status}")
+        return sorted(f["filename"] for f in doc if isinstance(f, dict) and "filename" in f)
 
     def repo_ready(self, repo: str, base: str = "main", *, tenants: bool = False) -> bool:
         """Does the repo exist, onboarded, with its base branch? False while the broker still refuses it as no app's
