@@ -12,7 +12,7 @@ RUN python -m venv /opt/venv
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ src/
-COPY agents/ agents/
+COPY agents/*.yaml agents/
 COPY preflight/cases/ preflight/cases/
 COPY schemas/ schemas/
 COPY runtime/catalog.yaml runtime/catalog.yaml
