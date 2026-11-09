@@ -5,6 +5,9 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Changed
+- The gateway image carries only the platform's core definitions (`agents/*.yaml`). `agents/skyport/` was copied in but never loaded; it stays in the repository until those agents move to their own repo.
+
 ### Added
 - `airframe.apply` (A-3; T1; [README](README.md), "airframe.apply and the parachute"): the planner's change set opened as
   pull requests by the agents' GitHub App, one per call, each with a receipt (repo, pr, commit, branch, paths) that
