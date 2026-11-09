@@ -1,0 +1,21 @@
+# The seeded bad run for the parachute test (package A-3): parachute.appspec.yaml with one value the chart does not
+# have (rollout.replicaCount; the key is rollout.replicas). airframe.plan and airframe.apply must refuse it with
+# AF-SPEC-001 naming config/rollout, and open no pull request. tests/test_airframe_apply.py runs it; the live run uses it
+# to prove the agent stops and reports the rule instead of opening anything.
+apiVersion: airframe/v1
+kind: AppSpec
+app: parachute
+stack: python
+description: Parachute service (seeded with a bad value)
+environments:
+  ground: [dev, test]
+  flight:
+    - { name: staging }
+    - { name: prod }
+config:
+  rollout:
+    strategy: canary
+    steps: [{ setWeight: 100 }]
+    replicaCount: many
+  env:
+    - { name: URL, value: "http://myendpoint.io" }

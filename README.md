@@ -162,6 +162,7 @@ One more skips without a gitops-cluster-dev checkout.
 | MCP surface | `engine/server.py` | six tools on the mcp SDK v2 (`tools_list`, `agents_list`, `session_open`, `call`, `run_finish`, `session_close`); `tools_list` lists the Gateway's own registry |
 | Provider conformance (A-1) | `autopilot/conformance.py`, `tests/test_conformance.py` | the test-only control interface Clearance's `conformance --role runtime` drives; off by default, loopback only ([docs/admin/provider.md](docs/admin/provider.md)) |
 | AppSpec and the planner | `autopilot/airframe_plan.py`, `schemas/appspec.schema.json` (vendored from airframe's contract) | the parachute test: one statement of intent to an ordered change set; its cicd.yaml patch is split by Glidepath's scope rules: the agent's half (Ground environments and their deploy steps, added without dropping a step) passes R021, and Flight environments, the release step and retiring pre-ADR-0019 keys are a separate `cicd-flight` step a human merges; `config`/`overrides` take any human-owned chart value (second sentence: `examples/mynewpythonapp.appspec.yaml`, five environments, canary with pauses, HPA, PDB, a prod-only route); validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` of every environment |
+| `airframe.apply` and the parachute (A-3) | `autopilot/airframe_apply.py`, `autopilot/github_pr.py` (`ensure_pr`, `find_pr`, `repo_ready`), `agents/parachute.yaml`, `examples/parachute*.appspec.yaml` | the planner's change set as receipted PRs through the agents' App, one per call, resumable from GitHub, the Flight half never opened, nothing merged; see "airframe.apply and the parachute" below |
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | lives in airframe (`xrds/agentrun.yaml`, `compositions/agentrun/`, `functions/function-agentrun/`); `src/autopilot/vendor/agentrun_compose.py` and `schemas/agentrun.xrd.yaml` are byte-identical copies | the canary renders with the vendored `compose()`; Clearance's AgentRun manifests are validated against the vendored XRD; `tests/test_agentrun_vendor.py` fails on drift |
 | AgentRun store | `autopilot/kube_runs.py` | the real `AgentRunStore`: POST to `/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns` and DELETE of one named AgentRun there, nothing else (any other method, path, namespace, kind or a non-DNS-label name is refused before a request is built); a 404 on delete is success, a 409 on create an error; token and CA re-read every call |
@@ -251,7 +252,7 @@ projected token and CA at the standard path; every adapter re-reads both on each
 |---|---|---|
 | Authentication (always) | every MCP request | `create` on `tokenreviews.authentication.k8s.io`: a ClusterRoleBinding to `system:auth-delegator`. Callers bring a projected token with audience `CLEARANCE_AUDIENCE`. For people, network reach to the OIDC issuer's JWKS |
 | AgentRuns (always) | `run.spawn`, `run.close`, the expiry sweep | Role `clearance-agentruns` in `autopilot-runs`: `create` and `delete` on `agentruns.catalog.hangar.io` (the adapter sends nothing else) |
-| Airframe reads (`AIRFRAME_ENABLED`) | `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify` | ClusterRole `clearance-airframe-reader`: get/list/watch on `catalog.hangar.io` and `argoproj.io` applications and rollouts, nothing else (gitops-hangar-dev#40). `airframe.validate` has no backend in the image |
+| Airframe reads (`AIRFRAME_ENABLED`) | `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify` (`airframe.apply` is GitHub PRs below) | ClusterRole `clearance-airframe-reader`: get/list/watch on `catalog.hangar.io` and `argoproj.io` applications and rollouts, nothing else (gitops-hangar-dev#40). `airframe.validate` has no backend in the image |
 | Glidepath (`GLIDEPATH_API_URL`) | `glidepath.*` | network reach to glidepath-api and RBAC there for Clearance's identity: glidepath-api checks it with a SubjectAccessReview (ClusterRoles `glidepath-api-reader`, `-operator`, `-releaser` for reads, run control and release proposals) |
 | Argo CD reads (`ARGO_ENABLED`) | `argo.app.get` | the same `clearance-airframe-reader` ClusterRole: it reads the Application object through the Kubernetes API (no Argo CD account, no token) and returns a summary: sources, destination, sync, health, the last operation, conditions and the resources not synced or not healthy. Never the Helm values. Given an app's name rather than an Application's (the catalog component name, e.g. `flight-api`), it lists that app's Applications by the `hangar.io/app=<app>` label Hangar's tenant-onboarding stamps on each (`<app>-<env>`, `<app>-onboarding`, `<app>-xr-requests`), with each one's environment, sync and health, for a second call by name. The label, not a guessed name, keeps the answer deterministic |
 | Argo CD syncs (`ARGO_SYNC_ENABLED`) | `argo.sync.lower` | Role `autopilot-clearance-argo-sync` in `argocd-apps` (get, patch applications) and the ValidatingAdmissionPolicy of the same name: for this identity an Application update must be in a `-lower` project, change only `operation`, start a sync and never override its source. The adapter checks first that the Application's own project is the `project` argument and ends in `-lower` and that nothing is in flight, then sends one merge PATCH with the resourceVersion it read (`argo_sync.py`). The operation's `initiatedBy` is `clearance:<agent>`, its `info` the task, session and principal |
@@ -262,6 +263,7 @@ projected token and CA at the standard path; every adapter re-reads both on each
 | Postgres (`GATEWAY_DSN`) | sessions, the inbox, results, the outbox, and `artifact.put`/`artifact.get` (`PgArtifacts`: per task, 256 KiB each, 32 and 2 MiB per task, 7 days) | a database the gateway owns (not clearance-pg); it creates its tables at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
 
 | GitHub PRs (`GITHUB_PR_ENABLED`) | `repo.pr.open`, `repo.pr.open_upper`, `repo.file.get` | a projected token for audience `agent-installation-token` at `AGENT_TOKEN_FILE`, and `autopilot-system/clearance` in the broker's `agentToken.callers`. Per PR the broker mints a token for the agents' App on that one repo (contents and pull_requests write, never workflows), only for an onboarded app's own repo (`<app>`, `gitops-<app>` or `gitops-infra-<app>`; `repo.pr.open_upper` is T2 and propose-only: a human merges it). The PR is built with the Git data API (no clone), on a new branch only (an existing one is refused, never forced); its commit trailer and body carry the agent, task, session and run. `repo.file.get` reads a file (or lists a directory) at a ref with the same per-call token, GET only; over 1 MiB or binary is named, not returned |
+| `airframe.apply` (`GITHUB_PR_ENABLED` and `AIRFRAME_ENABLED`) | `airframe.apply` | the same token file and broker as `repo.pr.open`, the broker allowing the tenants repo (no `app`), and glidepath-api for the cicd.yaml check |
 | XR requests (`XR_REQUEST_ENABLED`) | `xr.request` | GitHub PRs' token file and broker, and the broker allowing `AIRFRAME_TENANTS_REPO` for agent tokens (Glidepath `agentToken`; until then it answers 403 and the agent gets `XR-TENANTS-TOKEN`), with the agents' App installed there. The gateway writes the whole file: `tenants/<app>/xr-requests/<name>.yaml`, `apiVersion: catalog.hangar.io/v1alpha1`, namespace `app-<app>-cicd`, the Backstage source annotations; the agent gives the kind, an optional name and the spec. Only kinds Airframe's contract lists as dependency, observability or environment (no Agent, AgentRun, SecretStore, TektonCICD or app stack), only a lower `env` (the core decides that too), an onboarded app, and a new file (an existing request is never overwritten). An `ApplicationEnvironment` is named `<app>-<cluster>-<env>` with those three fields set by the gateway. A person merges the PR |
 | Application APIs (`APP_API_SERVICES`) | `app.api.get` | network reach to each base URL. A GET of a path on the named service (no host, `..`, `//` or encoded separators), with no credential and no redirect followed; the definition's `profile.apis.allow` must list the service (the core checks it); the body is cut at 256 KiB and a non-2xx answer is data |
 | Model proxy (`MODEL_KEY_FILE`) | a run's model calls | the provider key file, egress to `api.anthropic.com`, and the Service `model-proxy` on `MODEL_PORT` selecting this pod. A run sends its model-proxy token as `x-api-key` and its session as `x-hangar-session`; Clearance checks the session's model allowlist, network mode, breaker and token budget, forwards the body only, and charges the actual usage to the session in the same evidence chain (clearance `server.create_model_app`) |
@@ -463,6 +465,50 @@ claude mcp add-json clearance '{"type":"http","url":"http://clearance.hangar-dev
 
 `headers` never signs in: Claude Code gives a headersHelper 10 seconds. When the hour is up, a call fails 401, and you run `login` again.
 
+## airframe.apply and the parachute
+
+`airframe.apply` (T1, `autopilot/airframe_apply.py`) is the one `airframe.*` write. The planner (`airframe.plan`) says
+what an AppSpec means; apply does as much of it as an agent may, by opening the plan's steps as pull requests through the
+agents' GitHub App (decision D4), and a person merges every one. The agent passes the AppSpec (and `baseCicd`); apply
+**re-plans it itself**, so the agent never supplies a file, path or repository.
+
+| Plan step | Repo | What apply does |
+|---|---|---|
+| `tenants` | the tenants repo | opens the PR: the app XR and each Flight environment's ApplicationEnvironment (human merge) |
+| `repos-ready`, `tekton-resync` | | nothing: the platform creates the repos and resyncs `.tekton/` (`status: platform`, or `waiting` until the repo exists) |
+| `app-repo` | `<owner>/<app>` | opens the PR: the Ground half of cicd.yaml, as glidepath-api resolves it under the agent rules (the check `glidepath.cicd.propose` uses; a refusal is its GP rule, nothing opened), and `glidepath/envs/<env>.yaml` per Ground environment. Never overwrites an existing file |
+| `cicd-flight`, `gitops` | the app repo, `gitops-<app>` | **not opened**: Flight fields are human-only (GP-SCOPE) and `gitops-<app>` is an upper repository. Returned as `humanSteps` with their paths and the reason |
+| `verify` | | nothing: `airframe.status`, `describe` and `verify` |
+
+**One PR per call**, because one call is one Clearance decision and one receipt. The result carries `repo`, `pr`, `commit`,
+`branch` and `paths` exactly as `repo.pr.open`'s does (`dispatch._effect`; the tool is in the Hangar bundle's `pr_tools`),
+so the agent gates vouch for each PR like any agent PR. A call opens the next step whose predecessors are merged; while
+one awaits its merge it returns that PR again (`resumed: true`) and later steps are `blocked`. `state` is
+`awaiting-merge`, `waiting` (the platform has not made the repo; glidepath-api does not know the app yet; a person closed a
+PR) or `agent-steps-merged`.
+
+**Resume is derived from GitHub, never from state in the gateway.** Each step's branch is fixed by the plan
+(`agent/airframe-<app>-<step>`). Kill the core at any point and call again with the same AppSpec: the PR the branch has is
+returned, a branch left without its PR (the call died between the ref and the pull request) gets its PR once its files are
+checked to be the plan's (`APPLY-BRANCH-DIVERGED` otherwise), a merged step is skipped, and a PR a person closed is
+never reopened or replaced. The adapter sends only GETs and the POSTs that create a new tree, commit, ref and PR: no
+merge, review, workflow dispatch, update, delete or push to an existing branch
+(`tests/test_airframe_apply.py` reads every request of a whole run, and the module source, for that).
+
+The definition is `agents/parachute.yaml` (tierCeiling T1; `airframe.apps: [parachute]`, so R023 refuses a spec for any
+other app; `repos.allow` is the two repos apply writes, which the agent-scope gate holds each PR to). `examples/parachute.appspec.yaml`
+is the intent; `examples/parachute-bad.appspec.yaml` is the seeded bad run (a value the chart rejects: `AF-SPEC-001`, nothing opened).
+
+Tokens: the app repo's is asked for as `{owner, repo, app}`; the tenants repo's with **no `app`** (the broker refuses it
+when one is named, glidepath#236), which `xr.request` now does too. Both need Glidepath's `agentToken` to allow the repo
+and the App installed there.
+
+Signed agent commits (the provenance `confirmed-agent` level): commits the adapter makes through the Git data API with the
+App's installation token come back `verified: true, reason: valid`, committer GitHub (observed on gate-api PRs #32 and #38,
+opened by `hangar-autopilot-agents[bot]`). Clearance's identity check does not read the signature: it needs the PR head to be
+the receipt's commit and the trailers to match its record, which apply guarantees (the receipt's `commit` is the branch
+head, also when a PR is resumed).
+
 ## What is NOT built
 
 Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core), the image on hangar-dev, on 2026-11-03.
@@ -470,9 +516,15 @@ Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core),
 * `chat.recv` and `chat.send`: no backend (a Tower chat surface is A-8's); no definition names them, and
   `tests/test_definitions_backed.py` fails any that does. The gate copilot asks and is answered through the inbox.
 * `airframe.validate` in the image: it needs airframe's `airframe-validate` (helm included), which the image does not
-  carry, so the deployment drops it and no bundled definition names it (A-3 restores it with the validator).
-* `xr.request` live: built (A-7), but Glidepath's broker mints agent tokens only for an app's own repos, so it refuses
-  the tenants repo (403, `XR-TENANTS-TOKEN`) until its `agentToken` allows it and the agents' App is installed there.
+  carry, so the deployment drops it and no bundled definition names it. A-3 chose removal over restoring it: the tool
+  stays in the registry and the bundle, `tests/test_airframe_apply.py` fails a definition that names it, and a later
+  image with the validator (`AirframeTools(validator=...)`) turns it back on.
+* The Flight half of `airframe.apply`: cicd.yaml's Flight fields (human-only, GP-SCOPE-001/003) and `gitops-<app>` (an
+  upper repository, which a T1 tool does not write) are returned as `humanSteps` and never opened. A T2 propose-only
+  sibling for the gitops PR (`repo.pr.open_upper`'s shape, with a repo argument the core can classify) is the follow-up.
+* `xr.request` and `airframe.apply` against the tenants repo live: built, and the adapter now asks the broker with no
+  `app` as glidepath#236 requires; they need Glidepath's `agentToken` to allow `AIRFRAME_TENANTS_REPO` (`AGENT_PIN_TENANTS_REPO`)
+  and the agents' App installed there (403, `XR-TENANTS-TOKEN`, until then). Not yet proven against real GitHub.
 * `app.api.get` live: built (A-7); Hangar's gateway sets no `APP_API_SERVICES` yet (the Skyport definitions that use
   it are not loaded).
 * `HANGAR_LIMITS.tools` in a run: the gateway writes the grant into the AgentRun's `spec.limits.tools`; airframe's

@@ -1,0 +1,43 @@
+name: parachute
+description: "Provisions an app from an AppSpec: opens each step of its plan as a pull request for a person to merge, and picks up where an earlier run stopped."
+owner: group:default/team-platform
+kind: task
+identity: { type: delegated }
+# Package A-3, the parachute test: one statement of intent (examples/parachute.appspec.yaml) to a running app, with a
+# person merging every step. Its one write is airframe.apply (T1), which re-plans the AppSpec itself and opens the next
+# step as a PR through the agents' GitHub App: the tenants repo, then the app's repo. It has no merge, approve or
+# push tool, and apply never opens the Flight half (cicd.yaml's Flight fields, gitops-<app>), so those stay with people.
+# Resume is not memory: apply derives where it is from GitHub (branches fixed by the plan), so a run killed at any
+# point and started again with the same AppSpec opens no duplicate and loses nothing. profile.airframe.apps is the
+# whole scope: an AppSpec for another app is refused (R023) before apply runs. No repo or run tool is listed, and
+# children are zero, so even a definition edit that added one would meet R010/R011.
+profile:
+  tierCeiling: T1
+  tools: [airframe.capabilities, airframe.explain, airframe.plan, airframe.apply, airframe.status, airframe.describe,
+          airframe.verify, human.request]
+  airframe: { apps: ["parachute"] }
+  # Not read by the core for apply (its arguments name no repo), but by Clearance's agent-scope gate on every PR the tool
+  # opens: AS003 flags a PR on a repo outside this list. The app's repo, and the tenants repo (AIRFRAME_TENANTS_REPO).
+  repos: { allow: ["jfillman/parachute", "jfillman/gitops-hangar-dev-tenants"] }
+  models: [claude-sonnet-5-5]
+  network: clearance+model
+  compute: small
+  limits: { ttlMinutes: 30, toolCalls: 60, githubCalls: 150, openPrs: 6, modelTokens: 300000, children: 0 }
+runtime:
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae
+  framework: generic
+  instructions: >-
+    Bring the app described by the AppSpec in your input (app `parachute`) up through airframe.apply, and change
+    nothing any other way.
+    1. airframe.plan the spec (pass baseCicd when you have the app's cicd.yaml). If it answers needsInput or an
+    AF-SPEC error, stop and report the question; do not guess an answer.
+    2. airframe.apply with the same spec. It opens ONE pull request per call, or returns the one already open. Read
+    `state`: `awaiting-merge` means a person must merge `url` (say so and stop; do not call again until told it is
+    merged, or ask with human.request); `waiting` means the platform is still creating something (`reason`); `closed`
+    PRs are a person's decision; `agent-steps-merged` means everything this tool opens is merged.
+    3. After a merge, call airframe.apply again with the identical spec to open the next step. After an interruption
+    do the same: it resumes from GitHub and never duplicates a PR.
+    4. `humanSteps` are the Flight half: report them (repo, paths, reason) for a person; never try to open them another
+    way. Check progress with airframe.status and airframe.describe, and airframe.verify when the environments are up.
+    Report each PR link, what is merged, what is waiting and on whom, and anything that failed with its rule id.
+triggers: [ { type: manual } ]

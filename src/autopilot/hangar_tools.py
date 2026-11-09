@@ -95,6 +95,14 @@ TOOLS: tuple[ToolSpec, ...] = (
              ("app", "env")),
     ToolSpec("airframe.verify", Tier.T0, "Run an XR's sidecar verify checks from its status alone; anything needing a Secret, "
              "port-forward or exec is skipped with the reason", ("app", "kind", "name")),
+    # Apply (autopilot.airframe_apply): the one airframe.* write. It re-plans the AppSpec itself and opens the next
+    # step of the change set as a PR through the agents' App (the tenants repo, then the app's repo); one PR per call,
+    # so one receipt per PR (repo, pr, commit, branch, paths). The Flight half (cicd.yaml's Flight fields, gitops-<app>)
+    # is never opened and nothing is ever merged: a person merges every PR. Scoped by profile.airframe.apps (spec.app).
+    ToolSpec("airframe.apply", Tier.T1, "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull "
+             "request on the tenants repo or the app's repo for a person to merge (one PR per call; call again with the "
+             "same spec after each merge, or after an interruption: it resumes). The Flight half is left to people",
+             ("spec",), github_cost=15, target="lower", receipt=("pr", "commit", "branch")),
 )
 
 

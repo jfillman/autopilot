@@ -21,7 +21,7 @@ from .engine.session import Session, SessionStore
 from .engine.tiers import CORE_TOOLS, ToolSpec, registry
 from .hangar_tools import HANGAR
 
-from . import cicd_propose, manifests
+from . import airframe_apply, cicd_propose, manifests
 from .backends import AgentRunStore, Backends
 
 PACKS = (HANGAR,)
@@ -156,6 +156,9 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
         "airframe.describe": lambda s, a: b.airframe.describe(a["app"], a["env"]),
         "airframe.verify": lambda s, a: b.airframe.verify(a["app"], a["kind"], a["name"], a.get("env")),
     })
+    if b.git is not None and hasattr(b.git, "ensure_pr") and b.airframe is not None and hasattr(b.airframe, "changeset"):
+        # airframe.apply: PRs through the GitBackend's resumable adapter (github_pr.GitHubPRs), as the agents' App.
+        h["airframe.apply"] = lambda s, a: airframe_apply.apply(b.git, b.glidepath, b.airframe, s, pr_meta(s), a)
     return h
 
 

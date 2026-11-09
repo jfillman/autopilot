@@ -21,7 +21,7 @@ def test_validate_is_a_read_and_propose_is_a_receipted_pr_tool():
     assert p.tier == Tier.T1 and p.target == "lower" and p.reads_repo and not p.writes_files and not p.propose_only
     assert p.required_args == ("app", "repo", "patch", "title")
     assert p.receipt == ("pr", "commit", "branch") and p.github_cost == CORE["repo.pr.open"].github_cost
-    assert json.loads(HANGAR_BUNDLE.read_text())["pr_tools"] == ["glidepath.cicd.propose"]  # beside the core's repo.pr.open*
+    assert json.loads(HANGAR_BUNDLE.read_text())["pr_tools"] == ["glidepath.cicd.propose", "airframe.apply"]  # beside the core's repo.pr.open*
 
 
 def test_the_receipt_takes_repo_and_path_from_the_result():

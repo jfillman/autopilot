@@ -26,14 +26,22 @@ plan.
 
 - **Ask Airframe through Clearance.** An agent with the `airframe.*` tools (`agents/airframe-operator.yaml`) can
   read what Airframe offers (`airframe.capabilities`), check env-file or values content before proposing it
-  (`airframe.validate`, airframe's own validator: AF-* rule ids, JSON pointers, hints; not in Hangar's gateway image
-  yet, so the bundled airframe-operator does not hold it), look up a rule or a
+  (`airframe.validate`, airframe's own validator: AF-* rule ids, JSON pointers, hints; not in Hangar's gateway image,
+  so no bundled agent holds it), look up a rule or a
   condition reason (`airframe.explain`), plan an AppSpec (`airframe.plan`: pass the app's current cicd.yaml as
   `baseCicd`), and read an app's XR conditions, an environment's Argo CD Application and Rollout, and an XR's verify
   checks (`airframe.status`, `airframe.describe`, `airframe.verify`). Those three read the cluster and are limited
   to the apps under `profile.airframe.apps` (none listed means none). `verify` never reads a Secret or opens a
   port-forward: those checks come back `skipped` with the reason. A Flight environment's Application and Rollout
   run on its own cluster; `describe` says so.
+
+- **Stand an app up from one statement.** `agents/parachute.yaml` runs `airframe.apply` on an AppSpec
+  (`examples/parachute.appspec.yaml`): it opens the plan's first pull request (the tenants repo: the app and its Flight
+  environments), and you merge it. Run it again with the same AppSpec and it opens the next (the app's repo: its Ground
+  environments and cicd.yaml) once the platform has created the repo; each call opens one, or tells you which is waiting
+  on you. It never merges, and it never opens the Flight half (the Flight fields of cicd.yaml, `gitops-<app>`): those come
+  back as `humanSteps` for you. If a run is interrupted, run it again: it picks up from GitHub and opens no duplicate.
+  A spec the chart rejects (`examples/parachute-bad.appspec.yaml`) opens nothing and says which field.
 
 - **Propose a release through Glidepath.** An agent with `glidepath.promote` or `glidepath.rollback`
   (`agents/release-proposer.yaml`) proposes a promotion to the next Flight environment, or a rollback to one of the
@@ -73,8 +81,8 @@ plan.
   are deleted) instead of leaving it open until its TTL; only you can close your own session this way.
 
 ## Not yet
-Tools without a backend on Hangar (`chat.*`, `airframe.validate`; no definition names them), `xr.request` waiting on
-Glidepath's broker to allow the tenants repo, `app.api.get` with no services configured, and the Skyport agents that
+Tools without a backend on Hangar (`chat.*`, `airframe.validate`; no definition names them), `xr.request` and `airframe.apply` waiting on
+Glidepath's broker to allow the tenants repo (`airframe.apply` leaves the Flight half to people), `app.api.get` with no services configured, and the Skyport agents that
 need them; the README's "What is NOT built" has the full list.
 
 Run the tests: `./.venv/bin/python -m pytest -q` (no cluster needed).

@@ -1,6 +1,6 @@
 """The airframe.* tools: Airframe's contract, validator and planner, and read-only cluster state, for agents.
 
-All seven are T0. Their policy (ToolSpecs, argument shapes, the per-app scope rule R023) is the Hangar pack's,
+All seven are T0 (airframe.apply, the eighth, is T1 and lives in airframe_apply.py). Their policy (ToolSpecs, argument shapes, the per-app scope rule R023) is the Hangar pack's,
 clearance.packs.hangar; Clearance's core does not know them. autopilot.gateway registers their handlers.
 
   capabilities  the contract bundle, airframe's contract/airframe-contract.json, vendored as
@@ -447,23 +447,27 @@ class AirframeTools:
         return {"valid": all(f["valid"] for f in files), "mode": mode, "files": files}
 
     # planner ----------------------------------------------------------------------------------------------------
-    def plan(self, spec: dict, base_cicd: Any = None) -> Any:
+    def changeset(self, spec: dict, base_cicd: Any = None) -> tuple[airframe_plan.ChangeSet | None, Any]:
+        """The planner's ChangeSet, or (None, the answer to give instead): the AF-SPEC-* refusal, or needsInput."""
         if self.registry is None:
             raise AirframeError("no cluster registry is configured for the planner")
         if isinstance(base_cicd, str):
             try:
                 base_cicd = yaml.safe_load(base_cicd)
             except yaml.YAMLError:
-                return _answer("AF-SPEC-002", "baseCicd does not parse as YAML", "Pass the app's cicd.yaml as it is, or as a mapping.")
+                return None, _answer("AF-SPEC-002", "baseCicd does not parse as YAML", "Pass the app's cicd.yaml as it is, or as a mapping.")
             if not isinstance(base_cicd, dict):
-                return _answer("AF-SPEC-002", "baseCicd is not a YAML mapping", "Pass the app's cicd.yaml as it is, or as a mapping.")
+                return None, _answer("AF-SPEC-002", "baseCicd is not a YAML mapping", "Pass the app's cicd.yaml as it is, or as a mapping.")
         try:
-            cs = airframe_plan.plan(spec, self.registry, base_cicd=base_cicd)
+            return airframe_plan.plan(spec, self.registry, base_cicd=base_cicd), None
         except airframe_plan.NeedsInput as e:
-            return {"needsInput": {"question": e.question, "options": e.options}}
+            return None, {"needsInput": {"question": e.question, "options": e.options}}
         except airframe_plan.SpecError as e:
-            return _answer("AF-SPEC-001", str(e), "Fix the AppSpec at the path named; airframe.capabilities lists the chart's fields.")
-        return dataclasses.asdict(cs)
+            return None, _answer("AF-SPEC-001", str(e), "Fix the AppSpec at the path named; airframe.capabilities lists the chart's fields.")
+
+    def plan(self, spec: dict, base_cicd: Any = None) -> Any:
+        cs, answer = self.changeset(spec, base_cicd)
+        return answer if cs is None else dataclasses.asdict(cs)
 
     # cluster state ----------------------------------------------------------------------------------------------
     def _xrs_in(self, namespace: str) -> list[dict]:
@@ -655,7 +659,8 @@ class AirframeTools:
         return {"status": "pass", "detail": ", ".join(parts)}
 
 
-def fake_airframe(objects: list[dict] | None = None) -> AirframeTools:
+def fake_airframe(objects: list[dict] | None = None, registry: airframe_plan.Registry | None = None) -> AirframeTools:
     """The real tool logic over an in-memory cluster, a fake validator and the test fleet's registry."""
     return AirframeTools(MemoryKube(objects), FakeValidator(),
-                         airframe_plan.Registry("kind-dev", ("kind-prod",), "gitops-cluster-dev-tenants"), cluster="hangar-dev")
+                         registry or airframe_plan.Registry("kind-dev", ("kind-prod",), "gitops-cluster-dev-tenants"),
+                         cluster="hangar-dev")

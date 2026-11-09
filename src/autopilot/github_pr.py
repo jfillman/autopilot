@@ -19,8 +19,12 @@ no push to an existing branch.
 repo.file.get (read_file) uses the same per-call token: GET /repos/{o}/{r}/contents/{path}?ref=.
 
 xr.request (commit_xr, xr_request.py) is one new file in tenants/<app>/xr-requests/ of the dev cluster's tenants repo,
-opened the same way with a broker token asked for <app> on the tenants repo. The broker must allow that repo for
-agent tokens (Glidepath agentToken); until it does it answers 403 and the agent is told so (XR-TENANTS-TOKEN).
+opened the same way with a broker token asked for the tenants repo with no app (the broker refuses it with one,
+glidepath#236). The broker must allow that repo for agent tokens (Glidepath agentToken); until it does it answers 403
+and the agent is told so (XR-TENANTS-TOKEN).
+
+ensure_pr, find_pr and repo_ready are airframe.apply's (airframe_apply.py): a PR per plan step on a branch whose name
+is fixed by the plan, so a call that died halfway is resumed from what GitHub holds, not from anything kept here.
 """
 from __future__ import annotations
 
@@ -85,8 +89,11 @@ class GitHubPRs:
         self.registry, self.contract = registry, contract
 
     # -- the token ------------------------------------------------------------------------------------------------
-    def _installation_token(self, owner: str, repo: str, app: str | None = None) -> str:
-        body = json.dumps({"owner": owner, "repo": repo, "app": app or app_of(repo)}).encode()
+    def _installation_token(self, owner: str, repo: str, app: str | None = None, *, tenants: bool = False) -> str:
+        # The tenants repo is no app's: the broker (glidepath#236) mints for it only when the request names no app,
+        # and refuses it with one. Every other repo is asked for as an app's own.
+        body = json.dumps({"owner": owner, "repo": repo} if tenants else
+                          {"owner": owner, "repo": repo, "app": app or app_of(repo)}).encode()
         req = urllib.request.Request(self.broker + "/agent-installation-token", method="POST", data=body, headers={
             "Authorization": f"Bearer {self.token_file.read_text().strip()}", "Content-Type": "application/json"})
         try:
@@ -96,10 +103,10 @@ class GitHubPRs:
         doc = _json(out)
         if status == 200 and doc.get("token"):
             return doc["token"]
-        if status == 403 and app is not None:
+        if status == 403 and tenants:
             raise Denied("XR-TENANTS-TOKEN", f"Glidepath's broker does not mint agent tokens for {owner}/{repo}",
-                         "xr.request needs the broker to allow the tenants repo for the agents' App (Glidepath "
-                         "agentToken) and the App installed there; ask a person, or open the XR file with repo.pr.open "
+                         "xr.request and airframe.apply need the broker to allow the tenants repo for the agents' App "
+                         "(Glidepath agentToken, AGENT_PIN_TENANTS_REPO) and the App installed there; ask a person, or open the XR file with repo.pr.open "
                          "on the app's own repo for them to move.")
         if status == 403:
             # The broker's second check: not an onboarded app's own repo. An answer the agent can act on.
@@ -121,7 +128,7 @@ class GitHubPRs:
     # -- GitBackend -----------------------------------------------------------------------------------------------
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
                 meta: dict[str, str] | None = None, body: str | None = None, *, token_app: str | None = None,
-                token: str | None = None) -> dict[str, Any]:
+                token: str | None = None, tenants: bool = False) -> dict[str, Any]:
         owner, name = _split(repo)
         for b in (branch, base):
             if not _BRANCH.match(b or "") or ".." in b or b.startswith("/") or b.endswith((".lock", "/")):
@@ -135,7 +142,7 @@ class GitHubPRs:
                 raise Denied("GH-FILES", "each file needs a path and text content under 1 MiB", "Fix the files list.")
             entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
         meta = meta or {}
-        token = token or self._installation_token(owner, name, token_app)
+        token = token or self._installation_token(owner, name, token_app, tenants=tenants)
         root = f"/repos/{owner}/{name}"
 
         status, ref = self._gh(token, "GET", f"{root}/git/ref/heads/{base}")
@@ -159,6 +166,11 @@ class GitHubPRs:
                          "Use a new branch name; Clearance never pushes to an existing branch.")
         if status != 201:
             raise GitHubError(f"ref: {status}")
+        pr = self._create_pr(token, root, title, branch, base, meta, body)
+        return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch, "commit": new["sha"]}
+
+    def _create_pr(self, token: str, root: str, title: str, branch: str, base: str, meta: dict[str, str],
+                   body: str | None) -> dict:
         text = "Opened by a Hangar agent through Clearance.\n\n" + "\n".join(f"- {k}: `{v}`" for k, v in sorted(meta.items()))
         if body:
             # What the tool has to say about the change (glidepath.cicd.propose: the verdict and the fields it touches).
@@ -166,15 +178,87 @@ class GitHubPRs:
         status, pr = self._gh(token, "POST", f"{root}/pulls", {"title": title, "head": branch, "base": base, "body": text})
         if status != 201:
             raise GitHubError(f"pull: {status}")
-        return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch, "commit": new["sha"]}
+        return pr
 
-    def read_file(self, repo: str, path: str, ref: str = "main") -> dict[str, Any]:
+    # -- airframe.apply: resumable PRs ---------------------------------------------------------------------------
+    def find_pr(self, repo: str, branch: str, *, tenants: bool = False) -> dict[str, Any] | None:
+        """The PR a branch already has (open, closed or merged), or None. GET only."""
+        owner, name = _split(repo)
+        return self._pr_of(self._installation_token(owner, name, tenants=tenants), owner, name, branch)
+
+    def _pr_of(self, token: str, owner: str, name: str, branch: str) -> dict[str, Any] | None:
+        head = urllib.parse.quote(f"{owner}:{branch}", safe="")
+        status, doc = self._gh_any(token, f"/repos/{owner}/{name}/pulls?head={head}&state=all&per_page=5")
+        if status != 200:
+            raise GitHubError(f"pulls: {status}")
+        prs = [p for p in doc if isinstance(p, dict) and (p.get("head") or {}).get("ref") == branch] if isinstance(doc, list) else []
+        if not prs:
+            return None
+        pr = prs[0]
+        state = "merged" if pr.get("merged_at") else pr.get("state", "open")
+        return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch,
+                "commit": (pr.get("head") or {}).get("sha"), "state": state}
+
+    def repo_ready(self, repo: str, base: str = "main", *, tenants: bool = False) -> bool:
+        """Does the repo exist, onboarded, with its base branch? False while the broker still refuses it as no app's
+        repo (403) or it has no base branch (404): a repo the platform has not made yet. GET only."""
+        owner, name = _split(repo)
+        try:
+            token = self._installation_token(owner, name, tenants=tenants)
+        except Denied:
+            return False
+        status, _ = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{base}")
+        if status == 404:
+            return False
+        if status != 200:
+            raise GitHubError(f"base {base}: {status}")
+        return True
+
+    def ensure_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
+                  meta: dict[str, str] | None = None, body: str | None = None, *, tenants: bool = False) -> dict[str, Any]:
+        """open_pr that survives an interruption: the PR this branch already has is returned (`resumed`), a branch
+        left without its PR (the call died between the ref and the pull request) gets the PR, once its files are
+        checked to be the ones asked for, and only a branch that does not exist is built from the base as open_pr
+        does. Nothing is ever pushed to or forced on an existing branch."""
+        owner, name = _split(repo)
+        token = self._installation_token(owner, name, tenants=tenants)
+        found = self._pr_of(token, owner, name, branch)
+        if found is not None:
+            return {**found, "resumed": True}
+        status, ref = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{branch}")
+        if status == 200:
+            for f in files:
+                if self._text_at(token, owner, name, f["path"], branch) != f["content"]:
+                    raise Denied("APPLY-BRANCH-DIVERGED", f"branch {branch} exists and {f['path']} on it is not what this "
+                                 "change would write", "A person looks at the branch; the tool never pushes to or "
+                                 "deletes an existing one.")
+            pr = self._create_pr(token, f"/repos/{owner}/{name}", title, branch, base, meta or {}, body)
+            return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch,
+                    "commit": (ref.get("object") or {}).get("sha"), "state": "open", "resumed": True}
+        if status != 404:
+            raise GitHubError(f"ref: {status}")
+        return {**self.open_pr(repo, branch, title, files, base, meta=meta, body=body, token=token), "state": "open",
+                "resumed": False}
+
+    def _text_at(self, token: str, owner: str, name: str, path: str, ref: str) -> str | None:
+        quoted = urllib.parse.quote(path.strip("/"), safe="/")
+        status, doc = self._gh_any(token, f"/repos/{owner}/{name}/contents/{quoted}?ref={urllib.parse.quote(ref, safe='')}")
+        if status == 404:
+            return None
+        if status != 200 or not isinstance(doc, dict) or doc.get("encoding") != "base64":
+            raise GitHubError(f"contents: {status}")
+        try:
+            return base64.b64decode(doc.get("content") or "").decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+    def read_file(self, repo: str, path: str, ref: str = "main", *, tenants: bool = False) -> dict[str, Any]:
         """repo.file.get: one file's text, or a directory's entries, at a ref. The same per-call broker token (the
         broker's repo rule applies to reads too); GET only. A file over 1 MiB or a binary one is named, not returned."""
         owner, name = _split(repo)
         if not _BRANCH.match(ref or "") or ".." in ref:
             raise Denied("GH-REF", f"{ref!r} is not a ref", "Pass a branch, tag or commit sha.")
-        token = self._installation_token(owner, name)
+        token = self._installation_token(owner, name, tenants=tenants)
         quoted = urllib.parse.quote(path.strip("/"), safe="/")
         status, doc = self._gh_any(token, f"/repos/{owner}/{name}/contents/{quoted}?ref={urllib.parse.quote(ref, safe='')}")
         if status == 404:
@@ -218,7 +302,7 @@ class GitHubPRs:
         reg = self.registry
         path, text, xr = xr_request.build(app, env, kind, spec, name, reg, self.contract)
         owner, repo = reg.owner, reg.tenants_repo
-        token = self._installation_token(owner, repo, app)
+        token = self._installation_token(owner, repo, tenants=True)
         for check, missing in ((f"tenants/{app}", "XR-APP-UNKNOWN"), (path, None)):
             status, doc = self._gh_any(token, f"/repos/{owner}/{repo}/contents/{urllib.parse.quote(check)}?ref=main")
             if status not in (200, 404):
@@ -233,7 +317,7 @@ class GitHubPRs:
         task = (meta or {}).get("task") or "task"
         branch = f"agent/{task}-xr-{xr['metadata']['name']}"[:200]
         out = self.open_pr(f"{owner}/{repo}", branch, f"Request {kind} {xr['metadata']['name']} for {app} ({env})",
-                           [{"path": path, "content": text}], "main", meta=meta, token=token,
+                           [{"path": path, "content": text}], "main", meta=meta, token=token, tenants=True,
                            body=f"An XR request from xr.request: `{kind}` `{xr['metadata']['name']}` in "
                                 f"`app-{app}-cicd`, for {app}'s {env} environment. A person reviews and merges it; "
                                 f"Argo CD's {app}-xr-requests Application then applies it.")
