@@ -10,10 +10,8 @@
 # Reproducible like Clearance's: -trimpath, no VCS stamp, an empty build id, no clock in the binary. Both bases are
 # pinned by digest (the multi-arch index, not one arch); bump them together with a PR.
 
-ARG GO_IMAGE=golang:1.26.5-bookworm@sha256:53eeac89074db483fdf0ab3be1df32bf6e47562263d2d0d6baa7f26acb4957dd
-ARG BASE_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
-
-FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+# (Written in the FROM lines, not as build arguments: tests/test_definitions_backed.py checks every FROM for its digest.)
+FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm@sha256:53eeac89074db483fdf0ab3be1df32bf6e47562263d2d0d6baa7f26acb4957dd AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
 ARG VERSION=dev
@@ -27,7 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false \
       -ldflags "-s -w -buildid= -X main.version=${VERSION}" -o /out/autopilot-gateway ./cmd/autopilot-gateway
 
-FROM ${BASE_IMAGE}
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="autopilot-gateway" \
       org.opencontainers.image.description="Autopilot's AI gateway in Go: MCP, the model proxy, sessions and budgets, on Clearance" \
