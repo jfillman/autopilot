@@ -43,6 +43,9 @@ plan.
   on you. It never merges, and it never opens the Flight half (the Flight fields of cicd.yaml, `gitops-<app>`): those come
   back as `humanSteps` for you. If a run is interrupted, run it again: it picks up from GitHub and opens no duplicate.
   A spec the chart rejects (`examples/parachute-bad.appspec.yaml`) opens nothing and says which field.
+  `agents/parachute.yaml` is the narrow test agent and only takes `parachute`; `agents/app-provisioner.yaml` does the same
+  for any app (`examples/app-provisioner.appspec.yaml`) and can start from a plain-language request, asking you when
+  something is ambiguous. Both stop at every PR for you to merge.
 
 - **Propose a release through Glidepath.** An agent with `glidepath.promote` or `glidepath.rollback`
   (`agents/release-proposer.yaml`) proposes a promotion to the next Flight environment, or a rollback to one of the

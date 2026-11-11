@@ -307,7 +307,7 @@ def as_file(f):
     return {"path": f["path"], "op": f["op"], "before": yaml.safe_dump(f["before"]), "content": f["content"]}
 
 
-@pytest.mark.parametrize("example", ["parachute", "mynewpythonapp"])
+@pytest.mark.parametrize("example", ["parachute", "mynewpythonapp", "app-provisioner"])
 @pytest.mark.parametrize("base", [SCAFFOLD, GATED], ids=["scaffold", "with-check-ride"])
 def test_the_planners_cicd_patch_passes_r021_and_the_rest_is_a_human_step(gw, backends, example, base):
     spec = yaml.safe_load((EXAMPLES / f"{example}.appspec.yaml").read_text())
