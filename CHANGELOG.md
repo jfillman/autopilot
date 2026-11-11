@@ -15,6 +15,13 @@ says what each gateway tag adds. The manager cuts the tags.
   (they address the Clearance product), the core-only refuse-list, and every audience value (R-10b). The images no longer
   set `CLEARANCE_AGENTS_DIR`: the default is `/app/agents`. Apron renames the Deployments' variables in the same release.
 
+### Changed (R-10e)
+- Every pinned runtime image moves to the re-released images that read `AUTOPILOT_URL` and the `autopilot`-audience token
+  first (falling back to the old names): `autopilot-agent-runtime` runtime-v0.1.6, `autopilot-agent-base-python`
+  runtime-base-python-v0.1.4, `autopilot-agent-langgraph` runtime-langgraph-v0.1.3 and `autopilot-agent-claude-agent-sdk`
+  runtime-claude-agent-sdk-v0.1.3 (`agents/*.yaml`, `agents/skyport/*.yaml`, `runtime/catalog.yaml`, the gateway test
+  fixture, the README table). Nothing was left pinned to an older runtime.
+
 ### Changed
 - Run-pod contract, backward compatible for one release (R-10b; Airframe's function-agentrun renders both sides):
   - The gateway accepts run-pod tokens for the `autopilot` audience as well as `clearance`. `AUTOPILOT_RUN_AUDIENCES`

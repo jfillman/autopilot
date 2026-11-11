@@ -13,7 +13,7 @@ profile:
   compute: small
   limits: { ttlMinutes: 15, toolCalls: 50, githubCalls: 0, openPrs: 0, modelTokens: 150000, children: 0 }
 runtime:
-  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a
   framework: generic
   sandbox: standard
 triggers: [ { type: manual } ]
