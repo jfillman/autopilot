@@ -1224,7 +1224,7 @@
         },
         {
           "createdBy": "composition",
-          "note": "The only service account a run pod may use (the cluster's admission policy for provider-kubernetes enforces it). No token is mounted; the pod gets projected tokens for the clearance and model-proxy audiences only.",
+          "note": "The only service account a run pod may use (the cluster's admission policy for provider-kubernetes enforces it). No token is mounted; the pod gets projected tokens for the autopilot, clearance (the old gateway audience, kept one release) and model-proxy audiences only.",
           "object": {
             "kind": "ServiceAccount",
             "name": "run"
