@@ -25,8 +25,9 @@ FROM python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915
 # interface report it (src/autopilot/version.py). The core's CLEARANCE_PROVIDERS entry must name the same version.
 ARG GATEWAY_VERSION=dev
 ENV AUTOPILOT_GATEWAY_VERSION=${GATEWAY_VERSION}
-ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
-    CLEARANCE_AGENTS_DIR=/app/agents PORT=8080
+# No AUTOPILOT_AGENTS_DIR here: the default is the editable install's /app/agents, and an image-level new name would
+# shadow a deployment's legacy CLEARANCE_AGENTS_DIR (the new name wins).
+ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8080
 COPY --from=build /opt/venv /opt/venv
 COPY --from=build /app /app
 WORKDIR /app

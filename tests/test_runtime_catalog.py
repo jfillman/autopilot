@@ -26,7 +26,7 @@ def test_the_catalog_parses_and_the_platform_agents_use_it():
 
 
 def test_the_gateway_allows_catalog_and_extra_images(clock):
-    cfg = serve.config_from_env({"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0",
+    cfg = serve.config_from_env({"AUTOPILOT_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0",
                                  **core_env(), "RUNTIME_IMAGES_EXTRA": "ghcr.io/jfillman/flight/*@sha256:*"})
     g, _ = serve.build_gateway(cfg, backends=Backends(None, None, FakeRuns(), None, None), auth=Auth(), clock=clock)
     generic = next(r.image for r in g.runtimes if r.name == "generic")

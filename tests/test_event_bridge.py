@@ -12,7 +12,7 @@ from autopilot.gateway import AgentRunBackend
 from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
+EPH = {"AUTOPILOT_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
 
 
 FIRST = "1793291758385806-7dd8657e1c25"

@@ -201,7 +201,7 @@ def test_logql_metric_query_is_a_matrix():
 
 
 # -- wiring ---------------------------------------------------------------------------------------------------------
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", **core_env()}
+EPH = {"AUTOPILOT_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", **core_env()}
 
 
 def test_read_tools_only_for_configured_backends():

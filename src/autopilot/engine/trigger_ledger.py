@@ -22,7 +22,7 @@ resumes from it with `/v1/events/recent?since=` and then `Last-Event-ID`. Its `f
 that source: the reconciliation sweep and the missed-slot check never reach back before it, so turning A-5 on does not
 launch a day of old failures.
 
-MemoryTriggers is the ephemeral store (CLEARANCE_EPHEMERAL, tests); pg.py PgTriggers is the durable one
+MemoryTriggers is the ephemeral store (AUTOPILOT_EPHEMERAL, tests); pg.py PgTriggers is the durable one
 (gateway_trigger_launches, gateway_event_cursors).
 """
 from __future__ import annotations

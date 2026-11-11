@@ -121,7 +121,7 @@ def test_the_go_control_interface_is_off_without_the_switch_and_loopback_only(go
 
 
 def test_the_go_gateway_refuses_what_it_does_not_carry_yet(go_binary):
-    base = {k: v for k, v in os.environ.items() if not k.startswith(("CLEARANCE_", "GATEWAY_", "GITHUB_"))}
+    base = {k: v for k, v in os.environ.items() if not k.startswith(("CLEARANCE_", "AUTOPILOT_", "GATEWAY_", "GITHUB_"))}
     r = subprocess.run([str(go_binary), "api"], env=base, capture_output=True, text=True)
     assert r.returncode == 2 and "not ported yet" in r.stderr
     env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1", "GITHUB_PR_ENABLED": "1"}

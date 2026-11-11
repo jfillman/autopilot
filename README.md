@@ -182,9 +182,29 @@ written at runtime, so it runs with a read-only root filesystem; linux/amd64 and
 
 ```shell
 container build --arch arm64 -t autopilot-gateway:dev .         # or --arch amd64
-container run --rm --read-only -e CLEARANCE_EPHEMERAL=1 -e CLEARANCE_CORE_URL=http://<core>:8080 -p 8080:8080 autopilot-gateway:dev
+container run --rm --read-only -e AUTOPILOT_EPHEMERAL=1 -e CLEARANCE_CORE_URL=http://<core>:8080 -p 8080:8080 autopilot-gateway:dev
 curl -s localhost:8080/healthz                                   # {"ok":true,"tools":35}
 ```
+
+**Renamed in the next gateway release (R-10a).** The settings the gateway owns now carry the `AUTOPILOT_` prefix; the
+`CLEARANCE_` names still work for one release (the new name wins when both are set, and a legacy name logs one
+deprecation warning at start naming its replacement). Settings that address the Clearance product keep their names.
+
+| Old (works for one release) | New |
+|---|---|
+| `CLEARANCE_EPHEMERAL` | `AUTOPILOT_EPHEMERAL` |
+| `CLEARANCE_AGENTS_DIR` | `AUTOPILOT_AGENTS_DIR` |
+| `CLEARANCE_RESOURCE_URL` | `AUTOPILOT_RESOURCE_URL` |
+| `CLEARANCE_OIDC_ISSUER`, `_AUDIENCE`, `_JWKS_URL`, `_USER_CLAIM`, `_ALLOWED_USERS` | `AUTOPILOT_OIDC_ISSUER`, `_AUDIENCE`, `_JWKS_URL`, `_USER_CLAIM`, `_ALLOWED_USERS` |
+| `CLEARANCE_AUDIENCE` (the gateway's token audience setting; its value is unchanged) | `AUTOPILOT_AUDIENCE` |
+| `CLEARANCE_EXPIRE_SECONDS` | `AUTOPILOT_EXPIRE_SECONDS` |
+| `CLEARANCE_DELEGATES`, `CLEARANCE_ADMINS` | `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS` |
+| `CLEARANCE_GATEWAY_URL` (read API) | `AUTOPILOT_GATEWAY_URL` |
+| `CLEARANCE_ISSUER_URL` (Go gateway) | `AUTOPILOT_ISSUER_URL` |
+
+Unchanged: `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE` and `CLEARANCE_API_URL` (they address the Clearance
+product), the core-only names the gateway refuses, and the unprefixed gateway settings (`GATEWAY_*`, `MODEL_*`,
+`TOWER_*`, `ARGO_*`, ...). The container images no longer set `CLEARANCE_AGENTS_DIR` (the default is `/app/agents`).
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -192,16 +212,16 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `CLEARANCE_CORE_URL` | (required) | the Clearance core, e.g. `http://clearance-core.clearance-system:8080` |
 | `CLEARANCE_CORE_TOKEN_FILE` | `/var/run/secrets/tokens/clearance-core` | the gateway's token for the core, re-read on every request: a projected service-account token whose audience is the core's `CLEARANCE_AUDIENCE` (default `clearance`). The core must register this identity as provider `autopilot-gateway` with `"definitions": true` (`CLEARANCE_PROVIDERS`), or it refuses the gateway's definition set |
 | `GATEWAY_OUTAGE_ALLOW_READS` | `false` | `true`: during a core outage, unscoped T0 reads still run and are recorded later as coverage-unavailable ([the outage policy](#the-outage-policy)) |
-| `CLEARANCE_EPHEMERAL` | `0` | `1`: in-memory sessions and outbox, lost on exit. Local runs only; `GATEWAY_DSN` is ignored |
-| `CLEARANCE_AGENTS_DIR` | the repo's `agents/` (`/app/agents` in the image) | the agent definitions loaded at start (that directory only, not its subdirectories) |
-| `CLEARANCE_RESOURCE_URL` | `http://localhost:$PORT/mcp` | this server's public URL, for the OAuth protected-resource metadata |
-| `CLEARANCE_OIDC_ISSUER`, `CLEARANCE_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
-| `CLEARANCE_OIDC_JWKS_URL` | `$CLEARANCE_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
-| `CLEARANCE_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
-| `CLEARANCE_OIDC_ALLOWED_USERS` | (none) | comma-separated globs on that claim: who may sign in at all. Required with `CLEARANCE_OIDC_ISSUER`, because an issuer that federates GitHub signs in anyone with a GitHub account |
-| `CLEARANCE_AUDIENCE` | `clearance` | the audience a workload's service-account token must carry (TokenReview) |
+| `AUTOPILOT_EPHEMERAL` | `0` | `1`: in-memory sessions and outbox, lost on exit. Local runs only; `GATEWAY_DSN` is ignored |
+| `AUTOPILOT_AGENTS_DIR` | the repo's `agents/` (`/app/agents` in the image) | the agent definitions loaded at start (that directory only, not its subdirectories) |
+| `AUTOPILOT_RESOURCE_URL` | `http://localhost:$PORT/mcp` | this server's public URL, for the OAuth protected-resource metadata |
+| `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE` | unset | set both to accept people's OIDC ID tokens from that issuer for that audience (Dex in the lab); unset, only workload tokens are accepted. The issuer is also the authorization server the metadata names (else the resource URL) |
+| `AUTOPILOT_OIDC_JWKS_URL` | `$AUTOPILOT_OIDC_ISSUER/keys` | the issuer's JWKS (Dex's path) |
+| `AUTOPILOT_OIDC_USER_CLAIM` | `email` | the claim that names the person (`user:<claim>`) |
+| `AUTOPILOT_OIDC_ALLOWED_USERS` | (none) | comma-separated globs on that claim: who may sign in at all. Required with `AUTOPILOT_OIDC_ISSUER`, because an issuer that federates GitHub signs in anyone with a GitHub account |
+| `AUTOPILOT_AUDIENCE` | `clearance` | the audience a workload's service-account token must carry (TokenReview) |
 | `PORT` | `8080` | listen port, all interfaces |
-| `CLEARANCE_EXPIRE_SECONDS` | `60` | how often `Gateway.expire()` closes sessions past their deadline and deletes their AgentRuns (and their children's), on a background thread under the gateway lock; a failed sweep is logged and retried |
+| `AUTOPILOT_EXPIRE_SECONDS` | `60` | how often `Gateway.expire()` closes sessions past their deadline and deletes their AgentRuns (and their children's), on a background thread under the gateway lock; a failed sweep is logged and retried |
 | `GLIDEPATH_API_URL` | unset | glidepath-api's base URL (e.g. `http://glidepath-api.platform-system:8080`); unset, the `glidepath.*` tools have no backend |
 | `GLIDEPATH_TOKEN_FILE` | `/var/run/secrets/kubernetes.io/serviceaccount/token` | Clearance's token toward glidepath-api, re-read every call |
 | `GLIDEPATH_ON_BEHALF_OF` | `0` | `1`: send the session principal in `X-Glidepath-On-Behalf-Of` (only when Clearance is one of glidepath-api's `api.delegates`; a non-delegate sending it is refused) |
@@ -213,9 +233,9 @@ curl -s localhost:8080/healthz                                   # {"ok":true,"t
 | `ARGO_APP_NAMESPACES` | `argocd` | comma-separated: the namespaces `argo.app.get` and `argo.sync.lower` look for an Application in, in order (and, for an app name, list its Applications in by the `hangar.io/app` label) |
 | `BACKSTAGE_URL` | unset | Tower's Backstage, e.g. `http://backstage.hangar-prod.local`: `catalog.read` searches its catalog |
 | `BACKSTAGE_TOKEN_FILE` | `/var/run/clearance/backstage-token` | a projected token for audience `backstage`, re-read per call |
-| `TOWER_ISSUER` | unset | another cluster's public service-account issuer (Tower's, e.g. `https://hangarplatform.dev/oidc/hangar-prod`): its tokens for audience `CLEARANCE_AUDIENCE` are verified against `TOWER_JWKS_URL` (default `<issuer>/jwks.json`) as `<TOWER_CLUSTER>/<ns>/<sa>` |
+| `TOWER_ISSUER` | unset | another cluster's public service-account issuer (Tower's, e.g. `https://hangarplatform.dev/oidc/hangar-prod`): its tokens for audience `AUTOPILOT_AUDIENCE` are verified against `TOWER_JWKS_URL` (default `<issuer>/jwks.json`) as `<TOWER_CLUSTER>/<ns>/<sa>` |
 | `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS` | unset | required with `TOWER_ISSUER`: the name prefix, and the `namespace/name` globs that may call (the issuer signs a token for every pod there) |
-| `CLEARANCE_DELEGATES` | unset | comma-separated principal globs that may answer human requests for a person they name (`X-Hangar-On-Behalf-Of`), e.g. Tower's backend |
+| `AUTOPILOT_DELEGATES` | unset | comma-separated principal globs that may answer human requests for a person they name (`X-Hangar-On-Behalf-Of`), e.g. Tower's backend |
 | `ARGO_SYNC_ENABLED` | `0` | `1`: `argo.sync.lower` starts a sync of a lower Application (needs the grant below) |
 | `PROMETHEUS_URL` | unset | a Prometheus-compatible query API (e.g. `http://thanos-query.observability.svc:9090`); unset, `metrics.query` has no backend |
 | `LOKI_URL` | unset | Loki's query API (e.g. `http://loki-gateway.observability.svc`); unset, `logs.query` has no backend |
@@ -251,7 +271,7 @@ projected token and CA at the standard path; every adapter re-reads both on each
 
 | Backend | Tools | Needs |
 |---|---|---|
-| Authentication (always) | every MCP request | `create` on `tokenreviews.authentication.k8s.io`: a ClusterRoleBinding to `system:auth-delegator`. Callers bring a projected token with audience `CLEARANCE_AUDIENCE`. For people, network reach to the OIDC issuer's JWKS |
+| Authentication (always) | every MCP request | `create` on `tokenreviews.authentication.k8s.io`: a ClusterRoleBinding to `system:auth-delegator`. Callers bring a projected token with audience `AUTOPILOT_AUDIENCE`. For people, network reach to the OIDC issuer's JWKS |
 | AgentRuns (always) | `run.spawn`, `run.close`, the expiry sweep | Role `clearance-agentruns` in `autopilot-runs`: `create` and `delete` on `agentruns.catalog.hangar.io` (the adapter sends nothing else) |
 | Airframe reads (`AIRFRAME_ENABLED`) | `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify` (`airframe.apply` is GitHub PRs below) | ClusterRole `clearance-airframe-reader`: get/list/watch on `catalog.hangar.io` and `argoproj.io` applications and rollouts, nothing else (gitops-hangar-dev#40). `airframe.validate` has no backend in the image |
 | Glidepath (`GLIDEPATH_API_URL`) | `glidepath.*` | network reach to glidepath-api and RBAC there for Clearance's identity: glidepath-api checks it with a SubjectAccessReview (ClusterRoles `glidepath-api-reader`, `-operator`, `-releaser` for reads, run control and release proposals) |
@@ -279,7 +299,7 @@ A query Prometheus or Loki rejects (a parse error, a timeout, too many samples) 
 `human.request` and `human.request.get` are the gateway's own inbox (`engine/inbox.py`), durable on Postgres
 (`PgInbox`). A request is answered by the session's owner or a member of the definition's `owner` group, whose
 membership is the person's Tower catalog `memberOf` (`reads.BackstageDirectory`, the catalog.read token), either signed in
-themselves or through a `CLEARANCE_DELEGATES` principal (Tower) at `GET/POST /v1/human/requests`. Every definition in
+themselves or through an `AUTOPILOT_DELEGATES` principal (Tower) at `GET/POST /v1/human/requests`. Every definition in
 `agents/` names its `owner` (team-platform; the Skyport ones team-skyport).
 
 Everything else (`xr.request`, `app.api.get`, `chat.*`) has no handler: a call is audited and refused with "no backend for this tool in this
@@ -316,14 +336,14 @@ it, `--check` (and `tests/engine/test_read_api.py`) fails when it is stale.
 | `GATEWAY_API_POOL` | `5` | connections per replica (1 to 50) |
 | `GATEWAY_API_AUDITORS` | unset | principal globs that read everything |
 | `GATEWAY_API_NOTIFIERS` | unset | principal globs that read the human-inbox feed only (Tower's poller) |
-| `CLEARANCE_DELEGATES` | unset | as for the gateway: may read for the person named in `X-Hangar-On-Behalf-Of` |
-| `CLEARANCE_GATEWAY_URL` | unset | where writes go, named in `/v1/contract` as `gateway` |
+| `AUTOPILOT_DELEGATES` | unset | as for the gateway: may read for the person named in `X-Hangar-On-Behalf-Of` |
+| `AUTOPILOT_GATEWAY_URL` | unset | where writes go, named in `/v1/contract` as `gateway` |
 | `CLEARANCE_API_URL` | unset | where Clearance's reads are (clearance-api), named in `/v1/contract` as `clearance` |
 | `GATEWAY_API_DEFINITIONS_INTERVAL` | `30` | how often the cluster-pinned definitions are re-read from the gateway's store (`gateway_definitions`); this process fetches nothing |
 
 The pre-R-3c `CLEARANCE_API_*` names (`CLEARANCE_API_DSN` and so on) configure nothing since R-4; apron's Deployment
 sets the `GATEWAY_API_*` names (`CLEARANCE_API_URL` is a different variable and stays). Auth
-(`CLEARANCE_AUDIENCE`, `CLEARANCE_OIDC_*`, `TOWER_*`) and the catalog (`BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`) are the
+(`AUTOPILOT_AUDIENCE`, `AUTOPILOT_OIDC_*`, `TOWER_*`) and the catalog (`BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`) are the
 gateway's variables. A person sees their own sessions and their teams' agents' sessions (`BackstageDirectory`), and an
 app's events when they own it (`BackstageOwnership`: Components whose `spec.owner` is them or their team).
 

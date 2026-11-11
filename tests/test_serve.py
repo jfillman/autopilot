@@ -17,7 +17,7 @@ from autopilot.engine.auth import CachingAuthenticator, OIDCAuthenticator, Routi
 from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 
-EPH = {"CLEARANCE_EPHEMERAL": "1", **core_env()}
+EPH = {"AUTOPILOT_EPHEMERAL": "1", **core_env()}
 CORE_WITHOUT_BACKEND = ["catalog.read", "metrics.query", "logs.query", "app.api.get", "argo.app.get",
                         "argo.sync.lower", "artifact.put", "artifact.get", "chat.recv", "chat.send",
                         "repo.pr.open", "repo.pr.open_upper", "xr.request"]
@@ -37,12 +37,12 @@ def test_defaults():
 
 def test_full_environment(tmp_path):
     c = serve.config_from_env({
-        "GATEWAY_DSN": "postgresql://gateway@pg/gateway", "CLEARANCE_AGENTS_DIR": str(tmp_path),
+        "GATEWAY_DSN": "postgresql://gateway@pg/gateway", "AUTOPILOT_AGENTS_DIR": str(tmp_path),
         "CLEARANCE_CORE_URL": "http://clearance-core.clearance-system:8080", "GATEWAY_OUTAGE_ALLOW_READS": "1",
-        "CLEARANCE_RESOURCE_URL": "https://clearance.hangar.io/mcp", "CLEARANCE_OIDC_ISSUER": "https://dex.example/dex/",
-        "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_OIDC_ALLOWED_USERS": "jfillman",
-        "CLEARANCE_AUDIENCE": "clearance-dev", "PORT": "9000",
-        "CLEARANCE_EXPIRE_SECONDS": "15", "GLIDEPATH_API_URL": "http://glidepath-api.platform-system:8080",
+        "AUTOPILOT_RESOURCE_URL": "https://clearance.hangar.io/mcp", "AUTOPILOT_OIDC_ISSUER": "https://dex.example/dex/",
+        "AUTOPILOT_OIDC_AUDIENCE": "tower", "AUTOPILOT_OIDC_ALLOWED_USERS": "jfillman",
+        "AUTOPILOT_AUDIENCE": "clearance-dev", "PORT": "9000",
+        "AUTOPILOT_EXPIRE_SECONDS": "15", "GLIDEPATH_API_URL": "http://glidepath-api.platform-system:8080",
         "GLIDEPATH_TOKEN_FILE": "/var/run/glidepath/token", "GLIDEPATH_ON_BEHALF_OF": "1", "AIRFRAME_ENABLED": "0",
         "AIRFRAME_UPPER_CLUSTERS": "a, b,", "AIRFRAME_TENANTS_REPO": "t"})
     assert not c.ephemeral and c.dsn.startswith("postgresql://") and c.port == 9000 and c.expire_seconds == 15
@@ -70,18 +70,18 @@ def test_ephemeral_ignores_a_dsn():
 
 @pytest.mark.parametrize("env, match", [
     ({}, "GATEWAY_DSN is required"),
-    ({"CLEARANCE_EPHEMERAL": "0", "GATEWAY_DSN": ""}, "GATEWAY_DSN is required"),
-    ({"CLEARANCE_EPHEMERAL": "1"}, "CLEARANCE_CORE_URL is required"),
-    ({"CLEARANCE_EPHEMERAL": "1", "CLEARANCE_CORE_URL": "clearance-core:8080"}, "http"),
-    ({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex"}, "set together"),
-    ({**EPH, "CLEARANCE_OIDC_AUDIENCE": "tower"}, "set together"),
-    ({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex", "CLEARANCE_OIDC_AUDIENCE": "c"}, "needs CLEARANCE_OIDC_ALLOWED_USERS"),
+    ({"AUTOPILOT_EPHEMERAL": "0", "GATEWAY_DSN": ""}, "GATEWAY_DSN is required"),
+    ({"AUTOPILOT_EPHEMERAL": "1"}, "CLEARANCE_CORE_URL is required"),
+    ({"AUTOPILOT_EPHEMERAL": "1", "CLEARANCE_CORE_URL": "clearance-core:8080"}, "http"),
+    ({**EPH, "AUTOPILOT_OIDC_ISSUER": "https://dex"}, "set together"),
+    ({**EPH, "AUTOPILOT_OIDC_AUDIENCE": "tower"}, "set together"),
+    ({**EPH, "AUTOPILOT_OIDC_ISSUER": "https://dex", "AUTOPILOT_OIDC_AUDIENCE": "c"}, "needs AUTOPILOT_OIDC_ALLOWED_USERS"),
     ({**EPH, "PORT": "http"}, "PORT must be a number"),
     ({**EPH, "PORT": "0"}, "PORT must be positive"),
     ({**EPH, "PORT": "70000"}, "at most 65535"),
-    ({**EPH, "CLEARANCE_EXPIRE_SECONDS": "-1"}, "CLEARANCE_EXPIRE_SECONDS must be positive"),
+    ({**EPH, "AUTOPILOT_EXPIRE_SECONDS": "-1"}, "AUTOPILOT_EXPIRE_SECONDS must be positive"),
     ({**EPH, "AIRFRAME_ENABLED": "maybe"}, "AIRFRAME_ENABLED must be 0 or 1"),
-    ({**EPH, "CLEARANCE_AGENTS_DIR": "/nonexistent/agents"}, "is not a directory"),
+    ({**EPH, "AUTOPILOT_AGENTS_DIR": "/nonexistent/agents"}, "is not a directory"),
 ])
 def test_refuses_an_environment_that_cannot_start(env, match):
     with pytest.raises(serve.ConfigError, match=match):
@@ -213,9 +213,9 @@ def test_auth_is_workload_only_without_oidc():
 
 
 def test_auth_routes_the_oidc_issuer():
-    a = serve.build_auth(serve.config_from_env({**EPH, "CLEARANCE_OIDC_ISSUER": "https://dex/dex",
-                                                "CLEARANCE_OIDC_AUDIENCE": "tower", "CLEARANCE_AUDIENCE": "aud2",
-                                                "CLEARANCE_OIDC_ALLOWED_USERS": "jfillman, ops-*"}))
+    a = serve.build_auth(serve.config_from_env({**EPH, "AUTOPILOT_OIDC_ISSUER": "https://dex/dex",
+                                                "AUTOPILOT_OIDC_AUDIENCE": "tower", "AUTOPILOT_AUDIENCE": "aud2",
+                                                "AUTOPILOT_OIDC_ALLOWED_USERS": "jfillman, ops-*"}))
     o = a.inner.oidc["https://dex/dex"]
     assert isinstance(o, OIDCAuthenticator) and o.audience == "tower" and o.keys.url == "https://dex/dex/keys"
     assert o.allowed == ("jfillman", "ops-*")
@@ -423,9 +423,103 @@ def test_tower_issuer_and_delegates(tmp_path):
         serve.config_from_env({**EPH, "TOWER_ISSUER": "https://hangarplatform.dev/oidc/hangar-prod"})
     c = serve.config_from_env({**EPH, "TOWER_ISSUER": "https://hangarplatform.dev/oidc/hangar-prod/",
                                "TOWER_CLUSTER": "hangar-prod", "TOWER_SERVICE_ACCOUNTS": "app-backstage-prod/backstage",
-                               "CLEARANCE_DELEGATES": "hangar-prod/app-backstage-prod/backstage"})
+                               "AUTOPILOT_DELEGATES": "hangar-prod/app-backstage-prod/backstage"})
     assert c.tower_jwks_url == "https://hangarplatform.dev/oidc/hangar-prod/jwks.json"
     assert c.delegates == ("hangar-prod/app-backstage-prod/backstage",)
     tower = serve.build_auth(c).inner.oidc["https://hangarplatform.dev/oidc/hangar-prod"]
     assert isinstance(tower, ForeignWorkloadAuthenticator) and tower.allowed == ("app-backstage-prod/backstage",)
     assert tower.name == "hangar-prod" and tower.audience == "clearance"
+
+
+# -- R-10a: AUTOPILOT_* names, CLEARANCE_* aliases for one release ---------------------------------------------------------
+RENAMED = {   # new -> (legacy, a value, how to read it back)
+    "AUTOPILOT_EPHEMERAL": ("CLEARANCE_EPHEMERAL", "1"),
+    "AUTOPILOT_OIDC_ISSUER": ("CLEARANCE_OIDC_ISSUER", "https://dex.example/dex"),
+    "AUTOPILOT_OIDC_AUDIENCE": ("CLEARANCE_OIDC_AUDIENCE", "tower"),
+    "AUTOPILOT_OIDC_ALLOWED_USERS": ("CLEARANCE_OIDC_ALLOWED_USERS", "jfillman"),
+    "AUTOPILOT_OIDC_JWKS_URL": ("CLEARANCE_OIDC_JWKS_URL", "https://dex.example/keys2"),
+    "AUTOPILOT_OIDC_USER_CLAIM": ("CLEARANCE_OIDC_USER_CLAIM", "sub"),
+    "AUTOPILOT_RESOURCE_URL": ("CLEARANCE_RESOURCE_URL", "https://ap.example/mcp"),
+    "AUTOPILOT_AUDIENCE": ("CLEARANCE_AUDIENCE", "aud-x"),
+    "AUTOPILOT_EXPIRE_SECONDS": ("CLEARANCE_EXPIRE_SECONDS", "15"),
+    "AUTOPILOT_DELEGATES": ("CLEARANCE_DELEGATES", "ns/sa"),
+    "AUTOPILOT_ADMINS": ("CLEARANCE_ADMINS", "user:root"),
+}
+OIDC = {"AUTOPILOT_OIDC_ISSUER": "https://dex.example/dex", "AUTOPILOT_OIDC_AUDIENCE": "tower",
+        "AUTOPILOT_OIDC_ALLOWED_USERS": "jfillman"}
+
+
+def _readback(c):
+    return {"AUTOPILOT_EPHEMERAL": c.ephemeral, "AUTOPILOT_OIDC_ISSUER": c.oidc_issuer,
+            "AUTOPILOT_OIDC_AUDIENCE": c.oidc_audience, "AUTOPILOT_OIDC_ALLOWED_USERS": list(c.oidc_allowed),
+            "AUTOPILOT_OIDC_JWKS_URL": c.oidc_jwks_url, "AUTOPILOT_OIDC_USER_CLAIM": c.oidc_user_claim,
+            "AUTOPILOT_RESOURCE_URL": c.resource_url, "AUTOPILOT_AUDIENCE": c.audience,
+            "AUTOPILOT_EXPIRE_SECONDS": c.expire_seconds, "AUTOPILOT_DELEGATES": list(c.delegates),
+            "AUTOPILOT_ADMINS": list(c.admins)}
+
+
+def _env_for(name, extra=None):
+    env = {k: v for k, v in EPH.items() if k != "AUTOPILOT_EPHEMERAL"}
+    env.update({"GATEWAY_DSN": "postgresql://x"})
+    env.update({k: v for k, v in OIDC.items() if k != name} if name.startswith("AUTOPILOT_OIDC_") else {})
+    return {**env, **(extra or {})}
+
+
+@pytest.mark.parametrize("name", RENAMED)
+def test_the_new_name_is_read_without_a_warning(name, caplog):
+    legacy, value = RENAMED[name]
+    env = _env_for(name, {name: value})
+    with caplog.at_level("WARNING", logger="autopilot.gateway"):
+        c = serve.config_from_env(env)
+    got = _readback(c)[name]
+    assert got not in (None, [], False, "clearance", "email", 60.0) or name == "AUTOPILOT_EPHEMERAL", (name, got)
+    assert "deprecated" not in caplog.text
+
+
+@pytest.mark.parametrize("name", RENAMED)
+def test_the_legacy_name_still_works_and_warns_naming_the_new_one(name, caplog):
+    legacy, value = RENAMED[name]
+    new_env = _env_for(name, {name: value})
+    old_env = _env_for(name, {legacy: value})
+    with caplog.at_level("WARNING", logger="autopilot.gateway"):
+        old = serve.config_from_env(old_env)
+    assert _readback(old)[name] == _readback(serve.config_from_env(new_env))[name]
+    warnings = [r for r in caplog.records if "deprecated" in r.getMessage()]
+    assert len(warnings) == 1 and f"{legacy} -> {name}" in warnings[0].getMessage()
+
+
+def test_the_new_name_wins_when_both_are_set(caplog):
+    env = _env_for("AUTOPILOT_AUDIENCE", {"AUTOPILOT_AUDIENCE": "new", "CLEARANCE_AUDIENCE": "old",
+                                          "AUTOPILOT_EXPIRE_SECONDS": "5", "CLEARANCE_EXPIRE_SECONDS": "99"})
+    with caplog.at_level("WARNING", logger="autopilot.gateway"):
+        c = serve.config_from_env(env)
+    assert c.audience == "new" and c.expire_seconds == 5
+
+
+def test_several_legacy_names_are_one_warning(caplog):
+    env = _env_for("x", {"CLEARANCE_AUDIENCE": "a", "CLEARANCE_ADMINS": "user:r", "CLEARANCE_DELEGATES": "ns/sa"})
+    with caplog.at_level("WARNING", logger="autopilot.gateway"):
+        serve.config_from_env(env)
+    msgs = [r.getMessage() for r in caplog.records if "deprecated" in r.getMessage()]
+    assert len(msgs) == 1
+    for old in ("AUDIENCE", "ADMINS", "DELEGATES"):
+        assert f"CLEARANCE_{old} -> AUTOPILOT_{old}" in msgs[0]
+
+
+def test_an_empty_new_name_falls_back_to_the_legacy_one():
+    assert serve.config_from_env({**EPH, "AUTOPILOT_AUDIENCE": "", "CLEARANCE_AUDIENCE": "old"}).audience == "old"
+
+
+def test_the_clearance_client_names_are_unchanged():
+    c = serve.config_from_env({**EPH, "CLEARANCE_CORE_TOKEN_FILE": "/tmp/tok"})
+    assert c.core_url == EPH["CLEARANCE_CORE_URL"] and str(c.core_token_file) == "/tmp/tok"
+    with pytest.raises(serve.ConfigError, match="CLEARANCE_CORE_URL is required"):
+        serve.config_from_env({"AUTOPILOT_EPHEMERAL": "1"})
+
+
+def test_aliases_do_not_touch_the_core_only_refuse_list():
+    # Every core-only name is still refused, with the aliasing in play, and none of them is an alias or a new name.
+    assert not set(serve.CORE_ONLY) & (set(RENAMED) | {v[0] for v in RENAMED.values()})
+    for var in serve.CORE_ONLY:
+        with pytest.raises(serve.ConfigError, match=var):
+            serve.config_from_env({**EPH, "CLEARANCE_AUDIENCE": "old", "AUTOPILOT_AUDIENCE": "new", var: "x"})

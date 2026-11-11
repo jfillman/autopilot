@@ -17,7 +17,7 @@ BUNDLED = profile.load_dir(ROOT / "agents")
 SKYPORT = profile.load_dir(ROOT / "agents" / "skyport")
 # What Hangar's gateway on hangar-dev configures (apron 55-autopilot gateway.yaml), plus APP_API_SERVICES, which
 # only the Skyport definitions (not loaded today) need.
-FULL = {"CLEARANCE_EPHEMERAL": "1", **core_env(), "GLIDEPATH_API_URL": "http://glidepath-api:8080",
+FULL = {"AUTOPILOT_EPHEMERAL": "1", **core_env(), "GLIDEPATH_API_URL": "http://glidepath-api:8080",
         "ARGO_APP_NAMESPACES": "argocd,argocd-apps", "ARGO_SYNC_ENABLED": "1", "PROMETHEUS_URL": "http://thanos:9090",
         "LOKI_URL": "http://loki", "BACKSTAGE_URL": "http://backstage", "GITHUB_PR_ENABLED": "1",
         "APP_API_SERVICES": '{"flight-api": "http://flight-api:8080", "boarding-api": "http://boarding-api:8080", '

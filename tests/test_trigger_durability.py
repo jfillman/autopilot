@@ -23,7 +23,7 @@ from autopilot.engine.dispatch import Principal
 from autopilot.engine.tiers import Tier
 from autopilot.event_bridge import EventBridge, id_time
 
-EPH = {"CLEARANCE_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
+EPH = {"AUTOPILOT_EPHEMERAL": "1", "AIRFRAME_ENABLED": "0", "ARGO_ENABLED": "0", **core_env()}
 
 
 class Auth:
@@ -412,7 +412,7 @@ def scratch_dsn():
 
 
 def durable(dsn, clock):
-    env = {k: v for k, v in EPH.items() if k != "CLEARANCE_EPHEMERAL"}
+    env = {k: v for k, v in EPH.items() if k != "AUTOPILOT_EPHEMERAL"}
     runs = FakeRuns()
     g, state = serve.build_gateway(serve.config_from_env({**env, "GATEWAY_DSN": dsn}),
                                    backends=Backends(None, None, runs, None, None), auth=Auth(), clock=clock)

@@ -5,6 +5,16 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Renamed (R-10a)
+- The settings the gateway owns are `AUTOPILOT_*` now: `CLEARANCE_EPHEMERAL`, `_AGENTS_DIR`, `_RESOURCE_URL`,
+  `_OIDC_ISSUER`, `_OIDC_AUDIENCE`, `_OIDC_JWKS_URL`, `_OIDC_USER_CLAIM`, `_OIDC_ALLOWED_USERS`, `_AUDIENCE`,
+  `_EXPIRE_SECONDS`, `_DELEGATES`, `_ADMINS`, `_GATEWAY_URL` (read API) and `_ISSUER_URL` (Go gateway) become
+  `AUTOPILOT_<same suffix>`. The old names keep working for one release: the new name wins when both are set, and a
+  legacy name logs one deprecation warning at start naming its replacement (`src/autopilot/settings.py`; the Go gateway
+  has the same in `settings.go`). Unchanged: `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `CLEARANCE_API_URL`
+  (they address the Clearance product), the core-only refuse-list, and every audience value (R-10b). The images no longer
+  set `CLEARANCE_AGENTS_DIR`: the default is `/app/agents`. Apron renames the Deployments' variables in the same release.
+
 ### Changed
 - The gateway image carries only the platform's core definitions (`agents/*.yaml`). `agents/skyport/` was copied in but never loaded; it stays in the repository until those agents move to their own repo.
 

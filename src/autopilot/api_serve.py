@@ -11,13 +11,14 @@ Environment (README "Running the read API"):
   GATEWAY_API_DSN           the read-only role's DSN on the gateway's own database (required); it reads gateway_* only
   GATEWAY_API_TABLES        retired at R-4: `gateway` (what the Deployment still sets) is accepted and ignored for one
                             release, anything else is refused; apron drops it before the next
-  GATEWAY_API_POOL (5), GATEWAY_API_AUDITORS, GATEWAY_API_NOTIFIERS, CLEARANCE_DELEGATES   principal globs, comma-separated
-  CLEARANCE_AGENTS_DIR      the bundled agent definitions (default: the image's agents/); the ones Agent XRs pin come
+  GATEWAY_API_POOL (5), GATEWAY_API_AUDITORS, GATEWAY_API_NOTIFIERS, AUTOPILOT_DELEGATES   principal globs, comma-separated
+  AUTOPILOT_AGENTS_DIR      the bundled agent definitions (default: the image's agents/); the ones Agent XRs pin come
                             from the gateway's store (gateway_definitions), refreshed every GATEWAY_API_DEFINITIONS_INTERVAL s (30)
-  CLEARANCE_GATEWAY_URL     where writes go, named in /v1/contract as `gateway`
+  AUTOPILOT_GATEWAY_URL     where writes go, named in /v1/contract as `gateway`
   CLEARANCE_API_URL         where Clearance's reads are, named in /v1/contract as `clearance`
-  PORT (8080), and the gateway's auth and catalog variables (CLEARANCE_AUDIENCE, CLEARANCE_OIDC_*, TOWER_*,
-  BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE)
+  PORT (8080), and the gateway's auth and catalog variables (AUTOPILOT_AUDIENCE, AUTOPILOT_OIDC_*, TOWER_*,
+  BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE). The CLEARANCE_* names of the settings the gateway owns still work for one
+  release (settings.py), with a deprecation warning.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ from .engine.definitions import Definitions
 
 from . import read_api, serve
 from .agent_xrs import DefinitionsRefresher
+from .settings import setting, warn_deprecated
 from .reads import BackstageCatalog, BackstageDirectory, BackstageOwnership
 
 log = logging.getLogger("autopilot.api")
@@ -38,8 +40,10 @@ log = logging.getLogger("autopilot.api")
 def build(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
 
-    def get(k: str, d: str | None = None) -> str | None:
-        return env.get(k) or d
+    used: dict[str, str] = {}
+
+    def get(k: str, d: str | None = None, legacy: str | None = None) -> str | None:
+        return setting(env, k, legacy=legacy, default=d, used=used)
 
     dsn = get("GATEWAY_API_DSN")
     if not dsn:
@@ -58,7 +62,7 @@ def build(env: Mapping[str, str] | None = None):
         raise serve.ConfigError("GATEWAY_API_POOL is 1 to 50")
     # The gateway's config parser for auth, catalog and agents; the store it would open is never used here.
     # The core URL is required by the gateway's parser but never called here.
-    cfg = serve.config_from_env({**env, "CLEARANCE_EPHEMERAL": "1",
+    cfg = serve.config_from_env({**env, "AUTOPILOT_EPHEMERAL": "1",
                                  "CLEARANCE_CORE_URL": env.get("CLEARANCE_CORE_URL") or "http://clearance-core.invalid"})
     defs = Definitions(profile.load_dir(cfg.agents_dir))
     directory = ownership = None
@@ -72,9 +76,10 @@ def build(env: Mapping[str, str] | None = None):
     store = read_api.PgReadStore(read_api.Pool(dsn, size=pool_size))
     # The cluster-pinned definitions the gateway loaded, from its store: this process fetches and decides nothing.
     DefinitionsRefresher(defs, store, interval=interval).start()
-    app = read_api.create_api_app(store, access, gateway_url=get("CLEARANCE_GATEWAY_URL"),
+    app = read_api.create_api_app(store, access, gateway_url=get("AUTOPILOT_GATEWAY_URL", legacy="CLEARANCE_GATEWAY_URL"),
                                   clearance_api_url=get("CLEARANCE_API_URL"), runtimes=serve.load_runtimes(),
                                   custom_images=cfg.runtime_images_extra)
+    warn_deprecated(used)   # the gateway parser above warns for the settings it reads
     return cfg, access, app
 
 

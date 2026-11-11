@@ -66,6 +66,7 @@ from .kube_runs import IN_CLUSTER_API, SA_DIR, KubeAgentRuns
 from .engine.results import MemoryResults
 from .reads import AppAPIs, BackstageCatalog, BackstageDirectory, KubeArgo, LokiAPI, PrometheusAPI, Reads
 from .github_pr import BROKER_URL, GitHubPRs
+from .settings import setting, warn_deprecated
 from .version import gateway_version
 
 log = logging.getLogger("autopilot.gateway")
@@ -171,8 +172,9 @@ class Config:
         return self.oidc_issuer or self.resource_url
 
 
-def _flag(env: Mapping[str, str], name: str, default: bool) -> bool:
-    v = env.get(name)
+def _flag(env: Mapping[str, str], name: str, default: bool, *, legacy: str | None = None,
+          used: dict[str, str] | None = None) -> bool:
+    v = setting(env, name, legacy=legacy, used=used)
     if v is None or v == "":
         return default
     if v.lower() in ("1", "true", "yes", "on"):
@@ -189,8 +191,9 @@ def _off_or_number(env: Mapping[str, str], name: str, default: float, kind: Call
     return _number(env, name, default, kind)
 
 
-def _number(env: Mapping[str, str], name: str, default: float, kind: Callable[[str], Any]) -> Any:
-    v = env.get(name) or None
+def _number(env: Mapping[str, str], name: str, default: float, kind: Callable[[str], Any], *,
+            legacy: str | None = None, used: dict[str, str] | None = None) -> Any:
+    v = setting(env, name, legacy=legacy, used=used)
     try:
         n = kind(v) if v is not None else default
     except ValueError as e:
@@ -227,15 +230,16 @@ def _app_api_services(raw: str) -> dict[str, str]:
 
 def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
-    get = lambda k, d=None: env.get(k) or d  # noqa: E731 - an empty variable is an unset one
+    used: dict[str, str] = {}   # legacy CLEARANCE_* names in use -> their AUTOPILOT_* replacements (settings.py)
+    get = lambda k, d=None, legacy=None: setting(env, k, legacy=legacy, default=d, used=used)  # noqa: E731
     stale = [k for k in CORE_ONLY if get(k)]
     if stale:
         raise ConfigError(f"{', '.join(stale)}: the Clearance core's settings, not the gateway's (the gateway has no "
                           "evidence DSN and serves no gate, provenance or GitHub App); set them on the core")
-    ephemeral = _flag(env, "CLEARANCE_EPHEMERAL", False)
+    ephemeral = _flag(env, "AUTOPILOT_EPHEMERAL", False, legacy="CLEARANCE_EPHEMERAL", used=used)
     dsn = get("GATEWAY_DSN")
     if not ephemeral and not dsn:
-        raise ConfigError("GATEWAY_DSN is required (or CLEARANCE_EPHEMERAL=1 for an in-memory store, local runs only)")
+        raise ConfigError("GATEWAY_DSN is required (or AUTOPILOT_EPHEMERAL=1 for an in-memory store, local runs only)")
     core_url = get("CLEARANCE_CORE_URL")
     if not core_url:
         raise ConfigError("CLEARANCE_CORE_URL is required: the Clearance core decides every call")
@@ -244,17 +248,18 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     port = _number(env, "PORT", 8080, int)
     if port > 65535:
         raise ConfigError("PORT must be at most 65535")
-    issuer, audience = get("CLEARANCE_OIDC_ISSUER"), get("CLEARANCE_OIDC_AUDIENCE")
+    issuer = get("AUTOPILOT_OIDC_ISSUER", legacy="CLEARANCE_OIDC_ISSUER")
+    audience = get("AUTOPILOT_OIDC_AUDIENCE", legacy="CLEARANCE_OIDC_AUDIENCE")
     if bool(issuer) != bool(audience):
-        raise ConfigError("CLEARANCE_OIDC_ISSUER and CLEARANCE_OIDC_AUDIENCE are set together or not at all")
+        raise ConfigError("AUTOPILOT_OIDC_ISSUER and AUTOPILOT_OIDC_AUDIENCE are set together or not at all")
     issuer = issuer.rstrip("/") if issuer else None
-    allowed = _list(get("CLEARANCE_OIDC_ALLOWED_USERS", ""))
+    allowed = _list(get("AUTOPILOT_OIDC_ALLOWED_USERS", "", legacy="CLEARANCE_OIDC_ALLOWED_USERS"))
     if issuer and not allowed:
-        raise ConfigError("CLEARANCE_OIDC_ISSUER needs CLEARANCE_OIDC_ALLOWED_USERS: an issuer that federates GitHub "
+        raise ConfigError("AUTOPILOT_OIDC_ISSUER needs AUTOPILOT_OIDC_ALLOWED_USERS: an issuer that federates GitHub "
                           "signs in anyone with a GitHub account")
-    agents = Path(get("CLEARANCE_AGENTS_DIR", str(REPO_AGENTS)))
+    agents = Path(get("AUTOPILOT_AGENTS_DIR", str(REPO_AGENTS), legacy="CLEARANCE_AGENTS_DIR"))
     if not agents.is_dir():
-        raise ConfigError(f"CLEARANCE_AGENTS_DIR {str(agents)!r} is not a directory")
+        raise ConfigError(f"AUTOPILOT_AGENTS_DIR {str(agents)!r} is not a directory")
     upper = tuple(c.strip() for c in get("AIRFRAME_UPPER_CLUSTERS", "hangar-prod").split(",") if c.strip())
     argo_ns = tuple(n.strip() for n in get("ARGO_APP_NAMESPACES", "argocd").split(",") if n.strip())
     if _flag(env, "ARGO_ENABLED", True) and not argo_ns:
@@ -309,14 +314,14 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     agent_xrs_interval = _number(env, "AGENT_XRS_INTERVAL", 60.0, float)
     if agent_xrs_interval < 5:
         raise ConfigError("AGENT_XRS_INTERVAL is at least 5 seconds")
-    return Config(
+    cfg = Config(
         agents_dir=agents, dsn=None if ephemeral else dsn, ephemeral=ephemeral,
-        resource_url=get("CLEARANCE_RESOURCE_URL", f"http://localhost:{port}/mcp"),
+        resource_url=get("AUTOPILOT_RESOURCE_URL", f"http://localhost:{port}/mcp", legacy="CLEARANCE_RESOURCE_URL"),
         oidc_issuer=issuer, oidc_audience=audience,
-        oidc_jwks_url=get("CLEARANCE_OIDC_JWKS_URL", f"{issuer}/keys" if issuer else None),
-        oidc_user_claim=get("CLEARANCE_OIDC_USER_CLAIM", "email"),
-        audience=get("CLEARANCE_AUDIENCE", "clearance"), port=port,
-        expire_seconds=_number(env, "CLEARANCE_EXPIRE_SECONDS", 60.0, float),
+        oidc_jwks_url=get("AUTOPILOT_OIDC_JWKS_URL", f"{issuer}/keys" if issuer else None, legacy="CLEARANCE_OIDC_JWKS_URL"),
+        oidc_user_claim=get("AUTOPILOT_OIDC_USER_CLAIM", "email", legacy="CLEARANCE_OIDC_USER_CLAIM"),
+        audience=get("AUTOPILOT_AUDIENCE", "clearance", legacy="CLEARANCE_AUDIENCE"), port=port,
+        expire_seconds=_number(env, "AUTOPILOT_EXPIRE_SECONDS", 60.0, float, legacy="CLEARANCE_EXPIRE_SECONDS", used=used),
         glidepath_url=get("GLIDEPATH_API_URL"),
         glidepath_token_file=Path(get("GLIDEPATH_TOKEN_FILE", str(SA_DIR / "token"))),
         glidepath_on_behalf_of=_flag(env, "GLIDEPATH_ON_BEHALF_OF", False),
@@ -340,13 +345,15 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         outage_allow_reads=_flag(env, "GATEWAY_OUTAGE_ALLOW_READS", False), oidc_allowed=allowed,
         tower_cluster=tower_cluster if tower_issuer else None, tower_issuer=tower_issuer,
         tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
-        tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("CLEARANCE_DELEGATES", "")),
-        admins=_list(get("CLEARANCE_ADMINS", "")),
+        tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("AUTOPILOT_DELEGATES", "", legacy="CLEARANCE_DELEGATES")),
+        admins=_list(get("AUTOPILOT_ADMINS", "", legacy="CLEARANCE_ADMINS")),
         # Images a definition may pin beyond the runtime catalog: the registries Glidepath builds agents' own images
         # into (code agents), as globs, e.g. ghcr.io/jfillman/*@sha256:*.
         runtime_images_extra=tuple(_list(get("RUNTIME_IMAGES_EXTRA", ""))),
         reconcile_seconds=reconcile_seconds, reconcile_window_hours=window, metrics_port=metrics_port,
     )
+    warn_deprecated(used)   # after Config: its arguments are where most settings are read
+    return cfg
 
 
 # -- backends -------------------------------------------------------------------------------------------------------

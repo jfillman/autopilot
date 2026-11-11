@@ -32,7 +32,9 @@ LABEL org.opencontainers.image.title="autopilot-gateway" \
       org.opencontainers.image.source="https://github.com/jfillman/autopilot" \
       org.opencontainers.image.version="${VERSION}"
 # The image's own version: the start line and the conformance control interface report it.
-ENV AUTOPILOT_GATEWAY_VERSION=${VERSION} CLEARANCE_AGENTS_DIR=/app/agents PORT=8080
+# AUTOPILOT_AGENTS_DIR is not set here: the default is /app/agents, and an image-level new name would shadow a
+# deployment's legacy CLEARANCE_AGENTS_DIR (the new name wins).
+ENV AUTOPILOT_GATEWAY_VERSION=${VERSION} PORT=8080
 COPY --from=build /out/autopilot-gateway /autopilot-gateway
 COPY agents/*.yaml /app/agents/
 USER 65532:65532
