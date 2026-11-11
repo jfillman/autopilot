@@ -67,7 +67,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
    }
   },
   "name": "airframe-operator",
@@ -211,7 +211,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
    }
   },
   "name": "cicd-explainer",
@@ -380,7 +380,7 @@
    },
    "runtime": {
     "framework": "claude-agent-sdk",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
     "sandbox": "standard"
    },
    "triggers": [
@@ -526,7 +526,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
     "instructions": "Review the fleet's apps on hangar-dev for what a person should look at today. Change nothing. 1. catalog.read `kind=component,spec.type=service` (a query without `=` is a full-text search, not a filter). The apps are the results whose system is `app-<name>-cicd`; skip the rest. 2. argo.app.get `<name>-dev` (e.g. boarding-api-dev) for each app: sync and health. 3. metrics.query, all apps at once: `sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"app-.*-dev\"}[24h]))`; `sum by (namespace) (kube_pod_status_ready{condition=\"false\",namespace=~\"app-.*-dev\"})`; `sum by (service, status_code) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\",service=~\".*-dev\"}[24h]))` (STATUS_CODE_ERROR is the error share); p95 `histogram_quantile(0.95, sum by (service, le) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\",service=~\".*-dev\"}[24h])))`. An app missing from the traces results had no requests (dev is often idle): say \"no traffic\", not a fault. Report one line per app that needs attention (what and why), then one all-clear line naming the apps checked and fine. If a step fails, say which and why."
    },
    "triggers": [
@@ -649,7 +649,7 @@
    },
    "runtime": {
     "framework": "langgraph",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
     "instructions": "Split the task you are given into independent parts, start a child run for each (run.spawn, at most your child budget), wait for their results, and combine them into one answer. Ask a person (human.request) when the task is ambiguous. Do no other work yourself."
    }
   },
@@ -785,7 +785,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
     "instructions": "Bring the app described by the AppSpec in your input (app `parachute`) up through airframe.apply, and change nothing any other way. 1. airframe.plan the spec (pass baseCicd when you have the app's cicd.yaml). If it answers needsInput or an AF-SPEC error, stop and report the question; do not guess an answer. 2. airframe.apply with the same spec. It opens ONE pull request per call, or returns the one already open. Read `state`: `awaiting-merge` means a person must merge `url` (say so and stop; do not call again until told it is merged, or ask with human.request); `waiting` always carries a `reason`: read it. If the platform is still creating something, report and stop; if it says a PR was closed, stop and ask a person with human.request, and do not call again until they answer. `agent-steps-merged` means everything this tool opens is merged. 3. After a merge, call airframe.apply again with the identical spec to open the next step. After an interruption do the same: it resumes from GitHub and never duplicates a PR. 4. `humanSteps` are the Flight half: report them (repo, paths, reason) for a person; never try to open them another way. Check progress with airframe.status and airframe.describe, and airframe.verify when the environments are up. Report each PR link, what is merged, what is waiting and on whom, and anything that failed with its rule id."
    },
    "triggers": [
@@ -944,7 +944,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
    }
   },
   "name": "release-proposer",
@@ -1071,7 +1071,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
    }
   },
   "name": "researcher",
@@ -1208,7 +1208,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:ae7ba756d0a16676e7bc90fbe1d500b0dc5654e4650b82a06f079387e47bb4ae",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
     "instructions": "A Glidepath pipeline run for this app failed; the event in your input names it (subject.id is the PipelineRun, app is the app). Find out why: list the app's recent runs (glidepath.runs.list) to get the failed run's result id, read it (glidepath.run.get), read the failing TaskRun's log (glidepath.logs.get) and Glidepath's own explanation (glidepath.explain), and read the code involved (repo.file.get, repo jfillman/<app>). If the cause is a defect in the app's repository that a small change fixes, open exactly one pull request with that fix (repo.pr.open: each file is its complete new content) on a new branch named agent/<task id>, with a title that says what it fixes and only the files the fix needs. If the cause is not in the repository (the platform, a flaky dependency, credentials) or you are not confident, open no PR and end with a short diagnosis. Never change .tekton/, .github/ or cicd.yaml governance fields; Clearance refuses them. Finish with one paragraph: the cause, the evidence, and what you did."
    },
    "triggers": [

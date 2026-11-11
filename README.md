@@ -427,10 +427,10 @@ as is; autopilot-api (the read API) lists all of it at `GET /v1/runtimes` for th
 
 | Name | Kind | State |
 |---|---|---|
-| `generic` | runtime | available: this loop, `runtime-v0.1.3` (hands its result to Clearance) |
-| `base-python` | base | available: `runtime-base-python-v0.1.1` (its Clearance client has `finish()`; call it after `result.json`), from `runtime/base-python/Dockerfile` |
-| `claude-agent-sdk` | runtime | available: `runtime-claude-agent-sdk-v0.1.0`, from `runtime/claude-agent-sdk/` (needs clearance v0.26.0's streaming model proxy) |
-| `langgraph` | runtime | available: `runtime-langgraph-v0.1.0`, from `runtime/langgraph/` |
+| `generic` | runtime | available: this loop, `runtime-v0.1.6` (hands its result to Clearance) |
+| `base-python` | base | available: `runtime-base-python-v0.1.4` (its Clearance client has `finish()`; call it after `result.json`), from `runtime/base-python/Dockerfile` |
+| `claude-agent-sdk` | runtime | available: `runtime-claude-agent-sdk-v0.1.3`, from `runtime/claude-agent-sdk/` (needs clearance v0.26.0's streaming model proxy) |
+| `langgraph` | runtime | available: `runtime-langgraph-v0.1.3`, from `runtime/langgraph/` |
 
 **`langgraph`** (`hangar_langgraph`) is this loop as a LangGraph graph: a `model` node (the model proxy) and a `tools`
 node (Clearance), looping until the model ends its turn or the turns or the session's time run out. The tests run
