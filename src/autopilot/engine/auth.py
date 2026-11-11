@@ -52,8 +52,12 @@ class WorkloadAuthenticator:
 
     def __init__(self, audience: str = "clearance", api: str = "https://kubernetes.default.svc",
                  token_file: Path = SA_DIR / "token", ca_file: Path = SA_DIR / "ca.crt",
-                 tier_ceiling: Tier = Tier.T1, opener: Callable[..., Any] | None = None, timeout: float = 10):
+                 tier_ceiling: Tier = Tier.T1, opener: Callable[..., Any] | None = None, timeout: float = 10,
+                 audiences: Sequence[str] = ()):
+        # `audience` is the primary; `audiences` (R-10b: the run pods' `autopilot` and the old `clearance`) are the
+        # whole set accepted. TokenReview is asked for all of them and answers with the ones the token carries.
         self.audience, self.api, self.token_file, self.ca_file = audience, api.rstrip("/"), token_file, ca_file
+        self.audiences = tuple(dict.fromkeys((audience, *audiences)))
         self.tier_ceiling, self.timeout, self._opener = tier_ceiling, timeout, opener
 
     def _post(self, body: dict) -> dict:
@@ -71,13 +75,13 @@ class WorkloadAuthenticator:
     def authenticate(self, token: str) -> Principal:
         try:
             review = self._post({"apiVersion": "authentication.k8s.io/v1", "kind": "TokenReview",
-                                 "spec": {"token": token, "audiences": [self.audience]}})
+                                 "spec": {"token": token, "audiences": list(self.audiences)}})
         except Exception as e:  # noqa: BLE001 - the API server unreachable is a refusal, never a pass
             raise AuthError("token review failed") from e
         status = review.get("status") or {}
         user = status.get("user") or {}
         name = user.get("username", "")
-        if not status.get("authenticated") or self.audience not in (status.get("audiences") or []):
+        if not status.get("authenticated") or not set(self.audiences) & set(status.get("audiences") or []):
             raise AuthError("token not authenticated for this audience")
         if not name.startswith(SA_PREFIX) or name.count(":") != 3:
             raise AuthError("not a service-account token")

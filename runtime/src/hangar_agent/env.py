@@ -15,7 +15,8 @@ from typing import Any, Mapping
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_MAX_TURNS = 30
 DEFAULT_MAX_TOKENS = 8192
-CLEARANCE_TOKEN = "clearance-token"       # audience clearance
+CLEARANCE_TOKEN = "clearance-token"       # audience clearance (the old name; kept one release)
+AUTOPILOT_TOKEN = "autopilot-token"       # audience autopilot (R-10b: preferred when the pod has it)
 MODEL_PROXY_TOKEN = "model-proxy-token"   # audience model-proxy
 
 
@@ -43,7 +44,9 @@ class Config:
 
     @property
     def clearance_token_file(self) -> Path:
-        return self.token_dir / CLEARANCE_TOKEN
+        """The gateway token: the `autopilot`-audience file when the pod has one, else the old `clearance` one."""
+        new = self.token_dir / AUTOPILOT_TOKEN
+        return new if new.exists() else self.token_dir / CLEARANCE_TOKEN
 
     @property
     def model_proxy_token_file(self) -> Path:
@@ -82,8 +85,10 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
 
 def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
-    missing = [k for k in ("HANGAR_SESSION_ID", "HANGAR_EXPIRES_AT", "CLEARANCE_URL", "MODEL_PROXY_URL",
-                           "HANGAR_TOKEN_DIR") if not env.get(k)]
+    # The gateway's URL: AUTOPILOT_URL first, CLEARANCE_URL (the old name) when only it is set (R-10b).
+    gateway_url = env.get("AUTOPILOT_URL") or env.get("CLEARANCE_URL") or ""
+    missing = [k for k in ("HANGAR_SESSION_ID", "HANGAR_EXPIRES_AT", "AUTOPILOT_URL", "MODEL_PROXY_URL",
+                           "HANGAR_TOKEN_DIR") if not env.get(k) and not (k == "AUTOPILOT_URL" and gateway_url)]
     if missing:
         # No MODEL_PROXY_URL means the run's network mode is not clearance+model: this runtime needs a model.
         raise ConfigError("missing " + ", ".join(missing))
@@ -101,7 +106,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         output_dir=Path(env.get("HANGAR_OUTPUT_DIR") or "/run/output"),
         workspace=Path(env.get("HANGAR_WORKSPACE") or "/workspace"),
         limits=_json_object(env, "HANGAR_LIMITS"),
-        clearance_url=env["CLEARANCE_URL"].rstrip("/"), model_proxy_url=env["MODEL_PROXY_URL"].rstrip("/"),
+        clearance_url=gateway_url.rstrip("/"), model_proxy_url=env["MODEL_PROXY_URL"].rstrip("/"),
         token_dir=Path(env["HANGAR_TOKEN_DIR"]), task=task, model=model,
         max_turns=_positive_int(env, "HANGAR_MAX_TURNS", DEFAULT_MAX_TURNS),
         max_tokens=_positive_int(env, "HANGAR_MAX_TOKENS", DEFAULT_MAX_TOKENS),

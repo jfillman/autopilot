@@ -316,3 +316,20 @@ def test_model_comes_from_hangar_model_then_input_then_the_default(tokens, tmp_p
     c = config_from_env(base)
     assert c.max_turns == 30 and c.expires_at == datetime(2026, 10, 29, 12, tzinfo=timezone.utc)
     assert c.clearance_token_file == tokens / "clearance-token"
+
+
+def test_gateway_url_and_token_prefer_the_autopilot_names_and_fall_back_to_the_old_ones(tokens):
+    """R-10b: AUTOPILOT_URL / autopilot-token first; a pod rendered by the previous function still runs."""
+    from hangar_agent.env import ConfigError, config_from_env
+    base = {"HANGAR_SESSION_ID": "s-1", "HANGAR_EXPIRES_AT": "2026-10-29T12:00:00Z", "MODEL_PROXY_URL": "http://m",
+            "HANGAR_TOKEN_DIR": str(tokens)}
+    old = config_from_env({**base, "CLEARANCE_URL": "http://old/"})
+    assert old.clearance_url == "http://old" and old.clearance_token_file == tokens / "clearance-token"
+    new = config_from_env({**base, "AUTOPILOT_URL": "http://new/"})
+    assert new.clearance_url == "http://new"
+    both = config_from_env({**base, "AUTOPILOT_URL": "http://new", "CLEARANCE_URL": "http://old"})
+    assert both.clearance_url == "http://new"
+    (tokens / "autopilot-token").write_text("tok\n")
+    assert both.clearance_token_file == tokens / "autopilot-token"
+    with pytest.raises(ConfigError, match="AUTOPILOT_URL"):
+        config_from_env(base)
