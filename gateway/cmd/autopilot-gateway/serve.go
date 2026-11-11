@@ -44,6 +44,7 @@ type config struct {
 	modelKeyFile            string
 	modelTimeout            time.Duration
 	pgConns                 int32
+	deprecated              map[string]string // legacy CLEARANCE_* names in use -> their AUTOPILOT_* names (settings.go)
 }
 
 type configError string
@@ -84,8 +85,8 @@ func number(env func(string) string, k string, d float64) (float64, error) {
 
 // unported are variables of the Python gateway whose features this slice does not carry. Starting with one set would
 // mean running without something the operator asked for, so the gateway refuses (docs/admin/go-gateway.md).
-var unported = []string{"CLEARANCE_OIDC_ISSUER", "TOWER_ISSUER", "GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
-	"GLIDEPATH_API_URL", "BACKSTAGE_URL", "APP_API_SERVICES", "ARGO_SYNC_ENABLED", "CLEARANCE_EPHEMERAL"}
+var unported = []string{"AUTOPILOT_OIDC_ISSUER", "CLEARANCE_OIDC_ISSUER", "TOWER_ISSUER", "GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
+	"GLIDEPATH_API_URL", "BACKSTAGE_URL", "APP_API_SERVICES", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
 
 func configFromEnv(env func(string) string) (*config, error) {
 	var stale []string
@@ -97,7 +98,7 @@ func configFromEnv(env func(string) string) (*config, error) {
 	if len(stale) > 0 {
 		return nil, configError(strings.Join(stale, ", ") + ": not carried by the Go gateway yet (docs/admin/go-gateway.md); unset them, or keep running the Python gateway")
 	}
-	c := &config{}
+	c := &config{deprecated: map[string]string{}}
 	c.dsn = env("GATEWAY_DSN")
 	if c.dsn == "" {
 		return nil, configError("GATEWAY_DSN is required")
@@ -119,15 +120,18 @@ func configFromEnv(env func(string) string) (*config, error) {
 		return nil, err
 	}
 	c.port, c.modelPort = int(port), int(mport)
-	c.agentsDir = getenv(env, "CLEARANCE_AGENTS_DIR", "/app/agents")
-	c.audience = getenv(env, "CLEARANCE_AUDIENCE", "clearance")
+	c.agentsDir = settingOr(env, c.deprecated, "AUTOPILOT_AGENTS_DIR", "CLEARANCE_AGENTS_DIR", "/app/agents")
+	c.audience = settingOr(env, c.deprecated, "AUTOPILOT_AUDIENCE", "CLEARANCE_AUDIENCE", "clearance")
 	c.modelAudience = getenv(env, "MODEL_TOKEN_AUDIENCE", "model-proxy")
-	c.resourceURL = getenv(env, "CLEARANCE_RESOURCE_URL", fmt.Sprintf("http://localhost:%d/mcp", c.port))
-	c.issuerURL = env("CLEARANCE_ISSUER_URL")
+	c.resourceURL = settingOr(env, c.deprecated, "AUTOPILOT_RESOURCE_URL", "CLEARANCE_RESOURCE_URL", fmt.Sprintf("http://localhost:%d/mcp", c.port))
+	c.issuerURL = setting(env, c.deprecated, "AUTOPILOT_ISSUER_URL", "CLEARANCE_ISSUER_URL")
 	c.allowReads = boolEnv(env, "GATEWAY_OUTAGE_ALLOW_READS", false)
-	exp, err := number(env, "CLEARANCE_EXPIRE_SECONDS", 60)
-	if err != nil {
-		return nil, err
+	exp := 60.0
+	if v := setting(env, c.deprecated, "AUTOPILOT_EXPIRE_SECONDS", "CLEARANCE_EXPIRE_SECONDS"); v != "" {
+		var err error
+		if exp, err = number(func(string) string { return v }, "AUTOPILOT_EXPIRE_SECONDS", 60); err != nil {
+			return nil, err
+		}
 	}
 	c.expireEvery = time.Duration(exp * float64(time.Second))
 	ct, err := number(env, "GATEWAY_CALL_TIMEOUT_SECONDS", 60)
@@ -174,6 +178,7 @@ func serve(_ []string) int {
 		log.Error("configuration: " + err.Error())
 		return 2
 	}
+	warnDeprecated(log, cfg.deprecated)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

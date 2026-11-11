@@ -23,10 +23,10 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   clearance-pg: [gateway-database.md](gateway-database.md)) takes an advisory lock; a second writer on the same
   database exits at start. The gateway holds one connection and does not reconnect: a database error from any
   operation ends the process (exit 70) and the kubelet restarts it, which reloads the sessions. The expiry
-  sweep pings the database first, so a lost connection is found within `CLEARANCE_EXPIRE_SECONDS` with no traffic.
+  sweep pings the database first, so a lost connection is found within `AUTOPILOT_EXPIRE_SECONDS` with no traffic.
 - **The Clearance core.** `CLEARANCE_CORE_URL` (required), and a projected service-account token at
   `CLEARANCE_CORE_TOKEN_FILE` (default `/var/run/secrets/tokens/clearance-core`) whose audience is the core's
-  `CLEARANCE_AUDIENCE` (default `clearance`). The core registers the gateway's identity as provider
+  `AUTOPILOT_AUDIENCE` (default `clearance`). The core registers the gateway's identity as provider
   `autopilot-gateway` in `CLEARANCE_PROVIDERS`, with `"definitions": true` (clearance v0.28.0): the gateway publishes
   its cluster-pinned definitions to the core (`PUT /v1/definitions`), which records each change, and a provider
   without it is refused. For example
@@ -75,10 +75,10 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   `pipelinerun.finished` whose event was lost still launches; a slot the gateway was down for is recorded `missed`.
   Prometheus metrics on `METRICS_PORT` (9090) and the alerts for the gap: [trigger-durability.md](trigger-durability.md)
   (Built, A-5; the PodMonitor, NetworkPolicy and PrometheusRule are a manifest for apron).
-- **Expiry.** Every `CLEARANCE_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
+- **Expiry.** Every `AUTOPILOT_EXPIRE_SECONDS` (60) the gateway closes sessions past their deadline and deletes their
   AgentRuns, each deletion a record; a failed deletion is recorded and retried next sweep. The same sweep posts what
   waits in the outbox once the core answers.
-- **Local run:** `CLEARANCE_EPHEMERAL=1` (in-memory store, nothing kept) and a core, e.g.
+- **Local run:** `AUTOPILOT_EPHEMERAL=1` (in-memory store, nothing kept) and a core, e.g.
   `clearance core --memory --insecure-dev-auth` with `CLEARANCE_PACKS=hangar` and `CLEARANCE_PROVIDERS` naming the
   gateway (with `"definitions": true`); tool calls that need the cluster fail as backend errors.
 
@@ -100,7 +100,7 @@ history and the runtime catalog, with the same paths, answers and roles clearanc
   clearance-api (`CLEARANCE_API_URL`) as `clearance`. A caller (Tower's Clearance backend) routes each operation by the
   two contracts.
 - **Who sees what.** An auditor (`GATEWAY_API_AUDITORS`) everything; a person their own sessions and their teams'
-  agents' (the Backstage directory), an app's events when they own it; a delegate (`CLEARANCE_DELEGATES`, Tower) what
+  agents' (the Backstage directory), an app's events when they own it; a delegate (`AUTOPILOT_DELEGATES`, Tower) what
   the person named in `X-Hangar-On-Behalf-Of` may; a notifier (`GATEWAY_API_NOTIFIERS`) the inbox feed only.
 - **Cutover (done, R-4, 2026-11-03).** autopilot-api serves the runtime's reads and the Go `clearance api` serves
   Clearance's. The pre-R-3c `CLEARANCE_API_*` names (`CLEARANCE_API_DSN` and the rest) no longer configure it.

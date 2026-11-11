@@ -88,8 +88,8 @@ when it is stale). The bundled agent definitions parse to the same scope and age
 ## What is not in this slice
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`CLEARANCE_OIDC_ISSUER`, `TOWER_ISSUER`, `GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`,
-`GLIDEPATH_API_URL`, `BACKSTAGE_URL`, `APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `CLEARANCE_EPHEMERAL`), so nobody believes
+does not (`AUTOPILOT_OIDC_ISSUER`, `TOWER_ISSUER`, `GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`,
+`GLIDEPATH_API_URL`, `BACKSTAGE_URL`, `APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes
 a feature is live when it is not.
 
 Not ported, and still the Python gateway's:
@@ -123,12 +123,12 @@ after the remainder above is ported.
 ```shell
 cd gateway && go build -o autopilot-gateway ./cmd/autopilot-gateway
 GATEWAY_DSN=postgresql://... CLEARANCE_CORE_URL=http://clearance-core:8080 \
-  CLEARANCE_CORE_TOKEN_FILE=/var/run/secrets/tokens/clearance CLEARANCE_AGENTS_DIR=../agents ./autopilot-gateway serve
+  CLEARANCE_CORE_TOKEN_FILE=/var/run/secrets/tokens/clearance AUTOPILOT_AGENTS_DIR=../agents ./autopilot-gateway serve
 ```
 
 It reads the variables the Python gateway reads, for the part it carries: `PORT`, `MODEL_PORT`, `GATEWAY_DSN`,
-`CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `CLEARANCE_AGENTS_DIR`, `CLEARANCE_AUDIENCE`, `MODEL_TOKEN_AUDIENCE`,
-`CLEARANCE_RESOURCE_URL`, `CLEARANCE_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
+`CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `AUTOPILOT_AGENTS_DIR`, `AUTOPILOT_AUDIENCE`, `MODEL_TOKEN_AUDIENCE`,
+`AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
 `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.

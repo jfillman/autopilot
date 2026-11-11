@@ -5,7 +5,7 @@ same one the human inbox uses. A person signs in to Clearance themselves (people
 backend) calls as itself and names them in X-Hangar-On-Behalf-Of. Clearance decides who may act:
 
   - an agent's owner group (the definition's `owner`, a Backstage group the directory resolves),
-  - a platform admin (CLEARANCE_ADMINS, principal globs),
+  - a platform admin (AUTOPILOT_ADMINS, principal globs),
   - and for a session, the person whose session it is.
 
 Every control is an evidence record naming the person and the delegate (`session.freeze`, `session.end`,

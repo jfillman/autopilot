@@ -26,9 +26,9 @@ def test_builds_with_roles_and_catalog(tmp_path):
     tok.write_text("x")
     cfg, access, app = api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway",
                                         "GATEWAY_API_AUDITORS": "user:jfillman", "GATEWAY_API_NOTIFIERS": "hangar-prod/*/backstage-ingestor",
-                                        "CLEARANCE_DELEGATES": "hangar-prod/app-backstage-prod/backstage-ingestor",
+                                        "AUTOPILOT_DELEGATES": "hangar-prod/app-backstage-prod/backstage-ingestor",
                                         "BACKSTAGE_URL": "http://bs", "BACKSTAGE_TOKEN_FILE": str(tok),
-                                        "CLEARANCE_GATEWAY_URL": "http://clearance.hangar-dev.local",
+                                        "AUTOPILOT_GATEWAY_URL": "http://clearance.hangar-dev.local",
                                         "CLEARANCE_API_URL": "http://clearance-api.hangar-dev.local"})
     assert access.auditors == ("user:jfillman",) and access.notifiers == ("hangar-prod/*/backstage-ingestor",)
     assert isinstance(access.directory, BackstageDirectory) and isinstance(access.ownership, BackstageOwnership)
@@ -85,3 +85,21 @@ def test_ownership_is_the_components_you_or_your_teams_own(tmp_path):
     q = urls[-1]
     assert "spec.owner%3Duser%3Adefault%2Fjfillman" in q and "spec.owner%3Dgroup%3Adefault%2Fteam-skyport" in q
     assert own.apps("ns/sa") == set() and own.apps("user:../x") == set()
+
+
+def test_the_read_apis_gateway_url_has_a_legacy_alias(caplog):
+    base = {**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway"}
+    with caplog.at_level("WARNING", logger="autopilot.gateway"):
+        *_, app = api_serve.build({**base, "CLEARANCE_GATEWAY_URL": "http://old"})
+    assert any("CLEARANCE_GATEWAY_URL -> AUTOPILOT_GATEWAY_URL" in r.getMessage() for r in caplog.records)
+    with TestClient(app) as c:
+        assert c.get("/v1/contract").json()["gateway"] == "http://old"
+    *_, app = api_serve.build({**base, "CLEARANCE_GATEWAY_URL": "http://old", "AUTOPILOT_GATEWAY_URL": "http://new"})
+    with TestClient(app) as c:
+        assert c.get("/v1/contract").json()["gateway"] == "http://new", "the new name wins"
+
+
+def test_the_read_api_does_not_warn_about_names_it_sets_itself(caplog):
+    with caplog.at_level("WARNING", logger="autopilot.gateway"):
+        api_serve.build({**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway"})
+    assert "deprecated" not in caplog.text

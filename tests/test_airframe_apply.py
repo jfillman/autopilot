@@ -496,5 +496,5 @@ def test_the_parachute_definition_can_plan_and_apply_and_nothing_that_reaches_gi
     # the agent-scope gate (AS003) holds each PR's repo to the definition's repos.allow: the two repos apply writes, on
     # Hangar (the default AIRFRAME_TENANTS_REPO), and no more
     from autopilot import serve
-    tenants = serve.config_from_env({"CLEARANCE_EPHEMERAL": "1", **core_env()}).airframe_tenants_repo
+    tenants = serve.config_from_env({"AUTOPILOT_EPHEMERAL": "1", **core_env()}).airframe_tenants_repo
     assert sorted(d.repos_allow) == sorted(["jfillman/parachute", f"jfillman/{tenants}"])
