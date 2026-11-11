@@ -14,7 +14,7 @@ from autopilot.glidepath_api import GlidepathAPI
 from autopilot.kube_runs import KubeAgentRuns
 from autopilot.reads import KubeArgo
 from autopilot.engine.auth import CachingAuthenticator, OIDCAuthenticator, RoutingAuthenticator, WorkloadAuthenticator
-from autopilot.engine.dispatch import Principal
+from autopilot.engine.dispatch import AuthError, Principal
 from autopilot.engine.tiers import Tier
 
 EPH = {"CLEARANCE_EPHEMERAL": "1", **core_env()}
@@ -429,3 +429,46 @@ def test_tower_issuer_and_delegates(tmp_path):
     tower = serve.build_auth(c).inner.oidc["https://hangarplatform.dev/oidc/hangar-prod"]
     assert isinstance(tower, ForeignWorkloadAuthenticator) and tower.allowed == ("app-backstage-prod/backstage",)
     assert tower.name == "hangar-prod" and tower.audience == "clearance"
+
+
+# -- run-pod token audiences (R-10b) ----------------------------------------------------------------------------------
+def _review(audiences_returned, calls):
+    def opener(req, timeout):
+        body = json.loads(req.data)
+        calls.append(body["spec"]["audiences"])
+        return {"status": {"authenticated": True, "audiences": audiences_returned,
+                           "user": {"username": "system:serviceaccount:autopilot-runs:run"}}}
+    return opener
+
+
+def test_run_audiences_default_to_autopilot_and_the_core_audience():
+    assert serve.config_from_env(EPH).run_audiences == ("autopilot", "clearance")
+    assert serve.config_from_env({**EPH, "CLEARANCE_AUDIENCE": "aud2"}).run_audiences == ("autopilot", "aud2")
+    c = serve.config_from_env({**EPH, "AUTOPILOT_RUN_AUDIENCES": " autopilot , clearance,x"})
+    assert c.run_audiences == ("autopilot", "clearance", "x")
+    with pytest.raises(serve.ConfigError):
+        serve.config_from_env({**EPH, "AUTOPILOT_RUN_AUDIENCES": " , "})
+
+
+def test_workload_auth_accepts_either_run_audience_and_asks_token_review_for_both(tmp_path):
+    f = tmp_path / "t"
+    f.write_text("sa")
+    a = serve.build_auth(serve.config_from_env(EPH)).inner.workload
+    assert a.audiences == ("clearance", "autopilot")
+    for returned in (["autopilot"], ["clearance"]):
+        calls = []
+        w = WorkloadAuthenticator("clearance", token_file=f, opener=_review(returned, calls), audiences=("autopilot",))
+        p = w.authenticate("run-token")
+        assert p.id == "autopilot-runs/run" and calls == [["clearance", "autopilot"]]
+
+
+def test_workload_auth_refuses_a_token_for_another_audience(tmp_path):
+    f = tmp_path / "t"
+    f.write_text("sa")
+    w = WorkloadAuthenticator("clearance", token_file=f, opener=_review(["model-proxy"], []), audiences=("autopilot",))
+    with pytest.raises(AuthError):
+        w.authenticate("run-token")
+    # the single-audience form is unchanged
+    only = WorkloadAuthenticator("clearance", token_file=f, opener=_review(["autopilot"], []))
+    with pytest.raises(AuthError):
+        only.authenticate("run-token")

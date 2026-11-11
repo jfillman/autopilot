@@ -6,6 +6,12 @@ says what each gateway tag adds. The manager cuts the tags.
 ## Unreleased
 
 ### Changed
+- Run-pod contract, backward compatible for one release (R-10b; Airframe's function-agentrun renders both sides):
+  - The gateway accepts run-pod tokens for the `autopilot` audience as well as `clearance`. `AUTOPILOT_RUN_AUDIENCES`
+    (comma list; default `autopilot,` + `CLEARANCE_AUDIENCE`, so `autopilot,clearance`) names them, and the TokenReview
+    asks for all of them and accepts a token carrying any.
+  - The runtime reads `AUTOPILOT_URL` first and falls back to `CLEARANCE_URL`; it uses the `autopilot-token` file
+    when the pod has one, else `clearance-token`. A pod rendered before the new function still runs.
 - The gateway image carries only the platform's core definitions (`agents/*.yaml`). `agents/skyport/` was copied in but never loaded; it stays in the repository until those agents move to their own repo.
 
 ### Added

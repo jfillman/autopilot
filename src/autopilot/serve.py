@@ -112,6 +112,7 @@ class Config:
     oidc_jwks_url: str | None
     oidc_user_claim: str
     audience: str
+    run_audiences: tuple[str, ...]
     port: int
     expire_seconds: float
     glidepath_url: str | None
@@ -309,13 +310,20 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     agent_xrs_interval = _number(env, "AGENT_XRS_INTERVAL", 60.0, float)
     if agent_xrs_interval < 5:
         raise ConfigError("AGENT_XRS_INTERVAL is at least 5 seconds")
+    # R-10b: the audiences a run pod's token may carry, `autopilot` (new) and `clearance` (old), for one release.
+    # Unset, it is `autopilot` plus the core audience (CLEARANCE_AUDIENCE, "clearance" by default).
+    run_audiences = tuple(a.strip() for a in
+                          get("AUTOPILOT_RUN_AUDIENCES", "autopilot," + get("CLEARANCE_AUDIENCE", "clearance")).split(",")
+                          if a.strip())
+    if not run_audiences:
+        raise ConfigError("AUTOPILOT_RUN_AUDIENCES names at least one audience")
     return Config(
         agents_dir=agents, dsn=None if ephemeral else dsn, ephemeral=ephemeral,
         resource_url=get("CLEARANCE_RESOURCE_URL", f"http://localhost:{port}/mcp"),
         oidc_issuer=issuer, oidc_audience=audience,
         oidc_jwks_url=get("CLEARANCE_OIDC_JWKS_URL", f"{issuer}/keys" if issuer else None),
         oidc_user_claim=get("CLEARANCE_OIDC_USER_CLAIM", "email"),
-        audience=get("CLEARANCE_AUDIENCE", "clearance"), port=port,
+        audience=get("CLEARANCE_AUDIENCE", "clearance"), run_audiences=run_audiences, port=port,
         expire_seconds=_number(env, "CLEARANCE_EXPIRE_SECONDS", 60.0, float),
         glidepath_url=get("GLIDEPATH_API_URL"),
         glidepath_token_file=Path(get("GLIDEPATH_TOKEN_FILE", str(SA_DIR / "token"))),
@@ -418,7 +426,7 @@ def build_auth(cfg: Config) -> Authenticator:
         oidc[cfg.tower_issuer] = ForeignWorkloadAuthenticator(cfg.tower_cluster, cfg.tower_issuer, cfg.audience,
                                                               JWKS(cfg.tower_jwks_url),
                                                               allowed=cfg.tower_service_accounts)
-    return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience)))
+    return CachingAuthenticator(RoutingAuthenticator(oidc, WorkloadAuthenticator(cfg.audience, audiences=cfg.run_audiences)))
 
 
 STORE_LOST_EXIT = 70
