@@ -78,6 +78,9 @@ class ClusterConfig:
     clearance_namespace: str = "autopilot-system"
     clearance_selector: dict[str, str] = field(default_factory=lambda: {"app.kubernetes.io/name": "clearance"})
     clearance_port: int = 8080
+    # The gateway's Service name in clearance_namespace. `clearance` until apron renames it (R-10b: then
+    # `autopilot-gateway`); clearance_selector, the NetworkPolicy's pod label, moves separately.
+    gateway_service: str = "clearance"
     model_proxy_selector: dict[str, str] = field(default_factory=lambda: {"app.kubernetes.io/name": "model-proxy"})
     model_proxy_port: int = 8081
     dns_namespace: str = "kube-system"
@@ -98,12 +101,14 @@ class ClusterConfig:
         d.pop("apiVersion", None)
         d.pop("kind", None)
         for k in ("max_ttl_minutes", "runs_namespace", "registry_namespace", "clearance_namespace", "clearance_port",
-                  "model_proxy_port", "dns_namespace", "workspace_size", "completion_grace_minutes"):
+                  "gateway_service", "model_proxy_port", "dns_namespace", "workspace_size", "completion_grace_minutes"):
             if k in d:
                 setattr(c, k, d.pop(k))
         for k in ("clearance_selector", "model_proxy_selector", "dns_selector", "runtime_classes"):
             if k in d:
                 setattr(c, k, dict(d.pop(k)))
+        if not re.fullmatch(r"[a-z]([-a-z0-9]{0,61}[a-z0-9])?", str(c.gateway_service)):
+            raise ValueError(f"function-agentrun input: gateway_service {c.gateway_service!r} is not a Service name")
         if "compute" in d:
             c.compute = {k: ComputeClassCfg(dict(v["requests"]), dict(v["limits"]), dict(v.get("nodeSelector", {})),
                                             list(v.get("tolerations", [])), int(v.get("pods", 2)))
@@ -294,8 +299,13 @@ def _pod_spec(xr: dict[str, Any], cfg: ClusterConfig, created: datetime) -> dict
               {"name": "tmp", "mountPath": "/tmp"}]
     sources: list[dict[str, Any]] = []
     if mode != "none":
-        env.append({"name": "CLEARANCE_URL",
-                    "value": f"http://clearance.{cfg.clearance_namespace}.svc:{cfg.clearance_port}"})
+        # R-10b: AUTOPILOT_URL is the name, CLEARANCE_URL the old one for the previous runtime image (same value), and
+        # one token per audience (`autopilot` new, `clearance` old) for the previous gateway. Both go for one release.
+        gateway_url = f"http://{cfg.gateway_service}.{cfg.clearance_namespace}.svc:{cfg.clearance_port}"
+        env.append({"name": "AUTOPILOT_URL", "value": gateway_url})
+        env.append({"name": "CLEARANCE_URL", "value": gateway_url})
+        sources.append({"serviceAccountToken": {"audience": "autopilot", "expirationSeconds": 3600,
+                                                "path": "autopilot-token"}})
         sources.append({"serviceAccountToken": {"audience": "clearance", "expirationSeconds": 3600,
                                                 "path": "clearance-token"}})
     if mode in ("clearance+model", "allowlist"):
