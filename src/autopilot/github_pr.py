@@ -47,8 +47,34 @@ MAX_FILES = 50
 MAX_FILE_BYTES = 1 << 20
 
 
+REASON_MAX = 300
+
+
 class GitHubError(Exception):
-    """The broker or GitHub failed. Never shown to the agent (dispatch says "backend error")."""
+    """The broker or GitHub failed. Its text (a status and the other side's own reason, never a token: both sides
+    answer JSON with an error/message string, and the token only ever goes in an Authorization header) is what the
+    agent is told after "backend error" (engine.dispatch reads agent_message) and what the evidence result carries,
+    cut short."""
+
+    def __init__(self, message: str, *, status: int | None = None, reason: str = ""):
+        super().__init__(message)
+        self.status, self.reason = status, reason
+
+    @classmethod
+    def of(cls, what: str, status: int, doc: Any = None, *, key: str = "message") -> "GitHubError":
+        reason = ""
+        if isinstance(doc, dict) and isinstance(doc.get(key), str):
+            reason = " ".join(doc[key].split())[:REASON_MAX]
+        return cls(f"{what} {status}" + (f": {reason}" if reason else ""), status=status, reason=reason)
+
+    @property
+    def agent_message(self) -> str:
+        return str(self)[:REASON_MAX + 60]
+
+    @property
+    def evidence(self) -> str:
+        """Short, for the outcome's result: the status and the start of the reason."""
+        return str(self)[:160]
 
 
 Opener = Callable[[urllib.request.Request, float], tuple[int, bytes]]
@@ -112,7 +138,7 @@ class GitHubPRs:
             # The broker's second check: not an onboarded app's own repo. An answer the agent can act on.
             raise Denied("GH-REPO-NOT-APP", f"{owner}/{repo} is not an onboarded app's repo",
                          "Agents open PRs on an app's own repos only (<app>, gitops-<app>).")
-        raise GitHubError(f"broker {status}: {str(doc.get('error', ''))[:200]}")
+        raise GitHubError.of("GitHub token broker", status, doc, key="error")
 
     def _gh(self, token: str, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
         req = urllib.request.Request(self.api + path, method=method,
@@ -147,25 +173,25 @@ class GitHubPRs:
 
         status, ref = self._gh(token, "GET", f"{root}/git/ref/heads/{base}")
         if status != 200:
-            raise GitHubError(f"base {base}: {status}")
+            raise GitHubError.of(f"base {base}", status, ref)
         base_sha = ref["object"]["sha"]
         status, commit = self._gh(token, "GET", f"{root}/git/commits/{base_sha}")
         if status != 200:
-            raise GitHubError(f"base commit: {status}")
+            raise GitHubError.of("base commit", status, commit)
         status, tree = self._gh(token, "POST", f"{root}/git/trees", {"base_tree": commit["tree"]["sha"], "tree": entries})
         if status != 201:
-            raise GitHubError(f"tree: {status}")
+            raise GitHubError.of("tree", status, tree)
         trailer = "".join(f"\nHangar-{k.title()}: {v}" for k, v in sorted(meta.items()))
         status, new = self._gh(token, "POST", f"{root}/git/commits",
                                {"message": f"{title}\n{trailer}", "tree": tree["sha"], "parents": [base_sha]})
         if status != 201:
-            raise GitHubError(f"commit: {status}")
-        status, _ = self._gh(token, "POST", f"{root}/git/refs", {"ref": f"refs/heads/{branch}", "sha": new["sha"]})
+            raise GitHubError.of("commit", status, new)
+        status, last_ = self._gh(token, "POST", f"{root}/git/refs", {"ref": f"refs/heads/{branch}", "sha": new["sha"]})
         if status == 422:
             raise Denied("GH-BRANCH-EXISTS", f"branch {branch} already exists",
                          "Use a new branch name; Clearance never pushes to an existing branch.")
         if status != 201:
-            raise GitHubError(f"ref: {status}")
+            raise GitHubError.of("ref", status, last_)
         pr = self._create_pr(token, root, title, branch, base, meta, body)
         return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch, "commit": new["sha"]}
 
@@ -177,7 +203,7 @@ class GitHubPRs:
             text += "\n\n" + body[:60000]
         status, pr = self._gh(token, "POST", f"{root}/pulls", {"title": title, "head": branch, "base": base, "body": text})
         if status != 201:
-            raise GitHubError(f"pull: {status}")
+            raise GitHubError.of("pull", status, pr)
         return pr
 
     # -- airframe.apply: resumable PRs ---------------------------------------------------------------------------
@@ -190,17 +216,17 @@ class GitHubPRs:
         head = urllib.parse.quote(f"{owner}:{branch}", safe="")
         status, doc = self._gh_any(token, f"/repos/{owner}/{name}/pulls?head={head}&state=all&per_page=5")
         if status != 200:
-            raise GitHubError(f"pulls: {status}")
+            raise GitHubError.of("pulls", status, doc)
         prs = [p for p in doc if isinstance(p, dict) and (p.get("head") or {}).get("ref") == branch] if isinstance(doc, list) else []
         # merged first, then open, then closed; a closed PR whose branch a person deleted is gone: the branch name is free
         prs.sort(key=lambda p: 0 if p.get("merged_at") else 1 if p.get("state") == "open" else 2)
         pr = prs[0] if prs else None
         if pr is not None and not pr.get("merged_at") and pr.get("state") != "open":
-            status, _ = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{branch}")
+            status, last_ = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{branch}")
             if status == 404:
                 return None
             if status != 200:
-                raise GitHubError(f"ref: {status}")
+                raise GitHubError.of("ref", status, last_)
         if pr is None:
             return None
         state = "merged" if pr.get("merged_at") else pr.get("state", "open")
@@ -213,7 +239,7 @@ class GitHubPRs:
         token = self._installation_token(owner, name, tenants=tenants)
         status, doc = self._gh_any(token, f"/repos/{owner}/{name}/pulls/{int(number)}/files?per_page=100")
         if status != 200 or not isinstance(doc, list):
-            raise GitHubError(f"pull files: {status}")
+            raise GitHubError.of("pull files", status, doc)
         return sorted(f["filename"] for f in doc if isinstance(f, dict) and "filename" in f)
 
     def repo_ready(self, repo: str, base: str = "main", *, tenants: bool = False) -> bool:
@@ -224,11 +250,11 @@ class GitHubPRs:
             token = self._installation_token(owner, name, tenants=tenants)
         except Denied:
             return False
-        status, _ = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{base}")
+        status, last_ = self._gh(token, "GET", f"/repos/{owner}/{name}/git/ref/heads/{base}")
         if status == 404:
             return False
         if status != 200:
-            raise GitHubError(f"base {base}: {status}")
+            raise GitHubError.of(f"base {base}", status, last_)
         return True
 
     def ensure_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
@@ -253,7 +279,7 @@ class GitHubPRs:
             return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch,
                     "commit": (ref.get("object") or {}).get("sha"), "state": "open", "resumed": True}
         if status != 404:
-            raise GitHubError(f"ref: {status}")
+            raise GitHubError.of("ref", status, ref)
         return {**self.open_pr(repo, branch, title, files, base, meta=meta, body=body, token=token), "state": "open",
                 "resumed": False}
 
@@ -263,7 +289,7 @@ class GitHubPRs:
         if status == 404:
             return None
         if status != 200 or not isinstance(doc, dict) or doc.get("encoding") != "base64":
-            raise GitHubError(f"contents: {status}")
+            raise GitHubError.of("contents", status, doc)
         try:
             return base64.b64decode(doc.get("content") or "").decode("utf-8")
         except UnicodeDecodeError:
@@ -281,7 +307,7 @@ class GitHubPRs:
         if status == 404:
             return {"path": path, "ref": ref, "found": False}
         if status != 200:
-            raise GitHubError(f"contents: {status}")
+            raise GitHubError.of("contents", status, doc)
         if isinstance(doc, list):
             return {"path": path, "ref": ref, "type": "dir",
                     "entries": [{"name": e.get("name"), "type": e.get("type"), "size": e.get("size")} for e in doc[:500]]}
@@ -323,7 +349,7 @@ class GitHubPRs:
         for check, missing in ((f"tenants/{app}", "XR-APP-UNKNOWN"), (path, None)):
             status, doc = self._gh_any(token, f"/repos/{owner}/{repo}/contents/{urllib.parse.quote(check)}?ref=main")
             if status not in (200, 404):
-                raise GitHubError(f"contents: {status}")
+                raise GitHubError.of("contents", status, doc)
             if missing and status == 404:
                 raise Denied(missing, f"{app} has no tenants/{app}/ in {owner}/{repo}",
                              "Request XRs for an onboarded app (its tenants directory exists).")

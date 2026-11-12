@@ -2,7 +2,7 @@
 that can take it away: when the core is unreachable the gateway denies every T1-and-above call, every session open,
 every spawn and every model call; a T0 read is denied too unless GATEWAY_OUTAGE_ALLOW_READS, and then an unscoped one
 runs and waits in the outbox as a coverage-unavailable record, posted in order once the core answers again. The
-client's timeout is 250 ms with one retry, and its breaker opens after 5 consecutive failures."""
+client's timeout is 1 s with one retry, and its breaker opens after 5 consecutive failures."""
 import http.client
 import threading
 import time
@@ -15,7 +15,7 @@ from coreenv import GATEWAY_PRINCIPAL, tap_core
 
 from autopilot.engine import control as ctl, inbox as hr
 from autopilot.engine.backends import core_handlers
-from autopilot.engine.core import OUTAGE_RULE, client_from_env
+from autopilot.engine.core import DECISION_TIMEOUT, OUTAGE_RULE, client_from_env
 from autopilot.engine.dispatch import Gateway, Principal
 from autopilot.engine.modelproxy import ModelRoute
 from autopilot.engine.session import SessionStore
@@ -44,6 +44,10 @@ class Switch:
                 if sw.mode == "hang":
                     time.sleep(1.0)
                     return
+                if sw.mode == "slow-once" or sw.mode == "slow":
+                    if sw.mode == "slow-once":
+                        sw.mode = "up"
+                    time.sleep(0.4)
                 if sw.mode == "down":
                     self.send_response(503)
                     self.send_header("Content-Type", "application/json")
@@ -103,8 +107,30 @@ def opened(g, agent="coding-agent"):
 
 def test_the_client_defaults_are_the_policy():
     c = client_from_env("http://core:8080", "/t")
-    assert (c.timeout, c.retries, c._breaker.threshold) == (DEFAULT_TIMEOUT, DEFAULT_RETRIES, DEFAULT_BREAKER_THRESHOLD)
-    assert (DEFAULT_TIMEOUT, DEFAULT_RETRIES, DEFAULT_BREAKER_THRESHOLD) == (0.25, 1, 5)
+    assert (c.timeout, c.retries, c._breaker.threshold) == (DECISION_TIMEOUT, DEFAULT_RETRIES, DEFAULT_BREAKER_THRESHOLD)
+    assert (DECISION_TIMEOUT, DEFAULT_RETRIES, DEFAULT_BREAKER_THRESHOLD) == (1.0, 1, 5)
+    assert DECISION_TIMEOUT > DEFAULT_TIMEOUT, "the 306 ms ledger write of 2026-11-12 must fit"
+    assert client_from_env("http://core:8080", "/t", timeout=2.5).timeout == 2.5
+
+
+def test_a_slow_decision_is_decided_not_denied(defs, clock, backends, switch):
+    """A write slower than the old 250 ms deadline is answered, once, with no retry and no breaker failure."""
+    g = build(defs, clock, backends, tap_core(url=switch.url, timeout=DECISION_TIMEOUT))
+    sid = opened(g)
+    switch.mode = "slow"
+    seen = switch.seen
+    r = g.call("alice", sid, "repo.pr.open", PR)
+    assert r.ok, r.as_dict()
+    assert switch.seen - seen <= 3 and g.core.breaker_state == "closed"
+
+
+def test_a_timeout_is_retried_once_and_one_failure_does_not_open_the_breaker(defs, clock, backends, switch):
+    g = build(defs, clock, backends, tap_core(url=switch.url, timeout=0.2))
+    sid = opened(g)
+    switch.mode = "slow-once"      # the first attempt exceeds 0.2 s; the retry is answered at once
+    r = g.call("alice", sid, "repo.pr.open", PR)
+    assert r.ok, r.as_dict()
+    assert g.core.breaker_state == "closed"
 
 
 def test_t1_calls_session_opens_and_spawns_fail_closed(defs, clock, backends, switch):
