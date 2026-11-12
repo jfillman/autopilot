@@ -5,6 +5,10 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Changed
+- Every agent and the runtime catalog pin `autopilot-agent-runtime` runtime-v0.1.7 (sha256:b5c9832f…): a clipped tool
+  result now says it was clipped and how to narrow the call (A-11 b).
+
 ### Added (A-11, agent provisioning hardening)
 - `airframe.capabilities {section: appspec}`: the AppSpec's top-level fields, required vs optional, how `config` and
   `overrides` map onto chart values, and one worked example (the parachute spec), derived from
