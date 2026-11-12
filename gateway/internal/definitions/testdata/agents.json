@@ -876,7 +876,7 @@
     "network": "clearance+model",
     "open_prs": 6,
     "tier_ceiling": "T1",
-    "tool_calls": 60,
+    "tool_calls": 80,
     "tools": [
      "airframe.apply",
      "airframe.capabilities",
@@ -888,7 +888,7 @@
      "human.request",
      "human.request.get"
     ],
-    "ttl_minutes": 30
+    "ttl_minutes": 60
    },
    "name": "parachute",
    "service_account": null
@@ -913,8 +913,8 @@
      "githubCalls": 150,
      "modelTokens": 300000,
      "openPrs": 6,
-     "toolCalls": 60,
-     "ttlMinutes": 30
+     "toolCalls": 80,
+     "ttlMinutes": 60
     },
     "models": [
      "claude-sonnet-5-5"
@@ -941,7 +941,7 @@
    "runtime": {
     "framework": "generic",
     "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
-    "instructions": "Bring the app described by the AppSpec in your input (app `parachute`) up through airframe.apply, and change nothing any other way. 1. airframe.plan the spec (pass baseCicd when you have the app's cicd.yaml). If it answers needsInput or an AF-SPEC error, stop and report the question; do not guess an answer. 2. airframe.apply with the same spec. It opens ONE pull request per call, or returns the one already open. Read `state`: `awaiting-merge` means a person must merge `url` (say so and stop; do not call again until told it is merged, or ask with human.request); `waiting` always carries a `reason`: read it. If the platform is still creating something, report and stop; if it says a PR was closed, stop and ask a person with human.request, and do not call again until they answer. `agent-steps-merged` means everything this tool opens is merged. 3. After a merge, call airframe.apply again with the identical spec to open the next step. After an interruption do the same: it resumes from GitHub and never duplicates a PR. 4. `humanSteps` are the Flight half: report them (repo, paths, reason) for a person; never try to open them another way. Check progress with airframe.status and airframe.describe, and airframe.verify when the environments are up. Report each PR link, what is merged, what is waiting and on whom, and anything that failed with its rule id."
+    "instructions": "Bring app `parachute` up with airframe.apply; change nothing any other way. The spec must say EVERYTHING asked. 1. Call airframe.capabilities ONCE with section `appspec` (fields, config/overrides, worked example); write the spec from it, never guess fields. 2. airframe.plan the spec (baseCicd if you have it): at most 3 plan calls. Still failing, or needsInput: STOP, ask with human.request. 3. Anything asked that the AppSpec cannot express: STOP, ask with human.request. Never proceed with less than asked. 4. airframe.apply, same spec; one PR per call. `awaiting-merge`: human.request \"merge <url>, then reply\", poll human.request.get, then apply again in this run. `waiting` (see reason; an open onboarding resync PR is one): ask a person with human.request, continue. Closed PR or APPLY-CONFLICT (a person set that key): ask, name the keys. `agent-steps-merged`: done. 5. `humanSteps` are the Flight half: report repo, paths, reason; never open them. airframe.status/describe/verify show progress. 6. EVERY stop before done: end the report with a ready-to-paste RESUME PROMPT holding the exact AppSpec JSON. Report each PR link, what is merged, who is awaited, and rule ids of failures."
    },
    "triggers": [
     {
@@ -988,8 +988,8 @@
      "githubCalls": 150,
      "modelTokens": 300000,
      "openPrs": 6,
-     "toolCalls": 60,
-     "ttlMinutes": 30
+     "toolCalls": 80,
+     "ttlMinutes": 60
     },
     "models": [
      "claude-sonnet-5-5"

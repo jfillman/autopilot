@@ -641,7 +641,7 @@
    "writes_files": false
   },
   {
-   "description": "What Airframe offers: chart fields, XR kinds, components and their outputs, conditions and verify checks (kind or section optional)",
+   "description": "What Airframe offers: chart fields, XR kinds, components and their outputs, conditions and verify checks (kind or section optional). Call it with section `appspec` BEFORE writing an AppSpec: every field, how config (chart values for every environment) and overrides (per environment) map onto chart values, and a worked example. A large answer is clipped: narrow with section or kind",
    "github_cost": 0,
    "name": "airframe.capabilities",
    "propose_only": false,
@@ -681,7 +681,7 @@
    "writes_files": false
   },
   {
-   "description": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
+   "description": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml). The spec's shape (fields, `config` chart values for every environment, `overrides` per environment) is airframe.capabilities {section: appspec}: read it once instead of guessing",
    "github_cost": 0,
    "name": "airframe.plan",
    "propose_only": false,
