@@ -82,12 +82,16 @@ TOOLS: tuple[ToolSpec, ...] = (
     # Airframe (autopilot.airframe_tools). Reads only: the contract bundle, the validator, the planner, and XRs, Argo CD
     # Applications and Rollouts through an allowlisted GET-only adapter (autopilot.airframe_api); scoped by profile.airframe.apps.
     ToolSpec("airframe.capabilities", Tier.T0, "What Airframe offers: chart fields, XR kinds, components and their outputs, "
-             "conditions and verify checks (kind or section optional)", ()),
+             "conditions and verify checks (kind or section optional). Call it with section `appspec` BEFORE writing an "
+             "AppSpec: every field, how config (chart values for every environment) and overrides (per environment) map onto "
+             "chart values, and a worked example. A large answer is clipped: narrow with section or kind", ()),
     ToolSpec("airframe.validate", Tier.T0, "Validate proposed env-file or values content with airframe-validate: AF-* rule ids, "
              "JSON paths and fix hints (documents: [{path, content}])", ("documents",)),
     ToolSpec("airframe.explain", Tier.T0, "What an AF-* rule id, a condition reason or a knownFailures id means, and how to fix it",
              ("rule",)),
-    ToolSpec("airframe.plan", Tier.T0, "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
+    ToolSpec("airframe.plan", Tier.T0, "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml). "
+             "The spec's shape (fields, `config` chart values for every environment, `overrides` per environment) is "
+             "airframe.capabilities {section: appspec}: read it once instead of guessing",
              ("spec",)),
     ToolSpec("airframe.status", Tier.T0, "An app's (or one environment's) XR conditions: reason, hint, stale-status detection",
              ("app",)),

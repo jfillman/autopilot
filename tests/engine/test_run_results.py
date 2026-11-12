@@ -140,3 +140,17 @@ def test_run_finish_through_mcp(g):
     assert out["ok"] and out["closed"]
     again = payload(run(srv.call_tool("run_finish", {"session": s.id, "status": "done"})))
     assert not again["ok"] and again["rule"] == "R004"
+
+
+def test_the_result_carries_the_run_warnings(g, clock):
+    s = started(g)
+    for _ in range(4):
+        res.observe(s.signals, "airframe.plan")
+    out = finish(g, s)
+    kept = g.results.get(s.id, clock())
+    assert len(kept["warnings"]) == 1 and "guessing" in kept["warnings"][0]
+    assert s.outcome["warnings"] == kept["warnings"] and out["closed"]
+    clean = started(g)
+    finish(g, clean)
+    assert g.results.get(clean.id, clock())["warnings"] == []
+    assert "warnings" not in clean.outcome

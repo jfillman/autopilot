@@ -257,6 +257,25 @@ class GitHubPRs:
             raise GitHubError.of(f"base {base}", status, last_)
         return True
 
+    ONBOARDING_BRANCH = "onboarding-resync"
+
+    def onboarding_prs(self, repo: str, *, tenants: bool = False) -> list[dict[str, Any]]:
+        """The open PRs from Glidepath's onboarding resync branch on a repo ([] when the repo is not ready for the
+        agents yet: a repo the broker refuses has none this tool could race). GET only."""
+        owner, name = _split(repo)
+        try:
+            token = self._installation_token(owner, name, tenants=tenants)
+        except Denied:
+            return []
+        head = urllib.parse.quote(f"{owner}:{self.ONBOARDING_BRANCH}", safe="")
+        status, doc = self._gh_any(token, f"/repos/{owner}/{name}/pulls?head={head}&state=open&per_page=10")
+        if status == 404:
+            return []
+        if status != 200 or not isinstance(doc, list):
+            raise GitHubError(f"pulls: {status}")
+        return [{"pr": p.get("number"), "url": p.get("html_url")} for p in doc if isinstance(p, dict)
+                and p.get("state") == "open" and (p.get("head") or {}).get("ref") == self.ONBOARDING_BRANCH]
+
     def ensure_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
                   meta: dict[str, str] | None = None, body: str | None = None, *, tenants: bool = False) -> dict[str, Any]:
         """open_pr that survives an interruption: the PR this branch already has is returned (`resumed`), a branch

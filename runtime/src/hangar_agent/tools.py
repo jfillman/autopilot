@@ -92,7 +92,7 @@ def tool_result(tool_use_id: str, result: dict[str, Any], tool: str = "") -> dic
     hint) or a backend error, with is_error so the model treats it as one."""
     if result.get("ok"):
         limit = MAX_FILE_RESULT_CHARS if tool in WHOLE_RESULT_TOOLS else MAX_RESULT_CHARS
-        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": _text(result.get("data"), limit)}
+        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": _text(result.get("data"), limit, tool)}
     d = result.get("decision") if isinstance(result.get("decision"), dict) else {}
     denied = d.get("allow") is False
     body: dict[str, Any] = {"refused": denied}
@@ -110,9 +110,22 @@ def error_result(tool_use_id: str, message: str) -> dict[str, Any]:
     return {"type": "tool_result", "tool_use_id": tool_use_id, "content": message, "is_error": True}
 
 
-def _text(v: Any, limit: int = MAX_RESULT_CHARS) -> str:
+# How to narrow, per tool, when its result was clipped.
+NARROW_HINTS = {
+    "airframe.capabilities": "pass `section` (chart, xrds, components, targets, kinds, appspec) or `kind` for one part",
+    "airframe.status": "pass `env` to read one environment",
+    "repo.file.get": "read a narrower path",
+}
+
+
+def clip_marker(tool: str, shown: int, total: int) -> str:
+    how = NARROW_HINTS.get(tool, "ask for a narrower slice (a section, kind, path, filter or smaller page)")
+    return (f"\n[CLIPPED at {shown} of {total} characters. This result is incomplete: do not rewrite, quote or reason "
+            f"from it as if whole; {how}.]")
+
+
+def _text(v: Any, limit: int = MAX_RESULT_CHARS, tool: str = "") -> str:
     s = v if isinstance(v, str) else json.dumps(v, separators=(",", ":"), default=str)
     if len(s) > limit:
-        s = (s[:limit] + f"... [cut: {len(s) - limit} more characters. This result is incomplete: do not rewrite or "
-             "quote it as whole; narrow the request instead]")
+        s = s[:limit] + clip_marker(tool, limit, len(s))
     return s

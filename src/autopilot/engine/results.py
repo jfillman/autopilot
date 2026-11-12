@@ -7,7 +7,7 @@ session record keeps only the outcome (status, turns, counts, and the answer's s
 record run.finish only the decision, never the text: the chain records what was decided, not what an agent said.
 
 A record: {session, task_id, agent, principal, status, final_text, truncated, turns, tool_calls: [{tool, ok, rule}],
-reason, written_at, expires_at}.
+reason, warnings, written_at, expires_at}. `warnings` flags a run that guessed or opened nothing (observe, warnings).
 """
 from __future__ import annotations
 
@@ -37,6 +37,34 @@ class MemoryResults:
     def get(self, session_id, now):
         r = self.rows.get(session_id)
         return r if r and datetime.fromisoformat(r["expires_at"]) > now else None
+
+
+MAX_PLAN_CALLS = 3     # a run that needed more than this to get an AppSpec past airframe.plan was guessing
+
+
+def observe(signals: dict[str, Any], tool: str, data: Any = None) -> None:
+    """What one call that reached its handler adds to the session's signals: airframe.plan calls are counted (answered or
+    refused), and each airframe.apply that answered ok is counted with whether it carried a PR (opened or resumed)."""
+    if tool == "airframe.plan":
+        signals["plan_calls"] = int(signals.get("plan_calls") or 0) + 1
+    elif tool == "airframe.apply" and isinstance(data, dict):
+        signals["apply_ok"] = int(signals.get("apply_ok") or 0) + 1
+        if data.get("pr"):
+            signals["apply_pr"] = int(signals.get("apply_pr") or 0) + 1
+        signals["apply_state"] = str(data.get("state") or "")[:40]
+
+
+def warnings(signals: dict[str, Any]) -> list[str]:
+    """Flags for a finished run: provisioning that guessed (airframe.plan called more than MAX_PLAN_CALLS times), or whose
+    airframe.apply answered ok but never opened a PR (and did not end at agent-steps-merged, where nothing is left to open)."""
+    out = []
+    plans = int(signals.get("plan_calls") or 0)
+    if plans > MAX_PLAN_CALLS:
+        out.append(f"airframe.plan was called {plans} times (more than {MAX_PLAN_CALLS}): the run was guessing the AppSpec")
+    ok, prs = int(signals.get("apply_ok") or 0), int(signals.get("apply_pr") or 0)
+    if ok and not prs and signals.get("apply_state") != "agent-steps-merged":
+        out.append(f"airframe.apply answered ok {ok} time(s) but opened no PR (last state: {signals.get('apply_state') or 'none'})")
+    return out
 
 
 def clip_text(text: str) -> tuple[str, bool]:

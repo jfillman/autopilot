@@ -631,3 +631,30 @@ def test_an_agent_reads_an_environment_using_only_mcp(defs, clock, token):
         assert not any(p.startswith("/api/") or p.endswith("/secrets/redis-connection") for p, _ in StubAPIServer.seen), "the Secret read never reached the API server"
     finally:
         srv.shutdown()
+
+
+# ---- the appspec section (A-11a) ------------------------------------------------------------------------------------
+def test_capabilities_appspec_section_covers_the_schema_and_stays_small(gw):
+    sid = open_(gw)
+    r = gw.call("alice", sid, "airframe.capabilities", {"section": "appspec"})
+    assert r.ok
+    sec = r.data["appspec"]
+    schema = ap.SCHEMA
+    assert set(schema["properties"]) <= set(sec["fields"]), "every top-level AppSpec property is described"
+    assert sec["required"] == schema["required"]
+    assert set(schema["$defs"]["chartValues"]["properties"]) == set(sec["chartValues"]), "every settable chart key is listed"
+    for k in ("env", "rollout", "autoscaling", "httpRoute", "components"):
+        assert k in sec["chartValues"]
+    assert "config" in sec["mapping"] and "overrides" in sec["mapping"]
+    assert len(json.dumps(sec, separators=(",", ":"))) < 12_000
+    default = gw.call("alice", sid, "airframe.capabilities", {}).data
+    assert "section: appspec" in default["more"] and list(default)[0] == "more", "first, so a clip never cuts it"
+
+
+def test_the_worked_example_is_a_valid_appspec_the_planner_accepts():
+    spec = at.appspec_section()["workedExample"]["spec"]
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(spec, ap.SCHEMA)
+    cs, answer = at.fake_airframe().changeset(spec)
+    assert cs is not None, answer
+    assert any("rollout" in json.dumps(f.content) for s in cs.steps for f in s.files), "the rollout reaches the plan"

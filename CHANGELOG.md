@@ -5,6 +5,25 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-11, agent provisioning hardening)
+- `airframe.capabilities {section: appspec}`: the AppSpec's top-level fields, required vs optional, how `config` and
+  `overrides` map onto chart values, and one worked example (the parachute spec), derived from
+  `schemas/appspec.schema.json` (under 12,000 characters, test-asserted). The default answer's `more` names it and now
+  comes first (the default answer is ~19,000 characters, so the old trailing `more` was clipped away). The policy bundle's
+  `section` allowlist admits `appspec` and the descriptions of `airframe.capabilities` and `airframe.plan` name it.
+- Runtime: a clipped tool result ends with `[CLIPPED at N of M characters ... ]` and how to narrow (for
+  `airframe.capabilities`: `section` or `kind`). Needs a new runtime tag and a pin bump in the agent definitions.
+- `airframe.apply` merges into the files Glidepath's onboarding scaffolds (`glidepath/envs/*.yaml`, gitops `*/values.yaml`)
+  instead of refusing `APPLY-EXISTS`: the plan's keys are deep-merged, the header comment and other keys kept. A key the
+  plan sets that already holds a different value is `APPLY-CONFLICT` (naming the key paths).
+- `airframe.apply` waits (`waiting`) while the app repo or `gitops-<app>` has an open `onboarding-resync` PR (the resync
+  that CicdOnboarded=True does not wait for); `GitHubPRs.onboarding_prs`.
+- Run results carry `warnings` (and the session outcome too): `airframe.plan` called more than 3 times, or
+  `airframe.apply` answered ok but opened no PR (unless it ended at `agent-steps-merged`).
+- `agents/parachute.yaml`: read `appspec` once, at most 3 plans, stop and ask (`human.request`) instead of proceeding with
+  less than asked, wait for each merge in the same run, and end every stop with a resume prompt holding the AppSpec JSON.
+  `ttlMinutes` 30 to 60 and `toolCalls` 60 to 80 so a run can wait for merges. `app-provisioner` is unchanged.
+
 ### Fixed
 - The gateway publishes its bundled agents (`agents/`) to the Clearance core with the cluster pins (`PUT /v1/definitions`
   `bundled`: name, `AUTOPILOT_GATEWAY_VERSION`, document). Seen live on hangar-dev 2026-11-12: `parachute` opened

@@ -378,6 +378,79 @@ def _where(run: dict, xr: dict) -> tuple[str, dict]:
     return "", {}
 
 
+# --- the AppSpec section of airframe.capabilities -------------------------------------------------------------------
+
+WORKED_EXAMPLE = {
+    "apiVersion": "airframe/v1", "kind": "AppSpec", "app": "parachute", "stack": "python",
+    "environments": {"ground": ["dev"], "flight": [{"name": "prod"}]},
+    "config": {"env": [{"name": "URL", "value": "http://hangarplatform.dev"}, {"name": "OWNER", "value": "jfillman"}],
+               "rollout": {"enabled": True, "strategy": "canary",
+                           "steps": [{"setWeight": 50}, {"pause": {"duration": "30s"}}, {"setWeight": 100}]}},
+}
+EXAMPLE_ASKED = ("Python app parachute, ground dev + flight prod, canary 50%/30s pause/100%, env URL=http://hangarplatform.dev "
+                 "OWNER=jfillman")
+# What the section says about the shape of values the schema types only as `object`/`array`.
+CHART_SHAPES = {
+    "env": "list of {name, value} or {name, valueFrom}",
+    "components": "list of attached components (see airframe.capabilities {section: components} for the types and their spec)",
+    "secrets": "references only, never values",
+}
+
+
+def _line(text: str, n: int = 140) -> str:
+    """The first sentence of a schema description, at most n characters."""
+    t = " ".join((text or "").split())
+    first = t.split(". ")[0].rstrip(".")
+    return first if len(first) <= n else first[: n - 1].rstrip() + "..."
+
+
+def appspec_section(schema: dict = airframe_plan.SCHEMA, contract: dict = CONTRACT) -> dict:
+    """What airframe.plan / airframe.apply take (the AppSpec), derived from schemas/appspec.schema.json and the chart's
+    contract so it cannot drift: every top-level field with its meaning, how config/overrides map onto chart values, which
+    fields are required, and one complete worked example."""
+    props = schema["properties"]
+    chart = schema["$defs"]["chartValues"]["properties"]
+    fields = {}
+    for k, v in props.items():
+        if "const" in v:
+            fields[k] = f"always {v['const']!r}"
+        elif "enum" in v:
+            fields[k] = _line(v.get("description") or "") + (". " if v.get("description") else "") + "One of: " + ", ".join(v["enum"])
+        else:
+            fields[k] = _line(v.get("description") or "") or f"{v.get('type', 'value')}, " + ", ".join(
+                f"{a}: {b}" for a, b in v.items() if a in ("minLength", "maxLength", "pattern"))
+    fields["app"] += f" (pattern {props['app']['pattern']})"
+    fields["stackOptions"] = "optional: " + ", ".join(props["stackOptions"]["properties"]) + " (port also sets rollout.ports)"
+    fields["environments"] = ("{ground: [names], flight: [{name, cluster?}]}: ground = disposable environments on the dev "
+                              "cluster, flight = governed ones on an upper cluster; both keys are required")
+    fields["config"] = ("chart values applied to EVERY environment (the keys under chartValues below); anything an "
+                        "environment's values file may hold. Not a place for secrets")
+    fields["overrides"] = ("{<environment name>: chart values}: per-environment chart values deep-merged over config "
+                           "(lists replace, not append); every key must be an environment declared in environments")
+    chart_values = {}
+    for k, v in chart.items():
+        desc = v.get("description") or ((contract.get("chart", {}).get("fields") or {}).get(k) or {}).get("description") or ""
+        keys = list(v.get("properties") or {})
+        shape = CHART_SHAPES.get(k) or ("object with keys: " + ", ".join(keys) if keys else "")
+        chart_values[k] = {"meaning": _line(desc, 110), **({"shape": shape} if shape else {})}
+    return {
+        "what": "The spec airframe.plan and airframe.apply take as `spec`. Send it whole and exactly as below; do not guess "
+                "field names, and do not send a field this section does not list (the schema is strict).",
+        "required": list(schema.get("required") or []),
+        "optional": [k for k in props if k not in (schema.get("required") or [])],
+        "fields": fields,
+        "mapping": {"config": "chart values for every environment", "overrides": "chart values for one environment, over config",
+                    "chartValues": "the keys allowed under config and under each overrides.<env>; each is the airframe-application "
+                                   "chart's own top-level value, so config.rollout.* is the chart's rollout.*",
+                    "notSettable": "platform- and release-owned chart keys (" + ", ".join(sorted(
+                        set((contract.get("chart", {}).get("fields") or {}) ) - set(chart))) + "): not in an AppSpec, the "
+                                   "platform sets them"},
+        "chartValues": chart_values,
+        "workedExample": {"asked": EXAMPLE_ASKED, "spec": WORKED_EXAMPLE},
+        "ifNotExpressible": "If what was asked has no field here, say so and ask; do not drop it from the spec.",
+    }
+
+
 # --- the tools ------------------------------------------------------------------------------------------------------
 
 class AirframeTools:
@@ -395,10 +468,16 @@ class AirframeTools:
             if sc is None:
                 return _answer("AF-KIND-404", f"no Airframe kind {kind!r}", "Call airframe.capabilities with no arguments for the list.")
             return {"kind": sc["kind"], "xrd": xrd, **sc}
+        if section == "appspec":
+            return {"appspec": appspec_section(airframe_plan.SCHEMA, c)}
         if section:
             return {section: c[section] if section != "chart" else c["chart"]}
         every = {**c["components"], **c.get("targets", {}), **c.get("kinds", {})}
-        return {"contract": c["$schema"], "source": "airframe contract/airframe-contract.json (vendored)",
+        return {"more": "airframe.capabilities {section: appspec} FIRST when writing an AppSpec for airframe.plan/apply (every "
+                        "field, how config/overrides map onto chart values, a worked example); {kind} for one kind's outputs, "
+                        "conditions and verify checks; {section: chart|xrds|components|targets|kinds|appspec} for a whole "
+                        "section. This default answer is large and may be clipped: narrow with section or kind",
+                "contract": c["$schema"], "source": "airframe contract/airframe-contract.json (vendored)",
                 "chart": {"name": c["chart"]["name"], "fields": {k: {kk: vv for kk, vv in v.items() if kk != "default"}
                                                                  for k, v in c["chart"]["fields"].items()}},
                 "kinds": [{"kind": sc["kind"], "role": sc.get("role"), "summary": sc.get("summary"),
@@ -406,9 +485,7 @@ class AirframeTools:
                            "plural": (c["xrds"].get(sc["kind"]) or {}).get("plural"),
                            "outputs": sorted(sc.get("outputs") or {}),
                            "verify": [v["id"] for v in sc.get("verify") or []]}
-                          for _, sc in sorted(every.items())],
-                "more": "airframe.capabilities {kind} for one kind's outputs, conditions and verify checks; "
-                        "{section: chart|xrds|components|targets|kinds} for a whole section"}
+                          for _, sc in sorted(every.items())]}
 
     def explain(self, rule: str) -> Any:
         if rule in AF_RULES:

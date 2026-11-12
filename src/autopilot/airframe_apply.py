@@ -31,6 +31,7 @@ is skipped. A run killed at any point and started again with the same spec ends 
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import yaml
@@ -46,12 +47,66 @@ FLIGHT_HALF = {"cicd-flight": "the Flight half of cicd.yaml: Flight environments
 OPENED_BY_TOOL = (TENANTS, APP_REPO)
 
 
+# Files Glidepath's onboarding scaffolds (glidepath/envs/<env>.yaml in the app repo: `envName: <env>` and a header
+# comment; <cluster>/<env>/values.yaml in the gitops repo). apply merges the plan's keys into these instead of refusing them.
+ONBOARDING_FILES = (re.compile(r"^glidepath/envs/[^/]+\.yaml$"), re.compile(r"^[^/]+(/[^/]+)?/values\.yaml$"))
+
+
 def branch_for(app: str, step: str) -> str:
     return f"agent/airframe-{app}-{step}"
 
 
 def _text(content: Any) -> str:
     return content if isinstance(content, str) else yaml.safe_dump(content, sort_keys=False)
+
+
+def _header(text: str) -> str:
+    """The leading comment block (and blank lines among it) of a YAML file, kept when the file is rewritten."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            out.append(line)
+        else:
+            break
+    return "".join(out)
+
+
+def _deep_merge(have: Any, want: Any, path: str, conflicts: list[str]) -> Any:
+    """`have` with every key of `want` set. A key that `have` holds with a different value is a conflict (a person set
+    it): named in `conflicts`, `have`'s value kept. Lists and scalars are compared whole, never merged."""
+    if isinstance(have, dict) and isinstance(want, dict):
+        out = dict(have)
+        for k, v in want.items():
+            out[k] = _deep_merge(have[k], v, f"{path}.{k}" if path else str(k), conflicts) if k in have else v
+        return out
+    if have != want:
+        conflicts.append(path or "<root>")
+    return have
+
+
+def merge_onboarding_file(repo: str, path: str, existing: str, planned: str) -> str | None:
+    """The merged text of an onboarding-scaffolded file with the plan's keys added, or None when it already holds them
+    all (nothing to write). APPLY-CONFLICT when a key the plan sets has another value there; APPLY-EXISTS when the file
+    is not a YAML mapping (it is not the scaffold, so a person looks)."""
+    try:
+        have, want = yaml.safe_load(existing), yaml.safe_load(planned)
+    except yaml.YAMLError:
+        have, want = [], None
+    if have is None:
+        have = {}                       # only a comment header
+    if not isinstance(have, dict) or not isinstance(want, dict):
+        raise Denied("APPLY-EXISTS", f"{repo} already has {path} with other content",
+                     "apply merges into the file Glidepath's onboarding scaffolds; this one is not a YAML mapping. Change "
+                     "it with repo.pr.open for a person to review (airframe.status shows where the app is).")
+    conflicts: list[str] = []
+    merged = _deep_merge(have, want, "", conflicts)
+    if conflicts:
+        raise Denied("APPLY-CONFLICT", f"{repo} {path} already sets {', '.join(sorted(conflicts))} to a different value than "
+                     "the plan: a person set it", "Change the AppSpec to match the file, or have a person change the file "
+                     "(repo.pr.open); apply never overwrites a value someone set.")
+    if merged == have:
+        return None
+    return _header(existing) + yaml.safe_dump(merged, sort_keys=False)
 
 
 def _cicd_files(glidepath: Any, session: Any, app: str, step: Any) -> tuple[list[dict], dict | None, str | None]:
@@ -159,6 +214,15 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
             waiting = f"{repo} does not exist yet or is not onboarded: the tenants PR is merged, the platform is still creating it"
             row.update(status="waiting", reason=waiting)
             continue
+        if not tenants:
+            # Onboarding is not finished while its resync PR is open (CicdOnboarded=True comes first): a file this call
+            # opens now would race that PR and conflict with it.
+            resync = [p for r in (repo, f"{repo.rsplit('/', 1)[0]}/gitops-{app}") for p in git.onboarding_prs(r)]
+            if resync:
+                waiting = ("the platform's onboarding resync PR is still open (" + ", ".join(p["url"] for p in resync) +
+                           "): a person merges it, then the platform finishes; apply waits so its files do not race it")
+                row.update(status="waiting", reason=waiting)
+                continue
         files, verdict, why = _cicd_files(glidepath, session, app, st)
         if why:
             waiting = why
@@ -172,7 +236,13 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
             have = {"found": False} if f["path"] == "cicd.yaml" else git.read_file(repo, f["path"], "main", tenants=tenants)
             if have.get("found", True) is False:
                 kept.append(f)
-            elif have.get("content") != f["content"]:
+            elif have.get("content") == f["content"]:
+                continue
+            elif any(r.match(f["path"]) for r in ONBOARDING_FILES) and isinstance(have.get("content"), str):
+                merged = merge_onboarding_file(repo, f["path"], have["content"], f["content"])
+                if merged is not None:
+                    kept.append({"path": f["path"], "content": merged})
+            else:
                 raise Denied("APPLY-EXISTS", f"{repo} already has {f['path']} with other content",
                              "apply writes new files only; change an existing one with repo.pr.open for a person to "
                              "review (airframe.status shows where the app is).")

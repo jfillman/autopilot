@@ -355,7 +355,7 @@
     {
       "name": "airframe.capabilities",
       "tier": 0,
-      "description": "What Airframe offers: chart fields, XR kinds, components and their outputs, conditions and verify checks (kind or section optional)",
+      "description": "What Airframe offers: chart fields, XR kinds, components and their outputs, conditions and verify checks (kind or section optional). Call it with section `appspec` BEFORE writing an AppSpec: every field, how config (chart values for every environment) and overrides (per environment) map onto chart values, and a worked example. A large answer is clipped: narrow with section or kind",
       "required_args": [],
       "github_cost": 0,
       "target": "none",
@@ -395,7 +395,7 @@
     {
       "name": "airframe.plan",
       "tier": 0,
-      "description": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
+      "description": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml). The spec's shape (fields, `config` chart values for every environment, `overrides` per environment) is airframe.capabilities {section: appspec}: read it once instead of guessing",
       "required_args": [
         "spec"
       ],
@@ -557,7 +557,7 @@
         "'name' in args && !(type(args['name']) == string && args['name'].matches(r'\\A(?:[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)\\n?\\z'))",
         "'kind' in args && !(type(args['kind']) == string && args['kind'].matches(r'\\A(?:[A-Za-z][A-Za-z0-9]{0,62})\\n?\\z'))",
         "'rule' in args && !(type(args['rule']) == string && args['rule'].matches(r'\\A(?:[A-Za-z0-9][A-Za-z0-9._-]{0,127})\\n?\\z'))",
-        "'section' in args && !(type(args['section']) == string && args['section'] in ['chart', 'xrds', 'components', 'targets', 'kinds'])",
+        "'section' in args && !(type(args['section']) == string && args['section'] in ['chart', 'xrds', 'components', 'targets', 'kinds', 'appspec'])",
         "'documents' in args && !(type(args['documents']) == list && size(args['documents']) >= 1 && size(args['documents']) <= 20 && args['documents'].all(d, type(d) == map && d.all(k, k == 'path' || k == 'content') && 'content' in d && type(d['content']) == string && path.norm(py.get(d, 'path')) != '' && path.base(path.norm(py.get(d, 'path'))).matches(r'\\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.ya?ml\\n?\\z') && py.utf8len(d['content']) <= 262144))",
         "'mode' in args && args['mode'] != 'values' && args['mode'] != 'xr'",
         "'render' in args && type(args['render']) != bool",
