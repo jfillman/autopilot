@@ -12,8 +12,8 @@ says what each gateway tag adds. The manager cuts the tags.
   deployment", because since R-3 the core (no `CLEARANCE_AGENTS_DIR` on Hangar) had only the pins. A gateway without the
   Agent XR loader publishes the set at start and retries until the core takes it (`DefinitionsPublisher`). A core that
   predates the field refuses it (400); the gateway then publishes the pins without it and keeps running.
-  Needs clearance with `bundled` (the release after v0.41.4): until it is released the pins (`pyproject.toml`,
-  `CLEARANCE_REF`, `uv.lock`) name its commit; re-pin to the tag. Roll out the core first, then this gateway tag.
+  Needs clearance v0.42.0 (`bundled`; the pins `pyproject.toml`, `CLEARANCE_REF`, `uv.lock` name it). Roll out the
+  core first, then this gateway tag.
   The Go gateway (`gateway/`) publishes no definitions and stays on its v0.31.0 `go.mod` pin.
 
 ### Added
