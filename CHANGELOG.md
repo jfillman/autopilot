@@ -30,6 +30,9 @@ says what each gateway tag adds. The manager cuts the tags.
     needs a Clearance with `propose` support (docscope) and the `merge`/`needsPerson` receipt fields.
   - The receipt lists of `glidepath.cicd.propose` and `airframe.apply` gain `merge` and `needsPerson`. Rollout: Clearance, then this
     (bundle, pin, definitions), then Glidepath.
+### Changed
+- Every agent and the runtime catalog pin `autopilot-agent-runtime` runtime-v0.1.7 (sha256:b5c9832f…): a clipped tool
+  result now says it was clipped and how to narrow the call (A-11 b).
 
 ### Added (A-11, agent provisioning hardening)
 - `airframe.capabilities {section: appspec}`: the AppSpec's top-level fields, required vs optional, how `config` and

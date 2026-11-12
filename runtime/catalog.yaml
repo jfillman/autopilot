@@ -7,10 +7,10 @@
 # a tag `runtime-<name>-v*` (generic keeps its `runtime-v*` tags) and pinned here by its index digest.
 runtimes:
   - name: generic
-    image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a
+    image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965
     kind: runtime
     framework: generic
-    summary: "The generic loop (runtime/src/hangar_agent): the definition's instructions to the model through Clearance's model proxy, its tools through Clearance, result.json at the end, handed to Clearance (run_finish). Prompt-only agents. runtime-v0.1.6."
+    summary: "The generic loop (runtime/src/hangar_agent): the definition's instructions to the model through Clearance's model proxy, its tools through Clearance, result.json at the end, handed to Clearance (run_finish). Prompt-only agents. runtime-v0.1.7."
     status: available
   - name: base-python
     image: ghcr.io/jfillman/autopilot-agent-base-python@sha256:f8dd51864f8e2b70f165dfb38b90e16d6d99db4e6b0c0c236d460ce07799715a

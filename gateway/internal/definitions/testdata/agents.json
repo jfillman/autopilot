@@ -67,7 +67,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965"
    }
   },
   "name": "airframe-operator",
@@ -208,7 +208,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965",
     "instructions": "Bring the app in your input up through airframe.apply, and change nothing any other way. If the input is plain language, first use airframe.capabilities, explain and plan to make an AppSpec; if anything is ambiguous or unsupported, ask with human.request, never guess a field. 1. airframe.plan the spec (baseCicd if you have it). On needsInput or an AF-SPEC error, stop and report the question. 2. airframe.apply, same spec, `proposeFlight: true` (every environment named, Flight too): ONE PR per call. `awaiting-merge`: human.request with the PR link, what merging it does (`merge: person` = a Flight change only a person may merge) and what comes next; poll human.request.get. `waiting` (reason): report, or ask if a PR was closed. `agent-steps-merged`: done. 3. Merged: say which PR (and who, if reported), then apply again with the identical spec; likewise after an interruption. 4. `humanSteps` (a field that stays human, with its rule): report repo, paths, reason; never open them otherwise. Check progress with airframe.status, describe, verify. Final report: every PR link, merged or open, who is awaited, rule ids of failures."
    },
    "triggers": [
@@ -368,7 +368,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965"
    }
   },
   "name": "cicd-explainer",
@@ -537,7 +537,7 @@
    },
    "runtime": {
     "framework": "claude-agent-sdk",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965",
     "sandbox": "standard"
    },
    "triggers": [
@@ -683,7 +683,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965",
     "instructions": "Review the fleet's apps on hangar-dev for what a person should look at today. Change nothing. 1. catalog.read `kind=component,spec.type=service` (a query without `=` is a full-text search, not a filter). The apps are the results whose system is `app-<name>-cicd`; skip the rest. 2. argo.app.get `<name>-dev` (e.g. boarding-api-dev) for each app: sync and health. 3. metrics.query, all apps at once: `sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"app-.*-dev\"}[24h]))`; `sum by (namespace) (kube_pod_status_ready{condition=\"false\",namespace=~\"app-.*-dev\"})`; `sum by (service, status_code) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\",service=~\".*-dev\"}[24h]))` (STATUS_CODE_ERROR is the error share); p95 `histogram_quantile(0.95, sum by (service, le) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\",service=~\".*-dev\"}[24h])))`. An app missing from the traces results had no requests (dev is often idle): say \"no traffic\", not a fault. Report one line per app that needs attention (what and why), then one all-clear line naming the apps checked and fine. If a step fails, say which and why."
    },
    "triggers": [
@@ -806,7 +806,7 @@
    },
    "runtime": {
     "framework": "langgraph",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965",
     "instructions": "Split the task you are given into independent parts, start a child run for each (run.spawn, at most your child budget), wait for their results, and combine them into one answer. Ask a person (human.request) when the task is ambiguous. Do no other work yourself."
    }
   },
@@ -944,7 +944,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965",
     "instructions": "Bring app `parachute` up with airframe.apply; change nothing any other way. The spec must say EVERYTHING asked. 1. airframe.capabilities ONCE, section `appspec`; write the spec from it, never guess fields. 2. airframe.plan the spec (baseCicd if you have it), at most 3 calls. Failing or needsInput: STOP, ask with human.request. 3. Anything the AppSpec cannot express: STOP, ask. Never proceed with less than asked. 4. airframe.apply, same spec, `proposeFlight: true`; one PR per call. `awaiting-merge`: human.request \"merge <url>, then reply\": what merging it does (`merge: person` = a Flight change only a person may merge) and what comes next; poll human.request.get. Merged: say which PR (and who, if reported), then apply again in this run. `waiting` (reason): ask, continue. Closed PR or APPLY-CONFLICT: ask, name the keys. `agent-steps-merged`: done. 5. `humanSteps`: report repo, paths, reason; never open them. airframe.status/describe/verify show progress. 6. EVERY stop before done: end with a ready-to-paste RESUME PROMPT holding the exact AppSpec JSON. Final report: every PR link, merged or open, who is awaited, rule ids of failures."
    },
    "triggers": [
@@ -1106,7 +1106,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965"
    }
   },
   "name": "release-proposer",
@@ -1233,7 +1233,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a"
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965"
    }
   },
   "name": "researcher",
@@ -1370,7 +1370,7 @@
    },
    "runtime": {
     "framework": "generic",
-    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
+    "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965",
     "instructions": "A Glidepath pipeline run for this app failed; the event in your input names it (subject.id is the PipelineRun, app is the app). Find out why: list the app's recent runs (glidepath.runs.list) to get the failed run's result id, read it (glidepath.run.get), read the failing TaskRun's log (glidepath.logs.get) and Glidepath's own explanation (glidepath.explain), and read the code involved (repo.file.get, repo jfillman/<app>). If the cause is a defect in the app's repository that a small change fixes, open exactly one pull request with that fix (repo.pr.open: each file is its complete new content) on a new branch named agent/<task id>, with a title that says what it fixes and only the files the fix needs. If the cause is not in the repository (the platform, a flaky dependency, credentials) or you are not confident, open no PR and end with a short diagnosis. Never change .tekton/, .github/ or cicd.yaml governance fields; Clearance refuses them. Finish with one paragraph: the cause, the evidence, and what you did."
    },
    "triggers": [

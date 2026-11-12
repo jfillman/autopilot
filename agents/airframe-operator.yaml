@@ -15,5 +15,5 @@ profile:
   compute: small
   limits: { ttlMinutes: 15, toolCalls: 60, githubCalls: 0, openPrs: 0, modelTokens: 200000, children: 0 }
 runtime:
-  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965
   framework: generic
