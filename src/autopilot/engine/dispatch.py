@@ -794,6 +794,11 @@ class Gateway:
         self._publish_definitions()
         return ch
 
+    def publish_definitions(self) -> bool:
+        """Publish the definition set (the bundled agents and the cluster pins) if the core does not have it yet.
+        The loader does this on every poll; a gateway with no loader calls it at start and until the core takes it."""
+        return self._publish_definitions()
+
     def _publish_definitions(self) -> bool:
         """Publish the current cluster set if the core does not have it yet. One publish at a time, of the set as it
         is when the publish starts, so a later set is never overwritten by an earlier one."""
@@ -803,7 +808,8 @@ class Gateway:
             with self.lock:
                 version = self.defs.version
                 pins, rejected = self.defs.cluster_set()
-            ok = self.core.publish_definitions(pins, rejected)
+                bundled = self.defs.bundled_set()
+            ok = self.core.publish_definitions(pins, rejected, bundled)
             with self.lock:
                 if ok and self.defs.version == version:
                     self._definitions_unpublished = False

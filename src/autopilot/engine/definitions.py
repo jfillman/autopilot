@@ -187,6 +187,12 @@ class Definitions(Mapping[str, AgentDefinition]):
             return Source("bundled")
         return None
 
+    def bundled_set(self) -> list[tuple[str, dict[str, Any]]]:
+        """The bundled definitions (the image's agents/) as (name, document), by name, for the core
+        (Core.publish_definitions `bundled`): the core must know every agent this gateway can run, or provenance
+        cannot evaluate the pull requests of the bundled ones (AS004)."""
+        return [(n, dict(d.doc)) for n, d in sorted(self._bundled.items()) if d.doc]
+
     def cluster_set(self) -> tuple[tuple[Loaded, ...], tuple[Rejected, ...]]:
         """The cluster set as it stands, for the core (Core.publish_definitions): every loaded pin by name, and every
         rejection (the loader's, plus the ones replace_cluster made: two pins of one name, a bundled name)."""

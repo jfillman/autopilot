@@ -29,7 +29,13 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   `AUTOPILOT_AUDIENCE` (default `clearance`). The core registers the gateway's identity as provider
   `autopilot-gateway` in `CLEARANCE_PROVIDERS`, with `"definitions": true` (clearance v0.28.0): the gateway publishes
   its cluster-pinned definitions to the core (`PUT /v1/definitions`), which records each change, and a provider
-  without it is refused. For example
+  without it is refused. The same publish carries the image's own agents (`agents/`: `parachute`, `app-provisioner`, ...)
+  as `bundled`, each with this gateway's version (`AUTOPILOT_GATEWAY_VERSION`): the core must know every agent the gateway
+  can run, or `Clearance / agent-scope` fails AS004 ("not in this deployment") on its pull requests. The core needs no
+  `CLEARANCE_AGENTS_DIR` for this, and one that mounts the same files is fine (identical documents are ignored). It needs
+  clearance with `bundled` (the release after v0.41.4); an older core refuses the field, the gateway logs a warning and
+  publishes the pins without it, and the bundled agents' PRs keep failing AS004 until the core is upgraded. With
+  `AGENT_XRS_ENABLED` off the gateway publishes the bundled set at start and retries until the core takes it. For example
   `[{"name": "autopilot-gateway", "version": "<gateway tag>", "principals": ["autopilot-system/clearance"],
   "definitions": true}]`. A NetworkPolicy must let the gateway reach the core, and nothing but
   the core and clearance-api reach clearance-pg.

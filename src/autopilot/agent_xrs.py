@@ -181,6 +181,35 @@ class AgentXRs:
         return doc, None, at
 
 
+class DefinitionsPublisher:
+    """The gateway's publish of its bundled definitions when no Agent XR loader runs (AGENT_XRS_ENABLED off): the
+    loader publishes the whole set on each poll that finds it unpublished, this does the same on its own, every
+    `interval` seconds until the core has taken the set, then stops. Same start/stop shape as AgentXRs."""
+
+    def __init__(self, gw: Any, interval: float = 30.0):
+        self.gw, self.interval = gw, interval
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name="clearance-bundled-definitions", daemon=True)
+
+    def start(self) -> "DefinitionsPublisher":
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=self.interval + 5)
+
+    def _loop(self) -> None:
+        while True:
+            try:
+                if self.gw.publish_definitions():
+                    return
+            except Exception as e:  # noqa: BLE001 - the next tick retries
+                log.error("bundled definitions: publish failed: %s", type(e).__name__)
+            if self._stop.wait(self.interval):
+                return
+
+
 class DefinitionsRefresher:
     """clearance-api's side: every `interval` seconds, rebuild the cluster set from the rows the gateway persisted
     (api.ReadStore.definitions -> definitions.Definitions.apply_records). Fetches nothing, decides nothing."""

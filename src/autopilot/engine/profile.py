@@ -80,6 +80,8 @@ class AgentDefinition:
     raw_profile: dict[str, Any] = field(default_factory=dict, compare=False)
     # One line: what the agent is for (required from v0.23.0).
     description: str = ""
+    # The document as parsed: what the gateway publishes to the core for a bundled definition (Definitions.bundled_set).
+    doc: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def runs_in(self) -> str:
@@ -130,7 +132,7 @@ def parse(doc: dict[str, Any]) -> AgentDefinition:
         sandbox=rt.get("sandbox", "standard"), sidecars=tuple(rt.get("sidecars", [])),
         triggers=tuple(doc.get("triggers", [{"type": "manual"}])),
         instructions=rt.get("instructions"), owner=doc.get("owner"),
-        raw_profile=p, description=doc["description"],
+        raw_profile=p, description=doc["description"], doc=doc,
     )
 
 

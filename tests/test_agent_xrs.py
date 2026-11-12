@@ -80,7 +80,12 @@ def gw(clock):
 
 def def_records(gw):
     """The definition.* records the core wrote for this gateway's publishes (it is their one writer)."""
-    return [r for r in gw.core.records if r["tool"].startswith("definition.")]
+    return [r for r in gw.core.records if r["tool"].startswith("definition.") and not r["principal"].startswith("provider:")]
+
+
+def bundled_records(gw):
+    """The definition.* records for the gateway's own bundled agents (principal provider:<gateway>)."""
+    return [r for r in gw.core.records if r["tool"].startswith("definition.") and r["principal"].startswith("provider:")]
 
 
 def loader(gw, items, files, clock):
@@ -252,3 +257,107 @@ def test_config_and_describe():
         serve.config_from_env({**EPH, "AGENT_XRS_ENABLED": "1"})
     with pytest.raises(serve.ConfigError):
         serve.config_from_env({**EPH, "GITHUB_PR_ENABLED": "1", "AGENT_XRS_INTERVAL": "1"})
+
+
+# -- the gateway's bundled agents reach the core ------------------------------------------------------------------------
+
+@pytest.fixture
+def bare_core(tmp_path):
+    """A core configured as Hangar's is: no CLEARANCE_AGENTS_DIR (an empty directory), so the only definitions it can
+    know are the ones the gateway publishes. The shared test core mounts the image's agents/, which hid the defect."""
+    import os
+    from pathlib import Path
+
+    from coreenv import CoreProcess
+    (tmp_path / "agents").mkdir()
+    c = CoreProcess(Path(os.environ["AUTOPILOT_TEST_CORE_BIN"]), env={"CLEARANCE_AGENTS_DIR": str(tmp_path / "agents")}).start()
+    yield c
+    c.stop()
+
+
+def test_the_bundled_agents_are_published_to_the_core_once(bare_core, clock):
+    """Seen live 2026-11-12: parachute's PR failed Clearance / agent-scope (AS004) because the core had never been told
+    about the image's agents. The set rides the same publish as the pins; the core records each once."""
+    from coreenv import tap_core
+    g, _ = serve.build_gateway(serve.config_from_env(EPH), backends=Backends(None, None, FakeRuns(), None, None),
+                               auth=Auth(), clock=clock, core=tap_core(url=bare_core.url))
+    assert g.publish_definitions()
+    names = sorted(g.defs.bundled)
+    assert "parachute" in names
+    loads = [r for r in bare_core.records() if r["tool"].startswith("definition.")]
+    assert sorted(r["agent"] for r in loads) == names and {r["tool"] for r in loads} == {"definition.load"}
+    assert {r["principal"] for r in loads} == {"provider:autopilot-gateway"}
+    assert all(r["target"].startswith("provider:autopilot-gateway@") and r["result"].startswith("loaded provider:") for r in loads)
+    n = len(bare_core.records())
+    g._definitions_unpublished = True
+    assert g.publish_definitions() and len(bare_core.records()) == n, "the same set again records nothing"
+    # A poll with a pin keeps the bundled set: the pins are published with it, nothing bundled is unloaded.
+    ld = loader(g, [xr()], {("jfillman/gate-api", "agents/gate-triage.yaml", COMMIT): definition()}, clock)
+    assert ld.poll().added == ["gate-triage"]
+    tools = [(r["tool"], r["agent"]) for r in bare_core.records()[n:] if r["tool"].startswith("definition.")]
+    assert tools == [("definition.load", "gate-triage")]
+
+
+def test_a_core_that_mounts_the_same_agents_has_nothing_to_load_and_nothing_to_reject(gw):
+    """The shared test core mounts the image's agents/ (CLEARANCE_AGENTS_DIR): the same documents are ignored."""
+    gw.core.start = chain_head()
+    gw._definitions_unpublished = True
+    assert gw.publish_definitions()
+    assert [r for r in gw.core.records if r["tool"].startswith("definition.")] == []
+
+
+class RecordingClient:
+    def __init__(self, fail_first_with=None):
+        self.calls, self.fail = [], fail_first_with
+
+    def publish_definitions(self, pins, rejected=None, *, provider=None, bundled=None):
+        self.calls.append({"pins": pins, "rejected": rejected, "bundled": bundled})
+        if bundled is not None and self.fail is not None:
+            raise self.fail
+        from clearance_client import DefinitionsResult
+        return DefinitionsResult(added=[], changed=[], removed=[], rejected=[], cleared=[], cluster=0)
+
+
+def test_publish_sends_the_bundled_set_with_the_build_version():
+    from autopilot.engine.core import Core
+    c = RecordingClient()
+    core = Core(client=None, definitions_client=c, bundled_version="gateway-v9.9.9")
+    assert core.publish_definitions([], [], [("a", {"name": "a"})])
+    assert c.calls[0]["bundled"] == [{"name": "a", "version": "gateway-v9.9.9", "doc": {"name": "a"}}]
+    assert core.publish_definitions([], [], None) and c.calls[1]["bundled"] is None
+
+
+def test_an_older_core_that_refuses_bundled_is_published_without_it_and_not_asked_again():
+    from autopilot.engine.core import Core
+    from clearance_client import CoreRequestError
+    c = RecordingClient(CoreRequestError("publishDefinitions", 400, "json: unknown field \"bundled\""))
+    core = Core(client=None, definitions_client=c)
+    assert core.publish_definitions([], [], [("a", {"name": "a"})])
+    assert [x["bundled"] is not None for x in c.calls] == [True, False]
+    assert core.publish_definitions([], [], [("a", {"name": "a"})])
+    assert [x["bundled"] is not None for x in c.calls] == [True, False, False]
+
+
+def test_another_refusal_of_the_bundled_set_is_not_swallowed():
+    from autopilot.engine.core import Core
+    from clearance_client import CoreRequestError
+    c = RecordingClient(CoreRequestError("publishDefinitions", 403, "provider may not publish definitions"))
+    core = Core(client=None, definitions_client=c)
+    assert core.publish_definitions([], [], [("a", {"name": "a"})]) is False
+    assert len(c.calls) == 1
+
+
+def test_the_bundled_set_is_the_images_documents():
+    from autopilot.engine import profile
+    defs = defn.Definitions(profile.load_dir(serve.REPO_AGENTS))
+    got = dict(defs.bundled_set())
+    assert set(got) == set(defs.bundled) and got["parachute"]["name"] == "parachute"
+    assert all(profile.parse(d).name == n for n, d in got.items())
+
+
+def test_a_gateway_without_the_loader_publishes_its_bundled_agents(gw):
+    from autopilot.agent_xrs import DefinitionsPublisher
+    gw._definitions_unpublished = True
+    p = DefinitionsPublisher(gw, interval=0.05).start()
+    p._thread.join(timeout=10)
+    assert not p._thread.is_alive() and gw._definitions_unpublished is False
