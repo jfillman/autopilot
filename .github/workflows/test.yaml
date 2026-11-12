@@ -3,7 +3,7 @@ on: [push, pull_request]
 env:
   # glidepath ref whose contract the test core's Hangar bundle reads its cicd.yaml scope from (tests/test_cicd_scope.py:
   # contractsrv serves it as glidepath-api's GET /v1/contract).
-  GLIDEPATH_REF: main
+  GLIDEPATH_REF: d90e178d381e0fab56103fd86cad6f418bce0ff0   # TEMPORARY: glidepath#242 head (contract v2); back to main once it merges
   # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
   # (clearance-core-client @ ...@<tag or full commit SHA>). Bump the two together.
   CLEARANCE_REF: 01120f84376cf867d35474a08a4219a6743b45fc   # TEMPORARY: clearance#147's head commit (A-11 propose); re-pin to the release tag once clearance releases
