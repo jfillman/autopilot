@@ -48,8 +48,8 @@ OPENED_BY_TOOL = (TENANTS, APP_REPO)
 
 
 # Files Glidepath's onboarding scaffolds (glidepath/envs/<env>.yaml in the app repo: `envName: <env>` and a header
-# comment; <env>/values.yaml in the gitops repo). apply merges the plan's keys into these instead of refusing them.
-ONBOARDING_FILES = (re.compile(r"^glidepath/envs/[^/]+\.yaml$"), re.compile(r"^[^/]+/values\.yaml$"))
+# comment; <cluster>/<env>/values.yaml in the gitops repo). apply merges the plan's keys into these instead of refusing them.
+ONBOARDING_FILES = (re.compile(r"^glidepath/envs/[^/]+\.yaml$"), re.compile(r"^[^/]+(/[^/]+)?/values\.yaml$"))
 
 
 def branch_for(app: str, step: str) -> str:

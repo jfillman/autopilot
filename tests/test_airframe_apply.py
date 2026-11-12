@@ -639,3 +639,9 @@ def test_the_parachute_definition_carries_the_provisioning_contract():
     for needle in ("section `appspec`", "at most 3 plan calls", "Never proceed with less than asked", "RESUME PROMPT",
                    "merge <url>, then reply", "human.request.get"):
         assert needle in text, needle
+
+
+def test_onboarding_file_patterns_match_the_gitops_cluster_env_layout():
+    match = lambda p: any(r.match(p) for r in airframe_apply.ONBOARDING_FILES)
+    assert all(match(p) for p in ("glidepath/envs/dev.yaml", "hangar-prod/prod/values.yaml", "base/values.yaml"))
+    assert not any(match(p) for p in ("cicd.yaml", "glidepath/envs/a/b.yaml", "a/b/c/values.yaml", "values.yaml"))
