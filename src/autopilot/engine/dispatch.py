@@ -367,8 +367,8 @@ class Gateway:
             dd = Verdict(False, e.rule, "refused", e.message, e.hint, int(spec.tier))
             return Result(False, dd.as_dict(), error=e.message, audit_seq=seq or v.seq, session=s.id)
         except Exception as e:  # noqa: BLE001 - never leak backend internals to the agent
-            seq = self.core.outcome(v.decision_id, f"error:{type(e).__name__}")
-            return Result(False, v.as_dict(), error="backend error", audit_seq=seq or v.seq, session=s.id)
+            seq = self.core.outcome(v.decision_id, _error_result(e))
+            return Result(False, v.as_dict(), error=_backend_error(e), audit_seq=seq or v.seq, session=s.id)
         seq = self.core.outcome(v.decision_id, "ok", effect=_effect(spec, args, data))
         return Result(True, v.as_dict(), data, audit_seq=seq or v.seq, session=s.id)
 
@@ -408,8 +408,8 @@ class Gateway:
             dd = Verdict(False, e.rule, "refused", e.message, e.hint, tier)
             return Result(False, dd.as_dict(), error=e.message, session=s.id)
         except Exception as e:  # noqa: BLE001
-            self.core.outage_read({**fields, "result": f"error:{type(e).__name__}"})
-            return Result(False, allowed.as_dict(), error="backend error", session=s.id)
+            self.core.outage_read({**fields, "result": _error_result(e)})
+            return Result(False, allowed.as_dict(), error=_backend_error(e), session=s.id)
         self.core.outage_read({**fields, "result": "ok"})
         return Result(True, allowed.as_dict(), data, session=s.id)
 
@@ -1104,6 +1104,20 @@ class Gateway:
         cost["wall_seconds"] = max(0, int((now - created).total_seconds()))
         cost["compute"] = s.limits.compute.name.lower()   # the class the session was granted (narrowed at open)
         return cost
+
+
+def _backend_error(e: Exception) -> str:
+    """What the agent is told when a backend raised. Only an exception that offers an agent_message (GitHubError: a
+    status and the other side's own reason, never a token) adds to "backend error"; any other stays opaque."""
+    msg = getattr(e, "agent_message", None)
+    return f"backend error: {msg}" if isinstance(msg, str) and msg else "backend error"
+
+
+def _error_result(e: Exception) -> str:
+    """The outcome's result for a backend that raised: the class, and for an exception with evidence the short
+    reason (error:GitHubError: GitHub token broker 502: the agents' GitHub App is not installed on o/r)."""
+    ev = getattr(e, "evidence", None)
+    return f"error:{type(e).__name__}" + (f": {ev}" if isinstance(ev, str) and ev else "")
 
 
 def _input_view(run_input: Any) -> dict[str, Any] | None:

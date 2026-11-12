@@ -47,8 +47,8 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   it turns on the test-only conformance control interface (`autopilot-gateway conformance-control`).
 - **Outage policy.** When the core is unreachable the gateway denies every T1-and-above call, session open, spawn
   and model call (rule `CORE-UNAVAILABLE`); T0 reads too, unless `GATEWAY_OUTAGE_ALLOW_READS=true`, which lets
-  unscoped reads run and records them later as coverage-unavailable. 250 ms per attempt, one retry, a breaker after 5
-  failures. The README's [outage policy](../../README.md#the-outage-policy) has every branch. `GET /healthz` shows the
+  unscoped reads run and records them later as coverage-unavailable. 1 s per attempt (`CLEARANCE_CORE_TIMEOUT`), one retry (timeout, connection failure or 503; never a 4xx), a breaker after 5
+  consecutive failed calls (a call counts once its retry failed too). The README's [outage policy](../../README.md#the-outage-policy) has every branch. `GET /healthz` shows the
   breaker.
 - **Not the gateway's any more.** The evidence DSN, the deployment gate, provenance, definition review and the GitHub
   App are the core's: `CLEARANCE_DSN`, `CLEARANCE_VERIFIERS`, `AGENT_LOGINS`, `CLEARANCE_GITHUB_APP_*` and

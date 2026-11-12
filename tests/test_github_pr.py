@@ -106,8 +106,17 @@ def test_bad_requests_are_refused_before_any_token(token, repo, branch, files):
 
 def test_broker_failure_is_hidden(token):
     gh = GH({("POST", "agent-installation-token"): (503, b'{"error": "not mounted"}')})
-    with pytest.raises(GitHubError):
+    with pytest.raises(GitHubError) as e:
         prs(token, gh).open_pr("jfillman/gate-api", "agent/x", "t", FILES)
+    assert e.value.agent_message == "GitHub token broker 503: not mounted"
+
+
+def test_github_failure_carries_githubs_reason_truncated_and_never_the_token(token):
+    gh = GH({("POST", "repos/jfillman/gate-api/pulls"): (422, b'{"message": "Validation Failed ' + b"x" * 500 + b'"}')})
+    with pytest.raises(GitHubError) as e:
+        prs(token, gh).open_pr("jfillman/gate-api", "agent/x", "t", FILES)
+    assert e.value.status == 422 and e.value.agent_message.startswith("pull 422: Validation Failed")
+    assert len(e.value.agent_message) <= 360 and len(e.value.evidence) <= 160
 
 
 def test_app_of():

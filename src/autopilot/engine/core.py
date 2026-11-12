@@ -26,8 +26,8 @@ database, and is posted in order once the core answers again (Core.drain):
 The definition set never waits in the outbox: a publish the core could not take is made again, whole, on the next
 poll (Gateway.apply_cluster_definitions).
 
-Outage policy (decided 2026-11-02, Hangar spec R-3). The client's own settings are the policy's: 250 ms per attempt,
-one retry, a breaker that opens after 5 consecutive failures. An unreachable core (CoreUnavailable) is a deny for
+Outage policy (decided 2026-11-02, Hangar spec R-3). The decision path's settings are the policy's: DECISION_TIMEOUT (1 s, CLEARANCE_CORE_TIMEOUT) per attempt,
+one retry (a timeout, a connection failure or a 503; never a 4xx), a breaker that opens after 5 consecutive failures. An unreachable core (CoreUnavailable) is a deny for
 every T1-and-above call, every session open, every spawn and every model call; a T0 read is denied too unless
 the deployment allows reads (Core.allow_reads). A core that answers but refuses the request (a 4xx, an unreadable
 answer) is a deny as well, never an allow.
@@ -70,8 +70,14 @@ REFUSAL_RULE = re.compile(r"[A-Z][A-Z0-9]*(-[A-Z0-9]+)*")
 MODEL_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}")
 
 # PUT /v1/definitions carries the whole set (up to 256 pins, 4 MiB), so it gets its own client with a longer
-# timeout than the decision path's 250 ms, and its own breaker: a slow publish never opens the decisions' breaker.
+# timeout than the decision path's (DECISION_TIMEOUT), and its own breaker: a slow publish never opens the decisions' breaker.
 DEFINITIONS_TIMEOUT = 5.0
+
+# The decision path's attempt timeout (serve: CLEARANCE_CORE_TIMEOUT). Raised from the client's 250 ms to 1 s after a
+# ledger append took 306 ms live (2026-11-12) and the cancel cost two decisions and an outcome. The client retries a
+# timeout, connection failure or 503 once; its breaker counts a call only after that retry also failed, so one slow
+# write is one failure of five and the next success resets the count.
+DECISION_TIMEOUT = 1.0
 
 
 class AuthError(Exception):
@@ -352,12 +358,10 @@ def _pin_source(source: Any) -> dict[str, Any]:
 
 
 def client_from_env(url: str, token_file: str | None, *, timeout: float | None = None) -> CoreClient:
-    """The core's client with the outage policy's defaults (the client's own: 250 ms, one retry, breaker at 5)."""
-    kw: dict[str, Any] = {"provider": PROVIDER}
+    """The core's client with the outage policy: DECISION_TIMEOUT per attempt (or `timeout`), one retry, breaker at 5."""
+    kw: dict[str, Any] = {"provider": PROVIDER, "timeout": DECISION_TIMEOUT if timeout is None else timeout, "retries": 1}
     if token_file:
         kw["token_file"] = token_file
-    if timeout is not None:
-        kw["timeout"] = timeout
     return CoreClient(url, **kw)
 
 
@@ -371,5 +375,5 @@ def local_core() -> Core:
                            provider=PROVIDER))
 
 
-__all__ = ["AuthError", "Core", "CoreUnreachable", "DEFINITIONS_TIMEOUT", "Denied", "OUTAGE_RULE", "PROVIDER", "REFUSED_RULE", "Verdict",
+__all__ = ["AuthError", "Core", "CoreUnreachable", "DECISION_TIMEOUT", "DEFINITIONS_TIMEOUT", "Denied", "OUTAGE_RULE", "PROVIDER", "REFUSED_RULE", "Verdict",
            "args_digest", "canonical", "client_from_env", "iso", "local_core", "outage_verdict", "rfc3339", "sha256_hex"]

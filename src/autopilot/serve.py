@@ -43,7 +43,7 @@ from .engine import profile
 from .preflight import PreflightLedger, load_cases
 from .engine.auth import (JWKS, CachingAuthenticator, ForeignWorkloadAuthenticator, OIDCAuthenticator,
                           RoutingAuthenticator, WorkloadAuthenticator)
-from .engine.core import DEFINITIONS_TIMEOUT, PROVIDER, Core, client_from_env
+from .engine.core import DECISION_TIMEOUT, DEFINITIONS_TIMEOUT, PROVIDER, Core, client_from_env
 from .engine.definitions import Definitions, MemoryDefinitions
 from .engine.outbox import MemoryOutbox
 from .engine.backends import Handler
@@ -146,6 +146,9 @@ class Config:
     core_url: str = ""
     core_token_file: Path = Path(CORE_TOKEN_FILE)
     outage_allow_reads: bool = False
+    # Seconds per attempt on the decision path (CLEARANCE_CORE_TIMEOUT): a slow ledger write (306 ms seen live) must
+    # not cancel the request.
+    core_timeout: float = DECISION_TIMEOUT
     oidc_allowed: tuple[str, ...] = ()
     # Tower (another cluster): its backend's service-account tokens, verified against that cluster's public issuer,
     # and the delegates that may answer human requests for a person they name.
@@ -313,6 +316,9 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError("XR_REQUEST_ENABLED needs GITHUB_PR_ENABLED=1 (an XR request is a PR opened as the agents' App)")
     app_apis = _app_api_services(get("APP_API_SERVICES", ""))
     agent_xrs_interval = _number(env, "AGENT_XRS_INTERVAL", 60.0, float)
+    core_timeout = _number(env, "CLEARANCE_CORE_TIMEOUT", DECISION_TIMEOUT, float)
+    if not 0.05 <= core_timeout <= 30:
+        raise ConfigError("CLEARANCE_CORE_TIMEOUT is seconds per attempt, between 0.05 and 30")
     if agent_xrs_interval < 5:
         raise ConfigError("AGENT_XRS_INTERVAL is at least 5 seconds")
     # R-10b: the audiences a run pod's token may carry, `autopilot` (new) and `clearance` (old), for one release.
@@ -350,7 +356,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> Config:
         # Interval triggers (scheduler.py): scheduled agents start at the start of each interval, UTC-aligned.
         schedules_enabled=_flag(env, "SCHEDULES_ENABLED", False),
         core_url=core_url, core_token_file=Path(get("CLEARANCE_CORE_TOKEN_FILE", CORE_TOKEN_FILE)),
-        outage_allow_reads=_flag(env, "GATEWAY_OUTAGE_ALLOW_READS", False), oidc_allowed=allowed,
+        outage_allow_reads=_flag(env, "GATEWAY_OUTAGE_ALLOW_READS", False), core_timeout=core_timeout, oidc_allowed=allowed,
         tower_cluster=tower_cluster if tower_issuer else None, tower_issuer=tower_issuer,
         tower_jwks_url=get("TOWER_JWKS_URL", f"{tower_issuer}/jwks.json" if tower_issuer else None),
         tower_service_accounts=tower_sas if tower_issuer else (), delegates=_list(get("AUTOPILOT_DELEGATES", "", legacy="CLEARANCE_DELEGATES")),
@@ -530,7 +536,7 @@ def build_core(cfg: Config, outbox) -> Core:
     """The core's client with the outage policy's defaults, the outbox, and the outage switch; and a second client
     for the definition set's publish (PUT /v1/definitions, DEFINITIONS_TIMEOUT), so its longer deadline and its
     breaker are its own."""
-    return Core(client_from_env(cfg.core_url, str(cfg.core_token_file)), outbox, allow_reads=cfg.outage_allow_reads,
+    return Core(client_from_env(cfg.core_url, str(cfg.core_token_file), timeout=cfg.core_timeout), outbox, allow_reads=cfg.outage_allow_reads,
                 definitions_client=client_from_env(cfg.core_url, str(cfg.core_token_file), timeout=DEFINITIONS_TIMEOUT),
                 bundled_version=gateway_version())
 

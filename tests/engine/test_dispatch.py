@@ -84,6 +84,21 @@ def test_backend_failure_is_reported_without_leaking_internals(gw, backends):
     assert gw.core.records[-1]["result"] == "error:RuntimeError"
 
 
+def test_a_github_error_tells_the_agent_why_and_the_evidence_says_what(gw, backends):
+    from autopilot.github_pr import GitHubError
+
+    def boom(*a, **k):
+        raise GitHubError.of("GitHub token broker", 502, {"error": "the agents' GitHub App is not installed on jfillman/parachute"},
+                             key="error")
+    backends.git.open_pr = boom
+    sid = open_(gw)
+    r = gw.call("alice", sid, "repo.pr.open", PR)
+    assert not r.ok
+    assert r.error == "backend error: GitHub token broker 502: the agents' GitHub App is not installed on jfillman/parachute"
+    assert gw.core.records[-1]["result"] == ("error:GitHubError: GitHub token broker 502: "
+                                             "the agents' GitHub App is not installed on jfillman/parachute")
+
+
 def test_workload_identity_must_match_the_definition(gw):
     assert gw.open_session("holmes", "triage-agent").ok
     assert not gw.open_session("alice", "triage-agent").ok
