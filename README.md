@@ -48,7 +48,9 @@ waits in the outbox for a core kind any more: `run.finish`, `session.end`, `trig
 for `session.open` with `run: true` and `via`, so the core's record is clearance v0.26.1's (`opened to run via
 <delegate>`). A handler's refusal after an allow (R001, HR-*, ART-*, GP-*) goes on the outcome as `refusal {rule,
 message}`. The cluster-pinned definition set is published whole to the core (`PUT /v1/definitions`), which decides
-each pin again and writes `definition.load`, `.unload` and `.reject` itself; the gateway writes none of them. The
+each pin again and writes `definition.load`, `.unload` and `.reject` itself; the gateway writes none of them. The same
+publish carries the image's bundled agents (`bundled`: name, gateway version, document), so the core knows every agent the
+gateway can run (provenance's `Clearance / agent-scope` needs the definition). The
 core registers the gateway with `"definitions": true` in `CLEARANCE_PROVIDERS`.
 
 **R-3d (Built):** nothing imports the `clearance` package, and it is no dependency: not of the image, not of the

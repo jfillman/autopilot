@@ -5,6 +5,17 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Fixed
+- The gateway publishes its bundled agents (`agents/`) to the Clearance core with the cluster pins (`PUT /v1/definitions`
+  `bundled`: name, `AUTOPILOT_GATEWAY_VERSION`, document). Seen live on hangar-dev 2026-11-12: `parachute` opened
+  gitops-hangar-dev-tenants#30 and `Clearance / agent-scope` failed AS004 "agent definition 'parachute' is not in this
+  deployment", because since R-3 the core (no `CLEARANCE_AGENTS_DIR` on Hangar) had only the pins. A gateway without the
+  Agent XR loader publishes the set at start and retries until the core takes it (`DefinitionsPublisher`). A core that
+  predates the field refuses it (400); the gateway then publishes the pins without it and keeps running.
+  Needs clearance v0.42.0 (`bundled`; the pins `pyproject.toml`, `CLEARANCE_REF`, `uv.lock` name it). Roll out the
+  core first, then this gateway tag.
+  The Go gateway (`gateway/`) publishes no definitions and stays on its v0.31.0 `go.mod` pin.
+
 ### Added
 - `agents/app-provisioner.yaml`: a general provisioning agent beside `parachute` (owner decision 2026-11-11). Same tools
   (`airframe.apply` and the reads), T1, limits and runtime pin as parachute, but `airframe.apps: ["*"]` and

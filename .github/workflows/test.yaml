@@ -6,7 +6,7 @@ env:
   GLIDEPATH_REF: main
   # The Clearance core the gateway is tested against: the release whose client pyproject.toml pins
   # (clearance-core-client @ ...@<tag or full commit SHA>). Bump the two together.
-  CLEARANCE_REF: v0.31.0
+  CLEARANCE_REF: v0.42.0
   # The Go gateway (gateway/, A-9) imports Clearance's Go client from the same release: gateway/go.mod requires
   # github.com/jfillman/clearance at this ref. Bump the three together.
 jobs:

@@ -531,7 +531,8 @@ def build_core(cfg: Config, outbox) -> Core:
     for the definition set's publish (PUT /v1/definitions, DEFINITIONS_TIMEOUT), so its longer deadline and its
     breaker are its own."""
     return Core(client_from_env(cfg.core_url, str(cfg.core_token_file)), outbox, allow_reads=cfg.outage_allow_reads,
-                definitions_client=client_from_env(cfg.core_url, str(cfg.core_token_file), timeout=DEFINITIONS_TIMEOUT))
+                definitions_client=client_from_env(cfg.core_url, str(cfg.core_token_file), timeout=DEFINITIONS_TIMEOUT),
+                bundled_version=gateway_version())
 
 
 def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authenticator | None = None,
@@ -706,6 +707,11 @@ def main() -> int:
         from .agent_xrs import AgentXRs
         pins = AgentXRs(gw, KubeReader(IN_CLUSTER_API, SA_DIR / "token", SA_DIR / "ca.crt"),
                         GitHubPRs(cfg.agent_token_file, broker_url=cfg.broker_url), interval=cfg.agent_xrs_interval).start()
+    else:
+        # No loader to publish on its polls: the bundled agents still reach the core (it must know every agent this
+        # gateway can run), at start and again until it takes them.
+        from .agent_xrs import DefinitionsPublisher
+        pins = DefinitionsPublisher(gw).start()
     level = os.environ.get("LOG_LEVEL", "info").lower()
     servers = [uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=cfg.port, log_level=level,
                                              proxy_headers=False, server_header=False))]

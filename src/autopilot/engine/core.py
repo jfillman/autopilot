@@ -169,12 +169,15 @@ class Core:
 
     def __init__(self, client: CoreClient, outbox: Outbox | None = None, *, allow_reads: bool = False,
                  provider: str = PROVIDER, record_kinds: frozenset[str] | tuple[str, ...] = tuple(RECORD_KINDS),
-                 definitions_client: CoreClient | None = None):
+                 definitions_client: CoreClient | None = None, bundled_version: str = "dev"):
         self.client, self.outbox = client, outbox if outbox is not None else MemoryOutbox()
         # The definition set's publish (publish_definitions): its own client when given, else the decisions' one.
         self.definitions_client = definitions_client if definitions_client is not None else client
         self.allow_reads, self.provider, self.record_kinds = allow_reads, provider, frozenset(record_kinds)
         self._drain_lock = threading.Lock()
+        # The gateway build the bundled definitions ship in (version.gateway_version), named in the core's evidence;
+        # and whether the core takes `bundled` (an older core refuses the field: learned once, then not sent).
+        self.bundled_version, self._core_takes_bundled = bundled_version, True
 
     # -- decisions --------------------------------------------------------------------------------------------------
     def evaluate(self, request: Mapping[str, Any]) -> Verdict:
@@ -230,24 +233,47 @@ class Core:
             return None
         return self._send(entry, required=required)
 
-    def publish_definitions(self, loaded: Sequence[Any], rejected: Sequence[Any] = ()) -> bool:
+    def publish_definitions(self, loaded: Sequence[Any], rejected: Sequence[Any] = (),
+                            bundled: Sequence[tuple[str, Mapping[str, Any]]] | None = None) -> bool:
         """Hand the core the whole cluster-pinned definition set (PUT /v1/definitions): each definitions.Loaded as
         its source, its XR owner and its document, each definitions.Rejected as its name, source and reason. The
         core decides every pin again and records what changed. Never raises: False when the core did not take it
-        (unreachable, or it refused), and the caller publishes the whole set again later. Nothing is queued."""
+        (unreachable, or it refused), and the caller publishes the whole set again later. Nothing is queued.
+
+        `bundled` is (name, document) of every definition that ships in this gateway's image: published with the pins
+        (the core holds them beside the pins and never lets a pin shadow one). A core that predates the field
+        refuses the request as unknown-field (400); the set is then sent without it, and not again with it, so the
+        gateway keeps running (its bundled agents' pull requests fail provenance until the core is upgraded)."""
         pins = [{"source": _pin_source(l.source), "owner": l.definition.owner, "doc": dict(l.doc)} for l in loaded]
         rej = [{"name": r.name, "source": _pin_source(r.source), "reason": r.reason} for r in rejected]
+        send = None
+        if bundled is not None and self._core_takes_bundled:
+            send = [{"name": n, "version": self.bundled_version, "doc": dict(d)} for n, d in bundled]
         try:
-            res = self.definitions_client.publish_definitions(pins, rej, provider=self.provider)
+            try:
+                res = self._put_definitions(pins, rej, send)
+            except CoreRequestError as e:
+                if send is None or e.status != 400 or "unknown field" not in e.message or '"bundled"' not in e.message:
+                    raise
+                self._core_takes_bundled = False
+                log.warning("clearance core does not take bundled definitions yet (%s): publishing the pins without "
+                            "them; the bundled agents' pull requests fail provenance until the core is upgraded", e.message)
+                res = self._put_definitions(pins, rej, None)
         except CoreUnavailable as e:
             log.warning("clearance core unavailable: the definition set waits for the next poll (%s)", e.reason)
             return False
         except ClearanceClientError as e:
             log.error("clearance core refused the definition set: %s", e)
             return False
-        log.info("definitions published: +%d ~%d -%d rejected %d cleared %d (the core holds %d)",
-                 len(res.added), len(res.changed), len(res.removed), len(res.rejected), len(res.cleared), res.cluster)
+        log.info("definitions published: +%d ~%d -%d rejected %d cleared %d (the core holds %d pinned, %d bundled)",
+                 len(res.added), len(res.changed), len(res.removed), len(res.rejected), len(res.cleared), res.cluster,
+                 res.provided or 0)
         return True
+
+    def _put_definitions(self, pins: list, rej: list, bundled: list | None):
+        if bundled is None:
+            return self.definitions_client.publish_definitions(pins, rej, provider=self.provider)
+        return self.definitions_client.publish_definitions(pins, rej, provider=self.provider, bundled=bundled)
 
     def outage_read(self, fields: Mapping[str, Any]) -> None:
         """A T0 read allowed while the core was unreachable: posted once it answers, as coverage-unavailable."""
