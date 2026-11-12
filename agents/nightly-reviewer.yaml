@@ -11,7 +11,7 @@ profile:
   compute: small
   limits: { ttlMinutes: 30, toolCalls: 100, githubCalls: 0, openPrs: 0, modelTokens: 300000, children: 0 }
 runtime:
-  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a
+  image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965
   framework: generic
   # The queries below were run against hangar-dev on 2026-11-03. The first scheduled run searched the catalog for the
   # word "apps" (a full-text search over names and descriptions), found no components and reported nothing checked.

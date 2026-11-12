@@ -429,7 +429,7 @@ as is; autopilot-api (the read API) lists all of it at `GET /v1/runtimes` for th
 
 | Name | Kind | State |
 |---|---|---|
-| `generic` | runtime | available: this loop, `runtime-v0.1.6` (hands its result to Clearance) |
+| `generic` | runtime | available: this loop, `runtime-v0.1.7` (hands its result to Clearance) |
 | `base-python` | base | available: `runtime-base-python-v0.1.4` (its Clearance client has `finish()`; call it after `result.json`), from `runtime/base-python/Dockerfile` |
 | `claude-agent-sdk` | runtime | available: `runtime-claude-agent-sdk-v0.1.3`, from `runtime/claude-agent-sdk/` (needs clearance v0.26.0's streaming model proxy) |
 | `langgraph` | runtime | available: `runtime-langgraph-v0.1.3`, from `runtime/langgraph/` |
