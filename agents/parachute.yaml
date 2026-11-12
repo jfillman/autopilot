@@ -6,7 +6,8 @@ identity: { type: delegated }
 # Package A-3, the parachute test: one statement of intent (examples/parachute.appspec.yaml) to a running app, with a
 # person merging every step. Its one write is airframe.apply (T1), which re-plans the AppSpec itself and opens the next
 # step as a PR through the agents' GitHub App: the tenants repo, then the app's repo. It has no merge, approve or
-# push tool, and apply never opens the Flight half (cicd.yaml's Flight fields, gitops-<app>), so those stay with people.
+# push tool, and it does not set profile.airframe.proposeFlight (app-provisioner does), so apply never opens the Flight half
+# (cicd.yaml's Flight fields, gitops-<app>): those stay with people, and R025 refuses a call that asks.
 # Resume is not memory: apply derives where it is from GitHub (branches fixed by the plan), so a run killed at any
 # point and started again with the same AppSpec opens no duplicate and loses nothing. profile.airframe.apps is the
 # whole scope: an AppSpec for another app is refused (R023) before apply runs. No repo or run tool is listed, and

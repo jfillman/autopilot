@@ -1,5 +1,5 @@
 """airframe.apply (A-3): the planner's change set opened as receipted PRs by the agents' App, one per call, resumable,
-the Flight half never opened and nothing ever merged by the tool.
+the Flight half opened only as a proposal marked for a person to merge (A-11, proposeFlight) and nothing ever merged by the tool.
 
 GitHub is a stateful stand-in (Hub) behind the real adapter (github_pr.GitHubPRs), so what is asserted is the HTTP the
 tool really sends: every request of a whole run is read for a merge, a push to an existing branch or a write outside the
@@ -254,7 +254,7 @@ def test_the_flight_half_is_never_opened_and_the_tool_never_merges(git, gp, hub)
     outs = run_to_the_end(git, gp, hub)
     human = outs[-1]["humanSteps"]
     assert {h["id"]: h["repo"] for h in human} == {"cicd-flight": APP, "gitops": GITOPS}
-    assert "GP-SCOPE" in human[0]["reason"] and "upper" in human[1]["reason"]
+    assert all("proposeFlight" in h["reason"] and "person" in h["reason"] for h in human)
     # the only PRs that exist are the two the tool opens
     assert {r: [p["head"] for p in ps] for r, ps in hub.prs.items()} == {
         TENANTS: ["agent/airframe-parachute-tenants"], APP: ["agent/airframe-parachute-app-repo"]}
@@ -266,6 +266,135 @@ def test_the_flight_half_is_never_opened_and_the_tool_never_merges(git, gp, hub)
     refs = [b["ref"] for m, u, b in hub.reqs if u.endswith("/git/refs")]
     assert sorted(refs) == ["refs/heads/agent/airframe-parachute-app-repo", "refs/heads/agent/airframe-parachute-tenants"]
     assert not any(re.search(r"gitops-parachute", u) for _, u, _ in hub.reqs if "/repos/" in u)
+
+
+# -- the Flight half as a proposal: opened with proposeFlight, marked for a person to merge (A-11) --------------------
+def to_the_flight_half(git, gp, hub, **kw):
+    """Tenants and the app repo merged; the platform has made the gitops repo and bootstrapped each environment's values."""
+    out = apply(git, gp, **kw)
+    hub.merge(TENANTS, out["pr"])
+    hub.create_repo(APP)
+    out = apply(git, gp, **kw)
+    hub.merge(APP, out["pr"])
+    return apply(git, gp, **kw)
+
+
+def bootstrap_gitops(hub, **extra):
+    hub.create_repo(GITOPS)
+    hub.repos[GITOPS]["main"].update({"kind-prod/staging/values.yaml": "# Scaffolded.\nenvName: staging\n",
+                                      "kind-prod/prod/values.yaml": "# Scaffolded.\nenvName: prod\n", **extra})
+
+
+def test_proposeFlight_opens_the_cicd_flight_pr_marked_for_a_person(git, gp, hub):
+    out = to_the_flight_half(git, gp, hub, proposeFlight=True)
+    assert out["state"] == "awaiting-merge" and out["step"] == "cicd-flight" and out["repo"] == APP and out["paths"] == ["cicd.yaml"]
+    assert out["merge"] == "person" and out["needsPerson"] == ["cicd.yaml"] and "Only a person may merge" in out["next"]
+    assert out["humanSteps"] == []
+    row = {s["id"]: s for s in out["steps"]}["cicd-flight"]
+    assert (row["status"], row["mergeBy"]) == ("awaiting-merge", "person")
+    doc = yaml.safe_load(hub.pr_files(APP, out["pr"])["cicd.yaml"])
+    flight = {e["name"]: e for e in doc["deploy"]["environments"] if e["tier"] == "flight"}
+    assert set(flight) == {"staging", "prod"} and all(e["cluster"] == "kind-prod" for e in flight.values())
+    assert gp.calls[-1][0] == "glidepath.validate_cicd" and gp.calls[-1][1][1]["agent"] is True, "validated as an agent's change"
+    # the mark is in the commit (a trailer), the PR body, and the receipt
+    assert "Hangar-Merge: person" in hub.commits[out["commit"]]["message"]
+    pr = next(p for p in hub.prs[APP] if p["number"] == out["pr"])
+    assert "Needs a person to merge" in pr["body"] and "- merge: `person`" in pr["body"]
+    spec = next(t for t in TOOLS if t.name == "airframe.apply")
+    assert _effect(spec, {"spec": SPEC}, out) == {"pr": out["pr"], "commit": out["commit"], "branch": out["branch"], "merge": "person",
+                                                  "needsPerson": ["cicd.yaml"], "repo": APP, "paths": ["cicd.yaml"]}
+
+
+def test_proposeFlight_opens_the_gitops_values_once_the_environments_exist_and_waits_before(git, gp, hub):
+    out = to_the_flight_half(git, gp, hub, proposeFlight=True)
+    hub.merge(APP, out["pr"])
+    # the gitops repo does not exist yet: waiting, nothing opened there
+    w = apply(git, gp, proposeFlight=True)
+    assert w["state"] == "waiting" and "gitops-parachute does not exist yet" in w["reason"] and GITOPS not in hub.prs
+    hub.create_repo(GITOPS)
+    w = apply(git, gp, proposeFlight=True)
+    assert w["state"] == "waiting" and "does not have kind-prod/" in w["reason"] and "bootstrapped" in w["reason"]
+    assert GITOPS not in hub.prs
+    bootstrap_gitops(hub)
+    g = apply(git, gp, proposeFlight=True)
+    assert g["state"] == "awaiting-merge" and g["step"] == "gitops" and g["repo"] == GITOPS
+    assert g["merge"] == "person" and g["needsPerson"] == g["paths"] and "kind-prod/prod/values.yaml" in g["paths"]
+    text = hub.pr_files(GITOPS, g["pr"])["kind-prod/prod/values.yaml"]
+    assert text.startswith("# Scaffolded.") and yaml.safe_load(text)["envName"] == "prod", "the scaffold's header and key are kept"
+    assert "Hangar-Merge: person" in hub.commits[g["commit"]]["message"]
+    hub.merge(GITOPS, g["pr"])
+    done = apply(git, gp, proposeFlight=True)
+    assert done["state"] == "agent-steps-merged" and done["humanSteps"] == []
+    assert {s["id"]: s["status"] for s in done["steps"]}["gitops"] == "merged"
+
+
+def test_a_resumed_flight_pr_is_still_marked(git, gp, hub):
+    out = to_the_flight_half(git, gp, hub, proposeFlight=True)
+    again = apply(git, gp, proposeFlight=True)
+    assert again["resumed"] is True and again["pr"] == out["pr"] and again["merge"] == "person" and again["needsPerson"] == out["paths"]
+    assert len([p for p in hub.prs[APP] if p["head"] == "agent/airframe-parachute-cicd-flight"]) == 1
+
+
+def test_proposeFlight_must_be_literally_true_and_off_means_reported_not_opened(git, gp, hub):
+    for off in ({}, {"proposeFlight": False}, {"proposeFlight": "true"}, {"proposeFlight": 1}):
+        h = Hub()
+        g = GitHubPRs(git.token_file, broker_url="http://broker", api="https://api.github.test", opener=h)
+        out = to_the_flight_half(g, FakeGlidepath(), h, **off)
+        assert out["state"] == "agent-steps-merged", off
+        assert [x["id"] for x in out["humanSteps"]] == ["cicd-flight", "gitops"], off
+        assert not [1 for p in h.prs.get(APP, []) if p["head"].endswith("cicd-flight")], off
+
+
+def test_a_flight_field_that_stays_human_is_reported_for_a_person_not_opened(git, gp, hub):
+    """glidepath-api refuses a human field in the Flight change (GP-SCOPE-001: a cloud block, a pre-ADR key to drop): the
+    call is not failed, the step is a humanStep with the rule, and nothing is opened for it."""
+    gp.refuse_flight = True
+    out = to_the_flight_half(git, gp, hub, proposeFlight=True)
+    assert out["state"] == "waiting" and "pr" not in out, "the gitops values wait for their repo; nothing was opened for cicd-flight"
+    human = {h["id"]: h for h in out["humanSteps"]}
+    assert "cicd-flight" in human and "GP-SCOPE-001" in human["cicd-flight"]["reason"]
+    assert {s["id"]: s["status"] for s in out["steps"]}["cicd-flight"] == "human"
+    assert not [1 for p in hub.prs.get(APP, []) if p["head"].endswith("cicd-flight")]
+    # the rest of the Flight half is independent: with the environments bootstrapped the values are proposed
+    bootstrap_gitops(hub)
+    g = apply(git, gp, proposeFlight=True)
+    assert g["step"] == "gitops" and g["merge"] == "person" and [h["id"] for h in g["humanSteps"]] == ["cicd-flight"]
+
+
+def test_a_schema_error_in_the_flight_change_is_still_a_refusal(git, gp, hub, monkeypatch):
+    real = gp.validate_cicd
+    out = apply(git, gp, proposeFlight=True)
+    hub.merge(TENANTS, out["pr"])
+    hub.create_repo(APP)
+    out = apply(git, gp, proposeFlight=True)
+    hub.merge(APP, out["pr"])
+    monkeypatch.setattr(gp, "validate_cicd", lambda app, body, who: {**real(app, body, who), "valid": False, "problems": [
+        {"pointer": "/deploy", "rule": "GP-SCHEMA-002", "severity": "error", "message": "bad", "hint": "fix"}]})
+    with pytest.raises(Denied) as e:
+        apply(git, gp, proposeFlight=True)
+    assert e.value.rule == "GP-SCHEMA-002"
+
+
+def test_a_value_a_person_set_in_the_gitops_file_is_a_conflict_not_an_overwrite(git, gp, hub):
+    out = to_the_flight_half(git, gp, hub, proposeFlight=True)
+    hub.merge(APP, out["pr"])
+    bootstrap_gitops(hub, **{"kind-prod/prod/values.yaml": "envName: prod\nrollout:\n  strategy: rolling\n"})
+    with pytest.raises(Denied) as e:
+        apply(git, gp, proposeFlight=True)
+    assert e.value.rule == "APPLY-CONFLICT" and GITOPS not in hub.prs
+
+
+def test_a_whole_proposing_run_still_has_no_merge_and_no_push_to_an_existing_branch(git, gp, hub):
+    out = to_the_flight_half(git, gp, hub, proposeFlight=True)
+    hub.merge(APP, out["pr"])
+    bootstrap_gitops(hub)
+    g = apply(git, gp, proposeFlight=True)
+    hub.merge(GITOPS, g["pr"])
+    assert apply(git, gp, proposeFlight=True)["state"] == "agent-steps-merged"
+    assert {m for m, _, _ in hub.reqs} == {"GET", "POST"}
+    assert not [u for _, u, _ in hub.reqs if re.search(r"/merge|/reviews|/dispatches|/actions|/branches|/protection", u)]
+    refs = [b["ref"] for m, u, b in hub.reqs if u.endswith("/git/refs")]
+    assert len(refs) == len(set(refs)) == 4, "tenants, app-repo, cicd-flight, gitops: each branch created once, none written to twice"
 
 
 def test_the_module_has_no_way_to_merge():
@@ -556,6 +685,37 @@ def test_app_provisioner_admits_any_app_and_parachute_still_refuses_one(wired, g
     assert not r.ok and r.decision["rule"] == "R023", "even `*` needs an app named"
 
 
+def test_through_the_gateway_the_flight_receipt_says_a_person_must_merge(wired, gw, hub):
+    """app-provisioner sets profile.airframe.proposeFlight: its Flight PR's receipt in the chain says merge: person and names
+    the paths Clearance's agent-scope check reads (neutral until a person merges)."""
+    sid = gw.open_session("alice", "app-provisioner").data["session"]
+    spec = {**SPEC, "app": "parachute"}
+    r = gw.call("alice", sid, "airframe.apply", {"spec": spec, "proposeFlight": True})
+    assert r.ok, r.as_dict()
+    hub.merge(TENANTS, r.data["pr"])
+    hub.create_repo(APP)
+    r = gw.call("alice", sid, "airframe.apply", {"spec": spec, "proposeFlight": True})
+    hub.merge(APP, r.data["pr"])
+    r = gw.call("alice", sid, "airframe.apply", {"spec": spec, "proposeFlight": True})
+    assert r.ok and r.data["step"] == "cicd-flight", r.as_dict()
+    last = gw.core.records[-1]
+    assert last["effect"]["merge"] == "person" and last["effect"]["needsPerson"] == ["cicd.yaml"] and last["effect"]["repo"] == APP
+    assert last["effect"]["paths"] == ["cicd.yaml"]
+
+
+def test_a_definition_without_proposeFlight_is_refused_R025_before_anything_is_sent(wired, gw, hub):
+    sid = gw.open_session("alice", "parachute").data["session"]
+    r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC, "proposeFlight": True})
+    assert not r.ok and r.decision["rule"] == "R025" and hub.reqs == []
+    assert "proposeFlight" in r.decision["hint"]
+    # the same call without it is the ordinary one
+    assert gw.call("alice", sid, "airframe.apply", {"spec": SPEC}).ok
+    # a non-boolean is refused by the argument check, a false is a no-ask
+    r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC, "proposeFlight": "yes"})
+    assert not r.ok and r.decision["rule"] == "R008"
+    assert gw.call("alice", sid, "airframe.apply", {"spec": SPEC, "proposeFlight": False}).ok
+
+
 def test_a_definition_that_does_not_hold_apply_cannot_call_it(wired, gw, hub):
     sid = gw.open_session("alice", "airframe-operator").data["session"]
     r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC})
@@ -597,7 +757,8 @@ def test_the_app_provisioner_definition_has_parachutes_tools_and_limits_with_a_w
     d, p = defs["app-provisioner"], defs["parachute"]
     assert d.limits.tools == p.limits.tools and d.limits.children == 0 and d.limits.tier_ceiling == Tier.T1
     assert not {t for t in d.limits.tools if t.startswith(("repo.", "xr.", "argo.", "run.", "glidepath."))}
-    assert d.raw_profile["airframe"] == {"apps": ["*"]} and list(d.repos_allow) == ["jfillman/*"]
+    assert d.raw_profile["airframe"] == {"apps": ["*"], "proposeFlight": True} and list(d.repos_allow) == ["jfillman/*"]
+    assert "proposeFlight" not in p.raw_profile["airframe"], "parachute never proposes the Flight half"
 
 
 # -- run warnings (A-11i): the gateway notes what the calls did, results.warnings flags the run ----------------------

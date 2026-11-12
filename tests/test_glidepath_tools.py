@@ -38,7 +38,7 @@ def test_glidepath_tools_are_reads_except_run_control_and_release_proposals():
     assert all(gp[n].tier == Tier.T1 and gp[n].target == "lower" and not gp[n].writes_files for n in WRITES)
     # The PR tool: budgeted and receipted like repo.pr.open, scoped by the definition's repos.allow.
     pr = gp["glidepath.cicd.propose"]
-    assert pr.reads_repo and pr.receipt == ("pr", "commit", "branch") and pr.github_cost == 4
+    assert pr.reads_repo and pr.receipt == ("pr", "commit", "branch", "merge", "needsPerson") and pr.github_cost == 4
     assert "glidepath.cicd.propose" in json.loads(HANGAR_BUNDLE.read_text())["pr_tools"]
     for n in PROPOSALS:  # T2 is propose only: a human merge applies it, and Clearance spends no GitHub call on it
         t = gp[n]

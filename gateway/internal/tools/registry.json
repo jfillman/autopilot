@@ -620,7 +620,7 @@
    "writes_files": false
   },
   {
-   "description": "Propose a cicd.yaml change: validated by glidepath-api as an agent's change and refused with the GP rule when invalid, else opened as a pull request on the app's repo (repo: owner/<app>) that a human merges; title required, body and branch optional",
+   "description": "Propose a cicd.yaml change: validated by glidepath-api as an agent's change and refused with the GP rule when invalid, else opened as a pull request on the app's repo (repo: owner/<app>) that a human merges; title required, body and branch optional. A change the contract's `propose` class allows, such as a new Flight environment, is marked for a person to merge: the PR carries a `Hangar-Merge: person` trailer and the receipt says so",
    "github_cost": 4,
    "name": "glidepath.cicd.propose",
    "propose_only": false,
@@ -628,7 +628,9 @@
    "receipt": [
     "pr",
     "commit",
-    "branch"
+    "branch",
+    "merge",
+    "needsPerson"
    ],
    "required_args": [
     "app",
@@ -740,7 +742,7 @@
    "writes_files": false
   },
   {
-   "description": "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull request on the tenants repo or the app's repo for a person to merge (one PR per call; call again with the same spec after each merge, or after an interruption: it resumes). The Flight half is left to people",
+   "description": "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull request for a person to merge (one PR per call; call again with the same spec after each merge, or after an interruption: it resumes). Steps: the tenants repo, the app's repo, and with `proposeFlight: true` (only for a definition that sets profile.airframe.proposeFlight) the Flight half too: the Flight environments and release step in cicd.yaml and the Flight values in gitops-<app>, each marked for a person to merge (`awaiting-merge`, never merged by the tool or an agent). Without proposeFlight the Flight half is reported in humanSteps for a person",
    "github_cost": 15,
    "name": "airframe.apply",
    "propose_only": false,
@@ -748,7 +750,9 @@
    "receipt": [
     "pr",
     "commit",
-    "branch"
+    "branch",
+    "merge",
+    "needsPerson"
    ],
    "required_args": [
     "spec"

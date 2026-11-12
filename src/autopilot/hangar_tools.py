@@ -76,9 +76,11 @@ TOOLS: tuple[ToolSpec, ...] = (
              "file (baseRef optional)", ("app", "patch")),
     ToolSpec("glidepath.cicd.propose", Tier.T1, "Propose a cicd.yaml change: validated by glidepath-api as an agent's "
              "change and refused with the GP rule when invalid, else opened as a pull request on the app's repo "
-             "(repo: owner/<app>) that a human merges; title required, body and branch optional",
+             "(repo: owner/<app>) that a human merges; title required, body and branch optional. A change the contract's "
+             "`propose` class allows, such as a new Flight environment, is marked for a person to merge: the PR carries a "
+             "`Hangar-Merge: person` trailer and the receipt says so",
              ("app", "repo", "patch", "title"), github_cost=4, target="lower", reads_repo=True,
-             receipt=("pr", "commit", "branch")),
+             receipt=("pr", "commit", "branch", "merge", "needsPerson")),
     # Airframe (autopilot.airframe_tools). Reads only: the contract bundle, the validator, the planner, and XRs, Argo CD
     # Applications and Rollouts through an allowlisted GET-only adapter (autopilot.airframe_api); scoped by profile.airframe.apps.
     ToolSpec("airframe.capabilities", Tier.T0, "What Airframe offers: chart fields, XR kinds, components and their outputs, "
@@ -101,12 +103,18 @@ TOOLS: tuple[ToolSpec, ...] = (
              "port-forward or exec is skipped with the reason", ("app", "kind", "name")),
     # Apply (autopilot.airframe_apply): the one airframe.* write. It re-plans the AppSpec itself and opens the next
     # step of the change set as a PR through the agents' App (the tenants repo, then the app's repo); one PR per call,
-    # so one receipt per PR (repo, pr, commit, branch, paths). The Flight half (cicd.yaml's Flight fields, gitops-<app>)
-    # is never opened and nothing is ever merged: a person merges every PR. Scoped by profile.airframe.apps (spec.app).
+    # so one receipt per PR (repo, pr, commit, branch, paths). The Flight half (cicd.yaml's Flight fields, gitops-<app>) is
+    # opened only with proposeFlight, which R025 allows only a definition that sets profile.airframe.proposeFlight: each such
+    # PR is marked for a person to merge (receipt: merge, needsPerson), and nothing is ever merged by the tool. Scoped by
+    # profile.airframe.apps (spec.app).
     ToolSpec("airframe.apply", Tier.T1, "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull "
-             "request on the tenants repo or the app's repo for a person to merge (one PR per call; call again with the "
-             "same spec after each merge, or after an interruption: it resumes). The Flight half is left to people",
-             ("spec",), github_cost=15, target="lower", receipt=("pr", "commit", "branch")),
+             "request for a person to merge (one PR per call; call again with the same spec after each merge, or after an "
+             "interruption: it resumes). Steps: the tenants repo, the app's repo, and with `proposeFlight: true` (only for "
+             "a definition that sets profile.airframe.proposeFlight) the Flight half too: the Flight environments and "
+             "release step in cicd.yaml and the Flight values in gitops-<app>, each marked for a person to merge "
+             "(`awaiting-merge`, never merged by the tool or an agent). Without proposeFlight the Flight half is reported "
+             "in humanSteps for a person",
+             ("spec",), github_cost=15, target="lower", receipt=("pr", "commit", "branch", "merge", "needsPerson")),
 )
 
 

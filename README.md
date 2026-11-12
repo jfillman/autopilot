@@ -500,7 +500,7 @@ agents' GitHub App (decision D4), and a person merges every one. The agent passe
 | `tenants` | the tenants repo | opens the PR: the app XR and each Flight environment's ApplicationEnvironment (human merge) |
 | `repos-ready`, `tekton-resync` | | nothing: the platform creates the repos and resyncs `.tekton/` (`status: platform`, or `waiting` until the repo exists) |
 | `app-repo` | `<owner>/<app>` | opens the PR: the Ground half of cicd.yaml, as glidepath-api resolves it under the agent rules (the check `glidepath.cicd.propose` uses; a refusal is its GP rule, nothing opened), and `glidepath/envs/<env>.yaml` per Ground environment. Never overwrites a value: a file Glidepath's onboarding scaffolded (`glidepath/envs/*.yaml`, gitops `*/values.yaml`) gets the plan's keys deep-merged in (its header comment and other keys kept); a key the plan sets with a different value is `APPLY-CONFLICT` naming the key paths; any other existing file with other content is `APPLY-EXISTS`. Waits (`waiting`) while the app repo or `gitops-<app>` has an open `onboarding-resync` PR |
-| `cicd-flight`, `gitops` | the app repo, `gitops-<app>` | **not opened**: Flight fields are human-only (GP-SCOPE) and `gitops-<app>` is an upper repository. Returned as `humanSteps` with their paths and the reason |
+| `cicd-flight`, `gitops` | the app repo, `gitops-<app>` | the Flight half, Glidepath's `propose` class: **opened only with `proposeFlight: true`** (R025 refuses the call for a definition without `profile.airframe.proposeFlight`), as PRs marked for a person to merge: `Hangar-Merge: person` in the commit, `merge: person` and `needsPerson` in the result and the receipt, step status `awaiting-merge`, `Clearance / agent-scope` neutral "needs a person" until one does and failed if a bot or an agent merges it ([A-11](#a-11-propose-flight-half)). cicd-flight is validated as an agent's change (a field that stays human is `humanSteps`, not opened); gitops waits until each environment's `values.yaml` exists, and merges into it like the other scaffolds. Without `proposeFlight`: returned as `humanSteps` with their paths and the reason, as before |
 | `verify` | | nothing: `airframe.status`, `describe` and `verify` |
 
 **One PR per call**, because one call is one Clearance decision and one receipt. The result carries `repo`, `pr`, `commit`,
@@ -528,8 +528,8 @@ request it first turns into one with `airframe.capabilities`, `explain` and `pla
 anything is ambiguous) with any option the planner supports, through the same `airframe.apply`. It has parachute's tools,
 limits and runtime pin; only the scope is wider (`airframe.apps: ["*"]`, `repos.allow: ["jfillman/*"]`), which is more
 authority than parachute has and is why a person reviews it. What bounds it is unchanged: T1, PRs only, no merge or push
-tool, the Flight half and `gitops-<app>` human-only, a person merging every PR, and R021's field scope on the app's
-`cicd.yaml` change. `examples/app-provisioner.appspec.yaml` is an example intent (a python app, `inventory-api`, with
+tool, a person merging every PR, and glidepath-api's check of the app's `cicd.yaml` change. Unlike parachute it sets
+`profile.airframe.proposeFlight: true`, so it opens the Flight half too, as PRs only a person may merge. `examples/app-provisioner.appspec.yaml` is an example intent (a python app, `inventory-api`, with
 ground and flight environments).
 
 Tokens: the app repo's is asked for as `{owner, repo, app}`; the tenants repo's with **no `app`** (the broker refuses it
@@ -552,9 +552,10 @@ Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core),
   carry, so the deployment drops it and no bundled definition names it. A-3 chose removal over restoring it: the tool
   stays in the registry and the bundle, `tests/test_airframe_apply.py` fails a definition that names it, and a later
   image with the validator (`AirframeTools(validator=...)`) turns it back on.
-* The Flight half of `airframe.apply`: cicd.yaml's Flight fields (human-only, GP-SCOPE-001/003) and `gitops-<app>` (an
-  upper repository, which a T1 tool does not write) are returned as `humanSteps` and never opened. A T2 propose-only
-  sibling for the gitops PR (`repo.pr.open_upper`'s shape, with a repo argument the core can classify) is the follow-up.
+* The Flight half of `airframe.apply` is a proposal, not a T2 tool (A-11, below): `airframe.apply` stays T1 and opens the
+  Flight PRs for a call with `proposeFlight`, marked for a person to merge. A T2 propose-only sibling for the gitops PR
+  (`repo.pr.open_upper`'s shape, with a repo argument the core can classify) would classify them by tier instead of by mark;
+  not built.
 * `xr.request` and `airframe.apply` against the tenants repo live: built, and the adapter now asks the broker with no
   `app` as glidepath#236 requires; they need Glidepath's `agentToken` to allow `AIRFRAME_TENANTS_REPO` (`AGENT_PIN_TENANTS_REPO`)
   and the agents' App installed there (403, `XR-TENANTS-TOKEN`, until then). Not yet proven against real GitHub.
@@ -586,6 +587,24 @@ Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core),
 
 Copyright 2026 James Fillman. Licensed under the [Apache License, Version 2.0](LICENSE).
 See [NOTICE](NOTICE) for attribution and [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
+
+### A-11: propose (Flight half)
+
+Owner decision 2026-11-12: "when I ask the agent to configure the app, it should configure all the envs I specify", a person approving
+anything that touches prod. Glidepath's contract version 2 adds the **`propose`** scope class (a Flight environment added or changed,
+the release step into it, a new environment's `cluster` and `production`: an agent may make the change, only in a PR a person merges;
+the design and its enforcement are in Glidepath's `docs/admin/contract.md`, "propose"). What this repo does about it:
+
+| Where | What |
+|---|---|
+| `airframe.apply` | `proposeFlight: true` opens `cicd-flight` and `gitops` as PRs marked for a person to merge: the commit trailer `Hangar-Merge: person`, a "Needs a person to merge" PR body, `merge: person` and `needsPerson: [paths]` in the result (so in Clearance's receipt), step status `awaiting-merge`. The tool still has no merge call at all. |
+| R025 | `proposeFlight` is refused (before anything is sent) unless the definition sets `profile.airframe.proposeFlight: true`. `app-provisioner` does, `parachute` does not. A non-boolean is R008. |
+| R021 | A `propose` field on `repo.pr.open` (which cannot mark its PR) is refused: `GP-SCOPE-004`, the hint naming `glidepath.cicd.propose` and `airframe.apply`. Changing an existing environment's cluster is still `GP-SCOPE-001`. |
+| `glidepath.cicd.propose` | A change glidepath-api reports as `needsPerson` is opened with the same mark. |
+| Clearance | The receipt's `merge` and `needsPerson` make `Clearance / agent-scope` neutral ("needs a person: <paths>") until a person merges the PR, success then, and a failure (AS005) if a bot or an agents' login did. Glidepath's readers do not read that neutral as success. |
+
+Stays human whatever the agent asks: secrets, signers, cloud deploy identity, the gates, `deploy.target`, `deploy.chart`, the cloud
+blocks, `api`, `gitopsRepo`, `manifestPath`. A field like these in the Flight change makes that step a `humanStep`, not a PR.
 
 ### Writing the AppSpec: `airframe.capabilities {section: appspec}` (A-11)
 

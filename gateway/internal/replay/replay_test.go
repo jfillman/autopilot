@@ -197,7 +197,24 @@ func newReplayer(t testing.TB) *replayer {
 	return &replayer{t: t, reg: tools.Default(), counts: map[string]int{}, skips: map[string]int{}, mism: map[string]int{}}
 }
 
+// decidedDifferentlySince are the corpus lines whose decision changed on purpose after the Python engine recorded them: a
+// cicd.yaml scope decision under Glidepath's contract version 2 (the `propose` scope class, A-11b). A new Flight environment's
+// cluster and production read "a propose field" instead of "a human-only field" (the same refusal, under GP-SCOPE-004 on the
+// file tool, which cannot mark its pull request for a person), and the Flight environment's hint names the tools that can
+// propose it. Each is still a refusal with the same first rule; tests/test_cicd_scope.py asserts the new text through the
+// real core. The corpus itself is Clearance's and stays as recorded; a line is listed here only with its reason.
+var decidedDifferentlySince = map[string]string{
+	"tests/test_cicd_scope.py::test_denied_cicd_change_carries_the_gp_scope_rule_and_hint[flight-env-added]": "the Flight environment hint names the proposing tools",
+	"tests/test_cicd_scope.py::test_a_new_cicd_yaml_is_a_human_change":                                       "a new environment's cluster and production are propose",
+	"tools/golden/test_fixture_calls.py::test_cicd_scope_probe[2]":                                           "the Flight environment hint names the proposing tools",
+	"tools/golden/test_fixture_calls.py::test_cicd_scope_probe[9]":                                           "the Flight environment hint names the proposing tools",
+}
+
 func (r *replayer) fail(l line, what string, got, want any) {
+	if why, ok := decidedDifferentlySince[l.Source]; ok {
+		r.skips[l.Kind+": decided differently on purpose since the corpus was recorded ("+why+")"]++
+		return
+	}
 	r.mism[l.Kind+" "+what]++
 	if r.shown < 25 {
 		r.shown++

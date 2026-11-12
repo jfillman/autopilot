@@ -69,7 +69,9 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   token file as `repo.pr.open`, asking the broker for the tenants repo (`AIRFRAME_TENANTS_REPO`) with no `app`, so Glidepath's
   `agentToken` must allow that repo (`AGENT_PIN_TENANTS_REPO`) and the agents' App be installed there, and it asks glidepath-api
   to check the cicd.yaml change (`GLIDEPATH_API_URL`). It keeps no state: a restarted core resumes from GitHub. It writes to
-  GitHub only by creating new branches and PRs; the Flight half and every merge are people's.
+  GitHub only by creating new branches and PRs, and every merge is a person's. The Flight half is opened only for a call that sets `proposeFlight`,
+  which the core allows only a definition with `profile.airframe.proposeFlight` (R025; app-provisioner has it), as PRs marked for a person to merge
+  ([propose](../../README.md#a-11-propose-flight-half)).
 - **Logs to Loki.** `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` sends a copy of every INFO-and-above log line (DEBUG stays on stderr) to the cluster's OpenTelemetry
   collector over OTLP/HTTP JSON (`otlp_logs.py`, standard library only; a bounded queue, batches with a 5 s deadline,
   and a collector outage drops lines, never blocks a call). The read API (`autopilot-gateway api`) does the same as `autopilot-api`. On Hangar apron sets it with `OTEL_SERVICE_NAME` and the

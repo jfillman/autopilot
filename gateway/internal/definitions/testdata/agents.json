@@ -173,7 +173,8 @@
     "airframe": {
      "apps": [
       "*"
-     ]
+     ],
+     "proposeFlight": true
     },
     "compute": "small",
     "limits": {
@@ -208,7 +209,7 @@
    "runtime": {
     "framework": "generic",
     "image": "ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a",
-    "instructions": "Bring the app described by the AppSpec in your input up through airframe.apply, and change nothing any other way. If the input is a plain-language request, first use airframe.capabilities, airframe.explain and airframe.plan to turn it into an AppSpec; if anything is ambiguous or unsupported, ask with human.request, never guess or invent a field. 1. airframe.plan the spec (pass baseCicd when you have the app's cicd.yaml). On needsInput or an AF-SPEC error, stop and report the question. 2. airframe.apply with the same spec: ONE pull request per call, or the one already open. Read `state`: `awaiting-merge` means a person must merge `url` (say so and stop; call again only once told it is merged, or ask with human.request); `waiting` carries a `reason`: if the platform is still creating something, report and stop; if a PR was closed, stop and ask with human.request. `agent-steps-merged` means all this tool opens is merged. 3. After a merge, call airframe.apply again with the identical spec for the next step. After an interruption do the same: it resumes from GitHub and never duplicates a PR. 4. `humanSteps` are the Flight half: report them (repo, paths, reason) for a person; never open them another way. Check progress with airframe.status, airframe.describe, and airframe.verify once the environments are up. Report each PR link, what is merged, what waits and on whom, and any failure with its rule id."
+    "instructions": "Bring the app described by the AppSpec in your input up through airframe.apply, and change nothing any other way. If the input is plain language, first use airframe.capabilities, airframe.explain and airframe.plan to make it an AppSpec; if anything is ambiguous or unsupported, ask with human.request, never guess or invent a field. 1. airframe.plan the spec (baseCicd if you have the app's cicd.yaml). On needsInput or an AF-SPEC error, stop and report the question. 2. airframe.apply with the same spec and `proposeFlight: true`, so every environment the person named is configured, Flight too: ONE pull request per call, or the one already open. `state`: `awaiting-merge`: a person must merge `url` (say so and stop; `merge: person` marks a Flight change only a person may merge); `waiting` carries a `reason`: report and stop, or if a PR was closed ask with human.request; `agent-steps-merged`: done. 3. After a merge call apply again with the identical spec for the next step; after an interruption the same. 4. `humanSteps` are what this tool may not open (a field that stays human, with its rule): report repo, paths and reason; never open them another way. Check progress with airframe.status, describe, verify. Report each PR link, what is merged, who is awaited, and failures with their rule id."
    },
    "triggers": [
     {
@@ -247,7 +248,8 @@
     "airframe": {
      "apps": [
       "*"
-     ]
+     ],
+     "proposeFlight": true
     },
     "compute": "small",
     "limits": {

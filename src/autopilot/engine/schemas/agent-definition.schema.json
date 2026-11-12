@@ -232,6 +232,10 @@
                 "pattern": "^[a-z0-9*][a-z0-9*-]{0,62}$"
               },
               "uniqueItems": true
+            },
+            "proposeFlight": {
+              "type": "boolean",
+              "description": "May this agent's airframe.apply also open the Flight half of an AppSpec (the production environments in cicd.yaml and their values in gitops-<app>) as pull requests marked for a person to merge. Unset or false: a call that asks for it is refused (R025). It opens nothing a person does not merge."
             }
           }
         }

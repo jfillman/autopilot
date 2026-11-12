@@ -5,6 +5,28 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-11, the `propose` scope: agents propose the Flight half, a person merges it)
+- Owner decision 2026-11-12: when asked to configure an app, the agent configures every environment named, and a person approves
+  anything that touches prod. Glidepath's contract version 2 adds the `propose` scope class; this repo's side (docs/admin in
+  Glidepath's contract.md has the whole design):
+  - **`airframe.apply` takes `proposeFlight: true`** and then opens the Flight half, the `cicd-flight` step (Flight environments and
+    the release step in cicd.yaml, checked by glidepath-api as an agent's change) and the `gitops` step (the Flight values, merged into
+    `<cluster>/<env>/values.yaml` once each exists, `waiting` before), as PRs marked for a person to merge: a `Hangar-Merge: person`
+    commit trailer, a "Needs a person to merge" PR body, `merge: person` and `needsPerson: [paths]` in the result and the receipt,
+    and step status `awaiting-merge`. A field that stays human in the Flight change (GP-SCOPE-001/002/003) makes that step a `humanStep`
+    instead of failing the call. Without `proposeFlight` the Flight half is reported in `humanSteps`, as before.
+  - **R025** (`policy/hangar/bundle.json`): a call with `proposeFlight: true` is refused unless the definition sets
+    `profile.airframe.proposeFlight: true` (new in the agent-definition schema, byte-identical to Clearance's). `app-provisioner` sets it
+    and its instructions pass it; `parachute` does not.
+  - `glidepath.cicd.propose`: a change glidepath-api reports as `needsPerson` (a Flight environment added or changed, a release
+    step into one, a new environment's cluster) is opened with the same mark (`Hangar-Merge: person`, `merge: person`,
+    `needsPerson: [cicd.yaml]`).
+  - **R021** refuses a `propose` field on a file-writing tool (`repo.pr.open`), which cannot mark its PR: rule `GP-SCOPE-004`,
+    hint naming `glidepath.cicd.propose` and `airframe.apply`. The bundle names Glidepath contract versions 1 and 2; version 2
+    needs a Clearance with `propose` support (docscope) and the `merge`/`needsPerson` receipt fields.
+  - The receipt lists of `glidepath.cicd.propose` and `airframe.apply` gain `merge` and `needsPerson`. Rollout: Clearance, then this
+    (bundle, pin, definitions), then Glidepath.
+
 ### Added (A-11, agent provisioning hardening)
 - `airframe.capabilities {section: appspec}`: the AppSpec's top-level fields, required vs optional, how `config` and
   `overrides` map onto chart values, and one worked example (the parachute spec), derived from

@@ -119,7 +119,7 @@ def test_the_seven_airframe_tools_are_reads_and_apply_is_the_one_write():
     af = {n: t for n, t in TOOLS.items() if n.startswith("airframe.")}
     assert set(af) == AF | {"airframe.apply"}
     apply = af.pop("airframe.apply")
-    assert apply.tier == Tier.T1 and apply.target == "lower" and apply.receipt == ("pr", "commit", "branch")
+    assert apply.tier == Tier.T1 and apply.target == "lower" and apply.receipt == ("pr", "commit", "branch", "merge", "needsPerson")
     assert all(t.tier == Tier.T0 and t.target == "none" and not t.writes_files and not t.github_cost for t in af.values())
 
 

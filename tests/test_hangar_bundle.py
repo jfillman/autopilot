@@ -77,10 +77,34 @@ def test_the_corpus_replays_identically_with_this_bundle(tmp_path):
     # check admits it. The corpus holds the earlier wording and allowlist; no decision it records depends on either.
     old = {"airframe.capabilities": "What Airframe offers: chart fields, XR kinds, components and their outputs, "
                                     "conditions and verify checks (kind or section optional)",
-           "airframe.plan": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)"}
+           "airframe.plan": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)",
+           # A-11b: the propose tool's description gains the human-merge note (its text before it is the corpus's)
+           "glidepath.cicd.propose": "Propose a cicd.yaml change: validated by glidepath-api as an agent's change and refused "
+                                     "with the GP rule when invalid, else opened as a pull request on the app's repo (repo: "
+                                     "owner/<app>) that a human merges; title required, body and branch optional"}
     for t in frozen["tools"]:
         assert t["description"].startswith(old.get(t["name"], t["description"])), t["name"]
     frozen["tools"] = [dict(t, description=old.get(t["name"], t["description"])) for t in frozen["tools"]]
+    # A-11b, the `propose` scope class (Glidepath contract 2): the receipts of the two PR tools gain merge and needsPerson, R025
+    # and its two vars and the proposeFlight argument check are new, the bundle names contract version 2 and carries the
+    # document's `propose` finding, and the Flight environment's hint names the tools that can propose it. The corpus holds none of
+    # them (contract version 1 has no propose rule, no call sets proposeFlight, no definition sets it), so the corpus replays on
+    # the bundle as it was, which is exactly this bundle minus those, and nothing else.
+    frozen["tools"] = [dict(t, receipt=["pr", "commit", "branch"]) if t["name"] == "glidepath.cicd.propose" else t
+                       for t in frozen["tools"]]
+    assert [r["id"] for r in frozen["rules"] if r["id"] == "R025"] == ["R025"]
+    frozen["rules"] = [r for r in frozen["rules"] if r["id"] != "R025"]
+    assert {v["name"] for v in frozen["vars"]} >= {"apply_wants_flight", "flight_proposal_allowed"}
+    frozen["vars"] = [v for v in frozen["vars"] if v["name"] not in ("apply_wants_flight", "flight_proposal_allowed")]
+    frozen["arg_checks"] = [dict(a, checks=[c for c in a["checks"] if "proposeFlight" not in c]) for a in frozen["arg_checks"]]
+    assert frozen["sources"][0]["compatible"] == [1, 2]
+    frozen["sources"] = [dict(frozen["sources"][0], compatible=[1])]
+    doc = dict(frozen["documents"][0])
+    assert doc.pop("propose")["rule"] == "GP-SCOPE-004"
+    doc["keyed"] = [dict(k, protected_change=dict(k["protected_change"], hint="Flight environments are changed by a human. "
+                                                  "An agent may add or change Ground environments.")) for k in doc["keyed"]]
+    frozen["documents"] = [doc]
+    frozen["version"] = "1.1.0"
     text = json.dumps(frozen)
     assert "'kinds', 'appspec']" in text
     frozen_path = tmp_path / "bundle.json"
