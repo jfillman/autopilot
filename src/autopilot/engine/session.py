@@ -58,6 +58,8 @@ class Session:
     input: dict[str, Any] | None = None
     outcome: dict[str, Any] | None = None
     usage: dict[str, int] = field(default_factory=_no_usage)
+    # What the gateway saw this session's calls do, for the run's warnings (results.observe / results.warnings).
+    signals: dict[str, Any] = field(default_factory=dict)
 
     def add_usage(self, call: dict[str, int]) -> None:
         """One model call's usage (modelproxy.usage_record) added to the session's running cost."""
@@ -111,7 +113,7 @@ class Session:
                 "used": dict(self.used), "reserved": dict(self.reserved), "children": list(self.children),
                 "tripped": self.tripped, "trip_reason": self.trip_reason, "denials": self.denials,
                 "closed": self.closed, "run": self.run, "input": self.input, "outcome": self.outcome,
-                "usage": dict(self.usage)}
+                "usage": dict(self.usage), "signals": dict(self.signals)}
 
     @classmethod
     def from_record(cls, r: dict[str, Any]) -> "Session":
@@ -120,7 +122,8 @@ class Session:
                    parent_id=r["parent_id"], depth=r["depth"], task_id=r["task_id"], used=dict(r["used"]),
                    reserved=dict(r["reserved"]), children=list(r["children"]), tripped=r["tripped"],
                    trip_reason=r["trip_reason"], denials=r["denials"], closed=r["closed"], run=r.get("run"),
-                   input=r.get("input"), outcome=r.get("outcome"), usage={**_no_usage(), **(r.get("usage") or {})})
+                   input=r.get("input"), outcome=r.get("outcome"), usage={**_no_usage(), **(r.get("usage") or {})},
+                   signals=dict(r.get("signals") or {}))
 
 
 class Persistence(Protocol):

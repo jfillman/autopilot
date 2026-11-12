@@ -499,7 +499,7 @@ agents' GitHub App (decision D4), and a person merges every one. The agent passe
 |---|---|---|
 | `tenants` | the tenants repo | opens the PR: the app XR and each Flight environment's ApplicationEnvironment (human merge) |
 | `repos-ready`, `tekton-resync` | | nothing: the platform creates the repos and resyncs `.tekton/` (`status: platform`, or `waiting` until the repo exists) |
-| `app-repo` | `<owner>/<app>` | opens the PR: the Ground half of cicd.yaml, as glidepath-api resolves it under the agent rules (the check `glidepath.cicd.propose` uses; a refusal is its GP rule, nothing opened), and `glidepath/envs/<env>.yaml` per Ground environment. Never overwrites an existing file |
+| `app-repo` | `<owner>/<app>` | opens the PR: the Ground half of cicd.yaml, as glidepath-api resolves it under the agent rules (the check `glidepath.cicd.propose` uses; a refusal is its GP rule, nothing opened), and `glidepath/envs/<env>.yaml` per Ground environment. Never overwrites a value: a file Glidepath's onboarding scaffolded (`glidepath/envs/*.yaml`, gitops `*/values.yaml`) gets the plan's keys deep-merged in (its header comment and other keys kept); a key the plan sets with a different value is `APPLY-CONFLICT` naming the key paths; any other existing file with other content is `APPLY-EXISTS`. Waits (`waiting`) while the app repo or `gitops-<app>` has an open `onboarding-resync` PR |
 | `cicd-flight`, `gitops` | the app repo, `gitops-<app>` | **not opened**: Flight fields are human-only (GP-SCOPE) and `gitops-<app>` is an upper repository. Returned as `humanSteps` with their paths and the reason |
 | `verify` | | nothing: `airframe.status`, `describe` and `verify` |
 
@@ -586,3 +586,17 @@ Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core),
 
 Copyright 2026 James Fillman. Licensed under the [Apache License, Version 2.0](LICENSE).
 See [NOTICE](NOTICE) for attribution and [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
+
+### Writing the AppSpec: `airframe.capabilities {section: appspec}` (A-11)
+
+An agent that guesses an AppSpec from the chart fields burns plan calls and can drop part of the request. The `appspec`
+section (`airframe_tools.appspec_section`, derived from `schemas/appspec.schema.json` so it cannot drift, under 12,000
+characters) lists every top-level field with its meaning, which are required, how `config` (chart values for every
+environment) and `overrides` (per environment, deep-merged over config) map onto the chart's top-level values (`env`,
+`rollout`, `autoscaling`, `httpRoute`, `components`, ...), and one worked example. The default `airframe.capabilities`
+answer is larger than a tool result may be (the runtime clips at 16,000 characters), so its `more` comes first. The
+runtime says when it clipped (`[CLIPPED at N of M characters ... narrow with section or kind]`). `parachute` reads the
+section once, plans at most three times, stops and asks (`human.request`) rather than send less than was asked, waits for
+each merge with `human.request` and continues in the same run, and ends every stop with a resume prompt holding the exact
+AppSpec JSON. The run's result (`GET /v1/sessions/{id}/result`) carries `warnings` when it called `airframe.plan` more than
+three times or an `airframe.apply` answered ok but never opened a PR.

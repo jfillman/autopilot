@@ -357,6 +357,8 @@ class Gateway:
             return Result(False, v.as_dict(), error="no backend for this tool in this deployment",
                           audit_seq=seq or v.seq, session=s.id)
         self.store.charge(s, v.spend)
+        if tool == "airframe.plan":
+            res.observe(s.signals, tool)        # counted whether it answers or is refused: each is a guess
         try:
             data = self._spawn(s, child_def, v, args) if spawn else handler(s, args)
         except Denied as e:
@@ -369,6 +371,8 @@ class Gateway:
         except Exception as e:  # noqa: BLE001 - never leak backend internals to the agent
             seq = self.core.outcome(v.decision_id, f"error:{type(e).__name__}")
             return Result(False, v.as_dict(), error="backend error", audit_seq=seq or v.seq, session=s.id)
+        if tool == "airframe.apply":
+            res.observe(s.signals, tool, data)
         seq = self.core.outcome(v.decision_id, "ok", effect=_effect(spec, args, data))
         return Result(True, v.as_dict(), data, audit_seq=seq or v.seq, session=s.id)
 
@@ -439,17 +443,18 @@ class Gateway:
         calls = res.tool_call_summary(b.get("tool_calls"))
         now = self.now()
         kept = None
+        warns = res.warnings(s.signals)
         if self.results is not None:
             expires = now + res.RETENTION
             self.results.put({"session": s.id, "task_id": s.task_id, "agent": s.agent, "principal": s.principal,
                               "status": status, "final_text": text, "truncated": truncated, "turns": turns,
-                              "tool_calls": calls, "reason": reason[:res.MAX_REASON], "written_at": iso(now),
+                              "tool_calls": calls, "reason": reason[:res.MAX_REASON], "warnings": warns, "written_at": iso(now),
                               "expires_at": iso(expires)}, now)
             kept = {"bytes": len(text.encode()), "sha256": sha256_hex(text.encode()), "truncated": truncated,
                     "expires_at": iso(expires)}
         s.outcome = {"status": status, "finished_at": iso(now), "turns": turns, "tool_calls": len(calls),
                      "not_ok": sum(1 for c in calls if not c["ok"]), "reason": reason[:res.MAX_REASON],
-                     "result": kept, "via": "runtime"}
+                     "result": kept, "via": "runtime", **({"warnings": warns} if warns else {})}
         seq = self._record("run.finish", s, principal.id, {"status": status, "turns": turns}, status)
         self.store.close(s.id)
         return {"session": s.id, "status": status, "closed": True, "kept": kept, "audit_seq": seq}

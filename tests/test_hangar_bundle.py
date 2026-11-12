@@ -73,8 +73,18 @@ def test_the_corpus_replays_identically_with_this_bundle(tmp_path):
     assert set(BUNDLE["pr_tools"]) - since_corpus == {"glidepath.cicd.propose"}
     frozen = dict(BUNDLE, tools=[t for t in BUNDLE["tools"] if t["name"] not in since_corpus],
                   pr_tools=[t for t in BUNDLE["pr_tools"] if t not in since_corpus])
+    # A-11a likewise: descriptions of airframe.capabilities/plan name the appspec section, and the `section` argument
+    # check admits it. The corpus holds the earlier wording and allowlist; no decision it records depends on either.
+    old = {"airframe.capabilities": "What Airframe offers: chart fields, XR kinds, components and their outputs, "
+                                    "conditions and verify checks (kind or section optional)",
+           "airframe.plan": "Plan an AppSpec into an ordered change set (pass baseCicd, the app's current cicd.yaml)"}
+    for t in frozen["tools"]:
+        assert t["description"].startswith(old.get(t["name"], t["description"])), t["name"]
+    frozen["tools"] = [dict(t, description=old.get(t["name"], t["description"])) for t in frozen["tools"]]
+    text = json.dumps(frozen)
+    assert "'kinds', 'appspec']" in text
     frozen_path = tmp_path / "bundle.json"
-    frozen_path.write_text(json.dumps(frozen))
+    frozen_path.write_text(text.replace("'kinds', 'appspec']", "'kinds']"))
     out = subprocess.run(["go", "test", "-count=1", "-v", "-run", "TestBundleMatchesPython|TestCorpusReplays|TestCorpusCoverage",
                           "./internal/decide/golden/"], cwd=src, capture_output=True, text=True,
                          env={**os.environ, "CLEARANCE_GOLDEN_BUNDLE": str(frozen_path)})

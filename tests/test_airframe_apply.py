@@ -16,6 +16,7 @@ from coreenv import core_env
 import yaml
 
 from autopilot import airframe_apply, airframe_plan
+from autopilot.engine import results
 from autopilot.airframe_tools import fake_airframe
 from autopilot.backends import FakeGlidepath
 from autopilot.engine.dispatch import Denied, _effect
@@ -410,14 +411,86 @@ def test_an_app_glidepath_does_not_know_waits_rather_than_failing(git, gp, hub, 
     assert w["state"] == "waiting" and "does not know parachute" in w["reason"] and APP not in hub.prs
 
 
-def test_an_existing_environment_file_with_other_content_is_never_overwritten(git, gp, hub):
+SCAFFOLD = "# Scaffolded by Glidepath onboarding. Environment values for dev.\nenvName: dev\n"
+
+
+def _ready_app(git, gp, hub, **files):
     out = apply(git, gp)
     hub.merge(TENANTS, out["pr"])
     hub.create_repo(APP)
-    hub.repos[APP]["main"]["glidepath/envs/dev.yaml"] = "envName: dev\nsomething: else\n"
+    hub.repos[APP]["main"].update(files)
+
+
+def test_onboarding_scaffold_gets_the_plans_keys_merged_in_with_its_header_kept(git, gp, hub):
+    _ready_app(git, gp, hub, **{"glidepath/envs/dev.yaml": SCAFFOLD})
+    out = apply(git, gp)
+    assert out["state"] == "awaiting-merge" and "glidepath/envs/dev.yaml" in out["paths"]
+    text = hub.pr_files(APP, out["pr"])["glidepath/envs/dev.yaml"]
+    assert text.startswith("# Scaffolded by Glidepath onboarding")
+    doc = yaml.safe_load(text)
+    assert doc["envName"] == "dev" and doc["env"] == SPEC["config"]["env"] and doc["rollout"] == SPEC["config"]["rollout"]
+    assert "glidepath/envs/test.yaml" in out["paths"], "the file the repo does not have yet is still created"
+
+
+def test_extra_keys_a_person_added_are_kept_when_merging(git, gp, hub):
+    _ready_app(git, gp, hub, **{"glidepath/envs/dev.yaml": "envName: dev\nsomething: else\n"})
+    out = apply(git, gp)
+    doc = yaml.safe_load(hub.pr_files(APP, out["pr"])["glidepath/envs/dev.yaml"])
+    assert doc["something"] == "else" and doc["rollout"]
+
+
+def test_a_key_the_plan_sets_with_a_different_value_is_a_conflict_naming_the_key(git, gp, hub):
+    _ready_app(git, gp, hub, **{"glidepath/envs/dev.yaml": "envName: dev\nrollout:\n  strategy: rolling\n"})
+    with pytest.raises(Denied) as e:
+        apply(git, gp)
+    assert e.value.rule == "APPLY-CONFLICT" and "rollout.strategy" in e.value.message and APP not in hub.prs
+
+
+def test_a_file_that_is_not_a_mapping_is_still_refused_as_existing(git, gp, hub):
+    _ready_app(git, gp, hub, **{"glidepath/envs/dev.yaml": "- a\n- b\n"})
     with pytest.raises(Denied) as e:
         apply(git, gp)
     assert e.value.rule == "APPLY-EXISTS" and APP not in hub.prs
+
+
+def test_a_file_that_already_holds_every_key_is_not_rewritten(git, gp, hub):
+    _ready_app(git, gp, hub)
+    planned = apply(git, gp)
+    files = hub.pr_files(APP, planned["pr"])
+    hub.close(APP, planned["pr"]), hub.delete_branch(APP, planned["branch"])
+    # same keys, different formatting and an extra comment: equal values, nothing to write for that file
+    hub.repos[APP]["main"]["glidepath/envs/dev.yaml"] = "# mine\n" + yaml.safe_dump(yaml.safe_load(files["glidepath/envs/dev.yaml"]), default_flow_style=True)
+    out = apply(git, gp)
+    assert "glidepath/envs/dev.yaml" not in out["paths"]
+
+
+def test_the_merge_helper_keeps_only_a_leading_header():
+    out = airframe_apply.merge_onboarding_file("o/r", "glidepath/envs/dev.yaml", "# a\n\n# b\nenvName: dev\n# tail\n", "envName: dev\nenv: [{name: A, value: b}]\n")
+    assert out.startswith("# a\n\n# b\n") and yaml.safe_load(out) == {"envName": "dev", "env": [{"name": "A", "value": "b"}]}
+
+
+# -- the repos-ready wait covers the onboarding resync PR ---------------------------------------------------------
+def test_apply_waits_while_the_onboarding_resync_pr_is_open(git, gp, hub):
+    _ready_app(git, gp, hub)
+    hub.repos[APP]["onboarding-resync"] = {}
+    hub.prs.setdefault(APP, []).append({"number": 900, "head": "onboarding-resync", "state": "open", "merged_at": None,
+                                       "title": "resync", "body": "", "base": "main"})
+    w = apply(git, gp)
+    assert w["state"] == "waiting" and "onboarding resync PR" in w["reason"] and "/pull/900" in w["reason"]
+    assert statuses(w)["app-repo"] == "waiting" and "pr" not in w
+    hub.merge(APP, 900)
+    assert apply(git, gp)["state"] == "awaiting-merge"
+
+
+def test_apply_waits_for_the_gitops_repos_resync_pr_too(git, gp, hub):
+    _ready_app(git, gp, hub)
+    hub.repos[GITOPS] = {"main": {}, "onboarding-resync": {}}
+    hub.onboarded.add(GITOPS)
+    hub.prs[GITOPS] = [{"number": 7, "head": "onboarding-resync", "state": "open", "merged_at": None, "title": "r",
+                        "body": "", "base": "main"}]
+    assert apply(git, gp)["state"] == "waiting"
+    hub.merge(GITOPS, 7)
+    assert apply(git, gp)["state"] == "awaiting-merge"
 
 
 def test_no_glidepath_backend_means_no_cicd_change_is_written(git, hub):
@@ -525,3 +598,44 @@ def test_the_app_provisioner_definition_has_parachutes_tools_and_limits_with_a_w
     assert d.limits.tools == p.limits.tools and d.limits.children == 0 and d.limits.tier_ceiling == Tier.T1
     assert not {t for t in d.limits.tools if t.startswith(("repo.", "xr.", "argo.", "run.", "glidepath."))}
     assert d.raw_profile["airframe"] == {"apps": ["*"]} and list(d.repos_allow) == ["jfillman/*"]
+
+
+# -- run warnings (A-11i): the gateway notes what the calls did, results.warnings flags the run ----------------------
+def test_a_run_that_guessed_the_appspec_is_flagged(wired, gw):
+    sid = gw.open_session("alice", "parachute").data["session"]
+    for _ in range(3):
+        assert gw.call("alice", sid, "airframe.plan", {"spec": SPEC}).ok
+    s = gw.store.get(sid)
+    assert s.signals["plan_calls"] == 3 and results.warnings(s.signals) == []
+    gw.call("alice", sid, "airframe.plan", {"spec": SPEC})
+    assert any("airframe.plan was called 4 times" in w for w in results.warnings(s.signals))
+    assert s.to_record()["signals"]["plan_calls"] == 4 and type(s).from_record(s.to_record()).signals["plan_calls"] == 4
+
+
+def test_an_apply_that_answers_ok_but_opens_no_pr_is_flagged(wired, gw, hub):
+    sid = gw.open_session("alice", "parachute").data["session"]
+    r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC})
+    assert r.ok and gw.store.get(sid).signals["apply_pr"] == 1 and results.warnings(gw.store.get(sid).signals) == []
+    hub.merge(TENANTS, r.data["pr"])                    # the app's repo does not exist: ok, `waiting`, no PR
+    sid2 = gw.open_session("alice", "parachute").data["session"]
+    assert gw.call("alice", sid2, "airframe.apply", {"spec": SPEC}).data["state"] == "waiting"
+    w = results.warnings(gw.store.get(sid2).signals)
+    assert len(w) == 1 and "opened no PR" in w[0] and "waiting" in w[0]
+
+
+def test_finish_run_keeps_the_warnings_with_the_result():
+    sig = {}
+    for _ in range(4):
+        results.observe(sig, "airframe.plan")
+    results.observe(sig, "airframe.apply", {"state": "agent-steps-merged"})
+    assert [w.split(" ")[0] for w in results.warnings(sig)] == ["airframe.plan"], "nothing left to open is not a warning"
+
+
+def test_the_parachute_definition_carries_the_provisioning_contract():
+    doc = yaml.safe_load((ROOT / "agents" / "parachute.yaml").read_text())
+    text, tools = doc["runtime"]["instructions"], doc["profile"]["tools"]
+    assert len(text) <= 1500, "the definition schema's instructions limit"
+    assert "human.request" in tools and "airframe.capabilities" in tools
+    for needle in ("section `appspec`", "at most 3 plan calls", "Never proceed with less than asked", "RESUME PROMPT",
+                   "merge <url>, then reply", "human.request.get"):
+        assert needle in text, needle
