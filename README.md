@@ -579,3 +579,8 @@ Checked against this branch (A-7) and gateway-v0.4.1 (clearance v0.30.0's core),
   `session.end`, `trigger.release` and coverage-unavailable `tool.call`; `PUT /v1/definitions`; a `via` on a
   person's run; a handler refusal on an outcome; a clock-skew setting and a chain read for tests) are clearance
   v0.28.0, which R-3f adopts, deployed at R-4. The Go port of the gateway is A-9.
+
+## License
+
+Copyright 2026 James Fillman. Licensed under the [Apache License, Version 2.0](LICENSE).
+See [NOTICE](NOTICE) for attribution and [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.

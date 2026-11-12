@@ -7,6 +7,8 @@ name = "autopilot"
 version = "0.1.0.dev0"
 description = "Autopilot: Hangar's AI agent runtime (agent definitions, Preflight, tool backends) on Clearance"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 # The Clearance core decides and records over its HTTP API (src/autopilot/engine/core.py), through the client generated
 # from its contract (clearance clients/python), pinned by the clearance release tag; CI builds the core under test from
 # the same tag (.github/workflows/test.yaml CLEARANCE_REF), so the two move together.
