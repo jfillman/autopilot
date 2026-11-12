@@ -1,0 +1,23 @@
+# An example intent for agents/app-provisioner.yaml (any app, not only parachute): "a python app called inventory-api
+# with dev and test ground environments and staging and prod flight environments, 2 replicas, a pod disruption budget,
+# and an LOG_LEVEL=info env var." The same airframe.apply loop as the parachute test: one PR per call, a person merges
+# each, and the Flight half comes back as humanSteps. tests/test_airframe_apply.py runs it through the gateway.
+apiVersion: airframe/v1
+kind: AppSpec
+app: inventory-api
+stack: python
+description: Inventory service
+environments:
+  ground: [dev, test]
+  flight:
+    - { name: staging }
+    - { name: prod }
+config:
+  rollout:
+    strategy: canary
+    replicas: 2
+    steps: [{ setWeight: 100 }]
+  podDisruptionBudget:
+    enabled: true
+  env:
+    - { name: LOG_LEVEL, value: "info" }

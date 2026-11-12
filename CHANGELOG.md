@@ -5,6 +5,13 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added
+- `agents/app-provisioner.yaml`: a general provisioning agent beside `parachute` (owner decision 2026-11-11). Same tools
+  (`airframe.apply` and the reads), T1, limits and runtime pin as parachute, but `airframe.apps: ["*"]` and
+  `repos.allow: ["jfillman/*"]`, so it stands up any app from an AppSpec. This RAISES authority over parachute's single
+  app; unchanged bounds: PRs only, no merge or push, Flight half and `gitops-<app>` human-only, R021 field scope.
+  `examples/app-provisioner.appspec.yaml`; tests show its R023 scope admits another app and parachute's still refuses one.
+
 ### Renamed (R-10a)
 - The settings the gateway owns are `AUTOPILOT_*` now: `CLEARANCE_EPHEMERAL`, `_AGENTS_DIR`, `_RESOURCE_URL`,
   `_OIDC_ISSUER`, `_OIDC_AUDIENCE`, `_OIDC_JWKS_URL`, `_OIDC_USER_CLAIM`, `_OIDC_ALLOWED_USERS`, `_AUDIENCE`,

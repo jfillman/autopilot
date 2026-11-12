@@ -163,7 +163,7 @@ One more skips without a gitops-cluster-dev checkout.
 | MCP surface | `engine/server.py` | six tools on the mcp SDK v2 (`tools_list`, `agents_list`, `session_open`, `call`, `run_finish`, `session_close`); `tools_list` lists the Gateway's own registry |
 | Provider conformance (A-1) | `autopilot/conformance.py`, `tests/test_conformance.py` | the test-only control interface Clearance's `conformance --role runtime` drives; off by default, loopback only ([docs/admin/provider.md](docs/admin/provider.md)) |
 | AppSpec and the planner | `autopilot/airframe_plan.py`, `schemas/appspec.schema.json` (vendored from airframe's contract) | the parachute test: one statement of intent to an ordered change set; its cicd.yaml patch is split by Glidepath's scope rules: the agent's half (Ground environments and their deploy steps, added without dropping a step) passes R021, and Flight environments, the release step and retiring pre-ADR-0019 keys are a separate `cicd-flight` step a human merges; `config`/`overrides` take any human-owned chart value (second sentence: `examples/mynewpythonapp.appspec.yaml`, five environments, canary with pauses, HPA, PDB, a prod-only route); validated against the real XRD schemas, Glidepath's cicd schema and a real `helm template` of every environment |
-| `airframe.apply` and the parachute (A-3) | `autopilot/airframe_apply.py`, `autopilot/github_pr.py` (`ensure_pr`, `find_pr`, `repo_ready`), `agents/parachute.yaml`, `examples/parachute*.appspec.yaml` | the planner's change set as receipted PRs through the agents' App, one per call, resumable from GitHub, the Flight half never opened, nothing merged; see "airframe.apply and the parachute" below |
+| `airframe.apply` and the parachute (A-3) | `autopilot/airframe_apply.py`, `autopilot/github_pr.py` (`ensure_pr`, `find_pr`, `repo_ready`), `agents/parachute.yaml`, `agents/app-provisioner.yaml`, `examples/parachute*.appspec.yaml`, `examples/app-provisioner.appspec.yaml` | the planner's change set as receipted PRs through the agents' App, one per call, resumable from GitHub, the Flight half never opened, nothing merged; see "airframe.apply and the parachute" below |
 | Skyport agents | `agents/skyport/`, `preflight/cases/skyport-*.yaml` | one definition per workload shape, plus team members; event trigger, app-API allowlist, chat, artifacts, idempotent triggered runs |
 | AgentRun composition | lives in airframe (`xrds/agentrun.yaml`, `compositions/agentrun/`, `functions/function-agentrun/`); `src/autopilot/vendor/agentrun_compose.py` and `schemas/agentrun.xrd.yaml` are byte-identical copies | the canary renders with the vendored `compose()`; Clearance's AgentRun manifests are validated against the vendored XRD; `tests/test_agentrun_vendor.py` fails on drift |
 | AgentRun store | `autopilot/kube_runs.py` | the real `AgentRunStore`: POST to `/apis/catalog.hangar.io/v1alpha1/namespaces/autopilot-runs/agentruns` and DELETE of one named AgentRun there, nothing else (any other method, path, namespace, kind or a non-DNS-label name is refused before a request is built); a 404 on delete is success, a 409 on create an error; token and CA re-read every call |
@@ -519,6 +519,16 @@ merge, review, workflow dispatch, update, delete or push to an existing branch
 The definition is `agents/parachute.yaml` (tierCeiling T1; `airframe.apps: [parachute]`, so R023 refuses a spec for any
 other app; `repos.allow` is the two repos apply writes, which the agent-scope gate holds each PR to). `examples/parachute.appspec.yaml`
 is the intent; `examples/parachute-bad.appspec.yaml` is the seeded bad run (a value the chart rejects: `AF-SPEC-001`, nothing opened).
+
+`agents/app-provisioner.yaml` is the general counterpart, added beside parachute rather than replacing it: parachute stays the
+narrow A-3 test agent (app `parachute` only), and app-provisioner stands up any app from an AppSpec (or a plain-language
+request it first turns into one with `airframe.capabilities`, `explain` and `plan`, asking with `human.request` when
+anything is ambiguous) with any option the planner supports, through the same `airframe.apply`. It has parachute's tools,
+limits and runtime pin; only the scope is wider (`airframe.apps: ["*"]`, `repos.allow: ["jfillman/*"]`), which is more
+authority than parachute has and is why a person reviews it. What bounds it is unchanged: T1, PRs only, no merge or push
+tool, the Flight half and `gitops-<app>` human-only, a person merging every PR, and R021's field scope on the app's
+`cicd.yaml` change. `examples/app-provisioner.appspec.yaml` is an example intent (a python app, `inventory-api`, with
+ground and flight environments).
 
 Tokens: the app repo's is asked for as `{owner, repo, app}`; the tenants repo's with **no `app`** (the broker refuses it
 when one is named, glidepath#236), which `xr.request` now does too. Both need Glidepath's `agentToken` to allow the repo

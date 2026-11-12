@@ -465,6 +465,24 @@ def test_the_agent_can_apply_only_to_the_app_its_definition_names(wired, gw, hub
     assert not r.ok and r.decision["rule"] == "R008"
 
 
+def test_app_provisioner_admits_any_app_and_parachute_still_refuses_one(wired, gw, hub):
+    """The general agent's scope is `*`: an AppSpec for an app that is not parachute passes R023 and opens its PR.
+    parachute's stays the one app, so the same spec is still refused by it."""
+    other = yaml.safe_load((ROOT / "examples" / "app-provisioner.appspec.yaml").read_text())
+    assert other["app"] != "parachute"
+    sid = gw.open_session("alice", "app-provisioner").data["session"]
+    r = gw.call("alice", sid, "airframe.apply", {"spec": other})
+    assert r.ok, r.as_dict()
+    assert r.data["branch"] == "agent/airframe-inventory-api-tenants" and r.data["repo"] == TENANTS
+    assert gw.core.records[-1]["tool"] == "airframe.apply" and gw.core.records[-1]["decision"] == "allow"
+    sid2 = gw.open_session("alice", "parachute").data["session"]
+    n = len(hub.reqs)
+    r = gw.call("alice", sid2, "airframe.apply", {"spec": other})
+    assert not r.ok and r.decision["rule"] == "R023" and len(hub.reqs) == n, "parachute still refuses another app"
+    r = gw.call("alice", sid, "airframe.apply", {"spec": {"stack": "python"}})
+    assert not r.ok and r.decision["rule"] == "R023", "even `*` needs an app named"
+
+
 def test_a_definition_that_does_not_hold_apply_cannot_call_it(wired, gw, hub):
     sid = gw.open_session("alice", "airframe-operator").data["session"]
     r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC})
@@ -498,3 +516,12 @@ def test_the_parachute_definition_can_plan_and_apply_and_nothing_that_reaches_gi
     from autopilot import serve
     tenants = serve.config_from_env({"AUTOPILOT_EPHEMERAL": "1", **core_env()}).airframe_tenants_repo
     assert sorted(d.repos_allow) == sorted(["jfillman/parachute", f"jfillman/{tenants}"])
+
+
+def test_the_app_provisioner_definition_has_parachutes_tools_and_limits_with_a_wider_scope():
+    from autopilot.engine import profile
+    defs = profile.load_dir(ROOT / "agents")
+    d, p = defs["app-provisioner"], defs["parachute"]
+    assert d.limits.tools == p.limits.tools and d.limits.children == 0 and d.limits.tier_ceiling == Tier.T1
+    assert not {t for t in d.limits.tools if t.startswith(("repo.", "xr.", "argo.", "run.", "glidepath."))}
+    assert d.raw_profile["airframe"] == {"apps": ["*"]} and list(d.repos_allow) == ["jfillman/*"]
