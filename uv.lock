@@ -82,7 +82,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'test'", specifier = ">=0.40,<3" },
-    { name = "clearance-core-client", git = "https://github.com/jfillman/clearance?subdirectory=clients%2Fpython&rev=01120f84376cf867d35474a08a4219a6743b45fc" },
+    { name = "clearance-core-client", git = "https://github.com/jfillman/clearance?subdirectory=clients%2Fpython&rev=v0.44.0" },
     { name = "jsonschema", specifier = ">=4.20" },
     { name = "langgraph", marker = "extra == 'test'", specifier = ">=1.2,<2" },
     { name = "mcp", specifier = ">=2" },
@@ -350,8 +350,8 @@ wheels = [
 
 [[package]]
 name = "clearance-core-client"
-version = "0.42.1"
-source = { git = "https://github.com/jfillman/clearance?subdirectory=clients%2Fpython&rev=01120f84376cf867d35474a08a4219a6743b45fc#01120f84376cf867d35474a08a4219a6743b45fc" }
+version = "0.44.0"
+source = { git = "https://github.com/jfillman/clearance?subdirectory=clients%2Fpython&rev=v0.44.0#ed00276f7a5dfe4b9547e73f93ea0d4fa3bd8560" }
 
 [[package]]
 name = "click"
