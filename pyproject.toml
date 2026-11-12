@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 # from its contract (clearance clients/python), pinned by the clearance release tag; CI builds the core under test from
 # the same tag (.github/workflows/test.yaml CLEARANCE_REF), so the two move together.
 # Nothing here imports the `clearance` package (it left clearance in v0.30.0; tests/engine/test_boundary.py).
-dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@d0d7da4f4da7b290f7bcef13429bdffb4ed48da4#subdirectory=clients/python",
+dependencies = ["clearance-core-client @ git+https://github.com/jfillman/clearance@7c1a4aef5ea52f873efdee6a908188878c4341fa#subdirectory=clients/python",
                 "jsonschema>=4.20", "pyyaml>=6", "mcp>=2", "pyjwt[crypto]>=2.8", "uvicorn>=0.30",
                 "psycopg[binary]>=3.2"]
 
