@@ -249,10 +249,30 @@ class FakeGlidepath(Recorder):
             problems.append({"pointer": "/governance/sast", "rule": "GP-SCOPE-002", "severity": "error",
                              "message": "/governance/sast loosened (true -> false)",
                              "hint": "An agent may turn a gate on or make it stricter, never the other way."})
+        # Glidepath's `propose` class (contract 2): an agent's Flight environment, or a release step into one, is valid and
+        # needs a person to merge; `refuse_flight` stands for a field that stays human in the same change (GP-SCOPE-001).
+        needs = []
+        if body.get("agent"):
+            base_envs = {e["name"] for e in (self.CICD_BASE.get("deploy") or {}).get("environments") or [] if e.get("tier") == "flight"}
+            flight = {e["name"]: e for e in (head.get("deploy") or {}).get("environments") or [] if e.get("tier") == "flight"}
+            for name in flight:
+                if name not in base_envs:
+                    needs.append({"pointer": f"/deploy/environments/{name}", "change": "added",
+                                  "message": f"Flight environment '{name}' added: needs a person to merge"})
+            for i, st in enumerate(((head.get("pipelines") or {}).get("ci") or {}).get("steps") or []):
+                if isinstance(st, dict) and st.get("stage") == "release" and st.get("env") in flight:
+                    needs.append({"pointer": f"/pipelines/ci/steps/{i}", "change": "added",
+                                  "message": f"a release step into Flight environment '{st['env']}' added or changed: needs a person to merge"})
+            if flight and getattr(self, "refuse_flight", False):
+                problems.append({"pointer": "/deploy/environments/0/chart", "rule": "GP-SCOPE-001", "severity": "error",
+                                 "message": "/deploy/environments/0/chart added: a human-only field", "hint": "Ask a human to make this change."})
+        if problems:
+            needs = []
         summary = ("valid" if not problems else f"{len(problems)} error(s): " + ", ".join(sorted({p['rule'] for p in problems}))) + \
-            ("; no change" if not out_changes else f"; {len(out_changes)} change(s)")
-        return {"valid": not problems, "problems": problems, "changes": out_changes, "summary": summary, "base": base_info,
-                "resulting": body["content"] if "content" in body else yaml.safe_dump(head, sort_keys=True), "contractVersion": 1}
+            ("; no change" if not out_changes else f"; {len(out_changes)} change(s)") + ("; needs a person to merge" if needs else "")
+        return {"valid": not problems, "problems": problems, "changes": out_changes, "needsPerson": needs, "summary": summary,
+                "base": base_info, "resulting": body["content"] if "content" in body else yaml.safe_dump(head, sort_keys=True),
+                "contractVersion": 2}
 
     def _replayed(self, name, key, dry_run):
         return not dry_run and sum(1 for c in self.calls if c[0] == name and c[1][3] == key and not c[1][4]) > 1

@@ -10,6 +10,13 @@ commit of cicd.yaml (the API's `resulting`, the file after the patch) on the app
 as the agents' App, with the verdict and every field it touches in the PR body; a human merges it. The result names
 the repo and the path, so Clearance's receipt (dispatch._effect) carries them and the agent gates vouch for the PR
 like any repo.pr.open. Clearance holds no copy of the rules here: glidepath-api runs the one it shares with the check.
+
+A change in Glidepath's `propose` class (a Flight environment added or changed, the release step into one, a new
+environment's cluster: the verdict's `needsPerson`) is valid, and is the one kind of change that is marked for a person
+to merge: the commit carries a `Hangar-Merge: person` trailer, the PR body says so, and the result has `merge: person` and
+`needsPerson: [cicd.yaml]`, which the receipt records. Clearance's `Clearance / agent-scope` check on that PR is neutral
+("needs a person: cicd.yaml") until a person merges it and fails if a bot or an agent does. The mark is made here, from
+glidepath-api's verdict; the agent cannot ask for it or turn it off.
 """
 from __future__ import annotations
 
@@ -35,6 +42,15 @@ def branch_for(task: str | None, session: str) -> str:
     return "agent/cicd-" + _SAFE.sub("-", (task or session))[:40].strip("-")
 
 
+MERGE_PERSON = "person"
+
+
+def needs_person(verdict: dict[str, Any]) -> list[dict[str, Any]]:
+    """What glidepath-api's verdict says only a person may merge (its `needsPerson`); [] from an API older than contract 2."""
+    n = verdict.get("needsPerson")
+    return [x for x in n if isinstance(x, dict)] if isinstance(n, list) else []
+
+
 def pr_body(verdict: dict[str, Any], why: str | None) -> str:
     """The PR description: the agent's reason, then what glidepath-api found and every field the change touches."""
     base = verdict.get("base") or {}
@@ -43,6 +59,12 @@ def pr_body(verdict: dict[str, Any], why: str | None) -> str:
         lines += [why.strip(), ""]
     lines += ["### cicd.yaml change, validated by glidepath-api", "",
               f"`{verdict.get('summary', '')}`", ""]
+    needs = needs_person(verdict)
+    if needs:
+        lines += ["### Needs a person to merge", "",
+                  "This change is in Glidepath's `propose` class: an agent may propose it, only a person may merge it. "
+                  "`Clearance / agent-scope` stays neutral until one does, and fails if a bot or an agent merges it.", ""]
+        lines += [f"- `{n.get('pointer', '')}`: {n.get('message', '')}" for n in needs[:MAX_BODY_CHANGES]] + [""]
     changes = verdict.get("changes") or []
     if changes:
         lines += ["| field | change | before | after | scope |", "|---|---|---|---|---|"]
@@ -139,9 +161,14 @@ def propose(git: Any, glidepath: Any, session: Any, meta: dict[str, str], a: dic
         raise Denied("GP-CICD-NOOP", "the patch leaves cicd.yaml as it is", "Nothing to propose.")
     files = [{"path": "cicd.yaml", "content": verdict["resulting"]}]
     branch = a.get("branch") or branch_for(getattr(session, "task_id", None), session.id)
+    needs = needs_person(verdict)
     if getattr(git, "takes_meta", False):
-        pr = git.open_pr(repo, branch, a["title"].strip(), files, "main", meta=meta, body=pr_body(verdict, a.get("body")))
+        pr_meta = {**meta, "merge": MERGE_PERSON} if needs else meta
+        pr = git.open_pr(repo, branch, a["title"].strip(), files, "main", meta=pr_meta, body=pr_body(verdict, a.get("body")))
     else:
         pr = git.open_pr(repo, branch, a["title"].strip(), files, "main")
-    return {**pr, "repo": repo, "paths": ["cicd.yaml"], "summary": verdict.get("summary"),
-            "changes": verdict.get("changes"), "base": verdict.get("base")}
+    out = {**pr, "repo": repo, "paths": ["cicd.yaml"], "summary": verdict.get("summary"),
+           "changes": verdict.get("changes"), "base": verdict.get("base")}
+    if needs:
+        out.update(merge=MERGE_PERSON, needsPerson=["cicd.yaml"], needsPersonFields=[n.get("pointer") for n in needs])
+    return out

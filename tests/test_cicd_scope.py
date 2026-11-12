@@ -174,6 +174,52 @@ def test_denied_cicd_change_carries_the_gp_scope_rule_and_hint(gw, backends, fn,
     assert last["decision"] == "deny" and last["rule"] == rule
 
 
+# ---- Glidepath's `propose` class (contract 2): a Flight change is a proposal for a person to merge --------------
+# repo.pr.open cannot mark its PR for a person, so a propose field (a new Flight environment's cluster and production) and a
+# Flight environment are refused on it, naming the tools that can (glidepath.cicd.propose, airframe.apply).
+NEW_FLIGHT = {"name": "staging", "tier": "flight", "cluster": "hangar-prod"}
+
+
+def test_the_core_read_contract_two_with_the_propose_rules(test_core, contract_server):
+    contract = json.loads(contract_server.body)
+    assert contract["contractVersion"] == 2
+    propose = {r["pattern"]: r.get("proposeOn") for r in contract["scope"]["rules"] if r["agentScope"] == "propose"}
+    assert propose == {"/deploy/environments/*/cluster": ["added"], "/deploy/environments/*/production": ["added"]}
+
+
+def test_a_new_flight_environment_is_a_proposal_repo_pr_open_cannot_carry(gw, backends):
+    r = pr_cicd(gw, lambda d: d["deploy"]["environments"].append(dict(NEW_FLIGHT)))
+    assert not r.ok and r.decision["name"] == "cicd-scope"
+    assert rules_of(r) == ["GP-SCOPE-003", "GP-SCOPE-004"]
+    assert r.decision["rule"] in ("GP-SCOPE-003", "GP-SCOPE-004")
+    hints = " ".join(p["hint"] for p in r.decision["problems"])
+    assert "glidepath.cicd.propose" in hints and "airframe.apply" in hints
+    assert any("a propose field, which needs a person to merge" in p["message"] for p in r.decision["problems"])
+    assert backends.git.calls == []
+
+
+def test_a_new_production_flight_environment_is_a_proposal_too(gw, backends):
+    r = pr_cicd(gw, lambda d: d["deploy"]["environments"].append({**NEW_FLIGHT, "name": "prod2", "production": True}))
+    assert rules_of(r) == ["GP-SCOPE-003", "GP-SCOPE-004"]
+    assert {p["pointer"] for p in r.decision["problems"] if p["rule"] == "GP-SCOPE-004"} == {
+        "/deploy/environments/prod2/cluster", "/deploy/environments/prod2/production"}
+
+
+def test_changing_an_existing_environments_cluster_stays_human(gw, backends):
+    """proposeOn: [added]: the same field on an environment that exists reads human, not propose."""
+    r = pr_cicd(gw, lambda d: d["deploy"]["environments"][2].update(cluster="somewhere-else"))
+    assert rules_of(r) == ["GP-SCOPE-001", "GP-SCOPE-003"]
+    r = pr_cicd(gw, lambda d: d["deploy"]["environments"][2].update(production=False))
+    assert "GP-SCOPE-001" in rules_of(r) and "GP-SCOPE-004" not in rules_of(r)
+
+
+def test_secrets_and_the_cloud_blocks_are_not_made_proposable(gw, backends):
+    r = pr_cicd(gw, lambda d: d["deploy"]["environments"].append({**NEW_FLIGHT, "ecs": {"cluster": "c", "service": "s"}}))
+    assert "GP-SCOPE-001" in rules_of(r), "a cloud block stays human even on a new Flight environment"
+    r = pr_cicd(gw, lambda d: d["secrets"].append({"name": "AWS", "key": "aws"}))
+    assert rules_of(r) == ["GP-SCOPE-001"]
+
+
 def test_a_nested_cicd_yaml_is_scoped_too(gw):
     r = pr_cicd(gw, lambda d: d["governance"].update(sast=False), path="apps/x/cicd.yaml")
     assert r.decision["rule"] == "GP-SCOPE-002"

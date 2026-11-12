@@ -6,15 +6,25 @@ order, as the agents' own GitHub App through github_pr.GitHubPRs. A person merge
 merge, approve, push-to-existing-branch or workflow-dispatch call at all: the adapter it drives sends only GETs and
 the POSTs that build a new branch and its PR (tests/test_airframe_apply.py reads every request a whole run makes).
 
+The Flight half (cicd-flight, gitops) is Glidepath's `propose` class: an agent may propose it, only a person may merge it.
+It is opened only when the call says `proposeFlight: true`, which the Clearance core allows only a definition that sets
+profile.airframe.proposeFlight (R025, policy/hangar/bundle.json). Each such PR is marked for a person to merge: a
+`Hangar-Merge: person` commit trailer and the PR body say so, the result has `merge: person` and `needsPerson: [paths]`
+(which Clearance's receipt records, so `Clearance / agent-scope` is neutral "needs a person" until a person merges it and
+fails if a bot or an agent does), and the step's status is `awaiting-merge`. Without proposeFlight the Flight half is only
+reported (`humanSteps`), as before. cicd.yaml's change is still validated by glidepath-api as an agent's change: a field
+that stays `human` (a legacy key to drop, a cloud block, a step's cluster) is refused there and the step is reported
+for a person instead.
+
 What it opens, and what it leaves to people (the plan's own gates, airframe_plan.plan):
 
   tenants      the tenants repo: the app XR and every Flight environment's ApplicationEnvironment. Human merge.
   app-repo     the app's own repo: the Ground half of cicd.yaml (checked by glidepath-api as an agent's change, the rule
                set `glidepath.cicd.propose` uses, GP-SCOPE included) and one glidepath/envs/<env>.yaml per Ground
                environment. Auto-merge or human merge as the plan says; either way a person's click, not the tool's.
-  cicd-flight  the Flight half of cicd.yaml (Flight environments, the release step): human-only fields. NOT opened.
-  gitops       gitops-<app>, the upper environments' values: an upper repo, which a T1 tool does not write (T2 propose
-               is repo.pr.open_upper's). NOT opened.
+  cicd-flight  the Flight half of cicd.yaml (Flight environments, the release step): Glidepath's `propose` class, opened
+               with proposeFlight as a PR marked for a person to merge; else reported. A human-only field in it is not opened.
+  gitops       gitops-<app>, the upper environments' values: the same, once each environment's values.yaml exists.
   repos-ready, tekton-resync, verify    waits and checks, not PRs: the platform does the first two, airframe.status,
                describe and verify do the third.
 
@@ -40,10 +50,14 @@ from .engine.dispatch import Denied
 
 TENANTS = "tenants"
 APP_REPO = "app-repo"
-FLIGHT_HALF = {"cicd-flight": "the Flight half of cicd.yaml: Flight environments and the release step are human-only "
-                               "fields (GP-SCOPE-003, GP-SCOPE-001)",
-               "gitops": "gitops-<app> is an upper environment's repository: a person (or repo.pr.open_upper, T2, "
-                         "propose only) writes it, once the tenants PR is merged and its values.yaml files exist"}
+FLIGHT_HALF = {"cicd-flight": "the Flight half of cicd.yaml: Flight environments and the release step are proposals only a "
+                               "person may merge; this call did not set proposeFlight (or the definition may not)",
+               "gitops": "gitops-<app> is an upper environment's repository: its values are a proposal only a person may "
+                         "merge; this call did not set proposeFlight (or the definition may not). Once the tenants PR is "
+                         "merged and its values.yaml files exist"}
+MERGE_PERSON = "person"
+# A refusal glidepath-api gives a field that stays human: the Flight step is reported for a person instead of failing the call.
+HUMAN_REFUSALS = ("GP-SCOPE-001", "GP-SCOPE-002", "GP-SCOPE-003")
 OPENED_BY_TOOL = (TENANTS, APP_REPO)
 
 
@@ -136,15 +150,23 @@ def _cicd_files(glidepath: Any, session: Any, app: str, step: Any) -> tuple[list
                 files.append({"path": "cicd.yaml", "content": verdict["resulting"]})
         elif f.op == "create":
             files.append({"path": f.path, "content": _text(f.content)})
+        elif f.op == "merge-patch" and ONBOARDING_FILES[1].match(f.path):
+            # The Flight values: merged into the file the composition bootstraps. Missing: a wait, not an error (a person
+            # has not merged the tenants PR, or the platform is still bootstrapping the environment).
+            files.append({"path": f.path, "content": _text(f.content), "mustExist": True})
         else:
             raise Denied("APPLY-OP", f"{f.path}: the plan's {f.op} on this file is not one apply writes",
                          "Open this change as a person, or with repo.pr.open.")
     return files, verdict, None
 
 
-def _body(step: Any, cs: Any, verdict: dict | None) -> str:
+def _body(step: Any, cs: Any, verdict: dict | None, person: bool = False) -> str:
     lines = [f"### airframe.apply: step `{step.id}` of {cs.app}'s plan", "", f"Gate: **{step.gate}**. A person merges this; "
              "the tool that opened it has no way to.", ""]
+    if person:
+        lines += ["**Needs a person to merge.** This is a change only a person may land (Glidepath's `propose` class: Flight "
+                  "environments, the release step, the Flight values). `Clearance / agent-scope` is neutral until a person "
+                  "merges it, and fails if a bot or an agent does.", ""]
     if step.effects:
         lines += ["Effects once merged:"] + [f"- {e}" for e in step.effects] + [""]
     if step.checks:
@@ -161,6 +183,9 @@ def _body(step: Any, cs: Any, verdict: dict | None) -> str:
 
 
 def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any]) -> dict[str, Any]:
+    # proposeFlight is the caller's ask; the Clearance core refuses it (R025) for a definition that does not set
+    # profile.airframe.proposeFlight, before this runs. Only a literal true counts.
+    propose_flight = a.get("proposeFlight") is True
     cs, answer = airframe.changeset(a["spec"], a.get("baseCicd"))
     if cs is None:
         return answer                   # an AF-SPEC-* refusal or needsInput: nothing was opened
@@ -175,12 +200,13 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
         repo = st.repo if "/" in st.repo or not st.repo else f"{reg.owner}/{st.repo}"
         row: dict[str, Any] = {"id": st.id, "title": st.title, "repo": repo, "gate": st.gate}
         steps.append(row)
-        if st.id in FLIGHT_HALF:
+        flight = st.id in FLIGHT_HALF
+        if flight and not propose_flight:
             row["status"] = "human"
             row["paths"] = sorted(f.path for f in st.files)
             human.append({"id": st.id, "repo": repo, "paths": row["paths"], "reason": FLIGHT_HALF[st.id]})
             continue
-        if st.id not in OPENED_BY_TOOL:
+        if st.id not in OPENED_BY_TOOL and not flight:
             row["status"] = "platform" if st.wait_for and st.gate != "verify" else "check"
             if st.wait_for:
                 row["waitFor"] = st.wait_for
@@ -205,10 +231,15 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
             row.update(status="closed", pr=found["pr"], url=found["url"], reason=waiting)
             continue
         if found:
-            row.update(status="open", pr=found["pr"], url=found["url"])
+            row.update(status="awaiting-merge" if flight else "open", pr=found["pr"], url=found["url"])
+            if flight:
+                row["mergeBy"] = MERGE_PERSON
             # The receipt names what the PR carries, read from GitHub: a plan file that was a no-op (cicd.yaml already as
             # wanted) is not in the PR, and provenance would vouch for a path the PR never wrote.
-            current = {**found, "resumed": True, "step": st.id, "repo": repo, "paths": git.pr_paths(repo, found["pr"], tenants=tenants)}
+            paths = git.pr_paths(repo, found["pr"], tenants=tenants)
+            current = {**found, "resumed": True, "step": st.id, "repo": repo, "paths": paths}
+            if flight:
+                current.update(merge=MERGE_PERSON, needsPerson=paths)
             continue
         if not tenants and not git.repo_ready(repo):
             waiting = f"{repo} does not exist yet or is not onboarded: the tenants PR is merged, the platform is still creating it"
@@ -223,7 +254,15 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
                            "): a person merges it, then the platform finishes; apply waits so its files do not race it")
                 row.update(status="waiting", reason=waiting)
                 continue
-        files, verdict, why = _cicd_files(glidepath, session, app, st)
+        try:
+            files, verdict, why = _cicd_files(glidepath, session, app, st)
+        except Denied as e:
+            if not (flight and e.rule in HUMAN_REFUSALS):
+                raise
+            # A field in the Flight half stays human (a pre-ADR key to drop, a cloud block): not this tool's to propose.
+            row.update(status="human", paths=sorted(f.path for f in st.files), reason=f"{e.rule}: {e.message}")
+            human.append({"id": st.id, "repo": repo, "paths": row["paths"], "reason": f"{e.rule}: {e.message}. {e.hint}".strip()})
+            continue
         if why:
             waiting = why
             row.update(status="waiting", reason=why)
@@ -235,7 +274,11 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
         for f in files:
             have = {"found": False} if f["path"] == "cicd.yaml" else git.read_file(repo, f["path"], "main", tenants=tenants)
             if have.get("found", True) is False:
-                kept.append(f)
+                if f.get("mustExist"):
+                    waiting = (f"{repo} does not have {f['path']} yet: the environment's values file is created when its tenants "
+                               "PR is merged and the platform has bootstrapped it")
+                    break
+                kept.append({k: v for k, v in f.items() if k != "mustExist"})
             elif have.get("content") == f["content"]:
                 continue
             elif any(r.match(f["path"]) for r in ONBOARDING_FILES) and isinstance(have.get("content"), str):
@@ -246,14 +289,24 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
                 raise Denied("APPLY-EXISTS", f"{repo} already has {f['path']} with other content",
                              "apply writes new files only; change an existing one with repo.pr.open for a person to "
                              "review (airframe.status shows where the app is).")
+        if waiting is not None:
+            row.update(status="waiting", reason=waiting)
+            continue
         files = kept
         if not files:
             row.update(status="noop", reason="the repository already has everything this step writes")
             continue
-        pr = git.ensure_pr(repo, branch, st.title, files, "main", meta=meta, body=_body(st, cs, verdict), tenants=tenants)
-        row.update(status="open", pr=pr["pr"], url=pr["url"])
+        # A Flight-half PR is marked for a person to merge: the trailer rides in the commit, the receipt in the result.
+        person = flight or bool(verdict and verdict.get("needsPerson"))
+        pr = git.ensure_pr(repo, branch, st.title, files, "main", meta={**meta, "merge": MERGE_PERSON} if person else meta,
+                           body=_body(st, cs, verdict, person), tenants=tenants)
+        row.update(status="awaiting-merge" if person else "open", pr=pr["pr"], url=pr["url"])
+        if person:
+            row["mergeBy"] = MERGE_PERSON
         paths = git.pr_paths(repo, pr["pr"], tenants=tenants) if pr.get("resumed") else sorted(f["path"] for f in files)
         current = {**pr, "step": st.id, "repo": repo, "paths": paths}
+        if person:
+            current.update(merge=MERGE_PERSON, needsPerson=paths)
 
     out: dict[str, Any] = {"app": app, "steps": steps, "humanSteps": human, "assumptions": cs.assumptions,
                            "warnings": cs.warnings}
@@ -262,9 +315,13 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
                    pr=current["pr"], url=current["url"], branch=current["branch"], commit=current["commit"],
                    repo=current["repo"], paths=current["paths"], resumed=bool(current.get("resumed")),
                    next="A person merges this PR; call airframe.apply again with the same spec to open the next step.")
+        if current.get("merge") == MERGE_PERSON:
+            out.update(merge=MERGE_PERSON, needsPerson=current["needsPerson"],
+                       next="Only a person may merge this PR (it changes a Flight environment or its values): ask one with "
+                            "human.request. Call airframe.apply again with the same spec after they merge it, to open the next step.")
     elif waiting is not None:
         out.update(state="waiting", reason=waiting, next="Wait for the platform, then call airframe.apply again with the same spec.")
     else:
-        out.update(state="agent-steps-merged", next="Every step this tool opens is merged. The humanSteps are for a person; "
+        out.update(state="agent-steps-merged", next="Every step this tool opens is merged. The humanSteps (if any) are for a person; "
                    "airframe.status, describe and verify show the environments coming up.")
     return out

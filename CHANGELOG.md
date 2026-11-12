@@ -5,6 +5,31 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Changed (A-11, temporary pin)
+- CI and `pyproject.toml` pin Clearance to clearance#147's head commit `01120f84376c` (the `propose` support this change needs, unreleased), to break the clearance/autopilot CI cycle. Likewise `GLIDEPATH_REF` is glidepath#242's head until it merges (contract v2). Re-pin Clearance to the release tag once it releases, and `GLIDEPATH_REF` to `main`.
+
+### Added (A-11, the `propose` scope: agents propose the Flight half, a person merges it)
+- Owner decision 2026-11-12: when asked to configure an app, the agent configures every environment named, and a person approves
+  anything that touches prod. Glidepath's contract version 2 adds the `propose` scope class; this repo's side (docs/admin in
+  Glidepath's contract.md has the whole design):
+  - **`airframe.apply` takes `proposeFlight: true`** and then opens the Flight half, the `cicd-flight` step (Flight environments and
+    the release step in cicd.yaml, checked by glidepath-api as an agent's change) and the `gitops` step (the Flight values, merged into
+    `<cluster>/<env>/values.yaml` once each exists, `waiting` before), as PRs marked for a person to merge: a `Hangar-Merge: person`
+    commit trailer, a "Needs a person to merge" PR body, `merge: person` and `needsPerson: [paths]` in the result and the receipt,
+    and step status `awaiting-merge`. A field that stays human in the Flight change (GP-SCOPE-001/002/003) makes that step a `humanStep`
+    instead of failing the call. Without `proposeFlight` the Flight half is reported in `humanSteps`, as before.
+  - **R025** (`policy/hangar/bundle.json`): a call with `proposeFlight: true` is refused unless the definition sets
+    `profile.airframe.proposeFlight: true` (new in the agent-definition schema, byte-identical to Clearance's). `app-provisioner` sets it
+    and its instructions pass it; so does `parachute` (owner decision 2026-11-12), whose `repos.allow` gains `jfillman/gitops-parachute` for the Flight values PR. Opening the PRs stays T1: opening changes nothing, the person's merge is the control; no T2 sibling.
+  Both definitions' instructions (within 1500 chars) keep the person informed while a run waits: the `human.request` names the PR link, what merging it does and what comes next; a detected merge is said (which PR, by whom if reported) before `airframe.apply` is called again; the final report lists every PR as merged or open (`tests/test_airframe_apply.py` asserts it). `policy/hangar/bundle.json` is version 1.2.0.
+  - `glidepath.cicd.propose`: a change glidepath-api reports as `needsPerson` (a Flight environment added or changed, a release
+    step into one, a new environment's cluster) is opened with the same mark (`Hangar-Merge: person`, `merge: person`,
+    `needsPerson: [cicd.yaml]`).
+  - **R021** refuses a `propose` field on a file-writing tool (`repo.pr.open`), which cannot mark its PR: rule `GP-SCOPE-004`,
+    hint naming `glidepath.cicd.propose` and `airframe.apply`. The bundle names Glidepath contract versions 1 and 2; version 2
+    needs a Clearance with `propose` support (docscope) and the `merge`/`needsPerson` receipt fields.
+  - The receipt lists of `glidepath.cicd.propose` and `airframe.apply` gain `merge` and `needsPerson`. Rollout: Clearance, then this
+    (bundle, pin, definitions), then Glidepath.
 ### Changed
 - Every agent and the runtime catalog pin `autopilot-agent-runtime` runtime-v0.1.7 (sha256:b5c9832f…): a clipped tool
   result now says it was clipped and how to narrow the call (A-11 b).

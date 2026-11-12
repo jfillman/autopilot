@@ -1,8 +1,8 @@
 {
   "apiVersion": "clearance.policy/v1",
   "name": "hangar",
-  "version": "1.1.0",
-  "description": "Hangar's policy over the Autopilot gateway's glidepath.* and airframe.* tools: R021 Glidepath's cicd.yaml field scope (read from glidepath-api's contract at load) on any file-writing tool, R022 and R023 the per-agent app allowlists (profile.glidepath.apps, profile.airframe.apps), and the tools' argument checks (R008).",
+  "version": "1.2.0",
+  "description": "Hangar's policy over the Autopilot gateway's glidepath.* and airframe.* tools: R021 Glidepath's cicd.yaml field scope (read from glidepath-api's contract at load; its `propose` class is refused on a file-writing tool, which cannot mark a PR for a person to merge) on any file-writing tool, R022 and R023 the per-agent app allowlists (profile.glidepath.apps, profile.airframe.apps), R025 airframe.apply's proposeFlight only for a definition that sets profile.airframe.proposeFlight, and the tools' argument checks (R008).",
   "tools": [
     {
       "name": "glidepath.runs.list",
@@ -334,7 +334,7 @@
     {
       "name": "glidepath.cicd.propose",
       "tier": 1,
-      "description": "Propose a cicd.yaml change: validated by glidepath-api as an agent's change and refused with the GP rule when invalid, else opened as a pull request on the app's repo (repo: owner/<app>) that a human merges; title required, body and branch optional",
+      "description": "Propose a cicd.yaml change: validated by glidepath-api as an agent's change and refused with the GP rule when invalid, else opened as a pull request on the app's repo (repo: owner/<app>) that a human merges; title required, body and branch optional. A change the contract's `propose` class allows, such as a new Flight environment, is marked for a person to merge: the PR carries a `Hangar-Merge: person` trailer and the receipt says so",
       "required_args": [
         "app",
         "repo",
@@ -349,7 +349,9 @@
       "receipt": [
         "pr",
         "commit",
-        "branch"
+        "branch",
+        "merge",
+        "needsPerson"
       ]
     },
     {
@@ -454,7 +456,7 @@
     {
       "name": "airframe.apply",
       "tier": 1,
-      "description": "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull request on the tenants repo or the app's repo for a person to merge (one PR per call; call again with the same spec after each merge, or after an interruption: it resumes). The Flight half is left to people",
+      "description": "Apply an AppSpec: opens the next step of airframe.plan's change set as a pull request for a person to merge (one PR per call; call again with the same spec after each merge, or after an interruption: it resumes). Steps: the tenants repo, the app's repo, and with `proposeFlight: true` (only for a definition that sets profile.airframe.proposeFlight) the Flight half too: the Flight environments and release step in cicd.yaml and the Flight values in gitops-<app>, each marked for a person to merge (`awaiting-merge`, never merged by the tool or an agent). Without proposeFlight the Flight half is reported in humanSteps for a person",
       "required_args": [
         "spec"
       ],
@@ -466,7 +468,9 @@
       "receipt": [
         "pr",
         "commit",
-        "branch"
+        "branch",
+        "merge",
+        "needsPerson"
       ]
     }
   ],
@@ -483,7 +487,8 @@
       "name": "glidepath",
       "version_pointer": "/contractVersion",
       "compatible": [
-        1
+        1,
+        2
       ]
     }
   ],
@@ -507,6 +512,16 @@
       "name": "airframe_app_ok",
       "type": "bool",
       "expr": "!ctx.has_airframe_app || (tool.name == 'airframe.apply' ? ((('spec' in args && type(args['spec']) == map && 'app' in args['spec'] && type(args['spec']['app']) == string) ? string(args['spec']['app']) : '') != '' && glob.any((('spec' in args && type(args['spec']) == map && 'app' in args['spec'] && type(args['spec']['app']) == string) ? string(args['spec']['app']) : ''), py.strlist(py.get(py.get(profile, 'airframe'), 'apps')))) : (args['app'] == '' || glob.any(args['app'], py.strlist(py.get(py.get(profile, 'airframe'), 'apps')))))"
+    },
+    {
+      "name": "apply_wants_flight",
+      "type": "bool",
+      "expr": "tool.name == 'airframe.apply' && 'proposeFlight' in args && type(args['proposeFlight']) == bool && args['proposeFlight']"
+    },
+    {
+      "name": "flight_proposal_allowed",
+      "type": "bool",
+      "expr": "py.get(py.get(profile, 'airframe'), 'proposeFlight') == true"
     }
   ],
   "arg_checks": [
@@ -562,7 +577,8 @@
         "'mode' in args && args['mode'] != 'values' && args['mode'] != 'xr'",
         "'render' in args && type(args['render']) != bool",
         "'spec' in args && type(args['spec']) != map",
-        "'baseCicd' in args && !(type(args['baseCicd']) == map || (type(args['baseCicd']) == string && py.len(args['baseCicd']) <= 262144))"
+        "'baseCicd' in args && !(type(args['baseCicd']) == map || (type(args['baseCicd']) == string && py.len(args['baseCicd']) <= 262144))",
+        "'proposeFlight' in args && type(args['proposeFlight']) != bool"
       ]
     }
   ],
@@ -607,7 +623,7 @@
           ],
           "protected_change": {
             "message": "Flight environment '{key}' {what}",
-            "hint": "Flight environments are changed by a human. An agent may add or change Ground environments."
+            "hint": "Flight environments are proposed, not opened here: use glidepath.cicd.propose or airframe.apply (proposeFlight), which mark the pull request for a person to merge. An agent may add or change Ground environments directly."
           }
         }
       ],
@@ -663,7 +679,11 @@
             }
           ]
         }
-      ]
+      ],
+      "propose": {
+        "rule": "GP-SCOPE-004",
+        "hint": "This field needs a person's merge: propose it with glidepath.cicd.propose or airframe.apply (proposeFlight), which mark the pull request for a person to merge, instead of repo.pr.open."
+      }
     }
   ],
   "app": "(tool.name.startsWith('glidepath.') || tool.name.startsWith('airframe.') || tool.name == 'xr.request') ? (tool.name == 'airframe.apply' ? ('spec' in args && type(args['spec']) == map && 'app' in args['spec'] && type(args['spec']['app']) == string ? string(args['spec']['app']) : '') : ('app' in args && type(args['app']) == string ? string(args['app']) : '')) : (tool.name.startsWith('repo.') && 'repo' in args && type(args['repo']) == string && args['repo'].contains('/') ? py.trim_prefix(string(args['repo']).substring(string(args['repo']).lastIndexOf('/') + 1), ['gitops-infra-', 'gitops-']) : '')",
@@ -683,6 +703,14 @@
       "message": "that app is not on this agent's Airframe allowlist",
       "hint": "Read only the apps your definition names under profile.airframe.apps.",
       "order": 190
+    },
+    {
+      "id": "R025",
+      "name": "flight-proposal-not-allowed",
+      "expr": "ctx.apply_wants_flight && !ctx.flight_proposal_allowed",
+      "message": "this agent's definition does not allow proposing Flight changes",
+      "hint": "Call airframe.apply without proposeFlight (the Flight half is then reported for a person), or ask a person to set profile.airframe.proposeFlight: true in the definition.",
+      "order": 195
     },
     {
       "id": "R021",

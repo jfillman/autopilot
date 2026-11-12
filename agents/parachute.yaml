@@ -6,7 +6,8 @@ identity: { type: delegated }
 # Package A-3, the parachute test: one statement of intent (examples/parachute.appspec.yaml) to a running app, with a
 # person merging every step. Its one write is airframe.apply (T1), which re-plans the AppSpec itself and opens the next
 # step as a PR through the agents' GitHub App: the tenants repo, then the app's repo. It has no merge, approve or
-# push tool, and apply never opens the Flight half (cicd.yaml's Flight fields, gitops-<app>), so those stay with people.
+# push tool. profile.airframe.proposeFlight (owner decision 2026-11-12) lets apply also open the Flight half (cicd.yaml's
+# Flight fields, gitops-<app>) as PRs marked for a person to merge; opening changes nothing, the merge is the control.
 # Resume is not memory: apply derives where it is from GitHub (branches fixed by the plan), so a run killed at any
 # point and started again with the same AppSpec opens no duplicate and loses nothing. profile.airframe.apps is the
 # whole scope: an AppSpec for another app is refused (R023) before apply runs. No repo or run tool is listed, and
@@ -15,10 +16,11 @@ profile:
   tierCeiling: T1
   tools: [airframe.capabilities, airframe.explain, airframe.plan, airframe.apply, airframe.status, airframe.describe,
           airframe.verify, human.request]
-  airframe: { apps: ["parachute"] }
+  airframe: { apps: ["parachute"], proposeFlight: true }
   # Not read by the core for apply (its arguments name no repo), but by Clearance's agent-scope gate on every PR the tool
-  # opens: AS003 flags a PR on a repo outside this list. The app's repo, and the tenants repo (AIRFRAME_TENANTS_REPO).
-  repos: { allow: ["jfillman/parachute", "jfillman/gitops-hangar-dev-tenants"] }
+  # opens: AS003 flags a PR on a repo outside this list. The app's repo, its gitops repo (the Flight values), and the tenants
+  # repo (AIRFRAME_TENANTS_REPO).
+  repos: { allow: ["jfillman/parachute", "jfillman/gitops-parachute", "jfillman/gitops-hangar-dev-tenants"] }
   models: [claude-sonnet-5-5]
   network: clearance+model
   compute: small
@@ -28,17 +30,14 @@ runtime:
   framework: generic
   instructions: >-
     Bring app `parachute` up with airframe.apply; change nothing any other way. The spec must say EVERYTHING asked.
-    1. Call airframe.capabilities ONCE with section `appspec` (fields, config/overrides, worked example); write the spec
-    from it, never guess fields.
-    2. airframe.plan the spec (baseCicd if you have it): at most 3 plan calls. Still failing, or needsInput: STOP, ask
-    with human.request.
-    3. Anything asked that the AppSpec cannot express: STOP, ask with human.request. Never proceed with less than asked.
-    4. airframe.apply, same spec; one PR per call. `awaiting-merge`: human.request "merge <url>, then reply", poll
-    human.request.get, then apply again in this run. `waiting` (see reason; an open onboarding resync PR is one): ask a
-    person with human.request, continue. Closed PR or APPLY-CONFLICT (a person set that key): ask, name the keys.
-    `agent-steps-merged`: done.
-    5. `humanSteps` are the Flight half: report repo, paths, reason; never open them. airframe.status/describe/verify
-    show progress.
-    6. EVERY stop before done: end the report with a ready-to-paste RESUME PROMPT holding the exact AppSpec JSON.
-    Report each PR link, what is merged, who is awaited, and rule ids of failures.
+    1. airframe.capabilities ONCE, section `appspec`; write the spec from it, never guess fields.
+    2. airframe.plan the spec (baseCicd if you have it), at most 3 calls. Failing or needsInput: STOP, ask with human.request.
+    3. Anything the AppSpec cannot express: STOP, ask. Never proceed with less than asked.
+    4. airframe.apply, same spec, `proposeFlight: true`; one PR per call. `awaiting-merge`: human.request "merge <url>,
+    then reply": what merging it does (`merge: person` = a Flight change only a person may merge) and what comes next;
+    poll human.request.get. Merged: say which PR (and who, if reported), then apply again in this run. `waiting` (reason):
+    ask, continue. Closed PR or APPLY-CONFLICT: ask, name the keys. `agent-steps-merged`: done.
+    5. `humanSteps`: report repo, paths, reason; never open them. airframe.status/describe/verify show progress.
+    6. EVERY stop before done: end with a ready-to-paste RESUME PROMPT holding the exact AppSpec JSON.
+    Final report: every PR link, merged or open, who is awaited, rule ids of failures.
 triggers: [ { type: manual } ]

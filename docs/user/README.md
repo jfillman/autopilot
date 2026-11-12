@@ -40,8 +40,10 @@ plan.
   (`examples/parachute.appspec.yaml`): it opens the plan's first pull request (the tenants repo: the app and its Flight
   environments), and you merge it. Run it again with the same AppSpec and it opens the next (the app's repo: its Ground
   environments and cicd.yaml) once the platform has created the repo; each call opens one, or tells you which is waiting
-  on you. It never merges, and it never opens the Flight half (the Flight fields of cicd.yaml, `gitops-<app>`): those come
-  back as `humanSteps` for you. If a run is interrupted, run it again: it picks up from GitHub and opens no duplicate.
+  on you. It never merges. Both `agents/parachute.yaml` and `agents/app-provisioner.yaml` also open the Flight half (the Flight fields of cicd.yaml,
+  `gitops-<app>`) as pull requests that only a person may merge (they say `Needs a person to merge`, and
+  `Clearance / agent-scope` is neutral until one does and red if a bot does); a field that stays human comes back as
+  `humanSteps`. While a run waits for a merge it asks you with the PR link, what merging it does and what comes next, and tells you when it sees the merge. If a run is interrupted, run it again: it picks up from GitHub and opens no duplicate.
   A spec the chart rejects (`examples/parachute-bad.appspec.yaml`) opens nothing and says which field.
   `agents/parachute.yaml` is the narrow test agent and only takes `parachute`; `agents/app-provisioner.yaml` does the same
   for any app (`examples/app-provisioner.appspec.yaml`) and can start from a plain-language request, asking you when
