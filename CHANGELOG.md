@@ -17,7 +17,8 @@ says what each gateway tag adds. The manager cuts the tags.
     instead of failing the call. Without `proposeFlight` the Flight half is reported in `humanSteps`, as before.
   - **R025** (`policy/hangar/bundle.json`): a call with `proposeFlight: true` is refused unless the definition sets
     `profile.airframe.proposeFlight: true` (new in the agent-definition schema, byte-identical to Clearance's). `app-provisioner` sets it
-    and its instructions pass it; `parachute` does not.
+    and its instructions pass it; so does `parachute` (owner decision 2026-11-12), whose `repos.allow` gains `jfillman/gitops-parachute` for the Flight values PR. Opening the PRs stays T1: opening changes nothing, the person's merge is the control; no T2 sibling.
+  Both definitions' instructions (within 1500 chars) keep the person informed while a run waits: the `human.request` names the PR link, what merging it does and what comes next; a detected merge is said (which PR, by whom if reported) before `airframe.apply` is called again; the final report lists every PR as merged or open (`tests/test_airframe_apply.py` asserts it). `policy/hangar/bundle.json` is version 1.2.0.
   - `glidepath.cicd.propose`: a change glidepath-api reports as `needsPerson` (a Flight environment added or changed, a release
     step into one, a new environment's cluster) is opened with the same mark (`Hangar-Merge: person`, `merge: person`,
     `needsPerson: [cicd.yaml]`).

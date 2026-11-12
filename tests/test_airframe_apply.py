@@ -704,13 +704,16 @@ def test_through_the_gateway_the_flight_receipt_says_a_person_must_merge(wired, 
 
 
 def test_a_definition_without_proposeFlight_is_refused_R025_before_anything_is_sent(wired, gw, hub):
-    sid = gw.open_session("alice", "parachute").data["session"]
-    r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC, "proposeFlight": True})
-    assert not r.ok and r.decision["rule"] == "R025" and hub.reqs == []
-    assert "proposeFlight" in r.decision["hint"]
-    # the same call without it is the ordinary one
-    assert gw.call("alice", sid, "airframe.apply", {"spec": SPEC}).ok
+    from coreenv import core_decide
+    spec = {"spec": SPEC, "proposeFlight": True}
+    # A profile without the key (any definition that lacks it): R025 names it; with it, the call is decided
+    r = core_decide("airframe.apply", spec, {"airframe": {"apps": ["parachute"]}})
+    assert not r["decision"] and r["context"]["rule"] == "R025" and "proposeFlight" in r["context"]["hint"]
+    assert core_decide("airframe.apply", spec, {"airframe": {"apps": ["parachute"], "proposeFlight": False}})["context"]["rule"] == "R025"
+    assert core_decide("airframe.apply", spec, {"airframe": {"apps": ["parachute"], "proposeFlight": True}})["context"].get("rule") != "R025"
+    assert core_decide("airframe.apply", {"spec": SPEC}, {"airframe": {"apps": ["parachute"]}})["context"].get("rule") != "R025"
     # a non-boolean is refused by the argument check, a false is a no-ask
+    sid = gw.open_session("alice", "parachute").data["session"]
     r = gw.call("alice", sid, "airframe.apply", {"spec": SPEC, "proposeFlight": "yes"})
     assert not r.ok and r.decision["rule"] == "R008"
     assert gw.call("alice", sid, "airframe.apply", {"spec": SPEC, "proposeFlight": False}).ok
@@ -743,12 +746,12 @@ def test_the_parachute_definition_can_plan_and_apply_and_nothing_that_reaches_gi
     assert {"airframe.apply", "airframe.plan", "airframe.status"} <= d.limits.tools
     assert not {t for t in d.limits.tools if t.startswith(("repo.", "xr.", "argo.", "run.", "glidepath."))}
     assert d.limits.children == 0 and d.limits.tier_ceiling == Tier.T1
-    assert d.raw_profile["airframe"] == {"apps": ["parachute"]}
-    # the agent-scope gate (AS003) holds each PR's repo to the definition's repos.allow: the two repos apply writes, on
-    # Hangar (the default AIRFRAME_TENANTS_REPO), and no more
+    assert d.raw_profile["airframe"] == {"apps": ["parachute"], "proposeFlight": True}
+    # the agent-scope gate (AS003) holds each PR's repo to the definition's repos.allow: the repos apply writes (the tenants
+    # repo, the app's, and its gitops repo for the Flight values), on Hangar (the default AIRFRAME_TENANTS_REPO), and no more
     from autopilot import serve
     tenants = serve.config_from_env({"AUTOPILOT_EPHEMERAL": "1", **core_env()}).airframe_tenants_repo
-    assert sorted(d.repos_allow) == sorted(["jfillman/parachute", f"jfillman/{tenants}"])
+    assert sorted(d.repos_allow) == sorted(["jfillman/parachute", "jfillman/gitops-parachute", f"jfillman/{tenants}"])
 
 
 def test_the_app_provisioner_definition_has_parachutes_tools_and_limits_with_a_wider_scope():
@@ -758,7 +761,7 @@ def test_the_app_provisioner_definition_has_parachutes_tools_and_limits_with_a_w
     assert d.limits.tools == p.limits.tools and d.limits.children == 0 and d.limits.tier_ceiling == Tier.T1
     assert not {t for t in d.limits.tools if t.startswith(("repo.", "xr.", "argo.", "run.", "glidepath."))}
     assert d.raw_profile["airframe"] == {"apps": ["*"], "proposeFlight": True} and list(d.repos_allow) == ["jfillman/*"]
-    assert "proposeFlight" not in p.raw_profile["airframe"], "parachute never proposes the Flight half"
+    assert p.raw_profile["airframe"]["proposeFlight"] is True and d.raw_profile["airframe"]["proposeFlight"] is True
 
 
 # -- run warnings (A-11i): the gateway notes what the calls did, results.warnings flags the run ----------------------
@@ -797,9 +800,26 @@ def test_the_parachute_definition_carries_the_provisioning_contract():
     text, tools = doc["runtime"]["instructions"], doc["profile"]["tools"]
     assert len(text) <= 1500, "the definition schema's instructions limit"
     assert "human.request" in tools and "airframe.capabilities" in tools
-    for needle in ("section `appspec`", "at most 3 plan calls", "Never proceed with less than asked", "RESUME PROMPT",
+    for needle in ("section `appspec`", "at most 3 calls", "Never proceed with less than asked", "RESUME PROMPT",
                    "merge <url>, then reply", "human.request.get"):
         assert needle in text, needle
+    assert_waiting_contract(text)
+    prov = yaml.safe_load((ROOT / "agents" / "app-provisioner.yaml").read_text())["runtime"]["instructions"]
+    assert len(prov) <= 1500
+    assert_waiting_contract(prov)
+
+
+def assert_waiting_contract(text):
+    """Owner's condition for the long ttl (2026-11-12): while a run waits for a merge it keeps the person informed. The
+    human.request names the PR and what merging it does and what comes next; a detected merge is said (which PR, by whom
+    if reported) before apply is called again; the final report lists every PR as merged or open. And it passes
+    proposeFlight, the only way the Flight half is opened."""
+    flat = " ".join(text.split())
+    assert "`proposeFlight: true`" in flat
+    assert "what merging it does" in flat and "what comes next" in flat
+    assert "Merged: say which PR" in flat and "who, if reported" in flat and "then apply again" in flat
+    assert "every PR link, merged or open" in flat
+    assert "human.request.get" in flat
 
 
 def test_onboarding_file_patterns_match_the_gitops_cluster_env_layout():

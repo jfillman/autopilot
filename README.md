@@ -598,7 +598,7 @@ the design and its enforcement are in Glidepath's `docs/admin/contract.md`, "pro
 | Where | What |
 |---|---|
 | `airframe.apply` | `proposeFlight: true` opens `cicd-flight` and `gitops` as PRs marked for a person to merge: the commit trailer `Hangar-Merge: person`, a "Needs a person to merge" PR body, `merge: person` and `needsPerson: [paths]` in the result (so in Clearance's receipt), step status `awaiting-merge`. The tool still has no merge call at all. |
-| R025 | `proposeFlight` is refused (before anything is sent) unless the definition sets `profile.airframe.proposeFlight: true`. `app-provisioner` does, `parachute` does not. A non-boolean is R008. |
+| R025 | `proposeFlight` is refused (before anything is sent) unless the definition sets `profile.airframe.proposeFlight: true`. `app-provisioner` and `parachute` do (owner decision 2026-11-12, both). A non-boolean is R008. |
 | R021 | A `propose` field on `repo.pr.open` (which cannot mark its PR) is refused: `GP-SCOPE-004`, the hint naming `glidepath.cicd.propose` and `airframe.apply`. Changing an existing environment's cluster is still `GP-SCOPE-001`. |
 | `glidepath.cicd.propose` | A change glidepath-api reports as `needsPerson` is opened with the same mark. |
 | Clearance | The receipt's `merge` and `needsPerson` make `Clearance / agent-scope` neutral ("needs a person: <paths>") until a person merges the PR, success then, and a failure (AS005) if a bot or an agents' login did. Glidepath's readers do not read that neutral as success. |

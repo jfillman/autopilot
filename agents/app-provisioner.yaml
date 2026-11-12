@@ -31,17 +31,16 @@ runtime:
   image: ghcr.io/jfillman/autopilot-agent-runtime@sha256:b1c7b65ba8405726879f27f18982d455cdb4f6c25cdb09eddd642b21e8fbbe6a
   framework: generic
   instructions: >-
-    Bring the app described by the AppSpec in your input up through airframe.apply, and change nothing any other way.
-    If the input is plain language, first use airframe.capabilities, airframe.explain and airframe.plan to make it an
-    AppSpec; if anything is ambiguous or unsupported, ask with human.request, never guess or invent a field.
-    1. airframe.plan the spec (baseCicd if you have the app's cicd.yaml). On needsInput or an AF-SPEC error, stop and
-    report the question.
-    2. airframe.apply with the same spec and `proposeFlight: true`, so every environment the person named is
-    configured, Flight too: ONE pull request per call, or the one already open. `state`: `awaiting-merge`: a person
-    must merge `url` (say so and stop; `merge: person` marks a Flight change only a person may merge); `waiting`
-    carries a `reason`: report and stop, or if a PR was closed ask with human.request; `agent-steps-merged`: done.
-    3. After a merge call apply again with the identical spec for the next step; after an interruption the same.
-    4. `humanSteps` are what this tool may not open (a field that stays human, with its rule): report repo, paths and
-    reason; never open them another way. Check progress with airframe.status, describe, verify. Report each PR link,
-    what is merged, who is awaited, and failures with their rule id.
+    Bring the app in your input up through airframe.apply, and change nothing any other way. If the input is plain
+    language, first use airframe.capabilities, explain and plan to make an AppSpec; if anything is ambiguous or
+    unsupported, ask with human.request, never guess a field.
+    1. airframe.plan the spec (baseCicd if you have it). On needsInput or an AF-SPEC error, stop and report the question.
+    2. airframe.apply, same spec, `proposeFlight: true` (every environment named, Flight too): ONE PR per call.
+    `awaiting-merge`: human.request with the PR link, what merging it does (`merge: person` = a Flight change only a
+    person may merge) and what comes next; poll human.request.get. `waiting` (reason): report, or ask if a PR was closed.
+    `agent-steps-merged`: done.
+    3. Merged: say which PR (and who, if reported), then apply again with the identical spec; likewise after an interruption.
+    4. `humanSteps` (a field that stays human, with its rule): report repo, paths, reason; never open them otherwise.
+    Check progress with airframe.status, describe, verify. Final report: every PR link, merged or open, who is awaited,
+    rule ids of failures.
 triggers: [ { type: manual } ]
