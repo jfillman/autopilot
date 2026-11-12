@@ -83,11 +83,6 @@ def def_records(gw):
     return [r for r in gw.core.records if r["tool"].startswith("definition.") and not r["principal"].startswith("provider:")]
 
 
-def bundled_records(gw):
-    """The definition.* records for the gateway's own bundled agents (principal provider:<gateway>)."""
-    return [r for r in gw.core.records if r["tool"].startswith("definition.") and r["principal"].startswith("provider:")]
-
-
 def loader(gw, items, files, clock):
     return AgentXRs(gw, Reader(items), GitHub(files), clock=clock)
 
@@ -336,6 +331,15 @@ def test_an_older_core_that_refuses_bundled_is_published_without_it_and_not_aske
     assert [x["bundled"] is not None for x in c.calls] == [True, False]
     assert core.publish_definitions([], [], [("a", {"name": "a"})])
     assert [x["bundled"] is not None for x in c.calls] == [True, False, False]
+
+
+def test_an_unknown_field_other_than_bundled_is_not_taken_for_an_older_core():
+    from autopilot.engine.core import Core
+    from clearance_client import CoreRequestError
+    c = RecordingClient(CoreRequestError("publishDefinitions", 400, "json: unknown field \"rejected\""))
+    core = Core(client=None, definitions_client=c)
+    assert core.publish_definitions([], [], [("a", {"name": "a"})]) is False
+    assert len(c.calls) == 1 and core._core_takes_bundled
 
 
 def test_another_refusal_of_the_bundled_set_is_not_swallowed():

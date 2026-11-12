@@ -253,7 +253,7 @@ class Core:
             try:
                 res = self._put_definitions(pins, rej, send)
             except CoreRequestError as e:
-                if send is None or e.status != 400 or "unknown field" not in e.message:
+                if send is None or e.status != 400 or "unknown field" not in e.message or '"bundled"' not in e.message:
                     raise
                 self._core_takes_bundled = False
                 log.warning("clearance core does not take bundled definitions yet (%s): publishing the pins without "
