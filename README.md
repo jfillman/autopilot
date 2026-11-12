@@ -109,8 +109,8 @@ client's `CoreUnavailable`), the gateway:
 | a human answer, a run launch | refused (the answer is not given, the run is deleted again): each stands only with its record |
 
 The outbox (`gateway_outbox`, `engine/outbox.py`) is posted in order once the core answers: by the expiry sweep, and
-before any new record, so nothing overtakes what waits. The client's timeout is 250 ms per attempt with one retry,
-and its breaker opens after 5 consecutive failures, so later calls are denied at once without a request (it lets one
+before any new record, so nothing overtakes what waits. The client's timeout is 1 s per attempt (`CLEARANCE_CORE_TIMEOUT`; a 306 ms ledger write once cancelled a 250 ms request) with one retry
+(a timeout, a connection failure or a 503; never a 4xx), and its breaker opens after 5 consecutive failures, so later calls are denied at once without a request (it lets one
 probe through every 5 s). A core that answers but refuses a request (a 4xx, an unreadable answer) is a deny too,
 rule `CORE-REFUSED`. `GET /healthz` shows the breaker (`"core": "closed" | "open" | "half-open"`).
 
@@ -121,7 +121,7 @@ read is posted as the core's `tool.call` record, naming the tool, `tier` 0, `cov
 rule. The definition set is never in the outbox: the gateway publishes it whole (`PUT /v1/definitions`) after every
 poll that changed it and on its first poll; a publish the core does not take (unreachable, or refused) is made again
 on the next poll, whole. That call has its own client, a 5 s timeout and its own breaker, so a set of up to 256 pins
-never trips the decisions' 250 ms breaker. Held `definition.*` rows an older gateway wrote are deleted when the
+never trips the decisions' breaker. Held `definition.*` rows an older gateway wrote are deleted when the
 gateway opens its database (they can never be posted: the core is their one writer).
 
 Design, plan and diagrams: `../hangar/docs/autopilot/` (start at `README.md`).

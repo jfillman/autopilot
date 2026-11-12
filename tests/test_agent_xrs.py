@@ -144,7 +144,7 @@ def test_a_pin_that_cannot_load_is_rejected_with_the_reason(gw, clock, answer, r
 def test_the_set_is_published_on_its_own_client_with_a_longer_deadline(gw):
     from autopilot.engine.core import DEFINITIONS_TIMEOUT
     assert gw.core.definitions_client is not gw.core.client
-    assert gw.core.definitions_client.timeout == DEFINITIONS_TIMEOUT == 5.0 and gw.core.client.timeout == 0.25
+    assert gw.core.definitions_client.timeout == DEFINITIONS_TIMEOUT == 5.0 and gw.core.client.timeout < DEFINITIONS_TIMEOUT
 
 
 def test_a_set_the_core_did_not_take_is_published_again_whole_on_the_next_poll(gw, clock):

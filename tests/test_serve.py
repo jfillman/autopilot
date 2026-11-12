@@ -57,6 +57,14 @@ def test_the_outage_switch_is_off_by_default():
     assert serve.config_from_env(EPH).outage_allow_reads is False
 
 
+def test_the_decision_timeout_is_configurable_and_defaults_to_a_second():
+    assert serve.config_from_env(EPH).core_timeout == 1.0
+    assert serve.config_from_env({**EPH, "CLEARANCE_CORE_TIMEOUT": "2.5"}).core_timeout == 2.5
+    for bad in ("0", "0.001", "99", "x"):
+        with pytest.raises(serve.ConfigError):
+            serve.config_from_env({**EPH, "CLEARANCE_CORE_TIMEOUT": bad})
+
+
 @pytest.mark.parametrize("var", serve.CORE_ONLY)
 def test_the_cores_settings_are_refused_on_the_gateway(var):
     # The evidence DSN, verifiers, provenance's logins, the GitHub App and GitHub Actions callers are the core's.
