@@ -5,8 +5,8 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
-### Changed (A-11, temporary pin)
-- CI and `pyproject.toml` pin Clearance to clearance#147's head commit `01120f84376c` (the `propose` support this change needs, unreleased), to break the clearance/autopilot CI cycle. Likewise `GLIDEPATH_REF` is glidepath#242's head until it merges (contract v2). Re-pin Clearance to the release tag once it releases, and `GLIDEPATH_REF` to `main`.
+### Changed (A-11 pins)
+- CI and `pyproject.toml` pin Clearance v0.44.0 (`propose` and bulk resolutions). `GLIDEPATH_REF` stays glidepath#242's head (contract v2) until it merges, then goes back to `main`.
 
 ### Added (A-11, the `propose` scope: agents propose the Flight half, a person merges it)
 - Owner decision 2026-11-12: when asked to configure an app, the agent configures every environment named, and a person approves
