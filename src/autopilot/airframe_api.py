@@ -24,6 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .engine.backends import BackendError
 from .engine.dispatch import Denied
 
 _SEG = r"[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?"
@@ -37,7 +38,7 @@ _AUTH_STATUSES = (401, 403)
 MAX_PAGES = 20
 
 
-class AirframeError(Exception):
+class AirframeError(BackendError):
     """The API server failed or could not be reached. Never shown to the agent (dispatch says "backend error")."""
 
 

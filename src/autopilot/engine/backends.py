@@ -21,6 +21,17 @@ if TYPE_CHECKING:
 Handler = Callable[["Session", dict[str, Any]], Any]
 
 
+class BackendError(Exception):
+    """A backend failed or could not be reached. The agent is only ever told "backend error" (dispatch,
+    unless the class offers an agent_message). What the class offers as `evidence` is the short, non-secret internal
+    reason (a status, a rule id, an exception type: never a token, a header or a response body) that goes into the
+    gateway's log and onto the call's outcome record, so the next failure is diagnosable from evidence."""
+
+    @property
+    def evidence(self) -> str:
+        return str(self)[:160]
+
+
 class GitBackend(Protocol):
     """read_file is optional: a backend without it gives repo.file.get no handler."""
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main") -> dict[str, Any]: ...

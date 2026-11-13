@@ -23,6 +23,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .engine.backends import BackendError
 from .engine.dispatch import Denied
 
 from . import glidepath_live
@@ -31,8 +32,14 @@ from . import glidepath_live
 _AUTH_STATUSES = (401, 403)
 
 
-class GlidepathError(Exception):
+class GlidepathError(BackendError):
     """glidepath-api failed or could not be reached. Never shown to the agent (dispatch says "backend error")."""
+
+
+def _why(e: OSError) -> str:
+    """The exception's type, and its cause's when urllib wrapped one (URLError(ConnectionRefusedError)); never its text."""
+    inner = e.reason if isinstance(e, urllib.error.URLError) else None
+    return type(e).__name__ + (f"({type(inner).__name__})" if isinstance(inner, BaseException) else "")
 
 
 Opener = Callable[[urllib.request.Request, float], tuple[int, bytes]]
@@ -108,7 +115,7 @@ class GlidepathAPI:
         try:
             return self._open(req, self.timeout)
         except OSError as e:
-            raise GlidepathError(f"glidepath-api unreachable: {type(e).__name__}") from e
+            raise GlidepathError(f"glidepath-api unreachable: {_why(e)}") from e
 
     def _json(self, path: str, on_behalf_of: str, query: dict[str, Any] | None = None) -> Any:
         status, body = self._get(path, on_behalf_of, query=query)

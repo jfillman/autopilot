@@ -31,6 +31,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .engine.backends import BackendError
 from .engine.dispatch import Denied
 
 from .airframe_api import KubeReader, Opener, _urlopen, argo_path
@@ -40,8 +41,13 @@ LOWER_SUFFIX = "-lower"
 APP_NAME = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
 
 
-class ArgoSyncError(Exception):
+class ArgoSyncError(BackendError):
     """The API server refused or failed the patch. Never shown to the agent (dispatch says "backend error")."""
+
+    @property
+    def evidence(self) -> str:
+        """The status and the Application, not the API server's body (it can echo the patch)."""
+        return str(self).split(": ", 1)[0][:160]
 
 
 class ArgoSync:

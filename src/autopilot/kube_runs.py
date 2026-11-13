@@ -19,6 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .engine.backends import BackendError
 from .airframe_api import Opener, _urlopen
 from .manifests import API_VERSION, RUN_NAMESPACE
 
@@ -28,7 +29,7 @@ COLLECTION = f"/apis/{API_VERSION}/namespaces/{RUN_NAMESPACE}/agentruns"
 _NAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 
-class KubeRunError(Exception):
+class KubeRunError(BackendError):
     """The API server refused or failed a create or delete. Never shown to the agent (dispatch says "backend error")."""
 
 

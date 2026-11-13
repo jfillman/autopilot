@@ -19,6 +19,7 @@ import dataclasses
 import functools
 import hashlib
 import json
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -37,6 +38,8 @@ from .profile import AgentDefinition
 from .scope import BadPath, normalize
 from .session import Session, SessionStore
 from .tiers import Pack, Tier, registry, CORE_TOOLS
+
+log = logging.getLogger(__name__)
 
 # A Preflight result's values (clearance evidence `preflight.result`).
 PREFLIGHT_RESULTS = ("pass", "fail", "not-run")
@@ -369,6 +372,7 @@ class Gateway:
             dd = Verdict(False, e.rule, "refused", e.message, e.hint, int(spec.tier))
             return Result(False, dd.as_dict(), error=e.message, audit_seq=seq or v.seq, session=s.id)
         except Exception as e:  # noqa: BLE001 - never leak backend internals to the agent
+            _log_backend_failure(s, tool, e)
             seq = self.core.outcome(v.decision_id, _error_result(e))
             return Result(False, v.as_dict(), error=_backend_error(e), audit_seq=seq or v.seq, session=s.id)
         if tool == "airframe.apply":
@@ -412,6 +416,7 @@ class Gateway:
             dd = Verdict(False, e.rule, "refused", e.message, e.hint, tier)
             return Result(False, dd.as_dict(), error=e.message, session=s.id)
         except Exception as e:  # noqa: BLE001
+            _log_backend_failure(s, tool, e)
             self.core.outage_read({**fields, "result": _error_result(e)})
             return Result(False, allowed.as_dict(), error=_backend_error(e), session=s.id)
         self.core.outage_read({**fields, "result": "ok"})
@@ -1116,6 +1121,15 @@ def _backend_error(e: Exception) -> str:
     status and the other side's own reason, never a token) adds to "backend error"; any other stays opaque."""
     msg = getattr(e, "agent_message", None)
     return f"backend error: {msg}" if isinstance(msg, str) and msg else "backend error"
+
+
+def _log_backend_failure(s: Session, tool: str, e: Exception) -> None:
+    """The gateway's own account of a backend failure, for whoever reads its log: the run, session and tool, the
+    exception's type and its evidence when it offers one (a status, a rule id: never a token, a header or a body).
+    The agent is told none of it."""
+    ev = getattr(e, "evidence", None)
+    log.warning("backend failure: tool=%s agent=%s session=%s run=%s %s%s", tool, s.agent, s.id, s.run or "-",
+                type(e).__name__, f": {ev}" if isinstance(ev, str) and ev else "")
 
 
 def _error_result(e: Exception) -> str:
