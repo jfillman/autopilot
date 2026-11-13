@@ -33,6 +33,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .engine.backends import BackendError
 from .engine.dispatch import Denied
 
 from .airframe_api import KubeReader, argo_path
@@ -46,7 +47,7 @@ MAX_RESOURCES = 50
 _NAME = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
 
 
-class ReadError(Exception):
+class ReadError(BackendError):
     """A read backend failed or could not be reached. Never shown to the agent (dispatch says "backend error")."""
 
 

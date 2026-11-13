@@ -37,6 +37,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .engine.backends import BackendError
 from .engine.dispatch import Denied
 
 GITHUB_API = "https://api.github.com"
@@ -50,7 +51,7 @@ MAX_FILE_BYTES = 1 << 20
 REASON_MAX = 300
 
 
-class GitHubError(Exception):
+class GitHubError(BackendError):
     """The broker or GitHub failed. Its text (a status and the other side's own reason, never a token: both sides
     answer JSON with an error/message string, and the token only ever goes in an Authorization header) is what the
     agent is told after "backend error" (engine.dispatch reads agent_message) and what the evidence result carries,

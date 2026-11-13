@@ -183,6 +183,32 @@ def test_not_found_is_an_answer_a_refusal_is_a_denial_and_a_failure_is_hidden(to
         GlidepathAPI("http://gp", token, opener=Opener(502, b'{"error":"results down","rule":"GP-API-502"}')).run("a", RESULT, "p")
 
 
+def test_a_failure_carries_its_internal_reason_as_evidence(token):
+    """What the gateway logs and the outcome record carries: a status, a rule, an exception type. Never a header or body."""
+    import urllib.error
+
+    def refused(req, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+
+    def reset(req, timeout):
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    with pytest.raises(GlidepathError) as e:
+        GlidepathAPI("http://gp", token, on_behalf_of=True, opener=refused).contract("user:alice")
+    assert e.value.evidence == "glidepath-api unreachable: URLError(ConnectionRefusedError)"
+    with pytest.raises(GlidepathError) as e:
+        GlidepathAPI("http://gp", token, opener=reset).contract("p")
+    assert e.value.evidence == "glidepath-api unreachable: ConnectionResetError"
+    with pytest.raises(GlidepathError) as e:
+        GlidepathAPI("http://gp", token, opener=Opener(400, b"Bad Request")).contract("p")
+    assert e.value.evidence == "glidepath-api 400"
+    with pytest.raises(GlidepathError) as e:
+        GlidepathAPI("http://gp", token, opener=Opener(502, b'{"error":"results down","rule":"GP-API-502"}')).run("a", RESULT, "p")
+    assert e.value.evidence == "glidepath-api 502 GP-API-502"
+    assert "Bearer" not in e.value.evidence and "user:alice" not in e.value.evidence
+
+
+
 # --- an agent starting cold, through MCP, against an HTTP glidepath-api --------------------------
 
 EXPLANATION = {"result": RESULT, "status": "failed", "contractVersion": 1, "failures": [{

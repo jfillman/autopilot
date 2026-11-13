@@ -99,6 +99,28 @@ def test_a_github_error_tells_the_agent_why_and_the_evidence_says_what(gw, backe
                                              "the agents' GitHub App is not installed on jfillman/parachute")
 
 
+def test_a_backend_error_with_evidence_is_logged_and_recorded_but_the_agent_hears_nothing(gw, backends, caplog):
+    from autopilot.glidepath_api import GlidepathError
+
+    def boom(*a, **k):
+        raise GlidepathError("glidepath-api unreachable: URLError(ConnectionRefusedError)")
+    backends.git.open_pr = boom
+    sid = open_(gw)
+    with caplog.at_level("WARNING", logger="autopilot.engine.dispatch"):
+        r = gw.call("alice", sid, "repo.pr.open", PR)
+    assert not r.ok and r.error == "backend error"
+    assert gw.core.records[-1]["result"] == "error:GlidepathError: glidepath-api unreachable: URLError(ConnectionRefusedError)"
+    line = next(m for m in caplog.messages if m.startswith("backend failure:"))
+    assert f"session={sid}" in line and "tool=repo.pr.open" in line
+    assert "GlidepathError: glidepath-api unreachable: URLError(ConnectionRefusedError)" in line
+
+
+def test_an_argo_sync_error_keeps_the_response_body_out_of_the_evidence():
+    from autopilot.argo_sync import ArgoSyncError
+    e = ArgoSyncError("API server 409 patching parachute-lower: b'{\"token\":\"ghp_SECRET\"}'")
+    assert e.evidence == "API server 409 patching parachute-lower"
+
+
 def test_workload_identity_must_match_the_definition(gw):
     assert gw.open_session("holmes", "triage-agent").ok
     assert not gw.open_session("alice", "triage-agent").ok
