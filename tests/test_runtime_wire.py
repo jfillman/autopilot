@@ -58,7 +58,7 @@ def app_of(gw):
 def tokens(tmp_path):
     d = tmp_path / "hangar"
     d.mkdir()
-    (d / "clearance-token").write_text(TOKENS[0] + "\n")
+    (d / "autopilot-token").write_text(TOKENS[0] + "\n")
     (d / "model-proxy-token").write_text(MODEL_TOKENS[0] + "\n")
     return d
 
@@ -69,20 +69,20 @@ def test_clearance_client_speaks_to_the_real_gateway_and_rereads_its_token(gatew
     with TestClient(app_of(gateway)) as http:
         def post(url, headers, body, timeout):
             seen.append((url, dict(headers)))
-            r = http.post(url.removeprefix("http://clearance.autopilot-system.svc:8080"), headers=headers,
+            r = http.post(url.removeprefix("http://autopilot-gateway.autopilot-system.svc:8080"), headers=headers,
                           content=body)
             return r.status_code, r.content
 
-        c = Clearance("http://clearance.autopilot-system.svc:8080/", tokens / "clearance-token", gateway.sid, post=post)
+        c = Clearance("http://autopilot-gateway.autopilot-system.svc:8080/", tokens / "autopilot-token", gateway.sid, post=post)
         registry = c.tools_list()
         assert {"name", "tier", "description", "required_args", "propose_only"} <= set(registry[0])
         assert "catalog.read" in {t["name"] for t in registry}
         ok = c.call("catalog.read", {"query": "flight-api"})
-        (tokens / "clearance-token").write_text(TOKENS[1])     # the kubelet rotates the projected token
+        (tokens / "autopilot-token").write_text(TOKENS[1])     # the kubelet rotates the projected token
         denied = c.call("repo.pr.open", {"repo": "jfillman/x", "branch": "b", "title": "t", "files": []})
     assert ok["ok"] is True and ok["session"] == gateway.sid
     assert denied["ok"] is False and denied["decision"]["rule"] == "R006" and denied["decision"]["hint"]
-    assert all(u == "http://clearance.autopilot-system.svc:8080/mcp" for u, _ in seen)
+    assert all(u == "http://autopilot-gateway.autopilot-system.svc:8080/mcp" for u, _ in seen)
     h = seen[0][1]
     assert h["Content-Type"] == "application/json" and "application/json" in h["Accept"]
     assert h["MCP-Protocol-Version"] == "2025-06-18"
@@ -97,7 +97,7 @@ def test_clearance_client_never_opens_a_session(gateway, tokens):
             bodies.append(json.loads(body))
             r = http.post("/mcp", headers=headers, content=body)
             return r.status_code, r.content
-        c = Clearance("http://x", tokens / "clearance-token", gateway.sid, post=post)
+        c = Clearance("http://x", tokens / "autopilot-token", gateway.sid, post=post)
         c.tools_list()
         c.call("catalog.read", {"query": "q"})
     assert [b["params"]["name"] for b in bodies] == ["tools_list", "call"]
@@ -105,13 +105,13 @@ def test_clearance_client_never_opens_a_session(gateway, tokens):
 
 
 def test_a_rejected_token_is_an_error_that_does_not_carry_it(gateway, tokens):
-    (tokens / "clearance-token").write_text("not-a-known-token-xyz")
+    (tokens / "autopilot-token").write_text("not-a-known-token-xyz")
     with TestClient(app_of(gateway)) as http:
         def post(url, headers, body, timeout):
             r = http.post("/mcp", headers=headers, content=body)
             return r.status_code, r.content
         with pytest.raises(ClearanceError) as e:
-            Clearance("http://x", tokens / "clearance-token", gateway.sid, post=post).tools_list()
+            Clearance("http://x", tokens / "autopilot-token", gateway.sid, post=post).tools_list()
     assert "401" in str(e.value) and "not-a-known-token-xyz" not in str(e.value)
 
 
@@ -124,7 +124,7 @@ def test_a_connection_that_cannot_be_made_is_retried_once_and_a_read_timeout_is_
         raise urllib.error.URLError(ConnectionRefusedError())
 
     with pytest.raises(ClearanceError):
-        Clearance("http://x", tokens / "clearance-token", "s-1", post=refused, sleep=lambda s: None).tools_list()
+        Clearance("http://x", tokens / "autopilot-token", "s-1", post=refused, sleep=lambda s: None).tools_list()
     assert len(attempts) == 2
     attempts.clear()
 
@@ -133,7 +133,7 @@ def test_a_connection_that_cannot_be_made_is_retried_once_and_a_read_timeout_is_
         raise TimeoutError()
 
     with pytest.raises(ClearanceError):
-        Clearance("http://x", tokens / "clearance-token", "s-1", post=timed_out, sleep=lambda s: None).call("a", {})
+        Clearance("http://x", tokens / "autopilot-token", "s-1", post=timed_out, sleep=lambda s: None).call("a", {})
     assert len(attempts) == 1
 
 
@@ -245,7 +245,7 @@ def pod_env(gw, tokens, out, model_url, **extra):
     return {"HANGAR_RUN_ID": "r-1", "HANGAR_TASK_ID": "t-1", "HANGAR_SESSION_ID": gw.sid, "HANGAR_AGENT": "researcher",
             "HANGAR_EXPIRES_AT": expires, "HANGAR_OUTPUT_DIR": str(out), "HANGAR_WORKSPACE": str(out.parent),
             "HANGAR_LIMITS": '{"githubCalls":0,"modelTokens":300000,"toolCalls":100}',
-            "CLEARANCE_URL": gw.url, "MODEL_PROXY_URL": model_url, "HANGAR_TOKEN_DIR": str(tokens),
+            "AUTOPILOT_URL": gw.url, "MODEL_PROXY_URL": model_url, "HANGAR_TOKEN_DIR": str(tokens),
             "HANGAR_INPUT": json.dumps({"prompt": "Who owns flight-api?"}), **extra}
 
 
@@ -308,28 +308,22 @@ def test_main_with_an_unusable_environment_still_writes_a_result(tmp_path, capsy
 
 def test_model_comes_from_hangar_model_then_input_then_the_default(tokens, tmp_path):
     from hangar_agent.env import DEFAULT_MODEL, config_from_env
-    base = {"HANGAR_SESSION_ID": "s-1", "HANGAR_EXPIRES_AT": "2026-10-29T12:00:00Z", "CLEARANCE_URL": "http://c",
+    base = {"HANGAR_SESSION_ID": "s-1", "HANGAR_EXPIRES_AT": "2026-10-29T12:00:00Z", "AUTOPILOT_URL": "http://c",
             "MODEL_PROXY_URL": "http://m", "HANGAR_TOKEN_DIR": str(tokens)}
     assert config_from_env(base).model == DEFAULT_MODEL == "claude-sonnet-5-5"
     assert config_from_env({**base, "HANGAR_INPUT": '{"model": "claude-opus-5"}'}).model == "claude-opus-5"
     assert config_from_env({**base, "HANGAR_INPUT": '{"model": "claude-opus-5"}', "HANGAR_MODEL": "m2"}).model == "m2"
     c = config_from_env(base)
     assert c.max_turns == 30 and c.expires_at == datetime(2026, 10, 29, 12, tzinfo=timezone.utc)
-    assert c.clearance_token_file == tokens / "clearance-token"
+    assert c.clearance_token_file == tokens / "autopilot-token"
 
 
-def test_gateway_url_and_token_prefer_the_autopilot_names_and_fall_back_to_the_old_ones(tokens):
-    """R-10b: AUTOPILOT_URL / autopilot-token first; a pod rendered by the previous function still runs."""
+def test_gateway_url_and_token_are_the_autopilot_names_only(tokens):
+    """R-10e: AUTOPILOT_URL and the autopilot-token file; the old CLEARANCE_URL and clearance-token are not read."""
     from hangar_agent.env import ConfigError, config_from_env
     base = {"HANGAR_SESSION_ID": "s-1", "HANGAR_EXPIRES_AT": "2026-10-29T12:00:00Z", "MODEL_PROXY_URL": "http://m",
             "HANGAR_TOKEN_DIR": str(tokens)}
-    old = config_from_env({**base, "CLEARANCE_URL": "http://old/"})
-    assert old.clearance_url == "http://old" and old.clearance_token_file == tokens / "clearance-token"
     new = config_from_env({**base, "AUTOPILOT_URL": "http://new/"})
-    assert new.clearance_url == "http://new"
-    both = config_from_env({**base, "AUTOPILOT_URL": "http://new", "CLEARANCE_URL": "http://old"})
-    assert both.clearance_url == "http://new"
-    (tokens / "autopilot-token").write_text("tok\n")
-    assert both.clearance_token_file == tokens / "autopilot-token"
+    assert new.clearance_url == "http://new" and new.clearance_token_file == tokens / "autopilot-token"
     with pytest.raises(ConfigError, match="AUTOPILOT_URL"):
-        config_from_env(base)
+        config_from_env({**base, "CLEARANCE_URL": "http://old/"})

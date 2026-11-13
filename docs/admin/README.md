@@ -36,7 +36,7 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   clearance with `bundled` (the release after v0.41.4); an older core refuses the field, the gateway logs a warning and
   publishes the pins without it, and the bundled agents' PRs keep failing AS004 until the core is upgraded. With
   `AGENT_XRS_ENABLED` off the gateway publishes the bundled set at start and retries until the core takes it. For example
-  `[{"name": "autopilot-gateway", "version": "<gateway tag>", "principals": ["autopilot-system/clearance"],
+  `[{"name": "autopilot-gateway", "version": "<gateway tag>", "principals": ["autopilot-system/autopilot-gateway"],
   "definitions": true}]`. A NetworkPolicy must let the gateway reach the core, and nothing but
   the core and clearance-api reach clearance-pg.
 - **The provider contract.** The gateway is a Clearance runtime provider ([provider.md](provider.md)): it asks
@@ -54,7 +54,7 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   App are the core's: `CLEARANCE_DSN`, `CLEARANCE_VERIFIERS`, `AGENT_LOGINS`, `CLEARANCE_GITHUB_APP_*` and
   `CLEARANCE_GITHUB_OIDC_*` set on the gateway stop it at start.
 - **Read-only root, uid 65532.** Nothing is written at runtime; no volume is needed.
-- **Identity.** One ServiceAccount (`autopilot-system/clearance`): `system:auth-delegator` (TokenReview, for every
+- **Identity.** One ServiceAccount (`autopilot-system/autopilot-gateway`): `system:auth-delegator` (TokenReview, for every
   caller), Role `clearance-agentruns` in `autopilot-runs` (AgentRuns), ClusterRole `clearance-airframe-reader`
   (Airframe reads, and Argo CD Applications for `argo.app.get`), and glidepath-api's ClusterRoles when
   `GLIDEPATH_API_URL` is set.

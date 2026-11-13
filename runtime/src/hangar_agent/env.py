@@ -15,8 +15,7 @@ from typing import Any, Mapping
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_MAX_TURNS = 30
 DEFAULT_MAX_TOKENS = 8192
-CLEARANCE_TOKEN = "clearance-token"       # audience clearance (the old name; kept one release)
-AUTOPILOT_TOKEN = "autopilot-token"       # audience autopilot (R-10b: preferred when the pod has it)
+AUTOPILOT_TOKEN = "autopilot-token"       # audience autopilot (the gateway; R-10e dropped the old clearance-token fallback)
 MODEL_PROXY_TOKEN = "model-proxy-token"   # audience model-proxy
 
 
@@ -44,9 +43,8 @@ class Config:
 
     @property
     def clearance_token_file(self) -> Path:
-        """The gateway token: the `autopilot`-audience file when the pod has one, else the old `clearance` one."""
-        new = self.token_dir / AUTOPILOT_TOKEN
-        return new if new.exists() else self.token_dir / CLEARANCE_TOKEN
+        """The gateway token: the `autopilot`-audience file."""
+        return self.token_dir / AUTOPILOT_TOKEN
 
     @property
     def model_proxy_token_file(self) -> Path:
@@ -85,10 +83,9 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
 
 def config_from_env(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
-    # The gateway's URL: AUTOPILOT_URL first, CLEARANCE_URL (the old name) when only it is set (R-10b).
-    gateway_url = env.get("AUTOPILOT_URL") or env.get("CLEARANCE_URL") or ""
+    gateway_url = env.get("AUTOPILOT_URL") or ""
     missing = [k for k in ("HANGAR_SESSION_ID", "HANGAR_EXPIRES_AT", "AUTOPILOT_URL", "MODEL_PROXY_URL",
-                           "HANGAR_TOKEN_DIR") if not env.get(k) and not (k == "AUTOPILOT_URL" and gateway_url)]
+                           "HANGAR_TOKEN_DIR") if not env.get(k)]
     if missing:
         # No MODEL_PROXY_URL means the run's network mode is not clearance+model: this runtime needs a model.
         raise ConfigError("missing " + ", ".join(missing))

@@ -62,7 +62,8 @@ class Check:
 
 # The AgentRun composition's input that changes a run's policies (airframe compositions/agentrun/composition.yaml,
 # airframe#135): the model proxy is Clearance's own pod. Keep in step with the composition.
-COMPOSITION_INPUT = {"model_proxy_selector": {"app.kubernetes.io/name": "clearance"}}
+COMPOSITION_INPUT = {"clearance_selector": {"app.kubernetes.io/name": "autopilot-gateway"},
+                     "model_proxy_selector": {"app.kubernetes.io/name": "autopilot-gateway"}}
 
 
 def plan() -> list[Check]:
@@ -228,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         k.apply(run_docs + none_docs)
         k.apply([
             # Clearance is also the model proxy (8081): the run's two egress rules select the same pod, by port.
-            pod("clearance", svc_ns, {"app.kubernetes.io/name": "clearance"}, 8080, extra_port=8081),
+            pod("clearance", svc_ns, {"app.kubernetes.io/name": "autopilot-gateway"}, 8080, extra_port=8081),
             pod("other", svc_ns, {"app.kubernetes.io/name": "other"}, 8080),
             pod("probe", run_ns, {"app.kubernetes.io/name": "probe"}, 8080),
             pod("probe", none_ns, {"app.kubernetes.io/name": "probe"}, 8080),

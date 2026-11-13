@@ -5,6 +5,19 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Removed (R-10e: the `clearance` aliases retire)
+- The `CLEARANCE_*` names of the settings the gateway owns (`CLEARANCE_EPHEMERAL`, `_AGENTS_DIR`, `_RESOURCE_URL`,
+  `_OIDC_*`, `_AUDIENCE`, `_EXPIRE_SECONDS`, `_DELEGATES`, `_ADMINS`, `_GATEWAY_URL`, `_ISSUER_URL`) are no longer read as
+  fallbacks. One that is still set is refused at start (Python and Go gateways), naming its `AUTOPILOT_*` replacement.
+  `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE` and `CLEARANCE_API_URL` address Clearance and keep their names.
+- The gateway accepts run-pod tokens for the `autopilot` audience only (`AUTOPILOT_RUN_AUDIENCES` defaults to `autopilot`;
+  it was `autopilot,clearance`). The `clearance` audience is still `AUTOPILOT_AUDIENCE`'s default, which is the audience of
+  Tower's foreign tokens and the core's, but in-cluster workloads are checked for `autopilot` alone. A cluster that still
+  runs a pre-R-10b runtime image (runtime-v0.1.3 and older read `CLEARANCE_URL` and `clearance-token`) sets
+  `AUTOPILOT_RUN_AUDIENCES=autopilot,clearance` until it is re-pinned.
+- The runtime reads `AUTOPILOT_URL` and the `autopilot-token` file only (no `CLEARANCE_URL` / `clearance-token` fallback):
+  the next runtime release. Needs Airframe's function-agentrun that no longer sets the old names, or one that sets both.
+
 ### Changed (A-11 pins)
 - CI and `pyproject.toml` pin Clearance v0.44.0 (`propose` and bulk resolutions). `GLIDEPATH_REF` is `main` again (glidepath#242, contract v2, merged).
 

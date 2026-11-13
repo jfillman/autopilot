@@ -16,7 +16,7 @@ Three limits, outer to inner:
   RBAC        Role `autopilot-clearance-argo-sync` in argocd-apps: get and patch applications, nothing else
   admission   ValidatingAdmissionPolicy `autopilot-clearance-argo-sync`: for Clearance's identity, an Application
               update must be in a -lower project, change nothing but `operation`, start a sync and never override
-              its source (apron 55-autopilot/clearance/argo-sync-policy.yaml)
+              its source (apron 55-autopilot/gateway/argo-sync.yaml)
   here        the checks above, before any request is built
 
 The operation names who asked (initiatedBy.username `clearance:<agent>`, info: task, session, principal), so Argo

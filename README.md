@@ -188,11 +188,11 @@ container run --rm --read-only -e AUTOPILOT_EPHEMERAL=1 -e CLEARANCE_CORE_URL=ht
 curl -s localhost:8080/healthz                                   # {"ok":true,"tools":35}
 ```
 
-**Renamed in the next gateway release (R-10a).** The settings the gateway owns now carry the `AUTOPILOT_` prefix; the
-`CLEARANCE_` names still work for one release (the new name wins when both are set, and a legacy name logs one
-deprecation warning at start naming its replacement). Settings that address the Clearance product keep their names.
+**Renamed (R-10a), old names retired (R-10e).** The settings the gateway owns carry the `AUTOPILOT_` prefix. The
+`CLEARANCE_` names were read as fallbacks for one release and are not read any more: one that is still set is refused at
+start, naming its replacement (both gateways). Settings that address the Clearance product keep their names.
 
-| Old (works for one release) | New |
+| Retired name | Use |
 |---|---|
 | `CLEARANCE_EPHEMERAL` | `AUTOPILOT_EPHEMERAL` |
 | `CLEARANCE_AGENTS_DIR` | `AUTOPILOT_AGENTS_DIR` |
@@ -268,7 +268,7 @@ core's; set them there).
 The start line names what is enabled (store kind, agent and tool counts, auth, Glidepath URL, Airframe cluster, expiry
 interval, the core's URL and the outage switch) and never a DSN, token or file content.
 
-What each backend needs. The gateway runs as one ServiceAccount (`autopilot-system/clearance` on hangar-dev) with its
+What each backend needs. The gateway runs as one ServiceAccount (`autopilot-system/autopilot-gateway` on hangar-dev) with its
 projected token and CA at the standard path; every adapter re-reads both on each call.
 
 | Backend | Tools | Needs |
@@ -285,7 +285,7 @@ projected token and CA at the standard path; every adapter re-reads both on each
 | The Clearance core (always) | every decision and record | network reach to `CLEARANCE_CORE_URL`, and a projected token for the core's audience at `CLEARANCE_CORE_TOKEN_FILE`; the core lists this identity in `CLEARANCE_PROVIDERS` as `autopilot-gateway`, with `"definitions": true` so the gateway may publish its cluster-pinned definitions (`PUT /v1/definitions`) |
 | Postgres (`GATEWAY_DSN`) | sessions, the inbox, results, the outbox, and `artifact.put`/`artifact.get` (`PgArtifacts`: per task, 256 KiB each, 32 and 2 MiB per task, 7 days) | a database the gateway owns (not clearance-pg); it creates its tables at start. Losing the connection ends the process (exit 70): after a failed commit the sessions in memory are ahead of the database, and only a restart, which reloads them, puts the two back in step. The expiry sweep pings the database first, so this is noticed within one interval when no agent is calling |
 
-| GitHub PRs (`GITHUB_PR_ENABLED`) | `repo.pr.open`, `repo.pr.open_upper`, `repo.file.get` | a projected token for audience `agent-installation-token` at `AGENT_TOKEN_FILE`, and `autopilot-system/clearance` in the broker's `agentToken.callers`. Per PR the broker mints a token for the agents' App on that one repo (contents and pull_requests write, never workflows), only for an onboarded app's own repo (`<app>`, `gitops-<app>` or `gitops-infra-<app>`; `repo.pr.open_upper` is T2 and propose-only: a human merges it). The PR is built with the Git data API (no clone), on a new branch only (an existing one is refused, never forced); its commit trailer and body carry the agent, task, session and run. `repo.file.get` reads a file (or lists a directory) at a ref with the same per-call token, GET only; over 1 MiB or binary is named, not returned |
+| GitHub PRs (`GITHUB_PR_ENABLED`) | `repo.pr.open`, `repo.pr.open_upper`, `repo.file.get` | a projected token for audience `agent-installation-token` at `AGENT_TOKEN_FILE`, and `autopilot-system/autopilot-gateway` in the broker's `agentToken.callers`. Per PR the broker mints a token for the agents' App on that one repo (contents and pull_requests write, never workflows), only for an onboarded app's own repo (`<app>`, `gitops-<app>` or `gitops-infra-<app>`; `repo.pr.open_upper` is T2 and propose-only: a human merges it). The PR is built with the Git data API (no clone), on a new branch only (an existing one is refused, never forced); its commit trailer and body carry the agent, task, session and run. `repo.file.get` reads a file (or lists a directory) at a ref with the same per-call token, GET only; over 1 MiB or binary is named, not returned |
 | `airframe.apply` (`GITHUB_PR_ENABLED` and `AIRFRAME_ENABLED`) | `airframe.apply` | the same token file and broker as `repo.pr.open`, the broker allowing the tenants repo (no `app`), and glidepath-api for the cicd.yaml check |
 | XR requests (`XR_REQUEST_ENABLED`) | `xr.request` | GitHub PRs' token file and broker, and the broker allowing `AIRFRAME_TENANTS_REPO` for agent tokens (Glidepath `agentToken`; until then it answers 403 and the agent gets `XR-TENANTS-TOKEN`), with the agents' App installed there. The gateway writes the whole file: `tenants/<app>/xr-requests/<name>.yaml`, `apiVersion: catalog.hangar.io/v1alpha1`, namespace `app-<app>-cicd`, the Backstage source annotations; the agent gives the kind, an optional name and the spec. Only kinds Airframe's contract lists as dependency, observability or environment (no Agent, AgentRun, SecretStore, TektonCICD or app stack), only a lower `env` (the core decides that too), an onboarded app, and a new file (an existing request is never overwritten). An `ApplicationEnvironment` is named `<app>-<cluster>-<env>` with those three fields set by the gateway. A person merges the PR |
 | Application APIs (`APP_API_SERVICES`) | `app.api.get` | network reach to each base URL. A GET of a path on the named service (no host, `..`, `//` or encoded separators), with no credential and no redirect followed; the definition's `profile.apis.allow` must list the service (the core checks it); the body is cut at 256 KiB and a non-2xx answer is data |
@@ -382,9 +382,9 @@ The environment is airframe's function-agentrun's (`_pod_spec`):
 |---|---|
 | `HANGAR_SESSION_ID` | the session every `call` names; also sent to the proxy as `x-hangar-session` |
 | `HANGAR_EXPIRES_AT` | RFC 3339; the loop stops 60 s before it |
-| `CLEARANCE_URL` | the gateway; the runtime POSTs JSON-RPC `tools/call` to `$CLEARANCE_URL/mcp` (stateless, no initialize) |
+| `AUTOPILOT_URL` | the gateway; the runtime POSTs JSON-RPC `tools/call` to `$AUTOPILOT_URL/mcp` (stateless, no initialize). `CLEARANCE_URL` (the old name) is not set or read since R-10e |
 | `MODEL_PROXY_URL` | the proxy; `POST $MODEL_PROXY_URL/v1/messages`, the Anthropic Messages API, non-streaming. Without it (network mode `clearance` only) the runtime does not start |
-| `HANGAR_TOKEN_DIR` | `clearance-token` (`Authorization: Bearer`, to Clearance) and `model-proxy-token` (`x-api-key`, to the proxy; `Authorization` is not sent), both read again on every request because the kubelet rotates them |
+| `HANGAR_TOKEN_DIR` | `autopilot-token` (audience `autopilot`; `Authorization: Bearer`, to the gateway) and `model-proxy-token` (`x-api-key`, to the proxy; `Authorization` is not sent), both read again on every request because the kubelet rotates them |
 | `HANGAR_INPUT` | optional JSON: `prompt` (the user turn), `event` (appended to it as JSON), `instructions` (appended to the system prompt), `model`. With neither `prompt` nor `event` the run ends as an error without calling the model |
 | `HANGAR_MODEL` | the model alias, over `HANGAR_INPUT.model`; default `claude-sonnet-5-5`. The proxy maps it upstream |
 | `HANGAR_MAX_TURNS`, `HANGAR_MAX_TOKENS` | model calls per run (default 30) and `max_tokens` per call (default 8192) |
@@ -474,7 +474,7 @@ Setting it up:
    clearance-webhook.hangarplatform.dev`. The tunnel forwards `POST /v1/github/webhook` only; every other path is a
    404 at Cloudflare.
 4. **Turn it on**: `autopilot.githubApp: true` in gitops-hangar-dev `cluster.yaml`, then render (apron
-   `55-autopilot/clearance/github-app.yaml`). The gateway logs `github-app=on (app <id>, comments off)` at start.
+   `55-autopilot/gateway/github-app.yaml`). The gateway logs `github-app=on (app <id>, comments off)` at start.
 
 ## Signing in as a person
 
@@ -482,7 +482,7 @@ On hangar-dev, people sign in through people-dex (apron `55-autopilot/people-dex
 
 ```shell
 python3 tools/hangar_login.py login        # opens the sign-in page; the token goes to the macOS Keychain
-claude mcp add-json clearance '{"type":"http","url":"http://clearance.hangar-dev.local/mcp",
+claude mcp add-json autopilot '{"type":"http","url":"http://autopilot.hangar-dev.local/mcp",
   "headersHelper":"python3 '"$PWD"'/tools/hangar_login.py headers"}'
 ```
 
