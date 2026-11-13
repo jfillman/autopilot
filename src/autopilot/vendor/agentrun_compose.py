@@ -76,11 +76,10 @@ class ClusterConfig:
     runs_namespace: str = "autopilot-runs"
     registry_namespace: str = "crossplane-system"
     clearance_namespace: str = "autopilot-system"
-    clearance_selector: dict[str, str] = field(default_factory=lambda: {"app.kubernetes.io/name": "clearance"})
+    clearance_selector: dict[str, str] = field(default_factory=lambda: {"app.kubernetes.io/name": "autopilot-gateway"})
     clearance_port: int = 8080
-    # The gateway's Service name in clearance_namespace. `clearance` until apron renames it (R-10b: then
-    # `autopilot-gateway`); clearance_selector, the NetworkPolicy's pod label, moves separately.
-    gateway_service: str = "clearance"
+    # The gateway's Service name in clearance_namespace (the old name, `clearance`, retired with R-10e).
+    gateway_service: str = "autopilot-gateway"
     model_proxy_selector: dict[str, str] = field(default_factory=lambda: {"app.kubernetes.io/name": "model-proxy"})
     model_proxy_port: int = 8081
     dns_namespace: str = "kube-system"
@@ -299,15 +298,12 @@ def _pod_spec(xr: dict[str, Any], cfg: ClusterConfig, created: datetime) -> dict
               {"name": "tmp", "mountPath": "/tmp"}]
     sources: list[dict[str, Any]] = []
     if mode != "none":
-        # R-10b: AUTOPILOT_URL is the name, CLEARANCE_URL the old one for the previous runtime image (same value), and
-        # one token per audience (`autopilot` new, `clearance` old) for the previous gateway. Both go for one release.
+        # AUTOPILOT_URL and the `autopilot`-audience token. (R-10b rendered CLEARANCE_URL and a `clearance`-audience token
+        # beside them for the previous runtime image and gateway; R-10e dropped both.)
         gateway_url = f"http://{cfg.gateway_service}.{cfg.clearance_namespace}.svc:{cfg.clearance_port}"
         env.append({"name": "AUTOPILOT_URL", "value": gateway_url})
-        env.append({"name": "CLEARANCE_URL", "value": gateway_url})
         sources.append({"serviceAccountToken": {"audience": "autopilot", "expirationSeconds": 3600,
                                                 "path": "autopilot-token"}})
-        sources.append({"serviceAccountToken": {"audience": "clearance", "expirationSeconds": 3600,
-                                                "path": "clearance-token"}})
     if mode in ("clearance+model", "allowlist"):
         env.append({"name": "MODEL_PROXY_URL",
                     "value": f"http://model-proxy.{cfg.clearance_namespace}.svc:{cfg.model_proxy_port}"})

@@ -6,6 +6,8 @@ says what each gateway tag adds. The manager cuts the tags.
 ## Unreleased
 
 ### Removed (R-10e: the `clearance` aliases retire)
+- The vendored `agentrun_compose.py` matches airframe's R-10e `compose.py` (airframe#147): run pods get `AUTOPILOT_URL` and
+  the `autopilot`-audience token only, and the gateway Service is `autopilot-gateway`.
 - The `CLEARANCE_*` names of the settings the gateway owns (`CLEARANCE_EPHEMERAL`, `_AGENTS_DIR`, `_RESOURCE_URL`,
   `_OIDC_*`, `_AUDIENCE`, `_EXPIRE_SECONDS`, `_DELEGATES`, `_ADMINS`, `_GATEWAY_URL`, `_ISSUER_URL`) are no longer read as
   fallbacks. One that is still set is refused at start (Python and Go gateways), naming its `AUTOPILOT_*` replacement.
