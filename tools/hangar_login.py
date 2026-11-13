@@ -19,7 +19,7 @@ Only the ID token is kept, never a refresh token (the device flow asks for none)
 for at most an hour. The token reaches `security` on its argument list for the moment it takes to store it.
 
 Claude Code:
-  claude mcp add-json clearance '{"type":"http","url":"http://clearance.hangar-dev.local/mcp",
+  claude mcp add-json autopilot '{"type":"http","url":"http://autopilot.hangar-dev.local/mcp",
     "headersHelper":"python3 /path/to/autopilot/tools/hangar_login.py headers"}'
 """
 from __future__ import annotations

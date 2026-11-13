@@ -28,7 +28,7 @@ def test_builds_with_roles_and_catalog(tmp_path):
                                         "GATEWAY_API_AUDITORS": "user:jfillman", "GATEWAY_API_NOTIFIERS": "hangar-prod/*/backstage-ingestor",
                                         "AUTOPILOT_DELEGATES": "hangar-prod/app-backstage-prod/backstage-ingestor",
                                         "BACKSTAGE_URL": "http://bs", "BACKSTAGE_TOKEN_FILE": str(tok),
-                                        "AUTOPILOT_GATEWAY_URL": "http://clearance.hangar-dev.local",
+                                        "AUTOPILOT_GATEWAY_URL": "http://autopilot.hangar-dev.local",
                                         "CLEARANCE_API_URL": "http://clearance-api.hangar-dev.local"})
     assert access.auditors == ("user:jfillman",) and access.notifiers == ("hangar-prod/*/backstage-ingestor",)
     assert isinstance(access.directory, BackstageDirectory) and isinstance(access.ownership, BackstageOwnership)
@@ -36,7 +36,7 @@ def test_builds_with_roles_and_catalog(tmp_path):
     with TestClient(app) as c:
         assert c.get("/healthz").json() == {"ok": True}
         contract = c.get("/v1/contract").json()
-        assert contract["api"] == "autopilot-api" and contract["gateway"] == "http://clearance.hangar-dev.local"
+        assert contract["api"] == "autopilot-api" and contract["gateway"] == "http://autopilot.hangar-dev.local"
         assert contract["clearance"] == "http://clearance-api.hangar-dev.local", "Clearance's reads are named"
         assert c.get("/v1/sessions").status_code == 401
         assert c.get("/v1/evidence").status_code == 404, "evidence is clearance-api's"
@@ -87,16 +87,13 @@ def test_ownership_is_the_components_you_or_your_teams_own(tmp_path):
     assert own.apps("ns/sa") == set() and own.apps("user:../x") == set()
 
 
-def test_the_read_apis_gateway_url_has_a_legacy_alias(caplog):
+def test_the_read_apis_old_gateway_url_name_is_refused():
     base = {**EPH, "GATEWAY_API_DSN": "postgresql://r@pg/gateway"}
-    with caplog.at_level("WARNING", logger="autopilot.gateway"):
-        *_, app = api_serve.build({**base, "CLEARANCE_GATEWAY_URL": "http://old"})
-    assert any("CLEARANCE_GATEWAY_URL -> AUTOPILOT_GATEWAY_URL" in r.getMessage() for r in caplog.records)
+    with pytest.raises(serve.ConfigError, match="CLEARANCE_GATEWAY_URL -> AUTOPILOT_GATEWAY_URL"):
+        api_serve.build({**base, "CLEARANCE_GATEWAY_URL": "http://old"})
+    *_, app = api_serve.build({**base, "AUTOPILOT_GATEWAY_URL": "http://new"})
     with TestClient(app) as c:
-        assert c.get("/v1/contract").json()["gateway"] == "http://old"
-    *_, app = api_serve.build({**base, "CLEARANCE_GATEWAY_URL": "http://old", "AUTOPILOT_GATEWAY_URL": "http://new"})
-    with TestClient(app) as c:
-        assert c.get("/v1/contract").json()["gateway"] == "http://new", "the new name wins"
+        assert c.get("/v1/contract").json()["gateway"] == "http://new"
 
 
 def test_the_read_api_does_not_warn_about_names_it_sets_itself(caplog):

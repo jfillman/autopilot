@@ -6,7 +6,7 @@ SDK's client, which would bring the gateway's server stack (starlette, uvicorn, 
 async session for a request/response exchange.
 
 Only `tools_list`, `call` and, as the run exits, `run_finish` are used. The run's session already exists (HANGAR_SESSION_ID); session_open is not
-this runtime's to call. The bearer token is the run's projected clearance-token, read again on every request.
+this runtime's to call. The bearer token is the run's projected autopilot-token, read again on every request.
 """
 from __future__ import annotations
 

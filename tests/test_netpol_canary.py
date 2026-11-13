@@ -66,7 +66,7 @@ def test_clearance_mode_renders_default_deny_and_only_dns_and_clearance_egress()
     assert deny["spec"] == {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}
     egress = next(d for d in docs if d["metadata"]["name"] == "allow-egress")["spec"]["egress"]
     selectors = [r["to"][0].get("podSelector", {}).get("matchLabels") for r in egress]
-    assert {"app.kubernetes.io/name": "clearance"} in selectors
+    assert {"app.kubernetes.io/name": "autopilot-gateway"} in selectors
     assert {"app.kubernetes.io/name": "model-proxy"} not in selectors
     assert all(r["to"][0]["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"] in ("kube-system", "canary-svc-x")
                for r in egress)

@@ -217,7 +217,7 @@ def test_auth_is_workload_only_without_oidc():
     a = serve.build_auth(serve.config_from_env(EPH))
     assert isinstance(a, CachingAuthenticator) and isinstance(a.inner, RoutingAuthenticator)
     assert a.inner.oidc == {} and isinstance(a.inner.workload, WorkloadAuthenticator)
-    assert a.inner.workload.audience == "clearance"
+    assert a.inner.workload.audience == "autopilot"
 
 
 def test_auth_routes_the_oidc_issuer():
@@ -227,7 +227,7 @@ def test_auth_routes_the_oidc_issuer():
     o = a.inner.oidc["https://dex/dex"]
     assert isinstance(o, OIDCAuthenticator) and o.audience == "tower" and o.keys.url == "https://dex/dex/keys"
     assert o.allowed == ("jfillman", "ops-*")
-    assert a.inner.workload.audience == "aud2"
+    assert a.inner.workload.audience == "autopilot"
 
 
 def test_start_line_names_no_secret():
@@ -439,7 +439,7 @@ def test_tower_issuer_and_delegates(tmp_path):
     assert tower.name == "hangar-prod" and tower.audience == "clearance"
 
 
-# -- R-10a: AUTOPILOT_* names, CLEARANCE_* aliases for one release ---------------------------------------------------------
+# -- R-10a: AUTOPILOT_* names; the CLEARANCE_* aliases were retired in R-10e ---------------------------------------------------------
 RENAMED = {   # new -> (legacy, a value, how to read it back)
     "AUTOPILOT_EPHEMERAL": ("CLEARANCE_EPHEMERAL", "1"),
     "AUTOPILOT_OIDC_ISSUER": ("CLEARANCE_OIDC_ISSUER", "https://dex.example/dex"),
@@ -485,37 +485,30 @@ def test_the_new_name_is_read_without_a_warning(name, caplog):
 
 
 @pytest.mark.parametrize("name", RENAMED)
-def test_the_legacy_name_still_works_and_warns_naming_the_new_one(name, caplog):
+def test_the_legacy_name_is_refused_naming_the_new_one(name):
     legacy, value = RENAMED[name]
-    new_env = _env_for(name, {name: value})
-    old_env = _env_for(name, {legacy: value})
-    with caplog.at_level("WARNING", logger="autopilot.gateway"):
-        old = serve.config_from_env(old_env)
-    assert _readback(old)[name] == _readback(serve.config_from_env(new_env))[name]
-    warnings = [r for r in caplog.records if "deprecated" in r.getMessage()]
-    assert len(warnings) == 1 and f"{legacy} -> {name}" in warnings[0].getMessage()
+    with pytest.raises(serve.ConfigError, match=f"{legacy} -> {name}"):
+        serve.config_from_env(_env_for(name, {legacy: value}))
 
 
-def test_the_new_name_wins_when_both_are_set(caplog):
-    env = _env_for("AUTOPILOT_AUDIENCE", {"AUTOPILOT_AUDIENCE": "new", "CLEARANCE_AUDIENCE": "old",
-                                          "AUTOPILOT_EXPIRE_SECONDS": "5", "CLEARANCE_EXPIRE_SECONDS": "99"})
-    with caplog.at_level("WARNING", logger="autopilot.gateway"):
-        c = serve.config_from_env(env)
-    assert c.audience == "new" and c.expire_seconds == 5
+def test_every_retired_name_is_covered_and_each_is_refused_alone():
+    from autopilot.settings import RETIRED
+    assert set(RETIRED) == {v[0] for v in RENAMED.values()} | {"CLEARANCE_AGENTS_DIR", "CLEARANCE_ISSUER_URL",
+                                                              "CLEARANCE_GATEWAY_URL"}
+    for old, new in RETIRED.items():
+        with pytest.raises(serve.ConfigError, match=f"{old} -> {new}"):
+            serve.config_from_env({**EPH, old: "x"})
 
 
-def test_several_legacy_names_are_one_warning(caplog):
-    env = _env_for("x", {"CLEARANCE_AUDIENCE": "a", "CLEARANCE_ADMINS": "user:r", "CLEARANCE_DELEGATES": "ns/sa"})
-    with caplog.at_level("WARNING", logger="autopilot.gateway"):
-        serve.config_from_env(env)
-    msgs = [r.getMessage() for r in caplog.records if "deprecated" in r.getMessage()]
-    assert len(msgs) == 1
+def test_several_retired_names_are_one_refusal():
+    with pytest.raises(serve.ConfigError) as e:
+        serve.config_from_env({**EPH, "CLEARANCE_AUDIENCE": "a", "CLEARANCE_ADMINS": "user:r", "CLEARANCE_DELEGATES": "ns/sa"})
     for old in ("AUDIENCE", "ADMINS", "DELEGATES"):
-        assert f"CLEARANCE_{old} -> AUTOPILOT_{old}" in msgs[0]
+        assert f"CLEARANCE_{old} -> AUTOPILOT_{old}" in str(e.value)
 
 
-def test_an_empty_new_name_falls_back_to_the_legacy_one():
-    assert serve.config_from_env({**EPH, "AUTOPILOT_AUDIENCE": "", "CLEARANCE_AUDIENCE": "old"}).audience == "old"
+def test_an_empty_retired_name_is_not_set():
+    assert serve.config_from_env({**EPH, "CLEARANCE_AUDIENCE": ""}).audience == "clearance"
 
 
 def test_the_clearance_client_names_are_unchanged():
@@ -525,12 +518,12 @@ def test_the_clearance_client_names_are_unchanged():
         serve.config_from_env({"AUTOPILOT_EPHEMERAL": "1"})
 
 
-def test_aliases_do_not_touch_the_core_only_refuse_list():
-    # Every core-only name is still refused, with the aliasing in play, and none of them is an alias or a new name.
+def test_retiring_the_names_does_not_touch_the_core_only_refuse_list():
+    # Every core-only name is still refused, and none of them is a retired or a new name.
     assert not set(serve.CORE_ONLY) & (set(RENAMED) | {v[0] for v in RENAMED.values()})
     for var in serve.CORE_ONLY:
         with pytest.raises(serve.ConfigError, match=var):
-            serve.config_from_env({**EPH, "CLEARANCE_AUDIENCE": "old", "AUTOPILOT_AUDIENCE": "new", var: "x"})
+            serve.config_from_env({**EPH, "AUTOPILOT_AUDIENCE": "new", var: "x"})
 
 
 # -- run-pod token audiences (R-10b) ----------------------------------------------------------------------------------
@@ -543,9 +536,9 @@ def _review(audiences_returned, calls):
     return opener
 
 
-def test_run_audiences_default_to_autopilot_and_the_core_audience():
-    assert serve.config_from_env(EPH).run_audiences == ("autopilot", "clearance")
-    assert serve.config_from_env({**EPH, "CLEARANCE_AUDIENCE": "aud2"}).run_audiences == ("autopilot", "aud2")
+def test_run_audiences_default_to_autopilot_alone():
+    assert serve.config_from_env(EPH).run_audiences == ("autopilot",)
+    assert serve.config_from_env({**EPH, "AUTOPILOT_AUDIENCE": "aud2"}).run_audiences == ("autopilot",)
     c = serve.config_from_env({**EPH, "AUTOPILOT_RUN_AUDIENCES": " autopilot , clearance,x"})
     assert c.run_audiences == ("autopilot", "clearance", "x")
     with pytest.raises(serve.ConfigError):
@@ -556,7 +549,7 @@ def test_workload_auth_accepts_either_run_audience_and_asks_token_review_for_bot
     f = tmp_path / "t"
     f.write_text("sa")
     a = serve.build_auth(serve.config_from_env(EPH)).inner.workload
-    assert a.audiences == ("clearance", "autopilot")
+    assert a.audiences == ("autopilot",), "the old clearance audience is no longer accepted from workloads (R-10e)"
     for returned in (["autopilot"], ["clearance"]):
         calls = []
         w = WorkloadAuthenticator("clearance", token_file=f, opener=_review(returned, calls), audiences=("autopilot",))

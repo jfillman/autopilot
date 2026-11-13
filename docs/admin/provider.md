@@ -32,7 +32,7 @@ Every record has a `provider` (`{name, version}`), and the core sets it, never t
 
   ```json
   [{"name": "autopilot-gateway", "version": "gateway-v0.4.1",
-    "principals": ["autopilot-system/clearance"], "definitions": true}]
+    "principals": ["autopilot-system/autopilot-gateway"], "definitions": true}]
   ```
 
 - **Decision records** are the core's own (`provider` `clearance`, its version), with `caller`

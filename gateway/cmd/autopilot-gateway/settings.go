@@ -2,50 +2,43 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 )
 
-// setting is `name`'s value, else the deprecated `legacy` name's (recorded in used as legacy -> name), else "". The
-// gateway's own settings are AUTOPILOT_*; the CLEARANCE_* names they replaced (R-10a) still work for one release, the
-// new name winning when both are set. An empty variable is an unset one. Settings that address the Clearance product
-// (CLEARANCE_CORE_URL, CLEARANCE_CORE_TOKEN_FILE) keep their names and do not come through here.
-func setting(env func(string) string, used map[string]string, name, legacy string) string {
-	if v := env(name); v != "" {
-		return v
-	}
-	if legacy != "" {
-		if v := env(legacy); v != "" {
-			used[legacy] = name
-			return v
+// The gateway's own settings are AUTOPILOT_*. R-10a renamed them from CLEARANCE_*, with the old names read as
+// fallbacks for one release; R-10e removed the fallbacks. Settings that address the Clearance product
+// (CLEARANCE_CORE_URL, CLEARANCE_CORE_TOKEN_FILE) keep their names.
+//
+// An old name that is still set is refused at start rather than ignored: running without the setting the operator
+// asked for (an audience, a delegate list) would be a silent change. CLEARANCE_EPHEMERAL and CLEARANCE_OIDC_ISSUER are
+// refused already, with their AUTOPILOT_ twins, as features this slice does not carry (serve.go, unported).
+var retired = map[string]string{
+	"CLEARANCE_OIDC_AUDIENCE":      "AUTOPILOT_OIDC_AUDIENCE",
+	"CLEARANCE_OIDC_ALLOWED_USERS": "AUTOPILOT_OIDC_ALLOWED_USERS",
+	"CLEARANCE_OIDC_JWKS_URL":      "AUTOPILOT_OIDC_JWKS_URL",
+	"CLEARANCE_OIDC_USER_CLAIM":    "AUTOPILOT_OIDC_USER_CLAIM",
+	"CLEARANCE_AGENTS_DIR":         "AUTOPILOT_AGENTS_DIR",
+	"CLEARANCE_AUDIENCE":           "AUTOPILOT_AUDIENCE",
+	"CLEARANCE_RESOURCE_URL":       "AUTOPILOT_RESOURCE_URL",
+	"CLEARANCE_ISSUER_URL":         "AUTOPILOT_ISSUER_URL",
+	"CLEARANCE_EXPIRE_SECONDS":     "AUTOPILOT_EXPIRE_SECONDS",
+	"CLEARANCE_DELEGATES":          "AUTOPILOT_DELEGATES",
+	"CLEARANCE_ADMINS":             "AUTOPILOT_ADMINS",
+	"CLEARANCE_GATEWAY_URL":        "AUTOPILOT_GATEWAY_URL",
+}
+
+// retiredSettings is the refusal for the retired names that are set ("" when none is).
+func retiredSettings(env func(string) string) string {
+	var bad []string
+	for old, nu := range retired {
+		if env(old) != "" {
+			bad = append(bad, fmt.Sprintf("%s -> %s", old, nu))
 		}
 	}
-	return ""
-}
-
-func settingOr(env func(string) string, used map[string]string, name, legacy, d string) string {
-	if v := setting(env, used, name, legacy); v != "" {
-		return v
-	}
-	return d
-}
-
-// deprecationWarning is the single line logged at start for the legacy names in use ("" when none is).
-func deprecationWarning(used map[string]string) string {
-	if len(used) == 0 {
+	if len(bad) == 0 {
 		return ""
 	}
-	pairs := make([]string, 0, len(used))
-	for old, nu := range used {
-		pairs = append(pairs, fmt.Sprintf("%s -> %s", old, nu))
-	}
-	sort.Strings(pairs)
-	return "deprecated settings in use, renamed in this release (the old names stop working in the next): " + strings.Join(pairs, "; ")
-}
-
-func warnDeprecated(log *slog.Logger, used map[string]string) {
-	if m := deprecationWarning(used); m != "" {
-		log.Warn(m)
-	}
+	sort.Strings(bad)
+	return "retired settings (R-10e): " + strings.Join(bad, "; ") + ". Rename them: the old names are no longer read"
 }

@@ -23,35 +23,25 @@ func TestNewNameRead(t *testing.T) {
 	if c.agentsDir != "/a" || c.audience != "aud" || c.expireEvery.Seconds() != 15 || c.resourceURL != "https://r/mcp" {
 		t.Fatalf("new names not read: %+v", c)
 	}
-	if w := deprecationWarning(c.deprecated); w != "" {
-		t.Fatalf("unexpected warning %q", w)
+}
+
+func TestRetiredNamesRefused(t *testing.T) {
+	for old, nu := range retired {
+		_, err := configFromEnv(envOf(base(map[string]string{old: "x"})))
+		if err == nil || !strings.Contains(err.Error(), old+" -> "+nu) {
+			t.Fatalf("%s: want a refusal naming %s, got %v", old, nu, err)
+		}
+	}
+	if _, err := configFromEnv(envOf(base(map[string]string{"AUTOPILOT_AUDIENCE": "new"}))); err != nil {
+		t.Fatalf("the new names are fine: %v", err)
 	}
 }
 
-func TestLegacyAliasReadAndWarned(t *testing.T) {
-	c, err := configFromEnv(envOf(base(map[string]string{"CLEARANCE_AGENTS_DIR": "/old", "CLEARANCE_EXPIRE_SECONDS": "9"})))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.agentsDir != "/old" || c.expireEvery.Seconds() != 9 {
-		t.Fatalf("legacy not read: %+v", c)
-	}
-	w := deprecationWarning(c.deprecated)
-	if !strings.Contains(w, "CLEARANCE_AGENTS_DIR -> AUTOPILOT_AGENTS_DIR") || !strings.Contains(w, "CLEARANCE_EXPIRE_SECONDS -> AUTOPILOT_EXPIRE_SECONDS") {
-		t.Fatalf("warning %q", w)
-	}
-}
-
-func TestNewNameWinsOverLegacy(t *testing.T) {
-	c, err := configFromEnv(envOf(base(map[string]string{"AUTOPILOT_AUDIENCE": "new", "CLEARANCE_AUDIENCE": "old"})))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.audience != "new" {
-		t.Fatalf("audience %q", c.audience)
-	}
-	if len(c.deprecated) != 0 {
-		t.Fatalf("legacy ignored, so not warned: %v", c.deprecated)
+func TestCoreNamesAreNotRetired(t *testing.T) {
+	for _, k := range []string{"CLEARANCE_CORE_URL", "CLEARANCE_CORE_TOKEN_FILE", "CLEARANCE_API_URL"} {
+		if _, ok := retired[k]; ok {
+			t.Fatalf("%s addresses the Clearance product and keeps its name", k)
+		}
 	}
 }
 

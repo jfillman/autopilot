@@ -17,8 +17,8 @@ Environment (README "Running the read API"):
   AUTOPILOT_GATEWAY_URL     where writes go, named in /v1/contract as `gateway`
   CLEARANCE_API_URL         where Clearance's reads are, named in /v1/contract as `clearance`
   PORT (8080), and the gateway's auth and catalog variables (AUTOPILOT_AUDIENCE, AUTOPILOT_OIDC_*, TOWER_*,
-  BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE). The CLEARANCE_* names of the settings the gateway owns still work for one
-  release (settings.py), with a deprecation warning.
+  BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE). The CLEARANCE_* names of the settings the gateway owns are retired (R-10e,
+  settings.py): one that is still set is refused at start.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from .engine.definitions import Definitions
 
 from . import read_api, serve
 from .agent_xrs import DefinitionsRefresher
-from .settings import setting, warn_deprecated
+from .settings import setting
 from .reads import BackstageCatalog, BackstageDirectory, BackstageOwnership
 
 log = logging.getLogger("autopilot.api")
@@ -40,10 +40,8 @@ log = logging.getLogger("autopilot.api")
 def build(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
 
-    used: dict[str, str] = {}
-
-    def get(k: str, d: str | None = None, legacy: str | None = None) -> str | None:
-        return setting(env, k, legacy=legacy, default=d, used=used)
+    def get(k: str, d: str | None = None) -> str | None:
+        return setting(env, k, default=d)
 
     dsn = get("GATEWAY_API_DSN")
     if not dsn:
@@ -76,10 +74,9 @@ def build(env: Mapping[str, str] | None = None):
     store = read_api.PgReadStore(read_api.Pool(dsn, size=pool_size))
     # The cluster-pinned definitions the gateway loaded, from its store: this process fetches and decides nothing.
     DefinitionsRefresher(defs, store, interval=interval).start()
-    app = read_api.create_api_app(store, access, gateway_url=get("AUTOPILOT_GATEWAY_URL", legacy="CLEARANCE_GATEWAY_URL"),
+    app = read_api.create_api_app(store, access, gateway_url=get("AUTOPILOT_GATEWAY_URL"),
                                   clearance_api_url=get("CLEARANCE_API_URL"), runtimes=serve.load_runtimes(),
                                   custom_images=cfg.runtime_images_extra)
-    warn_deprecated(used)   # the gateway parser above warns for the settings it reads
     return cfg, access, app
 
 

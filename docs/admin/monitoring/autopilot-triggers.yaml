@@ -1,5 +1,5 @@
 # Trigger durability monitoring (A-5): what apron wires for the gateway's metrics port. A documented manifest, not
-# applied from this repo: apron's templates/55-autopilot/clearance/ takes it (the manager wires apron), with the
+# applied from this repo: apron's templates/55-autopilot/gateway/ takes it (the manager wires apron), with the
 # Deployment's container port added beside mcp and model:
 #
 #   ports:
