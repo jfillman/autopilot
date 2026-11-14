@@ -16,6 +16,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
+	"github.com/jfillman/autopilot/gateway/internal/triggers"
 	"github.com/jfillman/clearance/client"
 )
 
@@ -1190,3 +1191,102 @@ func TestPreflightCasesAndScore(t *testing.T) {
 }
 
 var _ = time.Second
+
+// ---- the triggers through the real gateway ----------------------------------------------------------------------------------
+
+// The bridge and the scheduler over the real dispatch gateway, the real run backend (over a fake API) and the in-memory ledger: a
+// trigger fires once; a crash between the open and the launch is repaired by launching the live session; a launch that fails
+// closes the session it opened.
+func TestTriggersThroughTheRealGateway(t *testing.T) {
+	p := newPeopleRig(t)
+	// the triage agent runs in the cluster for this test
+	img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+	p.g.Defs["triage-agent"].Image = &img
+	ledger := &triggers.MemoryLedger{}
+	now := t0
+	b, err := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := func(id, pr string) map[string]any {
+		return map[string]any{"id": id, "app": "gate-api", "routingKey": "gate-api.pipelinerun.finished",
+			"event": map[string]any{"context": map[string]any{"type": "t"}, "subject": map[string]any{"id": pr, "content": map[string]any{"outcome": "failure"}}}}
+	}
+	live := func() []*session.Session {
+		var out []*session.Session
+		for _, s := range p.store.All() {
+			s.Lock()
+			if s.Agent == "triage-agent" && !s.Closed {
+				out = append(out, s)
+			}
+			s.Unlock()
+		}
+		return out
+	}
+	got, err := b.Handle(ctx, env("e1", "pr-1"), "stream")
+	if err != nil || len(got) != 1 || got[0].Result != "launched" || got[0].Run == "" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if n := len(live()); n != 1 || len(p.api.Manifests) != 1 {
+		t.Fatalf("%d live sessions, %d runs", n, len(p.api.Manifests))
+	}
+	if recs := p.recordsOf("run.launch"); len(recs) != 1 {
+		t.Fatalf("%v", recs)
+	}
+	// a replay, from a new process: once
+	now = t0.Add(time.Hour)
+	b2, _ := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
+	got, _ = b2.Handle(ctx, env("e1", "pr-1"), "recent")
+	if len(got) != 1 || got[0].New || len(live()) != 1 || len(p.api.Manifests) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	// the process died after the session was opened and saved, before its launch: the claim is an orphan, the live session has no run;
+	// the next process launches that session (it does not open a second one)
+	key := "gate-api.pipelinerun.finished/pr-2"
+	task := triggers.EventTaskID("triage-agent", key)
+	_ = p.persist.Save(ctx, []session.Record{sessionRow("s-00ee01", "autopilot-runs/triage-agent", "triage-agent", "", func(r *session.Record) { r.TaskID = task })})
+	st2, _ := session.NewStore(ctx, p.persist)
+	p.g.Store, p.store = st2, st2
+	if ok, _ := ledger.Claim(ctx, "triage-agent", key, "stream", "e2", t0.Add(time.Hour), t0.Add(time.Hour)); !ok {
+		t.Fatal("claim")
+	}
+	now = t0.Add(2 * time.Hour)
+	b3, _ := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
+	got, err = b3.Handle(ctx, env("e2", "pr-2"), "recent")
+	if err != nil || len(got) != 1 || got[0].Result != "launched" || got[0].Session != "s-00ee01" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if s := p.store.Get("s-00ee01"); s.Run == nil || len(live()) != 2 {
+		t.Fatalf("the orphan was not launched, or a second session was opened: %d live", len(live()))
+	}
+	// a launch that fails closes the session it opened, and the failure is the trigger's decision
+	p.api.Err = errors.New("API server 500")
+	got, _ = b3.Handle(ctx, env("e3", "pr-3"), "stream")
+	if len(got) != 1 || got[0].Result != "launch-failed" || len(live()) != 2 {
+		t.Fatalf("%+v: %d live", got, len(live()))
+	}
+	p.api.Err = nil
+	got, _ = b3.Handle(ctx, env("e4", "pr-3"), "stream") // the same trigger key again: decided, not retried
+	if len(got) != 1 || got[0].New || len(live()) != 2 {
+		t.Fatalf("%+v", got)
+	}
+	// the scheduler, once per slot
+	img2 := img
+	nr := p.g.Defs["nightly-reviewer"]
+	nr.Image = &img2
+	sc := triggers.NewScheduler(p.g, ledger, func() time.Time { return time.Date(2026, 9, 27, 0, 1, 0, 0, time.UTC) }, nil, nil)
+	p.g.Now = func() time.Time { return time.Date(2026, 9, 27, 0, 1, 0, 0, time.UTC) }
+	done := sc.Tick(ctx)
+	fired := 0
+	for _, d := range done {
+		if d.Result == "launched" {
+			fired++
+		}
+	}
+	if fired != 1 {
+		t.Fatalf("%+v", done)
+	}
+	if again := triggers.NewScheduler(p.g, ledger, func() time.Time { return time.Date(2026, 9, 27, 0, 2, 0, 0, time.UTC) }, nil, nil).Tick(ctx); len(again) != 0 {
+		t.Fatalf("a restarted scheduler fired the slot again: %+v", again)
+	}
+}

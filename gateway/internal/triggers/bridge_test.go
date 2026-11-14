@@ -25,20 +25,21 @@ var t0 = time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 // fakeGW is the gateway as the triggers see it: it models the session half of a trigger (a live session of the same task is a
 // dedupe), and can be told to fail, hold or panic.
 type fakeGW struct {
-	mu       sync.Mutex
-	defs     map[string]*definitions.Definition
-	opens    []string // agent/task per open
-	launches []string // session per launch
-	sessions map[string]string
-	hasRun   map[string]bool
-	n        int
-	holdRule map[string]string // agent -> rule an open is refused with
-	openErr  error
-	panicOn  map[string]bool
-	launchOK bool // false: a launch is refused (launch-failed)
-	events   []map[string]any
-	outcomes [][]map[string]any
-	onOpen   func(ctx context.Context)
+	mu        sync.Mutex
+	defs      map[string]*definitions.Definition
+	opens     []string // agent/task per open
+	launches  []string // session per launch
+	sessions  map[string]string
+	hasRun    map[string]bool
+	n         int
+	holdRule  map[string]string // agent -> rule an open is refused with
+	openErr   error
+	panicOn   map[string]bool
+	launchOK  bool // false: a launch is refused (launch-failed)
+	events    []map[string]any
+	outcomes  [][]map[string]any
+	onOpen    func(ctx context.Context)
+	abandoned []string
 }
 
 func newGW(defs ...*definitions.Definition) *fakeGW {
@@ -90,6 +91,12 @@ func (g *fakeGW) Launch(_ context.Context, sid string, _ map[string]any) (*dispa
 	}
 	g.hasRun[sid] = true
 	return &dispatch.Result{OK: true, Data: map[string]any{"run": "r-" + sid[2:], "session": sid}}, nil
+}
+
+func (g *fakeGW) AbandonTriggered(_ context.Context, sid string, _ bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.abandoned = append(g.abandoned, sid)
 }
 
 func (g *fakeGW) SessionHasRun(sid string) bool {
@@ -260,8 +267,8 @@ func TestAFailureForOneAgentDoesNotSkipTheOthers(t *testing.T) {
 	gw.openErr = nil
 	gw.launchOK = false
 	got, _ = r.b.Handle(context.Background(), finished("e3", "pr-3", "failure"), "stream")
-	if got[0].Result != "launch-failed" || got[0].Session == "" {
-		t.Fatalf("%+v", got)
+	if got[0].Result != "launch-failed" || got[0].Session == "" || len(gw.abandoned) != 2 {
+		t.Fatalf("%+v: a session whose run could not be launched is closed, not left live: %v", got, gw.abandoned)
 	}
 }
 

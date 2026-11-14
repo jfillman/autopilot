@@ -174,8 +174,11 @@ type Events struct {
 	writes int
 }
 
-// PruneEvery is how many writes pass between prunes.
-const PruneEvery = 500
+// PruneEvery is how many writes pass between prunes, and MaxEventRows how many rows of history are kept at most.
+const (
+	PruneEvery   = 500
+	MaxEventRows = 200_000
+)
 
 // NewEvents returns the event history on st.
 func NewEvents(st *State) *Events { return &Events{st: st} }
@@ -195,6 +198,8 @@ func (e *Events) Record(ctx context.Context, ev *dispatch.EventRecord) error {
 	}
 	if e.writes++; e.writes%PruneEvery == 0 {
 		_, _ = e.st.Pool.Exec(ctx, "DELETE FROM gateway_events WHERE received_at < $1", time.Now().UTC().Add(-dispatch.EventRetention))
+		// and the table is bounded by size as well as age (Python bounds it by age alone): the newest MaxEventRows stay
+		_, _ = e.st.Pool.Exec(ctx, "DELETE FROM gateway_events WHERE id IN (SELECT id FROM gateway_events ORDER BY received_at DESC, id OFFSET $1)", MaxEventRows)
 	}
 	return nil
 }

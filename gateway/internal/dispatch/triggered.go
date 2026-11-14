@@ -166,3 +166,23 @@ func (g *Gateway) SessionHasRun(sessionID string) bool {
 	defer s.Unlock()
 	return s.Run != nil && *s.Run != ""
 }
+
+// AbandonTriggered closes a session a trigger opened and could not launch, so it does not stay live, with its budget, until its
+// deadline: the trigger's decision is final (launch-failed) and nothing will launch it. Python leaves it live. failed says the
+// launch raised (a backend error): the session may then name a run that may exist (its name is written before the run is created),
+// and closing it is what lets the sweep delete that run. Otherwise (the launch was refused) a session that names a run is left
+// alone: it has one. A session that is not found is ignored.
+func (g *Gateway) AbandonTriggered(ctx context.Context, sessionID string, failed bool) {
+	s := g.Store.Get(sessionID)
+	if s == nil {
+		return
+	}
+	defer s.Serial()()
+	s.Lock()
+	has := s.Run != nil && *s.Run != ""
+	s.Unlock()
+	if has && !failed {
+		return
+	}
+	g.flush(ctx, g.Store.CloseTouched(sessionID)...)
+}

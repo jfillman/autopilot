@@ -304,6 +304,7 @@ func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start tim
 	launched, err := s.gw.Launch(fctx, out.Session, input)
 	if err != nil {
 		s.log.Error("a schedule's run was not launched", "agent", sc.agent, "slot", slot, "err", errKind(err))
+		s.gw.AbandonTriggered(ctx, out.Session, true)
 		return out
 	}
 	if launched.OK {
@@ -311,6 +312,8 @@ func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start tim
 		if d, ok := launched.Data.(map[string]any); ok {
 			out.Run, _ = d["run"].(string)
 		}
+	} else {
+		s.gw.AbandonTriggered(ctx, out.Session, false)
 	}
 	return out
 }

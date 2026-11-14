@@ -86,6 +86,8 @@ type Gateway interface {
 	OpenTriggered(ctx context.Context, agent, trigger, taskID string) (*dispatch.Result, error)
 	Launch(ctx context.Context, sessionID string, input map[string]any) (*dispatch.Result, error)
 	SessionHasRun(sessionID string) bool
+	// AbandonTriggered closes a session a trigger opened and could not launch.
+	AbandonTriggered(ctx context.Context, sessionID string, failed bool)
 	RecordEvent(ctx context.Context, summary map[string]any, outcomes []map[string]any) (bool, error)
 }
 
@@ -418,6 +420,7 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 	if err != nil {
 		b.log.Error("a trigger's run was not launched", "event", eid, "agent", m.Agent, "err", errKind(err))
 		out.Result = "launch-failed"
+		b.gw.AbandonTriggered(ctx, sid, true)
 		return out
 	}
 	out.Result = "launch-failed"
@@ -426,6 +429,8 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 		if data, ok := launched.Data.(map[string]any); ok {
 			out.Run, _ = data["run"].(string)
 		}
+	} else {
+		b.gw.AbandonTriggered(ctx, sid, false)
 	}
 	return out
 }
