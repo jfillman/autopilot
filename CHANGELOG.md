@@ -5,6 +5,31 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S3: the human inbox, person controls and triggers in the Go gateway)
+- The Go gateway (`gateway/`, still off by default and not deployed) carries the human inbox (`human.request`, the pending list,
+  answering, expiry), the person controls (freeze, end, hold, release) and a person's run behind the `/v1` routes, with Preflight's
+  cases and scoring, as the Python gateway does: only a person acts (a user, or a listed delegate naming one), never a run,
+  and each control is an evidence record. The trigger scheduler, the event bridge (the stream, the catch-up from the saved cursor
+  with `Last-Event-ID`, the storm brake, the history) and the reconciliation sweep run when `SCHEDULES_ENABLED` and `EVENTS_ENABLED`
+  are set, over a ledger in the gateway database that makes a trigger fire once across restarts, replays and a crash between the
+  claim and the session. `serve` no longer refuses `EVENTS_ENABLED`; it reads `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`,
+  `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA` and `PREFLIGHT_CASES_DIR`. The replay now takes the 31
+  triggered `session.open` lines. A candidate definition `document` is refused (501) until the definition schema is carried (S4).
+- Beyond Python, on purpose: the gateway checks the grant the core makes for a trigger or a person's run, authenticates before it
+  answers anything, orders a hold against the opens in flight, rate limits holds and runs, bounds the event bridge's client (no
+  redirect, capped answers and lines, bounded backoff) and its topic matcher, repairs a session a trigger opened and never launched,
+  and closes a session whose launch failed. `docs/admin/go-gateway.md` lists each difference, who may do what and the trigger crash points.
+- `tools/gen_gateway_registry.py` also writes fixtures for the inbox, the controls, the rows they write and the triggers (matcher, keys,
+  the bridge and the scheduler driven over a fake gateway), generated from the Python code.
+
+### Changed (A-9 S3 hardening of S2: a candidate's image and a run's pod)
+- A Preflight candidate's runtime image must end in `@sha256:` and 64 lowercase hex digits, an empty allow-list refuses every
+  candidate (the Python gateway allows any registry) and a glob matches the whole image, so a bare prefix no longer matches across a
+  path boundary (Go gateway only).
+- A caller acts as a run's session only with a token bound to the run's pod: `auth.Workload` carries the token review's
+  `authentication.kubernetes.io/pod-name` and the run's pod must be the composition's Sandbox name (`agent`). A token minted for the
+  bare service account is that service account and nothing more. A token without a pod binding still authenticates (Go gateway only).
+
 ### Added (A-9 S2: runs, the run tree and run identity in the Go gateway)
 - The Go gateway (`gateway/`, still off by default and not deployed) creates, reads and deletes AgentRun XRs, spawns and closes
   runs, launches and finishes them (`run_finish`), closes a session with its runs (`session_close`), keeps a run's answer
