@@ -334,6 +334,8 @@ All of these leave the answer for ordinary inputs unchanged.
 - **Authenticate first.** Python answers `404` for an unknown session or agent, and "not held" to a release, before it looks at the
   token or at who asks; an unauthenticated caller could learn which sessions exist and which agents are held. Go authenticates before
   anything, and tells a person who may not manage an agent nothing about it (a release is `CT-FORBIDDEN`, not `CT-NOHOLD`).
+  An authenticated person still learns from `404` against `403` whether a session id exists (Python the same; the ids are random and
+  the person is on the allow-list).
 - **A delegate naming `user:`** (no name) is refused (400); Python goes on to ask whether a person with no name may manage the agent,
   which an admin glob such as `user:*` answers yes to. `hours` as a string of non-ASCII digits is refused; Python's `int()` reads it.
 - **Freeze does not wait for a call in flight** on the session; the check that the session is live and not yet frozen and the trip are one
