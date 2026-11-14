@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
@@ -36,36 +37,13 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 	g.holdGate.RLock()
 	defer g.holdGate.RUnlock()
 	now := g.Now()
-	var held *Hold
-	d := g.Defs[agent]
-	if d != nil {
-		var err error
-		if held, err = g.holdForLocked(ctx, agent); err != nil {
-			return nil, err
-		}
-	}
-	var live *session.Session
-	if taskID != "" {
-		live = g.Store.FindLive(agent, taskID, now)
-	}
 	newID := g.Store.NewID()
-	req := &client.EvaluationRequest{
-		Subject:  client.Subject{Type: "principal", ID: "trigger:" + trigger, Properties: client.SubjectProperties{Kind: "workload", TierCeiling: 1}},
-		Action:   client.Action{Name: "session.open", Properties: client.ActionProperties{TaskID: taskID, Trigger: trigger}},
-		Resource: client.Resource{Type: "agent", ID: agent},
-		Context:  client.Context{Now: now, NewSessionID: newID},
+	req, live, err := g.triggeredRequest(ctx, agent, trigger, taskID, newID, now)
+	if err != nil {
+		g.Store.GiveBack(newID)
+		return nil, err
 	}
-	if def := g.Def(agent); def != nil {
-		req.Context.Agent = def.AgentDef()
-	}
-	if held != nil {
-		req.Context.Hold = &client.Hold{By: held.By, Until: held.Until, Reason: held.Reason}
-	}
-	if live != nil {
-		live.Lock()
-		req.Context.Live = live.State()
-		live.Unlock()
-	}
+	d := g.Defs[agent]
 	v, err := g.Core.Evaluate(ctx, req)
 	var un *core.Unreachable
 	if errors.As(err, &un) {
@@ -92,8 +70,12 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 			return refusedGrant(v), nil
 		}
 		live.Lock()
+		gone := live.Closed
 		out := map[string]any{"session": live.ID, "task_id": live.TaskID, "expires_at": core.Iso(live.ExpiresAt), "deduped": true}
 		live.Unlock()
+		if gone { // closed while the core was deciding: not a run a trigger can be answered with
+			return refusedGrant(v), nil
+		}
 		return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: out, AuditSeq: v.Seq, Session: &live.ID}, nil
 	}
 	if d == nil {
@@ -126,6 +108,48 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 func refusedGrant(v *core.Verdict) *Result {
 	return &Result{Decision: map[string]any{"allow": false, "rule": core.RefusedRule, "message": "Clearance's grant was refused"},
 		Error: str("Clearance's grant was refused"), AuditSeq: v.Seq}
+}
+
+// TriggeredRequest is the core's evaluation of a triggered open as OpenTriggered builds it (Gateway.open_triggered): the agent's
+// hold and any live session of the same task are in the context. Exported for the replay.
+func (g *Gateway) TriggeredRequest(ctx context.Context, agent, trigger, taskID, newID string, now time.Time) (*client.EvaluationRequest, error) {
+	g.holdGate.RLock()
+	defer g.holdGate.RUnlock()
+	req, _, err := g.triggeredRequest(ctx, agent, trigger, taskID, newID, now)
+	return req, err
+}
+
+// triggeredRequest builds the evaluation; the caller holds the hold gate. live is the live session of the task, if any.
+func (g *Gateway) triggeredRequest(ctx context.Context, agent, trigger, taskID, newID string, now time.Time) (*client.EvaluationRequest, *session.Session, error) {
+	var held *Hold
+	if g.Defs[agent] != nil {
+		var err error
+		if held, err = g.holdForLocked(ctx, agent); err != nil {
+			return nil, nil, err
+		}
+	}
+	var live *session.Session
+	if taskID != "" {
+		live = g.Store.FindLive(agent, taskID, now)
+	}
+	req := &client.EvaluationRequest{
+		Subject:  client.Subject{Type: "principal", ID: "trigger:" + trigger, Properties: client.SubjectProperties{Kind: "workload", TierCeiling: 1}},
+		Action:   client.Action{Name: "session.open", Properties: client.ActionProperties{TaskID: taskID, Trigger: trigger}},
+		Resource: client.Resource{Type: "agent", ID: agent},
+		Context:  client.Context{Now: now, NewSessionID: newID},
+	}
+	if def := g.Def(agent); def != nil {
+		req.Context.Agent = def.AgentDef()
+	}
+	if held != nil {
+		req.Context.Hold = &client.Hold{By: held.By, Until: held.Until, Reason: held.Reason}
+	}
+	if live != nil {
+		live.Lock()
+		req.Context.Live = live.State()
+		live.Unlock()
+	}
+	return req, live, nil
 }
 
 // Definitions is the definition set (the triggers read it for what each agent's triggers are).
