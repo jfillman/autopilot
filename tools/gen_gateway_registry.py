@@ -489,6 +489,8 @@ if __name__ == "__main__":
     runs = {LIMITS_OUT: limits_cases(), MANIFESTS_OUT: manifests_cases(), ACTING_OUT: acting_cases(), RUNS_OUT: results_cases() + "",
             CANDIDATES_OUT: candidates_cases()}
     runs_ops = run_ops_cases()
+    import gen_gateway_reads   # the S5a read backends' fixtures (tools/gen_gateway_reads.py)
+    runs.update(gen_gateway_reads.outputs())
     if "--check" in sys.argv:
         ok = (OUT.read_text() == text and SCHEMA_OUT.read_text() == pg.SCHEMA and AGENTS_OUT.read_text() == ag
               and ROWS_OUT.is_file() and ROWS_OUT.read_text() == rw

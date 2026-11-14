@@ -5,6 +5,20 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S5a: the read backends in the Go gateway)
+- The Go gateway (`gateway/`, still off by default and not deployed) now has handlers for `catalog.read` (`BACKSTAGE_URL`,
+  `BACKSTAGE_TOKEN_FILE`), `argo.app.get` (`ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, through the Kubernetes API), `app.api.get`
+  (`APP_API_SERVICES`) and `artifact.put` and `artifact.get` (the gateway's own database), each the Python behaviour for the same
+  inputs: arguments, result shape and clipping, refusals, `ReadError` text and class. `BACKSTAGE_URL` and `APP_API_SERVICES` are no
+  longer refused at start; a bad value of any of the five settings stops it.
+- Stricter than Python, on purpose, each pinned in tests and listed in `docs/admin/go-gateway.md`: a redirect is never followed
+  (Python follows one for the catalog and the API server and sends the bearer token to the new host), an application API path is
+  refused for an encoded control character, a malformed `%` escape, a dot segment before a `;` or a trailing newline, artifact content
+  with a NUL is refused, a session with no task has no artifacts, and the catalog answer is capped at 4 MiB. Every URL is a
+  configured base plus a validated path, with a fuzz test for each builder.
+- `tools/gen_gateway_reads.py` (called by `tools/gen_gateway_registry.py`) writes the equivalence fixtures by driving the Python
+  adapters over canned upstream answers; the drift guard now also watches `airframe_api.py`, which `argo.app.get` reads through.
+
 ### Added (A-9 S2: runs, the run tree and run identity in the Go gateway)
 - The Go gateway (`gateway/`, still off by default and not deployed) creates, reads and deletes AgentRun XRs, spawns and closes
   runs, launches and finishes them (`run_finish`), closes a session with its runs (`session_close`), keeps a run's answer

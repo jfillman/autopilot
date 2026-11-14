@@ -63,7 +63,7 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         ("gateway/internal/dispatch",), "ControlError and check_reason (what session_close and run_finish answer with)",
         "S3 holds, may_manage, check_hours and the person controls built on them"),
     "src/autopilot/engine/pg.py": (
-        ("gateway/internal/pgstate",), "the tables, the writer lock, sessions, run results and the outbox (schema.sql is generated)",
+        ("gateway/internal/pgstate",), "the tables, the writer lock, sessions, run results, artifacts (PgArtifacts) and the outbox (schema.sql is generated)",
         "S3 use of the inbox, holds and trigger-ledger tables"),
     "src/autopilot/engine/definitions.py": (
         ("gateway/internal/definitions",), "reading the bundled set and the pinned set",
@@ -85,16 +85,23 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "session_close, healthz, protected-resource metadata", "S3 the people routes (/v1/...)"),
     "src/autopilot/engine/backends.py": (
         ("gateway/internal/dispatch", "gateway/internal/backends"), "BackendError (evidence, agent message), Handler, RunBackend "
-        "(and a fake)", "S3/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"),
-    "src/autopilot/reads.py": (("gateway/internal/backends",), "PrometheusAPI and LokiAPI (metrics.query, logs.query)",
-                               "S5a catalog.read, argo.app.get, app.api.get"),
+        "(and a fake), core_handlers for catalog.read, argo.app.get, app.api.get and artifact.put/get (S5a)",
+        "S3/S5b/S5c the core tools' other handlers (repo.*, argo.sync.lower, xr.request, human.request, chat)"),
+    "src/autopilot/reads.py": (("gateway/internal/backends",), "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: "
+                               "BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), "
+                               "ReadError", "S6 BackstageDirectory and BackstageOwnership (the read API); S5b KubeArgo.sync"),
+    "src/autopilot/airframe_api.py": (("gateway/internal/backends",), "S5a: KubeReader's GET and list of Argo CD Applications "
+                                      "(the path allowlist, the token and CA read on every call, AirframeError, argo_path)",
+                                      "S5c the XR kinds and Rollouts the airframe.* tools read through it"),
     "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/internal/runs", "gateway/cmd/autopilot-gateway"),
-                                 "which tool has a handler in a deployment (metrics.query, logs.query, run.spawn, run.close), "
-                                 "AgentRunBackend (the run's name, its identity, how it ended)", "S5 the other handlers"),
+                                 "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, "
+                                 "artifact.put/get, run.spawn, run.close), AgentRunBackend (the run's name, its identity, how it ended)",
+                                 "S5b/S5c the other handlers"),
     "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the "
                                "authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), "
-                               "the outbox drain, the run backend and result store",
-                               "S3/S4/S6 the settings and loops of what is not ported"),
+                               "the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, "
+                               "ARGO_APP_NAMESPACES",
+                               "S3/S4/S5b/S6 the settings and loops of what is not ported"),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     "src/autopilot/conformance.py": (("gateway/internal/conformance", "gateway/cmd/autopilot-gateway"),
                                      "the conformance control interface", ""),
@@ -113,7 +120,7 @@ NOT_PORTED: dict[str, str] = {
     "src/autopilot/agent_xrs.py": "S4",
     "src/autopilot/argo_sync.py": "S5b", "src/autopilot/cicd_propose.py": "S5b", "src/autopilot/github_pr.py": "S5b",
     "src/autopilot/glidepath_api.py": "S5b", "src/autopilot/glidepath_live.py": "S5b",
-    "src/autopilot/airframe_api.py": "S5c", "src/autopilot/airframe_apply.py": "S5c", "src/autopilot/airframe_plan.py": "S5c",
+    "src/autopilot/airframe_apply.py": "S5c", "src/autopilot/airframe_plan.py": "S5c",
     "src/autopilot/airframe_tools.py": "S5c", "src/autopilot/xr_request.py": "S5c",
     "src/autopilot/vendor/airframe_sidecars.py": "S5c",
     "src/autopilot/api_serve.py": "S6", "src/autopilot/metrics.py": "S6", "src/autopilot/otlp_logs.py": "S6",
