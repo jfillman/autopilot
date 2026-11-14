@@ -1,7 +1,8 @@
 # The Go AI gateway (A-9)
 
-**Status: people and Tower sign-in (A-9 S1) and runs and the run tree (A-9 S2, 2026-11-14) are in, on top of the first slice and
-the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
+**Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2, 2026-11-14) and the read backends (A-9 S5a:
+`catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put`, `artifact.get`) are in, on top of the first slice and the
+catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
 the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
 Python one, how it is kept equal ([the drift guard](#the-drift-guard)), and exactly what is left.
@@ -74,7 +75,7 @@ Python changes since the first slice that belong to a later slice, and are there
 | S2 runs | **done in S2, below.** One part waits for S5c: `observe` counts `airframe.plan` and `airframe.apply`, which have no handler in Go yet, so nothing makes it count until S5c; the counting itself is ported and tested |
 | S3 people and triggers | the Preflight routes `/v1/preflight/cases` and `/v1/preflight/score` and `document` and `budget` on `POST /v1/agents/{agent}/runs` (`engine/server.py`, `Gateway.preflight_*`) |
 | S4 definitions | publishing the bundled definitions with the pins (`Core.publish_definitions(bundled=)`, `bundled_version`, the retry without the field against a core that predates it, `Definitions.bundled_set`, `AgentDefinition.doc`, `DefinitionsPublisher` at start), and the schema's `profile.airframe.proposeFlight` |
-| S5a read backends | `ReadError` for catalog and app API reads as a `BackendError` |
+| S5a read backends | **done in S5a, below**: `ReadError` for catalog and app API reads as a `BackendError`, with the handlers behind it |
 | S5b Glidepath and repo tools | `GitHubError`'s agent message and evidence and the resumable `ensure_pr` (`github_pr.py`), `GlidepathError` naming a connection failure's cause, `ArgoSyncError`'s evidence without the response body, `glidepath.cicd.propose` for the `propose` scope class (`cicd_propose.py`). The Go dispatch already tells an agent an error's agent message and records its evidence; these backends only have to offer them |
 | S5c Airframe tools | `airframe.apply` (`airframe_apply.py`), `airframe.capabilities` and `airframe.plan` descriptions (already in the generated registry), `AirframeError` as a `BackendError` |
 | S6 `api`, metrics, logs | the setting renames in `api_serve.py` (the retired names are refused there too) |
@@ -209,9 +210,128 @@ pod name is fixed by the composition (`agent`), so `auth.Workload` could pass `a
 principal and the acting rule could require it to be that name, which rules out a token minted for a bare service account
 (not a pod); and the sweep's read of the AgentRun (`status`) could one day carry the pod uid to compare.
 
+## What S5a carries: the read backends (2026-11-14)
+
+Five tools had a registry entry and no Go handler. They have one now, each the Python behaviour for the same inputs: the same
+arguments, the same result shape and clipping, the same refusals (`Denied`, with Python's rule, message and hint) and the
+same errors (class and evidence), the same settings and defaults. The sources are `reads.py`, `airframe_api.py` (the part
+`argo.app.get` reads through), `engine/backends.py` and `engine/pg.py` (`PgArtifacts`). Each backend has its own HTTP client,
+timeout and connection pool, and at most 8 to 16 requests in flight, so a slow upstream holds only its share of the gateway's
+calls. `argo.sync.lower` is S5b, `airframe.*` and `xr.request` are S5c; nothing here builds them.
+
+| Tool | Reads | Settings (Python's names and defaults) | Pinned by |
+|---|---|---|---|
+| `catalog.read` | Tower's Backstage catalog: `GET {BACKSTAGE_URL}/api/catalog/entities/by-query`, the gateway's own projected token for the `backstage` audience re-read on every call; a summary of at most 25 entities (kind, ref, title, description, type, owner, lifecycle, system), never annotations or the rest of `spec` | `BACKSTAGE_URL` (off when unset), `BACKSTAGE_TOKEN_FILE` (`/var/run/clearance/backstage-token`) | `TestReadBackendsEqualPython` (41 cases: text and filter queries, odd entities, 400, 401/403, 5xx, a redirect status, bad JSON, unreachable, timeout), `FuzzCatalogQuery` |
+| `argo.app.get` | an Argo CD Application through the Kubernetes API as the gateway's own identity: a summary (sources, destination, sync, health, last operation, conditions, the unhealthy resources), never `spec.source`'s Helm values or any field not named in the code; an app name (not an Application's) lists that app's Applications by the `hangar.io/app` label | `ARGO_ENABLED` (on), `ARGO_APP_NAMESPACES` (`argocd`) | `TestReadBackendsEqualPython` (51 cases: summary, namespaces in order, label resolution, 60 apps, paging, 401/403/5xx, bad JSON, 25 refused names), `TestKubeAnswersCarryNoSecretsFromTheApplication`, `TestKubeReaderReadsApplicationsOnly`, `FuzzApplicationsPath` |
+| `app.api.get` | a GET on an application's own API, by a service name the deployment maps to a base URL; the body cut at 256 KiB, answered as JSON when it is, else as text; a non-2xx answer is data | `APP_API_SERVICES` (a JSON object `{service: base URL}`; off when unset) | `TestReadBackendsEqualPython` (123 cases), `TestAppAPIPathAttacksAreRefusedBeforeAnyRequest`, `FuzzBuildAppURL` |
+| `artifact.put`, `artifact.get` | the gateway's own database (`gateway_artifacts`): text a task's sessions keep for each other | none (always on: the Go gateway always has its database) | `TestArtifactsEqualPythonInMemory`, `TestArtifactsEqualPythonInPostgres` (the same 135 operations as Python's `PgArtifacts`), `TestArtifactsAreKeptByTask`, `TestArtifactsThroughTheDispatchAreTheTasks` |
+
+The tests for the first four are fixtures the Python adapters write (`tools/gen_gateway_reads.py`, called by
+`tools/gen_gateway_registry.py`; `tests/test_gateway_go.py` fails when they are stale): for each case the request each sent
+(method, request target, `Accept` and `Authorization`) and what it returned, refused or raised. The Go test serves the same
+canned answers from an `httptest` server and requires the same requests and the same result, the same `Denied`, or the same
+`error:<Class>: <evidence>` and the same text the agent is told.
+
+### How each outbound URL is built
+
+No argument an agent supplies chooses a scheme, host, port or the start of a path. Each URL is a configured base plus a fixed
+path, or plus a path that has passed the rule below, and the finished URL of `app.api.get` is parsed again and refused unless
+its scheme, host and base path are the configured ones.
+
+| Backend | URL | What an agent's text can reach |
+|---|---|---|
+| `catalog.read` | `{BACKSTAGE_URL}/api/catalog/entities/by-query?` and a query string Python's order: `limit`, nine `fields`, then `filter` (a query containing `=`) or `fullTextFilterTerm` and three `fullTextFilterFields` | only the value of `filter` or `fullTextFilterTerm`, percent-escaped (`FuzzCatalogQuery`: whatever the text, the host and path are the base and the fixed path, and only the five parameters exist). At most 500 characters |
+| `argo.app.get` | `https://kubernetes.default.svc/apis/argoproj.io/v1alpha1/namespaces/{ns}/applications[/{name}]` | the name, which must match the DNS pattern Python uses (lower case letters, digits, `.` and `-`, 1 to 253, starting and ending with a letter or digit) before any path exists; the namespaces are configuration, checked as DNS labels at start. A list adds `labelSelector`, `limit` and `continue`; the continue token is the API server's own and is escaped |
+| `app.api.get` | the service's configured base (no trailing slash) + the path | the path: it starts with `/`, is at most 512 characters of `A-Za-z0-9._~!$&'()*+,;=:@%/-` and one optional `?query` of the same characters and `?`, has no `//`, no `%2e`, `%2f`, `%5c`, `%00`, `%25` in any case, no `%` that does not start two hex digits and no percent-encoded control character, and passes the decoded-segment rule below, so it has no scheme, host, userinfo, `#`, space, backslash or newline and cannot leave the base path. The service must be one of the configured names, matched exactly |
+
+The decoded-segment rule for `app.api.get` (it decides on what a server will read, not on how the path is written, because a
+server may decode before it strips path parameters or removes dot segments): the path before any `?` is split on `/`; each
+segment is percent-decoded once; the decoded segment must hold only printable ASCII (0x20 to 0x7e) and none of `/`, `\`, `?`
+or `#`; the part before its first `;` (a path parameter) must not be `.` or `..`. So `/..%3b/admin`, `/.%3b/` and `/a/..%3B/x`
+are refused, as are overlong encodings (`%c0%ae`, `%c0%af`), invalid UTF-8 and every Unicode look-alike of a dot or a slash
+(fullwidth U+FF0E and U+FF0F, U+2215, U+2044, U+2024, ...). Look-alike policy: refuse **every** non-ASCII byte in the decoded path
+rather than keep a list that could miss one; an application's own API paths are ASCII (a path with an accented letter must be
+written in the query, where only well-formed UTF-8 is required). The bytes sent are exactly the bytes validated.
+The fuzz oracle does not use this rule: it decodes the accepted path once and twice, reads it with backslashes as slashes or not,
+and strips parameters and removes RFC 3986 dot segments in several orders, and fails if any reading leaves the base path or the
+host.
+
+The Kubernetes reader allows one path shape, GET only: Applications of one namespace, listed or read by name, with the three
+query parameters above. Python's reader also allows Airframe XR kinds and Rollouts (for `airframe.*`, S5c); Go's does not
+yet. A path or query outside it is refused (`AF-K8S-PATH`) before a request exists.
+
+### Credentials, redirects, sizes and time
+
+- The Backstage token and the service-account token are read from their files on every call, stripped of white space, sent
+  only to the configured host, and never logged, never in an error, a record or a result. An unreadable file is the error
+  class Python's `open` raises (`FileNotFoundError`, `PermissionError`), with no path. `app.api.get` sends no credential and no
+  cookie, only `Accept`.
+- A redirect is never followed, by any of the three. Python follows one for `catalog.read` and `argo.app.get` (urllib's default
+  opener) and sends the bearer token to the new host (shown: a 302 from the catalog host to another host receives the
+  `Authorization` header). Go reads a 3xx as the answer: `catalog 302` (`ReadError`), `API server 302` (`AirframeError`), and
+  for `app.api.get`, as in Python, `status: 302` as data. `TestARedirectIsNeverFollowedAndNoCredentialGoesToItsTarget` serves a
+  second host and requires it saw nothing.
+- The cluster API server is verified against the cluster CA file (`/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`, re-read
+  when it changes; TLS 1.2 or later; no skip of verification; a CA file with no certificate is an `SSLError`). Catalog and
+  application API hosts use the system roots for https, and plain http only when the operator's URL says http: no host name is
+  special.
+- Each answer is read to a cap: 256 KiB for `app.api.get` (more is cut and reported `truncated`), 4 MiB for the catalog (Python:
+  16 MiB), 16 MiB for the API server (as Python). More than the cap is an unparseable answer, class `JSONDecodeError`, as
+  Python's truncated read is. JSON nested deeper than 256 levels is refused before it is decoded (an `app.api.get` body that
+  deep is returned as text). Timeouts: 30 s for the catalog and the API server, 10 s for an application API (Python's), and every
+  request also carries the call's own deadline.
+- An upstream's body is never echoed beyond what Python echoes: a catalog 400's first 500 characters, an application API's
+  body as data (it is the agent's own request), and nothing else. Any other status is `ReadError: catalog 502` and its kin.
+
+### Artifacts: who can read and write what
+
+An artifact belongs to a **task**, never to a session. The key is the session's task id and the name. A top-level session's task
+id is the core's grant's; every child run, at any depth, has its parent's (`session.AdoptChild` refuses a grant that names
+another task), so the whole run tree reads and overwrites the same artifacts, a sibling's included. A session of another task
+(another person's, another agent's, a later run of the same agent) neither reads nor replaces them: it asks for a name under its
+own task id, which is another row, and there is no list and no read by task id. A session with no task id has no artifacts (Python
+would key them all on the empty string and share). This is Python's rule; `TestArtifactsAreKeptByTask` pins the parent, child,
+grandchild, sibling, another person's, a later run's and a task whose id begins the same, and the dispatch test runs it through
+`Gateway.Call`.
+
+Limits, as in Python: a name is 1 to 100 of letters, digits, `.`, `_` and `-`; content is a string of at most 256 KiB (counted in
+UTF-8 bytes); a task keeps at most 32 artifacts and 2 MiB; an artifact is gone 7 days after its last write; a put with an
+existing name replaces it (and frees its bytes in the count). An artifact comes back as a string inside a tool result, never as
+a document with a content type, so nothing sniffs it into something that runs. Concurrent puts for one task are serialized by a
+lock on the task in the database, so two cannot both take the last place (`TestConcurrentArtifactPutsRespectTheQuotaInPostgres`).
+
+Artifact storage is bounded per task (32 artifacts, 2 MiB, 7 days) but not globally, as in Python, so the table grows with the
+number of tasks until their artifacts expire.
+
+With `ARGO_ENABLED` on (the default) and no RBAC to read Applications, the gateway still starts and each `argo.app.get` call is
+refused cleanly (`AF-K8S-403`, one outcome); nothing is checked at start.
+
+### Where Go is stricter than Python (each pinned in the fixtures, with `go` and `why`)
+
+| Input | Python | Go |
+|---|---|---|
+| an app API path ending in a newline (`"/a\n"`); an artifact name ending in one; an Application name ending in one | `$` matches before a trailing newline, so it passes the pattern (the path then fails in the HTTP client as a `ValueError`, the name is stored with its newline, the Application name reaches the path allowlist and is refused there) | refused up front: `READ-API-PATH`, `ART-NAME`, `READ-ARGO-NAME` |
+| an app API path with a percent-encoded control character (`%0d%0a`, `%0a`, `%7f`), a `%` without two hex digits, or a dot segment before a `;` (`/a/..;/b`) | sent as written | `READ-API-PATH` |
+| an app API path whose decoded segment is a dot segment before a `;` (`/..%3b/admin`, `/.%3b/`), holds an overlong or invalid UTF-8 escape (`/%c0%ae%c0%ae/`, `/%c0%af`, `/%ff`), any non-ASCII character (`/%ef%bc%8f`, `/%e2%88%95`, `/caf%c3%a9`), or a decoded `?` or `#` | sent as written | `READ-API-PATH` (decoded-segment rule above) |
+| a repository URL with credentials in an Application's `sources[].repoURL` (`https://user:token@host/...`) | returned as it is | `scheme://user:token@host` becomes `scheme://host`; a scp-style `git@host:path` has no scheme and is left |
+| an argument repeated in `READ-API-SERVICE`, `READ-ARGO-NAME` and `ART-NAME` refusals | repeated whole | cut to 100 characters then `...` (ordinary arguments are unchanged) |
+| expired artifacts | every put deletes every expired row of the table | a put deletes only its own task's expired rows; the table-wide cleanup is the sweep's (`Purge`, 500 rows a batch, 20 batches a sweep, rows other transactions hold are skipped); an expired artifact is never read either way. Both implementations read each other's rows (same table) |
+| artifact content with a NUL character | handed to the database driver, which fails the call (`DataError`, a backend error) | `ART-CONTENT` |
+| a redirect (catalog, API server) | followed, with the token | not followed (above) |
+| the catalog answer over 4 MiB | parsed up to 16 MiB | `JSONDecodeError` |
+| `BACKSTAGE_URL`, `ARGO_APP_NAMESPACES` | not checked (a bad one fails on the first call) | `BACKSTAGE_URL` must be an http(s) URL with a host and no credentials, query or fragment, each namespace a DNS label, else the gateway does not start |
+| the API server reader | also reads XRs and Rollouts | Applications only until S5c |
+| a session with no task id | all share the key `""` | no access |
+| JSON nested past 256 levels in an `app.api.get` body | decoded up to Python's recursion limit (about 1,000) | returned as text |
+
+Two small differences are not stricter, only unavoidable: a Go transport failure that is a timeout reads `TimeoutError` and every
+other one `URLError` (as for Prometheus), and a JSON object's keys come back in sorted order (Go maps have none). Numbers
+are passed through as written. A put is its own database transaction; Python's joins the call's, which commits with the session
+(the same difference as the run results').
+
 ## The drift guard
 
-`gateway/PORTED.json` lists every Python file the Go gateway ports (26 of them), the Go paths that carry it, what of it
+`gateway/PORTED.json` lists every Python file the Go gateway ports (27 of them), the Go paths that carry it, what of it
 the Go gateway carries, what is left in it for a later slice, and the SHA-256 the file had when the Go code was last
 brought level with it. `tests/test_gateway_go.py` fails when a listed file's hash differs. A hash cannot tell whether a
 change matters to the port, so the failure asks the author to read it and do one of two things: port the change to Go in
@@ -335,6 +455,11 @@ is accepted and none panics.
    `AUTOPILOT_LOADTEST=1 go test -run TestGatewayOverheadPerToolCall ./internal/loadtest` runs it and asserts the 5 ms
    bar; CI runs it in report mode (`AUTOPILOT_LOADTEST=report`) and prints the numbers in the job summary.
 
+4. **The S5a fixtures** (above): the Python adapters driven over 215 canned cases and 135 artifact operations, the Go
+   backends required to agree, and the cases where they deliberately do not marked with a reason. The replay is unchanged: no
+   corpus line was skipped for want of a read backend (these tools' decisions are the core's, which the replay already took),
+   so none became takeable.
+
 ### What the replay does not cover (and why)
 
 | Corpus lines | Why |
@@ -345,11 +470,12 @@ is accepted and none panics.
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
 
-## What is not carried (after S2)
+## What is not carried (after S5a)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `BACKSTAGE_URL`,
-`APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes a feature is live when it is not.
+does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `ARGO_SYNC_ENABLED`,
+`AUTOPILOT_EPHEMERAL`), so nobody believes a feature is live when it is not. (`BACKSTAGE_URL` and `APP_API_SERVICES` left this
+list in S5a: they are read, and a bad value stops the start.)
 
 Not ported, and still the Python gateway's:
 
@@ -361,7 +487,6 @@ Not ported, and still the Python gateway's:
 - **The human inbox** (`human.request`), person controls (freeze, end, hold, release), the trigger scheduler, `open_triggered`,
   the event bridge, the reconciliation sweep and the trigger ledger (S3). `session_close` here is the owner's tool; Tower's End
   is S3's.
-- **Artifacts** (`artifact.put`, `artifact.get`): no handler (S5a); a run's answer is kept as the run path needs it.
 - **A candidate's image check is Python's, and too loose to put behind a route** (`Candidate`, TODO in the code): an empty
   `RuntimeImages` allows any registry, and the digest is matched as a substring of the image. S3 must tighten it (the digest
   is `@sha256:` and 64 hex digits at the end of the image; an empty allow-list refuses) before any route calls it.
@@ -370,10 +495,11 @@ Not ported, and still the Python gateway's:
 - **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader: the Go gateway reads the
   bundled `agents/` and the pinned set the Python loader keeps in `gateway_definitions`, and publishes nothing. It does
   not validate definitions against the JSON schema (the loader that wrote the set did).
-- **Backends**: `metrics.query` and `logs.query` (Prometheus, Loki) are ported with per-backend timeouts and pools. The
-  rest (`catalog.read`, `argo.app.get`, `argo.sync.lower`, `app.api.get`, `repo.*`, `xr.request`, `glidepath.*`,
-  `airframe.*`, `artifact.*`) have no handler, so a call to them is refused as having no backend, as in a Python
-  gateway that does not configure them.
+- **Backends**: `metrics.query`, `logs.query`, `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put` and `artifact.get`
+  are ported with per-backend timeouts and pools. The rest have no handler, so a call to them is refused as having no backend,
+  as in a Python gateway that does not configure them: `argo.sync.lower`, `repo.*` and `glidepath.*` (S5b); `xr.request`
+  and `airframe.*` (S5c); `chat.*` (Python has none either). Python's read API also uses `BackstageDirectory` and
+  `BackstageOwnership` (S6).
 - **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), Prometheus metrics on `METRICS_PORT`,
   OTLP logs, and a `held` outbox reason (since clearance v0.28.0 the core takes every kind the gateway writes).
 - **Release plumbing**: no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
@@ -394,9 +520,14 @@ It reads the variables the Python gateway reads, for the part it carries: `PORT`
 `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `AUTOPILOT_AGENTS_DIR`, `AUTOPILOT_AUDIENCE`, `MODEL_TOKEN_AUDIENCE`,
 `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL`, `AUTOPILOT_OIDC_USER_CLAIM`, `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL`, `AUTOPILOT_JWKS_ALLOW_HTTP` (Go only),
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
-`AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
+`AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`,
+`APP_API_SERVICES`, `ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.
+
+`serve` reads the S5a variables as Python does (`BACKSTAGE_URL` and `APP_API_SERVICES` switch their tool on; `argo.app.get` is on by
+default, in `argocd`, and needs the Role on Applications the Python gateway has; `ARGO_ENABLED=0` switches it off); the
+catalog's token is the projected service-account token for the `backstage` audience, as before.
 
 `serve` needs no new variable for runs: the run backend is the in-cluster Kubernetes API (as the Python gateway always uses it),
 so the gateway's identity needs the Role on AgentRuns in `autopilot-runs` it already has.
