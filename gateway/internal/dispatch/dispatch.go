@@ -250,7 +250,7 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 	}
 	if spawn {
 		handler = func(ctx context.Context, parent *session.Session, a map[string]any) (any, error) {
-			return g.spawn(ctx, parent, childDef, v, newID, a)
+			return g.spawn(ctx, parent, childDef, v, newID, a, now)
 		}
 	}
 	data, herr := g.run(ctx, handler, s, args)

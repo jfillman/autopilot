@@ -350,7 +350,7 @@ func TestSpawnStepEqualsPython(t *testing.T) {
 	d := r.g.Defs["researcher"]
 	parent := r.store.Get(c.Parent.ID)
 	v := &core.Verdict{Allow: true, Spend: c.Spend, Grant: &c.Grant}
-	got, err := r.g.Spawn(context.Background(), parent, d, v, c.Grant.Session, map[string]any{"agent": "researcher", "limits": map[string]any{}, "input": map[string]any{"prompt": "hi"}})
+	got, err := r.g.Spawn(context.Background(), parent, d, v, c.Grant.Session, map[string]any{"agent": "researcher", "limits": map[string]any{}, "input": map[string]any{"prompt": "hi"}}, t0)
 	if err != nil {
 		t.Fatal(err)
 	}

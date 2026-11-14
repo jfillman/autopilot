@@ -231,8 +231,10 @@ func (g *Gateway) bg(ctx context.Context) (context.Context, context.CancelFunc) 
 }
 
 // spawn is an allowed session.spawn: the child is the core's grant, cut from what the parent has left after this call's
-// charge and checked here, and the parent reserves its budget. A run that fails to start closes the child again.
-func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definitions.Definition, v *core.Verdict, newID string, args map[string]any) (any, error) {
+// charge and checked here, and the parent reserves its budget. A run that fails to start closes the child again. now is the
+// time the core decided at: the grant is checked as of then, so a minute boundary crossed since cannot refuse a grant that was
+// in bounds when it was cut.
+func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definitions.Definition, v *core.Verdict, newID string, args map[string]any, now time.Time) (any, error) {
 	if d == nil || v.Grant == nil {
 		g.Store.GiveBack(newID)
 		return nil, &core.Denied{Rule: "R003", Message: "unknown agent definition", Hint: "Spawn an agent that exists in the catalog."}
@@ -242,7 +244,7 @@ func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definit
 		g.Store.GiveBack(newID)
 		return nil, err
 	}
-	child, err := g.Store.AdoptChild(v.Grant, v.Spend, newID, d.Name, d.Limits, g.Now())
+	child, err := g.Store.AdoptChild(v.Grant, v.Spend, newID, d.Name, d.Limits, now)
 	if err != nil {
 		g.Store.GiveBack(newID)
 		g.Log.Warn("a spawn grant failed the gateway's own check: refused", "session", parent.ID, "agent", d.Name, "why", err.Error())

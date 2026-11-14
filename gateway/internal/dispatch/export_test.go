@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
@@ -9,6 +10,6 @@ import (
 )
 
 // Spawn is the spawn step of an allowed session.spawn, for the tests that drive it with a decision they build.
-func (g *Gateway) Spawn(ctx context.Context, parent *session.Session, d *definitions.Definition, v *core.Verdict, newID string, args map[string]any) (any, error) {
-	return g.spawn(ctx, parent, d, v, newID, args)
+func (g *Gateway) Spawn(ctx context.Context, parent *session.Session, d *definitions.Definition, v *core.Verdict, newID string, args map[string]any, now time.Time) (any, error) {
+	return g.spawn(ctx, parent, d, v, newID, args, now)
 }
