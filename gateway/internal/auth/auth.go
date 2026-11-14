@@ -1,8 +1,8 @@
-// Package auth turns a bearer token into a Principal. This slice carries the workload authenticator (a Kubernetes
-// service-account token, checked by the API server's TokenReview for an audience), a short cache over any
-// authenticator, and a static one for tests. The people's OIDC verifier, the GitHub Actions and the foreign-cluster
-// workload verifiers of the Python gateway (engine/auth.py) are not ported yet, so a Go gateway built from this slice
-// accepts workload tokens only. Every failure is *core.AuthError with no detail about the token.
+// Package auth turns a bearer token into a Principal: the workload authenticator (a Kubernetes service-account token,
+// checked by the API server's TokenReview), the people's OIDC verifier (oidc.go), the foreign-cluster workload verifier
+// and the GitHub Actions verifier, the router that picks one by the token's unverified issuer, a short cache over any
+// of them, and a static one for tests. They are engine/auth.py's, with the same behaviour for the same token. Every
+// failure is *core.AuthError with no detail about the token.
 package auth
 
 import (
