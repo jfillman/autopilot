@@ -197,7 +197,7 @@ func (c *Cache) Authenticate(ctx context.Context, token string) (*dispatch.Princ
 	if max <= 0 {
 		max = 4096
 	}
-	if len(c.m) >= max { // as Python: the quarter that expires soonest goes, not everything
+	if _, exists := c.m[key]; !exists && len(c.m) >= max { // as Python: the quarter that expires soonest goes, not everything
 		type kv struct {
 			k string
 			t time.Time

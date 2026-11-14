@@ -101,11 +101,15 @@ func (a authConfig) build(foreignAudience string, workload dispatch.Authenticato
 	prefetch := func() {
 		for _, k := range sets {
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("the JWKS prefetch panicked; ignored", "host", k.Host())
+					}
+				}()
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				if err := k.Refresh(ctx); err != nil {
-					u, _ := url.Parse(k.URL)
-					slog.Warn("the first fetch of a JWKS failed; the first token that needs it tries again", "host", u.Host)
+					slog.Warn("the first fetch of a JWKS failed; the first token that needs it tries again", "host", k.Host())
 				}
 			}()
 		}

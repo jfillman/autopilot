@@ -25,6 +25,7 @@ func verified(ctx context.Context, token string, keys *JWKS, algs []string, issu
 	if err := t.verify(key, algs); err != nil {
 		return nil, err
 	}
+	keys.NoteVerified(ctx)
 	c, err := t.claims()
 	if err != nil {
 		return nil, err

@@ -173,10 +173,11 @@ func FuzzCheckClaims(f *testing.F) {
 			return v
 		}
 		now := float64(fixedNow.Unix())
-		if num("exp") <= now-30 || num("iat") > now+30 {
+		// checkClaims truncates a time toward zero like Python's int(); so does the oracle.
+		if math.Trunc(num("exp")) <= now-30 || math.Trunc(num("iat")) > now+30 {
 			t.Fatalf("accepted outside the time window: %s", payload)
 		}
-		if v, ok := c["nbf"]; ok && v != nil && num("nbf") > now+30 {
+		if v, ok := c["nbf"]; ok && v != nil && math.Trunc(num("nbf")) > now+30 {
 			t.Fatalf("accepted before nbf: %s", payload)
 		}
 		if s, ok := c["iss"].(string); !ok || s != issuer {

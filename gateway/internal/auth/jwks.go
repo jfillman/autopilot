@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -28,29 +29,34 @@ const (
 // JWKS is an issuer's signing keys, fetched from its JWKS URL and refreshed when a token names a key not seen yet.
 //
 //   - An unknown kid refetches at most once per MinRefresh (a minute) after a successful fetch, however many requests ask,
-//     and after a FAILED fetch at most once per FailRetry (5 s), so a blip at the issuer does not lock sign-in out for a
-//     minute. The attempt is recorded when the fetch ENDS.
+//     and after a FAILED fetch at most once per FailRetry: 5 s, doubling per consecutive failure to a cap of 60 s, reset
+//     by a success, so a blip at the issuer does not lock sign-in out for a minute and a long outage is not hammered.
+//     The attempt is recorded when the fetch ENDS. An answer with no usable key is a failed fetch: the old keys stay.
 //   - The fetch runs detached from the request that triggered it (its own 10 s timeout), so a caller that names an
 //     unknown kid and hangs up cannot cancel the refresh for everyone else; callers wait for it only as long as their
 //     own context lives, and share the one fetch.
-//   - Every MaxAge (10 minutes) the key set is refetched whether or not a token asks, so a key the issuer withdrew stops
-//     being trusted. The request that notices the age still uses the old keys; the refetch runs behind it. Until that
+//   - Every MaxAge (10 minutes) the key set is refetched, so a key the issuer withdrew stops being trusted. Only a token
+//     whose signature has VERIFIED triggers it (NoteVerified), so an unauthenticated caller cannot drive it; that request
+//     still uses the old keys and the refetch runs behind it. Until that
 //     refetch, and for as long as the issuer cannot be reached, a withdrawn key stays trusted, as in Python.
 type JWKS struct {
-	URL        string
-	MinRefresh time.Duration // after a successful fetch, between refetches for an unknown kid; default one minute
-	FailRetry  time.Duration // after a failed fetch; default 5 s
-	MaxAge     time.Duration // an unconditional refetch this long after the last success; default 10 minutes
-	HTTP       *http.Client  // tests; nil builds one (see newJWKSClient)
-	Now        func() time.Time
+	URL          string
+	MinRefresh   time.Duration // after a successful fetch, between refetches for an unknown kid; default one minute
+	FailRetry    time.Duration // after a failed fetch, doubling per consecutive failure up to MaxFailRetry; default 5 s
+	MaxFailRetry time.Duration // default 60 s
+	MaxAge       time.Duration // an unconditional refetch this long after the last success; default 10 minutes
+	HTTP         *http.Client  // tests; nil builds one (see newJWKSClient)
+	Now          func() time.Time
 
 	mu       sync.RWMutex
-	keys     map[string]crypto.PublicKey // by kid
-	noKid    []crypto.PublicKey          // keys the issuer published without a kid
-	attempts bool                        // a fetch has ended
-	lastOK   bool                        // the last fetch to end succeeded
-	last     time.Time                   // when it ended
-	lastGood time.Time                   // when the last successful fetch ended
+	keys     map[string]crypto.PublicKey                                                    // by kid
+	noKid    []crypto.PublicKey                                                             // keys the issuer published without a kid
+	attempts bool                                                                           // a fetch has ended
+	lastOK   bool                                                                           // the last fetch to end succeeded
+	last     time.Time                                                                      // when it ended
+	lastGood time.Time                                                                      // when the last successful fetch ended
+	failures int                                                                            // consecutive failed fetches
+	fetchFn  func(context.Context) (map[string]crypto.PublicKey, []crypto.PublicKey, error) // tests
 	inflight *flight
 }
 
@@ -132,7 +138,7 @@ func (j *JWKS) start(ctx context.Context, interval time.Duration) *flight {
 		return j.inflight
 	}
 	age := j.now().Sub(j.last)
-	if j.attempts && ((j.lastOK && age < interval) || (!j.lastOK && age < orDefault(j.FailRetry, 5*time.Second))) {
+	if j.attempts && ((j.lastOK && age < interval) || (!j.lastOK && age < j.backoff())) {
 		return nil
 	}
 	f := &flight{done: make(chan struct{})}
@@ -141,17 +147,64 @@ func (j *JWKS) start(ctx context.Context, interval time.Duration) *flight {
 	return f
 }
 
-func (j *JWKS) run(ctx context.Context, f *flight) {
-	keys, noKid, err := j.fetch(ctx)
-	j.mu.Lock()
-	j.attempts, j.last, j.lastOK = true, j.now(), err == nil
-	if err == nil {
-		j.keys, j.noKid, j.lastGood = keys, noKid, j.last
+// backoff is the wait after the last failed fetch: FailRetry, doubled per further consecutive failure, up to the cap.
+func (j *JWKS) backoff() time.Duration {
+	d, max := orDefault(j.FailRetry, 5*time.Second), orDefault(j.MaxFailRetry, time.Minute)
+	for i := 1; i < j.failures && d < max; i++ {
+		d *= 2
 	}
-	j.inflight = nil
-	j.mu.Unlock()
-	f.err = err
-	close(f.done)
+	if d > max {
+		d = max
+	}
+	return d
+}
+
+// Host is the JWKS URL's host, for log lines (never the path or query).
+func (j *JWKS) Host() string { return j.host() }
+
+func (j *JWKS) host() string {
+	u, _ := url.Parse(j.URL)
+	if u == nil {
+		return ""
+	}
+	return u.Host
+}
+
+var errFetchPanicked = errors.New("jwks: fetch panicked")
+
+// run is one fetch. Whatever happens in it, including a panic, the in-flight state is cleared and the waiters are
+// released, so the key set cannot be left stuck in flight and the process does not die.
+func (j *JWKS) run(ctx context.Context, f *flight) {
+	var keys map[string]crypto.PublicKey
+	var noKid []crypto.PublicKey
+	err := errFetchPanicked
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("a JWKS fetch panicked; treated as a failed fetch", "host", j.host())
+			err = errFetchPanicked
+		}
+		j.mu.Lock()
+		j.attempts, j.last, j.lastOK = true, j.now(), err == nil
+		if err == nil {
+			j.keys, j.noKid, j.lastGood, j.failures = keys, noKid, j.last, 0
+		} else {
+			j.failures++
+		}
+		j.inflight = nil
+		j.mu.Unlock()
+		f.err = err
+		close(f.done)
+	}()
+	fetch := j.fetch
+	if j.fetchFn != nil {
+		fetch = j.fetchFn
+	}
+	keys, noKid, err = fetch(ctx)
+	if err == nil && len(keys)+len(noKid) == 0 {
+		// Nothing usable (an empty set, or every key skipped): keep the keys held, if any, and retry as after a failure.
+		slog.Warn("a JWKS answered with no usable key; the keys held are kept", "host", j.host())
+		err = errors.New("jwks: no usable key")
+	}
 }
 
 // Refresh fetches the key set now unless a fetch is in progress (then it waits for that one), and returns the fetch's
@@ -170,16 +223,22 @@ func (j *JWKS) Refresh(ctx context.Context) error {
 	}
 }
 
+// NoteVerified is called when a token's signature has verified with this key set. If the set is MaxAge old it starts
+// the unconditional refetch, behind that request (which keeps the old keys). Only a verified token may do this: a lookup
+// of a known kid is free for anyone to make.
+func (j *JWKS) NoteVerified(ctx context.Context) {
+	j.mu.RLock()
+	old := !j.lastGood.IsZero() && j.now().Sub(j.lastGood) >= orDefault(j.MaxAge, 10*time.Minute)
+	j.mu.RUnlock()
+	if old {
+		j.start(ctx, orDefault(j.MaxAge, 10*time.Minute))
+	}
+}
+
 // Key returns the key for a token's kid (absent hasKid matches a key published without one, as in Python). An unknown
 // kid refetches the set first, within the limits above. It never returns detail.
 func (j *JWKS) Key(ctx context.Context, kid string, hasKid bool) (crypto.PublicKey, error) {
 	if k, ok := j.lookup(kid, hasKid); ok {
-		j.mu.RLock()
-		old := !j.lastGood.IsZero() && j.now().Sub(j.lastGood) >= orDefault(j.MaxAge, 10*time.Minute)
-		j.mu.RUnlock()
-		if old {
-			j.start(ctx, orDefault(j.MaxAge, 10*time.Minute)) // behind this request; the next one sees the new set
-		}
 		return k, nil
 	}
 	if f := j.start(ctx, orDefault(j.MinRefresh, time.Minute)); f != nil {

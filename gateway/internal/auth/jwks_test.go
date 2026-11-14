@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -130,35 +133,165 @@ func TestFiftyUnknownKidsAfterASuccessCauseOneFetch(t *testing.T) {
 func TestWithdrawnKeyStopsBeingTrustedAfterTenMinutes(t *testing.T) {
 	c := newClock()
 	srv := newJWKSServer(t, jwkRSA("k1", &testRSA.PublicKey, nil), jwkRSA("k2", &otherRSA.PublicKey, nil))
-	j := &JWKS{URL: srv.URL, Now: c.now}
-	if _, err := j.Key(context.Background(), "k2", true); err != nil {
+	o := &OIDC{Issuer: iss, Audience: aud, Keys: &JWKS{URL: srv.URL, Now: c.now}, Allowed: []string{"*"}, Now: c.now}
+	tokenK2 := func() string {
+		return mint(rsHeader("k2"), goodClaims(map[string]any{"iat": c.now().Unix() - 10, "exp": c.now().Unix() + 3600}), signRS256(otherRSA))
+	}
+	if _, err := o.Authenticate(context.Background(), tokenK2()); err != nil {
 		t.Fatal(err)
 	}
 	srv.keys.Store([]map[string]any{jwkRSA("k1", &testRSA.PublicKey, nil)}) // the issuer withdraws k2
 	c.advance(9 * time.Minute)
-	if _, err := j.Key(context.Background(), "k2", true); err != nil || srv.hits.Load() != 1 {
+	if _, err := o.Authenticate(context.Background(), tokenK2()); err != nil || srv.hits.Load() != 1 {
 		t.Fatalf("inside ten minutes the old set stands: %v %d", err, srv.hits.Load())
 	}
-	c.advance(2 * time.Minute) // 11 minutes: the request that notices still uses the old key, the refetch runs behind it
-	_, _ = j.Key(context.Background(), "k2", true)
-	deadline := time.Now().Add(5 * time.Second)
-	for srv.hits.Load() < 2 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	c.advance(2 * time.Minute) // 11 minutes: the verified request still uses the old key, the refetch runs behind it
+	if _, err := o.Authenticate(context.Background(), tokenK2()); err != nil {
+		t.Fatal(err)
 	}
-	for {
-		j.mu.RLock()
-		busy := j.inflight != nil
-		j.mu.RUnlock()
-		if !busy {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	waitIdle(t, o.Keys)
+	if srv.hits.Load() != 2 {
+		t.Fatalf("%d fetches, want the one age refetch", srv.hits.Load())
 	}
-	if _, err := j.Key(context.Background(), "k2", true); err == nil {
+	if _, err := o.Authenticate(context.Background(), tokenK2()); err == nil {
 		t.Fatal("a withdrawn key is still trusted after the unconditional refresh")
 	}
-	if _, err := j.Key(context.Background(), "k1", true); err != nil {
+	k1 := mint(rsHeader("k1"), goodClaims(map[string]any{"iat": c.now().Unix() - 10, "exp": c.now().Unix() + 3600}), signRS256(testRSA))
+	if _, err := o.Authenticate(context.Background(), k1); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An unauthenticated caller cannot drive the age refetch: known-kid lookups and bad signatures never start it.
+func TestAgeRefetchNeedsAVerifiedToken(t *testing.T) {
+	c := newClock()
+	srv := newJWKSServer(t, jwkRSA("k1", &testRSA.PublicKey, nil))
+	o := &OIDC{Issuer: iss, Audience: aud, Keys: &JWKS{URL: srv.URL, Now: c.now}, Allowed: []string{"*"}, Now: c.now}
+	mk := func(sg sign) string {
+		return mint(rsHeader("k1"), goodClaims(map[string]any{"iat": c.now().Unix() - 10, "exp": c.now().Unix() + 3600}), sg)
+	}
+	if _, err := o.Authenticate(context.Background(), mk(signRS256(testRSA))); err != nil {
+		t.Fatal(err)
+	}
+	c.advance(30 * time.Minute)
+	for i := 0; i < 100; i++ {
+		_, _ = o.Authenticate(context.Background(), mk(signRS256(otherRSA))) // known kid, bad signature
+		_, _ = o.Keys.Key(context.Background(), "k1", true)
+	}
+	waitIdle(t, o.Keys)
+	if srv.hits.Load() != 1 {
+		t.Fatalf("an unauthenticated caller caused %d fetches", srv.hits.Load())
+	}
+	if _, err := o.Authenticate(context.Background(), mk(signRS256(testRSA))); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, o.Keys)
+	if srv.hits.Load() != 2 {
+		t.Fatalf("a verified token did not trigger the age refetch (%d fetches)", srv.hits.Load())
+	}
+}
+
+// With the issuer down, a flood of bad-signature known-kid tokens and unknown-kid tokens for ten simulated minutes
+// causes a bounded number of fetches: after the first failure 5 s, then 10, 20, 40, 60 s apart, and an unknown kid only
+// after a minute on a good set.
+func TestFloodWhileDownIsBounded(t *testing.T) {
+	c := newClock()
+	var down atomic.Bool
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if down.Load() {
+			http.Error(w, "down", 503)
+			return
+		}
+		_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"k1","n":"` + b64u(testRSA.N.Bytes()) + `","e":"AQAB"}]}`))
+	}))
+	defer srv.Close()
+	o := &OIDC{Issuer: iss, Audience: aud, Keys: &JWKS{URL: srv.URL, Now: c.now}, Allowed: []string{"*"}, Now: c.now}
+	mk := func(kid string, sg sign) string {
+		return mint(rsHeader(kid), goodClaims(map[string]any{"iat": c.now().Unix() - 10, "exp": c.now().Unix() + 3600}), sg)
+	}
+	if _, err := o.Authenticate(context.Background(), mk("k1", signRS256(testRSA))); err != nil {
+		t.Fatal(err)
+	}
+	down.Store(true)
+	hits.Store(0)
+	for s := 0; s < 600; s++ {
+		c.advance(time.Second)
+		_, _ = o.Authenticate(context.Background(), mk("k1", signRS256(otherRSA)))
+		_, _ = o.Authenticate(context.Background(), mk("nope", signRS256(otherRSA)))
+		_, _ = o.Authenticate(context.Background(), mk("nope2", signRS256(otherRSA)))
+	}
+	// Fetches at about 60 (first unknown kid on a good set), then 5, 10, 20, 40, 60, 60, ... after each failure.
+	const bound = 14
+	t.Logf("%d fetches in 10 simulated minutes while down", hits.Load())
+	if h := hits.Load(); h > bound || h < 5 {
+		t.Fatalf("%d fetches in 10 simulated minutes while down, want between 5 and %d", h, bound)
+	}
+	// A valid token for the key held still works throughout, and a recovery resets the backoff.
+	if _, err := o.Authenticate(context.Background(), mk("k1", signRS256(testRSA))); err != nil {
+		t.Fatal(err)
+	}
+	down.Store(false)
+	c.advance(61 * time.Second)
+	_, _ = o.Authenticate(context.Background(), mk("nope", signRS256(otherRSA)))
+	o.Keys.mu.RLock()
+	f := o.Keys.failures
+	o.Keys.mu.RUnlock()
+	if f != 0 {
+		t.Fatalf("failures not reset by a success: %d", f)
+	}
+}
+
+func TestPanickingFetchDoesNotKillOrStickTheKeySet(t *testing.T) {
+	var calls atomic.Int64
+	c := newClock()
+	j := &JWKS{URL: "http://127.0.0.1:1/x", Now: c.now}
+	j.fetchFn = func(context.Context) (map[string]crypto.PublicKey, []crypto.PublicKey, error) {
+		if calls.Add(1) == 1 {
+			panic("boom")
+		}
+		return map[string]crypto.PublicKey{"k1": &testRSA.PublicKey}, nil, nil
+	}
+	if _, err := j.Key(context.Background(), "k1", true); err == nil {
+		t.Fatal("a panicked fetch gave a key")
+	}
+	waitIdle(t, j)
+	j.mu.RLock()
+	failed := !j.lastOK
+	j.mu.RUnlock()
+	if !failed {
+		t.Fatal("a panic was not recorded as a failed fetch")
+	}
+	c.advance(6 * time.Second)
+	if _, err := j.Key(context.Background(), "k1", true); err != nil {
+		t.Fatalf("the key set stayed stuck after a panic: %v", err)
+	}
+}
+
+func TestCacheReinsertOfAnExistingKeyEvictsNothing(t *testing.T) {
+	now := fixedNow
+	inner := &spyAuth{p: &dispatch.Principal{ID: "u"}}
+	c := &Cache{Inner: inner, TTL: time.Hour, Max: 4, Now: func() time.Time { return now }}
+	var toks []string
+	for i := 0; i < 4; i++ {
+		toks = append(toks, mint(map[string]any{"alg": "RS256"}, map[string]any{"exp": now.Unix() + 100 + int64(i)}, func(string) []byte { return nil }))
+		if _, err := c.Authenticate(context.Background(), toks[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Force the existing entry to be looked up as a miss (expired in the cache) and re-inserted at the cap.
+	key := sha256Hex(toks[3])
+	c.mu.Lock()
+	e := c.m[key]
+	e.expires = now.Add(-time.Second)
+	c.m[key] = e
+	c.mu.Unlock()
+	if _, err := c.Authenticate(context.Background(), toks[3]); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.m) != 4 {
+		t.Fatalf("%d entries: re-inserting an existing key evicted others", len(c.m))
 	}
 }
 
@@ -269,3 +402,50 @@ func TestEmptyAudienceNeverMatches(t *testing.T) {
 		mustRefuse(t, err)
 	}
 }
+
+// waitIdle waits (with a deadline, so a regression fails instead of hanging) until no fetch is in flight.
+func waitIdle(t *testing.T, j *JWKS) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		j.mu.RLock()
+		busy := j.inflight != nil
+		j.mu.RUnlock()
+		if !busy {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("a fetch is still in flight after 5 s")
+}
+
+// A 200 answer with no usable keys must not replace a good key set.
+func TestEmptyAnswerKeepsTheGoodKeys(t *testing.T) {
+	c := newClock()
+	srv := newJWKSServer(t, jwkRSA("k1", &testRSA.PublicKey, nil))
+	o := &OIDC{Issuer: iss, Audience: aud, Keys: &JWKS{URL: srv.URL, Now: c.now}, Allowed: []string{"*"}, Now: c.now}
+	good := func() string {
+		return mint(rsHeader("k1"), goodClaims(map[string]any{"iat": c.now().Unix() - 10, "exp": c.now().Unix() + 3600}), signRS256(testRSA))
+	}
+	if _, err := o.Authenticate(context.Background(), good()); err != nil {
+		t.Fatal(err)
+	}
+	for _, empty := range [][]map[string]any{{}, {{"kty": "oct", "kid": "x", "k": "AAAA"}}} {
+		srv.keys.Store(empty)
+		c.advance(11 * time.Minute)
+		if _, err := o.Authenticate(context.Background(), good()); err != nil { // notices the age, refetches behind it
+			t.Fatal(err)
+		}
+		waitIdle(t, o.Keys)
+		if _, err := o.Authenticate(context.Background(), good()); err != nil {
+			t.Fatalf("an empty answer replaced the good key set: %v", err)
+		}
+	}
+	// And the very first fetch returning nothing is a failure, not an empty key set that counts as fetched.
+	j := &JWKS{URL: newJWKSServer(t).URL, Now: c.now}
+	if err := j.Refresh(context.Background()); err == nil {
+		t.Fatal("an empty first answer counted as success")
+	}
+}
+
+func sha256Hex(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }

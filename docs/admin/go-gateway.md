@@ -121,6 +121,9 @@ the token's issuer, behind the same one-minute cache:
 | a person (Dex in the lab) | the issuer's JWKS: signature, issuer, audience, expiry | `user:<claim>`, kind `user` | `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL` (default `<issuer>/keys`), `AUTOPILOT_OIDC_USER_CLAIM` (default `email`) |
 | another cluster's service account (Tower's backend) | that cluster's public issuer's JWKS | `<TOWER_CLUSTER>/<namespace>/<name>`, kind `workload` | `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL` (default `<issuer>/jwks.json`); the audience is `AUTOPILOT_AUDIENCE` (default `clearance`) |
 
+List only run audiences in `AUTOPILOT_RUN_AUDIENCES`: naming another service's audience there makes that service's local
+service-account tokens acceptable as workloads.
+
 The variables, their defaults and their start-up checks are the Python gateway's (an issuer needs its audience and an
 allow-list, `TOWER_ISSUER` needs a cluster name and service-account globs, trailing slashes on issuers are removed).
 The allow-lists use Python's `fnmatch` rules (`*` matches `/`), reproduced in Go, not `path.Match`. The metadata's
@@ -151,6 +154,9 @@ token is logged):
 - The key set is refetched every 10 minutes whether or not a token asks. A key the issuer removed stays trusted until
   the next refetch (the request that notices the age still uses the old keys), and for as long as the issuer cannot be
   reached: the same as Python, which refetches only for an unknown `kid`.
+- Only a token whose signature has verified can start the 10-minute refetch, so an unauthenticated caller cannot drive it. An
+  answer with no usable key counts as a failed fetch (the keys held are kept), and after a failure the retry waits 5 s,
+  then 10, 20, 40 and at most 60 s, until a fetch succeeds.
 - A token may hold only base64url characters and its two dots (anything else, a newline included, is refused before decoding).
 
 Where it differs from Python on purpose (all stricter, or an error handled where Python's escapes):
