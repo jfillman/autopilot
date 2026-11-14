@@ -127,6 +127,20 @@ type MemoryLedger struct {
 	FailClaim, FailDecide, FailAdvance error
 }
 
+// Fail makes the next call of kind ("claim", "decide" or "advance") fail with err (nil clears it), under the ledger's lock.
+func (m *MemoryLedger) Fail(kind string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch kind {
+	case "claim":
+		m.FailClaim = err
+	case "decide":
+		m.FailDecide = err
+	case "advance":
+		m.FailAdvance = err
+	}
+}
+
 func (m *MemoryLedger) init() {
 	if m.rows == nil {
 		m.rows, m.cursors = map[[2]string]*Row{}, map[string]*Cursor{}
