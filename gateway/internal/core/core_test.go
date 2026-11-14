@@ -132,3 +132,35 @@ func TestARefusalRuleOnlyGoesOnTheOutcomeWhenTheCoreWouldTakeIt(t *testing.T) {
 		t.Fatalf("%+v", fc.Outcomes[1].Body)
 	}
 }
+
+// A decision that takes longer than the Clearance client's own 250 ms (a ledger append took 306 ms live on 2026-11-12) is
+// decided, not denied, under the decision path's 1 s; and a timeout is retried once, so one slow attempt is no failure.
+func TestASlowDecisionIsDecidedNotDenied(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	fc.Latency = 400 * time.Millisecond
+	opt := core.ClientOptions(fc.URL, client.StaticToken("autopilot-system/autopilot-gateway"), 0)
+	if opt.Timeout != time.Second || opt.Retries != 1 || opt.BreakerThreshold != 5 || core.DecisionTimeout <= client.DefaultTimeout {
+		t.Fatalf("%+v", opt)
+	}
+	cl, err := client.New(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := core.New(cl, core.NewMemoryOutbox(), false)
+	v, err := c.Evaluate(context.Background(), &client.EvaluationRequest{})
+	if err != nil || !v.Allow {
+		t.Fatalf("%+v %v", v, err)
+	}
+	if fc.Evals.Load() != 1 {
+		t.Fatalf("a 400 ms answer was asked for %d times", fc.Evals.Load())
+	}
+	// the client's own 250 ms would have timed out, been retried and failed
+	old, _ := client.New(core.ClientOptions(fc.URL, client.StaticToken("x"), 250*time.Millisecond))
+	if _, err := core.New(old, core.NewMemoryOutbox(), false).Evaluate(context.Background(), &client.EvaluationRequest{}); err == nil {
+		t.Fatal("the old timeout should not have decided a 400 ms answer")
+	}
+	if o := core.ClientOptions(fc.URL, nil, 2500*time.Millisecond); o.Timeout != 2500*time.Millisecond {
+		t.Fatal("CLEARANCE_CORE_TIMEOUT is not used")
+	}
+}

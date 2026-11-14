@@ -23,6 +23,28 @@ import (
 // Provider is the name the gateway is registered under at the core.
 const Provider = "autopilot-gateway"
 
+// DecisionTimeout is the decision path's timeout per attempt (Python: DECISION_TIMEOUT, serve: CLEARANCE_CORE_TIMEOUT).
+// The Clearance client's own default is 250 ms; a ledger append took 306 ms live (2026-11-12) and the cancel cost two
+// decisions and an outcome, so the gateway asks for 1 s. The client retries a timeout, a connection failure or a 503
+// once (never a 4xx), and its breaker counts a call only after that retry also failed, so one slow write is one failure
+// of five. Retries and the breaker stay the client's: DecisionRetries and BreakerThreshold are what the gateway passes
+// (the client's own defaults), so a change to them is a change here.
+const (
+	DecisionTimeout  = time.Second
+	DecisionRetries  = 1
+	BreakerThreshold = 5
+)
+
+// ClientOptions are the decision path's options for the core's client: DecisionTimeout (or timeout, when the operator set
+// CLEARANCE_CORE_TIMEOUT) per attempt, one retry, a breaker at five (Python: client_from_env).
+func ClientOptions(baseURL string, token client.TokenSource, timeout time.Duration) client.Options {
+	if timeout <= 0 {
+		timeout = DecisionTimeout
+	}
+	return client.Options{BaseURL: baseURL, Token: token, Provider: Provider, Timeout: timeout, Retries: DecisionRetries,
+		BreakerThreshold: BreakerThreshold}
+}
+
 // OutageRule is the rule a call carries when the core could not decide it, and RefusedRule when the core refused the
 // request itself (fail closed: a 4xx or an unreadable answer is no decision).
 const (

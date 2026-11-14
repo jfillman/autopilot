@@ -1,0 +1,170 @@
+[
+ {
+  "args": {
+   "files": [
+    {
+     "path": "./a//b.txt"
+    },
+    {
+     "path": "a/b.txt"
+    },
+    {
+     "path": "../x"
+    }
+   ],
+   "repo": "Owner/App"
+  },
+  "data": {
+   "branch": "agent/x",
+   "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ignored": "not in the receipt",
+   "pr": 7
+  },
+  "effect": {
+   "branch": "agent/x",
+   "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "paths": [
+    "../x",
+    "a/b.txt"
+   ],
+   "pr": 7,
+   "repo": "owner/app"
+  },
+  "tool": "repo.pr.open"
+ },
+ {
+  "args": {
+   "files": [],
+   "repo": "owner/app"
+  },
+  "data": {
+   "pr": 1
+  },
+  "effect": {
+   "paths": [],
+   "pr": 1,
+   "repo": "owner/app"
+  },
+  "tool": "repo.pr.open"
+ },
+ {
+  "args": {
+   "files": [
+    {
+     "path": "z"
+    }
+   ],
+   "repo": "owner/app"
+  },
+  "data": "not a dict",
+  "effect": null,
+  "tool": "repo.pr.open"
+ },
+ {
+  "args": {
+   "app": "a",
+   "patch": {},
+   "repo": "Owner/App",
+   "title": "t"
+  },
+  "data": {
+   "branch": "agent/x",
+   "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ignored": "not in the receipt",
+   "merge": "person",
+   "needsPerson": [
+    "cicd.yaml"
+   ],
+   "needsPersonFields": [
+    "/deploy/environments/prod"
+   ],
+   "paths": [
+    "cicd.yaml"
+   ],
+   "pr": 7,
+   "repo": "Owner/App"
+  },
+  "effect": {
+   "branch": "agent/x",
+   "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "merge": "person",
+   "needsPerson": [
+    "cicd.yaml"
+   ],
+   "paths": [
+    "cicd.yaml"
+   ],
+   "pr": 7,
+   "repo": "owner/app"
+  },
+  "tool": "glidepath.cicd.propose"
+ },
+ {
+  "args": {
+   "app": "a",
+   "patch": {},
+   "repo": "owner/app",
+   "title": "t"
+  },
+  "data": {
+   "branch": "agent/x",
+   "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ignored": "not in the receipt",
+   "paths": [
+    "./cicd.yaml"
+   ],
+   "pr": 7
+  },
+  "effect": {
+   "branch": "agent/x",
+   "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "paths": [
+    "cicd.yaml"
+   ],
+   "pr": 7,
+   "repo": "owner/app"
+  },
+  "tool": "glidepath.cicd.propose"
+ },
+ {
+  "args": {
+   "spec": {}
+  },
+  "data": {
+   "merge": "person",
+   "needsPerson": [
+    "gitops-app/values.yaml"
+   ],
+   "pr": 3,
+   "state": "awaiting-merge"
+  },
+  "effect": {
+   "merge": "person",
+   "needsPerson": [
+    "gitops-app/values.yaml"
+   ],
+   "pr": 3
+  },
+  "tool": "airframe.apply"
+ },
+ {
+  "args": {
+   "spec": {}
+  },
+  "data": {
+   "state": "agent-steps-merged"
+  },
+  "effect": {},
+  "tool": "airframe.apply"
+ },
+ {
+  "args": {
+   "query": "x"
+  },
+  "data": {
+   "pr": 1
+  },
+  "effect": null,
+  "tool": "catalog.read"
+ }
+]

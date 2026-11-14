@@ -5,6 +5,9 @@ the reference these tests hold the Go one to:
     generated from the Python code (tools/gen_gateway_registry.py), so the two implementations cannot drift;
   - the Go module builds, vets and passes its own tests, including the replay of Clearance's golden corpus through
     the Go gateway against the real core (gateway/internal/replay) and, with a scratch Postgres, its database tests;
+  - the drift guard: gateway/PORTED.json lists the Python files the Go gateway ports, with the hash each had when the Go
+    code was last brought level with it (tools/gen_gateway_ported.py), and a change to one fails here until it is ported
+    or confirmed not to touch what the Go gateway carries;
   - the conformance harness that ships with the Clearance release drives the Go gateway's control interface, and it
     stays off unless asked.
 """
@@ -36,6 +39,76 @@ def test_the_registry_is_the_python_registry_in_the_python_order():
     from autopilot.hangar_tools import TOOLS
     doc = json.loads((GATEWAY / "internal" / "tools" / "registry.json").read_text())
     assert [t["name"] for t in doc["tools"]] == [t.name for t in (*CORE_TOOLS, *TOOLS)]
+
+
+# -- the drift guard (gateway/PORTED.json) ---------------------------------------------------------------------------
+sys.path.insert(0, str(ROOT / "tools"))
+import gen_gateway_ported as ported  # noqa: E402
+
+# What the manifest must always list: removing one of these from the tables to silence a change is itself a failure.
+MUST_BE_WATCHED = {
+    "src/autopilot/engine/dispatch.py", "src/autopilot/engine/core.py", "src/autopilot/engine/session.py",
+    "src/autopilot/engine/definitions.py", "src/autopilot/engine/profile.py", "src/autopilot/engine/modelproxy.py",
+    "src/autopilot/engine/auth.py", "src/autopilot/engine/server.py", "src/autopilot/engine/backends.py",
+    "src/autopilot/engine/pg.py", "src/autopilot/engine/tiers.py", "src/autopilot/hangar_tools.py",
+    "src/autopilot/reads.py", "src/autopilot/serve.py", "src/autopilot/settings.py",
+}
+
+
+def _manifest() -> dict:
+    return json.loads((GATEWAY / "PORTED.json").read_text())
+
+
+def test_the_python_files_the_go_gateway_ports_have_not_changed_since_it_was_brought_level():
+    m = _manifest()
+    changed = ported.changed(m)
+    assert not changed, (
+        "a Python file the Go gateway ports changed: " + ", ".join(changed) + ".\n"
+        "Read the change. If it affects what the Go gateway carries (see `carries` in gateway/PORTED.json), port it to the "
+        "Go paths listed there in this pull request, with a test that holds the Go result equal to the Python one. If it "
+        "does not (it is in what is left for a later slice, or it changes nothing the Go gateway does), say so in the pull "
+        "request. Then run `python tools/gen_gateway_ported.py`, which shows what changed and records the new hashes; do "
+        "not edit gateway/PORTED.json by hand.")
+
+
+def test_the_drift_guard_is_not_vacuous():
+    m = _manifest()
+    assert len(m["ported"]) >= len(MUST_BE_WATCHED) and MUST_BE_WATCHED <= set(m["ported"]), \
+        f"unwatched: {sorted(MUST_BE_WATCHED - set(m['ported']))}"
+    for rel, e in m["ported"].items():
+        assert (ROOT / rel).is_file(), f"{rel} is listed as ported and does not exist: update tools/gen_gateway_ported.py"
+        assert len(e["sha256"]) == 64 and e["go"] and e["carries"], rel
+        for g in e["go"]:
+            assert (ROOT / g).exists(), f"{rel}: the Go path {g} does not exist"
+    # the guard can fail: a hash that differs is reported
+    first = next(iter(m["ported"]))
+    m["ported"][first]["sha256"] = "0" * 64
+    assert ported.changed(m) == [first]
+    # and the manifest is what the tool's tables produce (the hashes aside): nothing was edited out by hand
+    now = ported.build(None)
+    assert {k: {f: v for f, v in e.items() if f != "sha256"} for k, e in _manifest()["ported"].items()} == \
+        {k: {f: v for f, v in e.items() if f != "sha256"} for k, e in now["ported"].items()}
+    assert _manifest()["not_ported"] == now["not_ported"] and _manifest()["out_of_scope"] == now["out_of_scope"]
+
+
+def test_every_python_gateway_file_is_classified_so_a_new_module_cannot_be_forgotten():
+    m = _manifest()
+    listed = [*m["ported"], *m["not_ported"], *m["out_of_scope"]]
+    assert len(listed) == len(set(listed)), "a file is in two of ported, not_ported and out_of_scope"
+    new = sorted(set(ported.python_files()) - set(listed))
+    assert not new, (f"new Python file(s) {new}: decide whether the Go gateway ports them (add to PORTED), a later slice does "
+                     "(NOT_PORTED, with the slice) or neither (OUT_OF_SCOPE, with the reason) in tools/gen_gateway_ported.py")
+    gone = sorted(rel for rel in listed if not (ROOT / rel).is_file())
+    assert not gone, f"classified but missing: {gone}"
+    assert set(m["not_ported"].values()) <= set(ported.SLICES)
+
+
+def test_the_go_client_of_clearance_is_the_release_the_python_client_and_the_test_core_are():
+    import re
+    ci = re.search(r"^  CLEARANCE_REF: (\S+)", (ROOT / ".github" / "workflows" / "test.yaml").read_text(), re.M).group(1)
+    py = re.search(r"clearance@(v[\d.]+)#subdirectory=clients/python", (ROOT / "pyproject.toml").read_text()).group(1)
+    go = re.search(r"github.com/jfillman/clearance (v[\d.]+)", (GATEWAY / "go.mod").read_text()).group(1)
+    assert ci == py == go, f"CI core {ci}, Python client {py}, Go client {go}: bump the three together"
 
 
 def _clearance_src() -> str | None:
