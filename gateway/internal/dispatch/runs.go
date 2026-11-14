@@ -46,6 +46,9 @@ type RunBackend interface {
 	// Principal is the identity a run's pod authenticates as, or "" for a name that has none: the gateway then treats
 	// that caller as its session's owner, for calls into that session only.
 	Principal(run string) string
+	// PodName is the name of the pod the run's workload runs in, or "" for a name that has none. A token bound to a pod of
+	// another name, and a token bound to no pod, is not the run's (Gateway.Acting).
+	PodName(run string) string
 }
 
 // SetRuns installs the run backend and the two tools the gateway owns because they need the session store
@@ -71,7 +74,10 @@ func (g *Gateway) SetRuns(rb RunBackend) {
 //     the run, never taken from a caller's arguments);
 //   - the caller is a workload and is not already the session's principal;
 //   - the caller's verified identity (the namespace and service account the token review returned, "ns/sa") is exactly
-//     the identity the backend names for that run: agent-<run>/run, for a run name that is r- and 6 to 32 hex digits.
+//     the identity the backend names for that run: agent-<run>/run, for a run name that is r- and 6 to 32 hex digits;
+//   - the token is bound to the run's pod: the pod name the token review returned (user.extra) is the name the backend
+//     gives the run's pod ("agent": the Sandbox the composition creates). A token bound to no pod, or to a pod of another
+//     name, is the service account and nothing more.
 //
 // Nothing else is read: not a header, an argument, a label or a name the caller sends. So a sibling run (its own
 // namespace), a parent, a person, a run in another namespace with the same service account name, a run whose session has
@@ -88,7 +94,12 @@ func (g *Gateway) actingLocked(s *session.Session, p *Principal) string {
 		return p.ID
 	}
 	if want := g.Runs.Principal(*s.Run); want != "" && want == p.ID {
-		return s.Principal
+		// The token must also be bound to the run's pod. A token minted for the bare service account (the TokenRequest API
+		// lets anyone who may create tokens for it mint one, bound to no object or to any other) is that identity and
+		// nothing more: only a token the kubelet projected into the run's own pod carries the pod's name.
+		if pod := g.Runs.PodName(*s.Run); pod != "" && p.Pod == pod {
+			return s.Principal
+		}
 	}
 	return p.ID
 }

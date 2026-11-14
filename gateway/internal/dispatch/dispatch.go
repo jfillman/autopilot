@@ -34,6 +34,11 @@ type Principal struct {
 	Kind        string // "user" (delegated agent) or "workload"
 	TierCeiling int
 	Attrs       map[string]string
+	// Pod is the name of the pod the caller's service-account token is bound to, from the token review's
+	// user.extra["authentication.kubernetes.io/pod-name"]; "" for a token that is not bound to a pod, and for every
+	// caller that is not a workload of this cluster (people, another cluster's workloads). It is read only to decide who
+	// may act as a run (Gateway.Acting); ordinary authentication does not need it.
+	Pod string
 }
 
 // Authenticator turns a bearer token into a Principal, or *core.AuthError.

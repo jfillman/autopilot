@@ -44,6 +44,13 @@ func RunName(sessionID string) string { return "r-" + strings.TrimPrefix(session
 // ValidRunName says whether name is one the AgentRun composition accepts.
 func ValidRunName(name string) bool { return runName.MatchString(name) }
 
+// PodName is the name of the pod a run's workload runs in. The AgentRun composition creates one Sandbox named "agent" in
+// the run's namespace (function-agentrun SANDBOX_NAME, vendored as src/autopilot/vendor/agentrun_compose.py), and the
+// agent-sandbox controller names the pod it creates after its Sandbox (its documentation: "the backing pod name matches the
+// sandbox name"; a Sandbox "agent" has the pod "agent"). TestPodNameIsTheCompositionsSandbox holds this equal to the
+// vendored composition's name.
+const PodName = "agent"
+
 // Principal is the identity a run's pod authenticates as: the ServiceAccount `run` in the run's own namespace,
 // agent-<run> (gateway.AgentRunBackend.principal). "" for a name no run has, so nothing can be bound to it.
 func Principal(run string) string {

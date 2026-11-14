@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -217,6 +219,75 @@ func TestARunActsOnlyAsItsOwnSession(t *testing.T) {
 	}
 }
 
+// The pod binding (A-9 S3): the right identity is not enough. A token minted for the bare service account (bound to no pod, or
+// to a pod of another name) is that identity and nothing more.
+func TestARunActsOnlyWithATokenBoundToItsPod(t *testing.T) {
+	r, oc := treeRig(t, nil)
+	mk := func(id, kind, pod string) string {
+		tok := "tok:" + id + ":" + pod + ":" + kind
+		r.tokens[tok] = &dispatch.Principal{ID: id, Kind: kind, TierCeiling: 1, Pod: pod}
+		return tok
+	}
+	cases := []struct {
+		name, tok string
+		ok        bool
+		acting    string
+	}{
+		{"the right pod", mk("agent-r-0000a1/run", "workload", "agent"), true, "user:alice"},
+		{"the right identity, another pod name", mk("agent-r-0000a1/run", "workload", "agent-2"), false, ""},
+		{"the right identity, a pod named like the sandbox with a suffix", mk("agent-r-0000a1/run", "workload", "agent-abc12"), false, ""},
+		{"the right identity, no pod binding (a token for the bare service account)", mk("agent-r-0000a1/run", "workload", ""), false, ""},
+		{"a foreign-cluster principal with the run's identity and a pod name", mk("hangar-prod/agent-r-0000a1/run", "workload", "agent"), false, ""},
+		{"a person", mk("user:alice", "user", ""), true, ""},
+		{"a person whose id is a run's, with a pod", mk("agent-r-0000a1/run", "user", "agent"), false, ""},
+		{"another run's pod", mk("agent-r-0000b2/run", "workload", "agent"), false, ""},
+	}
+	for _, c := range cases {
+		before := len(oc.evals)
+		res := r.call(c.tok, "s-0000a1", "argo.app.get", map[string]any{"app": "x"})
+		if res.OK != c.ok {
+			t.Errorf("%s: ok=%v decision=%v", c.name, res.OK, res.Decision)
+		}
+		if len(oc.evals) == before {
+			t.Errorf("%s: the core was not asked", c.name)
+			continue
+		}
+		if got := oc.last().Subject.Properties.ActingAs; got != c.acting {
+			t.Errorf("%s: acting_as %q, want %q", c.name, got, c.acting)
+		}
+		if !c.ok && res.Decision["rule"] != "R001" {
+			t.Errorf("%s: refused as %v, want R001", c.name, res.Decision["rule"])
+		}
+	}
+	// the same rule for the other places a caller acts as a session: run_finish and session_close
+	bare := mk("agent-r-0000a1/run", "workload", "")
+	if _, err := r.g.FinishRun(context.Background(), bare, "s-0000a1", map[string]any{"status": "done"}); asCtl(err) == nil || asCtl(err).Rule != "R001" {
+		t.Errorf("run_finish with a bare service-account token: %v", err)
+	}
+	if _, err := r.g.CloseSession(context.Background(), bare, "s-0000a1", nil); asCtl(err) == nil || asCtl(err).Rule != "CT-FORBIDDEN" {
+		t.Errorf("session_close with a bare service account token: %v", err)
+	}
+	if names, ok, err := r.g.SessionTools(context.Background(), bare, "s-0000a1"); err != nil || ok || names != nil {
+		t.Errorf("session_tools with a bare token: %v %v %v", names, ok, err)
+	}
+}
+
+// The pod name the gateway requires is the Sandbox the composition creates: if the vendored composition renames it, this
+// fails and the pod binding must be reconsidered (the agent-sandbox controller names the pod after its Sandbox).
+func TestPodNameIsTheCompositionsSandbox(t *testing.T) {
+	raw, err := os.ReadFile("../../../src/autopilot/vendor/agentrun_compose.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^SANDBOX_NAME = "([^"]+)"$`).FindSubmatch(raw)
+	if m == nil || string(m[1]) != runs.PodName {
+		t.Fatalf("the composition's SANDBOX_NAME is %q, the gateway requires the pod %q", m, runs.PodName)
+	}
+	if (&runs.Backend{}).PodName("r-0000a1") != runs.PodName || (&runs.Backend{}).PodName("not-a-run") != "" {
+		t.Fatal("PodName")
+	}
+}
+
 // After a run is finished or closed the pod's token (still valid for a while) acts as nothing: its session has no run, or
 // is closed, and the core refuses a closed session whatever the caller.
 func TestAReplayedRunTokenActsAsNothingAfterItsRunIsGone(t *testing.T) {
@@ -299,6 +370,7 @@ func TestSessionToolsAndRunEndsAreForTheSessionsOwnRunOnly(t *testing.T) {
 type noIdentity struct{ dispatch.RunBackend }
 
 func (noIdentity) Principal(string) string { return "" }
+func (noIdentity) PodName(string) string   { return "" }
 
 // ---- spawn --------------------------------------------------------------------------------------------------------
 
