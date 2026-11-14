@@ -855,6 +855,7 @@ func (g *Gateway) ExpireAt(ctx context.Context, now time.Time) []string {
 		g.Log.Info("outbox drained", "posted", n)
 	}
 	cancel()
+	g.housekeeping(ctx, now)
 	return done
 }
 

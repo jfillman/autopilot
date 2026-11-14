@@ -89,7 +89,7 @@ type Gateway struct {
 	// CandidateParse parses and validates a candidate definition document, and Fingerprint names it; without both a
 	// candidate cannot run (see Candidate).
 	CandidateParse func(document any) (*definitions.Definition, error)
-	Fingerprint    func(d *definitions.Definition) string
+	Fingerprint    func(d *definitions.Definition) string // Fingerprint (this package's) is the one to use
 	// RuntimeImages are the globs a candidate's runtime image must match (the whole image, see checkCandidateImage); empty
 	// refuses every candidate (Python: any registry).
 	RuntimeImages []string
@@ -98,7 +98,30 @@ type Gateway struct {
 	readCursor    string // the last session whose run state the sweep started reading (the next sweep starts after it)
 	cmu           sync.Mutex
 	candidates    map[string]*definitions.Definition
+	candidateUse  map[string]int // requests using a candidate right now
 	candidateRuns []candidateRun
+
+	// The people's side (S3).
+	//
+	// Inbox keeps human.request's questions (nil: no inbox, and the two tools have no handler); Directory resolves a person's
+	// groups (nil: only a session's owner and the admins act); Delegates are the principals (globs) that may act for a person
+	// they name; Admins are the principals (globs) that may manage every agent.
+	Inbox     InboxStore
+	Directory Directory
+	Delegates []string
+	Admins    []string
+	Holds     HoldStore // nil: this deployment keeps no holds
+	Events    EventsStore
+	// PreflightCases are the cases a candidate is scored against, by id; PreflightLedger keeps the latest result per definition.
+	PreflightCases  map[string]*Case
+	PreflightLedger *PreflightLedger
+	// holdGate: a trigger's open and a person's run read a hold and open their session under the read lock; a hold or a release
+	// writes under the write lock.
+	holdGate  sync.RWMutex
+	answers   answerLocks
+	limiter   controlLimiter
+	houseMu   sync.Mutex
+	lastHouse time.Time
 
 	// OnPersistError is called when the sessions cannot be saved. The in-memory sessions are then ahead of the
 	// database and only a restart puts them back in step, so the serve command exits (crash-only).
