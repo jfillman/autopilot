@@ -125,6 +125,8 @@ type BridgeConfig struct {
 	Idle       time.Duration
 	BackoffMin time.Duration
 	BackoffMax time.Duration
+	// Wait, when set, replaces the wait between streams (a test records the delays and returns at once); it reports false when ctx ended.
+	Wait func(ctx context.Context, d time.Duration) bool
 }
 
 // Bridge is the event bridge.
@@ -743,10 +745,16 @@ func (b *Bridge) Run(ctx context.Context) {
 			wait = b.cfg.BackoffMin
 		}
 		d := wait + time.Duration(rand.Int64N(int64(wait)/5+1))
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(d):
+		if b.cfg.Wait != nil {
+			if !b.cfg.Wait(ctx, d) {
+				return
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(d):
+			}
 		}
 		if n == 0 {
 			wait = min(wait*2, b.cfg.BackoffMax)
