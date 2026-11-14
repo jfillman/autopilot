@@ -217,6 +217,8 @@ type Config struct {
 	// Artifacts keeps artifact.put and artifact.get; Now is the clock they read (nil: the wall clock).
 	Artifacts ArtifactStore
 	Now       func() time.Time
+	// Hangar holds the Glidepath, repository and Argo CD sync backends (S5b); each tool is on when its backend is set.
+	Hangar HangarConfig
 }
 
 // Handlers builds a handler per tool whose backend is configured. It is NewHandlers for a configuration that cannot fail
@@ -320,6 +322,9 @@ func NewHandlers(c Config) (map[string]dispatch.Handler, error) {
 			}
 			return content, nil
 		}
+	}
+	for tool, fn := range hangarHandlers(c.Hangar) {
+		h[tool] = fn
 	}
 	return h, nil
 }

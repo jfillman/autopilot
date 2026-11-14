@@ -5,6 +5,30 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S5b: the Glidepath and repository tools in the Go gateway)
+- The Go gateway (`gateway/`, still off by default and not deployed) now has handlers for every `glidepath.*` tool (reads, the
+  live watch, `run.rerun`, `run.cancel`, `promote`, `rollback`, `cicd.validate`, `cicd.propose`), `repo.file.get`, `repo.pr.open`,
+  `repo.pr.open_upper` (with the `cicd.yaml` check) and `argo.sync.lower`, each the Python behaviour for the same inputs: the same
+  arguments, result shapes and clipping, refusals, `GitHubError`, `GlidepathError` and `ArgoSyncError` text and class, and the same
+  receipt on the outcome. `GITHUB_PR_ENABLED`, `GLIDEPATH_API_URL` and `ARGO_SYNC_ENABLED` are no longer refused at start.
+  `ensure_pr` and `find_pr` (for `airframe.apply`, S5c) are built and tested but no tool calls them yet.
+- Decided again by the gateway, from the session's grant and the agent's definition, before any request: the repository
+  allowlist, the glidepath app allowlist, protected paths (in any case), a lower tool on a release repository, the tool's grant and tier,
+  and the owners the deployment names. The GitHub requests the gateway can send are a closed list of eight (GET and POST only: no
+  merge, review, delete, protection change or move of a ref), the glidepath-api and Kubernetes ones too; branch names, paths, titles and
+  every glidepath argument are validated before a request exists (fuzz targets with independent oracles for each builder).
+- Credentials are the gateway's projected tokens, re-read per call, and one installation token per call from Glidepath's broker, never
+  kept; an upstream that echoes a credential cannot put it in an error; no redirect is followed.
+- A write whose answer is lost says the write may have been made, and a pull request is looked for once before anything is said;
+  a replayed call opens no second pull request, starts no second run (the idempotency keys) and asks for no second sync.
+- Differences from Python, each pinned in the fixtures with a `why` (`docs/admin/go-gateway.md`): `BROKER_URL` has no default
+  (Python's names a lab Service), `GITHUB_OWNERS` (Go only) names the owners, `GITHUB_PR_ENABLED` needs `AGENT_XRS_ENABLED=0` and
+  `XR_REQUEST_ENABLED=0`, `ARGO_SYNC_ENABLED` needs `ARGO_ENABLED`, stricter names, paths and titles, an `@mention` in text that
+  goes to a pull request is defanged, a 120 s watch is cut to the call's deadline, and a read answered 429 or 5xx is tried again.
+- `tools/gen_gateway_writes.py` (called by `tools/gen_gateway_registry.py`) writes the equivalence fixture (318 cases) by driving the
+  Python handlers over canned upstream answers; the drift guard now watches `glidepath_api.py`, `glidepath_live.py`, `github_pr.py`,
+  `argo_sync.py` and `cicd_propose.py`.
+
 ### Added (A-9 S5a: the read backends in the Go gateway)
 - The Go gateway (`gateway/`, still off by default and not deployed) now has handlers for `catalog.read` (`BACKSTAGE_URL`,
   `BACKSTAGE_TOKEN_FILE`), `argo.app.get` (`ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, through the Kubernetes API), `app.api.get`
