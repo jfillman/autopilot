@@ -1,0 +1,58 @@
+[
+ {
+  "agent_error": "backend error: GitHub token broker 502: the agents' GitHub App is not installed on jfillman/parachute",
+  "agent_message": "GitHub token broker 502: the agents' GitHub App is not installed on jfillman/parachute",
+  "class": "GitHubError",
+  "evidence": "GitHub token broker 502: the agents' GitHub App is not installed on jfillman/parachute",
+  "outcome_result": "error:GitHubError: GitHub token broker 502: the agents' GitHub App is not installed on jfillman/parachute",
+  "text": "GitHub token broker 502: the agents' GitHub App is not installed on jfillman/parachute"
+ },
+ {
+  "agent_error": "backend error",
+  "agent_message": null,
+  "class": "GlidepathError",
+  "evidence": "glidepath-api unreachable: URLError(ConnectionRefusedError)",
+  "outcome_result": "error:GlidepathError: glidepath-api unreachable: URLError(ConnectionRefusedError)",
+  "text": "glidepath-api unreachable: URLError(ConnectionRefusedError)"
+ },
+ {
+  "agent_error": "backend error",
+  "agent_message": null,
+  "class": "ArgoSyncError",
+  "evidence": "API server 409 patching parachute-lower",
+  "outcome_result": "error:ArgoSyncError: API server 409 patching parachute-lower",
+  "text": "API server 409 patching parachute-lower: b'{\"token\":\"ghp_SECRET\"}'"
+ },
+ {
+  "agent_error": "backend error",
+  "agent_message": null,
+  "class": "ReadError",
+  "evidence": "PromQL backend unreachable: URLError",
+  "outcome_result": "error:ReadError: PromQL backend unreachable: URLError",
+  "text": "PromQL backend unreachable: URLError"
+ },
+ {
+  "agent_error": "backend error",
+  "agent_message": null,
+  "class": "ReadError",
+  "evidence": "LogQL backend 502",
+  "outcome_result": "error:ReadError: LogQL backend 502",
+  "text": "LogQL backend 502"
+ },
+ {
+  "agent_error": "backend error",
+  "agent_message": null,
+  "class": "ReadError",
+  "evidence": "LogQL backend unreachable: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "outcome_result": "error:ReadError: LogQL backend unreachable: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "text": "LogQL backend unreachable: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ },
+ {
+  "agent_error": "backend error",
+  "agent_message": null,
+  "class": "RuntimeError",
+  "evidence": null,
+  "outcome_result": "error:RuntimeError",
+  "text": "boom: internal detail"
+ }
+]

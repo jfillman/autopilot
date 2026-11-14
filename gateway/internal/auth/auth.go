@@ -35,7 +35,11 @@ func refuse(msg string) error { return &core.AuthError{Msg: msg} }
 // (the system:auth-delegator ClusterRole). The token and CA files are re-read on every call: the kubelet rotates the
 // projected token.
 type Workload struct {
+	// Audience is the primary audience; Audiences the whole set accepted (R-10b: the run pods' `autopilot`, and for a
+	// cluster that still runs an older runtime image the old `clearance` one). TokenReview is asked for all of them and
+	// answers with the ones the token carries; a token is accepted when it carries any (Python: WorkloadAuthenticator).
 	Audience    string
+	Audiences   []string
 	API         string
 	TokenFile   string
 	CAFile      string
@@ -45,8 +49,28 @@ type Workload struct {
 }
 
 // NewWorkload returns the in-cluster authenticator for an audience.
-func NewWorkload(audience string) *Workload {
-	return &Workload{Audience: audience, API: "https://kubernetes.default.svc", TokenFile: saDir + "/token", CAFile: saDir + "/ca.crt", TierCeiling: 1}
+func NewWorkload(audience string, more ...string) *Workload {
+	return &Workload{Audience: audience, Audiences: dedupe(append([]string{audience}, more...)), API: "https://kubernetes.default.svc", TokenFile: saDir + "/token", CAFile: saDir + "/ca.crt", TierCeiling: 1}
+}
+
+func dedupe(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, a := range in {
+		if !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// audiences is the set accepted: Audiences, or the one Audience of a Workload built as a literal.
+func (w *Workload) audiences() []string {
+	if len(w.Audiences) > 0 {
+		return w.Audiences
+	}
+	return []string{w.Audience}
 }
 
 func (w *Workload) client() (*http.Client, error) {
@@ -73,7 +97,7 @@ func (w *Workload) Authenticate(ctx context.Context, token string) (*dispatch.Pr
 		return nil, refuse("token review failed")
 	}
 	body, _ := json.Marshal(map[string]any{"apiVersion": "authentication.k8s.io/v1", "kind": "TokenReview",
-		"spec": map[string]any{"token": token, "audiences": []string{w.Audience}}})
+		"spec": map[string]any{"token": token, "audiences": w.audiences()}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(w.API, "/")+"/apis/authentication.k8s.io/v1/tokenreviews", bytes.NewReader(body))
 	if err != nil {
 		return nil, refuse("token review failed")
@@ -100,7 +124,9 @@ func (w *Workload) Authenticate(ctx context.Context, token string) (*dispatch.Pr
 	st := review.Status
 	aud := false
 	for _, a := range st.Audiences {
-		aud = aud || a == w.Audience
+		for _, want := range w.audiences() {
+			aud = aud || a == want
+		}
 	}
 	if !st.Authenticated || !aud {
 		return nil, refuse("token not authenticated for this audience")

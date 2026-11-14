@@ -214,10 +214,10 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 			dd := &core.Verdict{Rule: den.Rule, Name: "refused", Message: den.Message, Hint: den.Hint, Tier: &tier}
 			return &Result{Decision: dd.AsMap(), Error: str(den.Message), AuditSeq: firstSeq(seq, v.Seq), Session: &s.ID}, nil
 		}
-		g.Log.Warn("backend error", "tool", tool, "kind", ErrorKind(herr))
-		seq := g.outcome(ctx, v.DecisionID, core.OutcomeArgs{Result: "error:" + ErrorKind(herr)})
-		// Never leak backend internals to the agent.
-		return &Result{Decision: v.AsMap(), Error: str("backend error"), AuditSeq: firstSeq(seq, v.Seq), Session: &s.ID}, nil
+		g.logBackendFailure(s, tool, herr)
+		seq := g.outcome(ctx, v.DecisionID, core.OutcomeArgs{Result: ErrorResult(herr)})
+		// Never leak backend internals to the agent: only an error that offers an agent message adds to "backend error".
+		return &Result{Decision: v.AsMap(), Error: str(BackendError(herr)), AuditSeq: firstSeq(seq, v.Seq), Session: &s.ID}, nil
 	}
 }
 
@@ -284,12 +284,83 @@ type KindError struct {
 func (e *KindError) Error() string { return e.Kind + ": " + e.Err.Error() }
 func (e *KindError) Unwrap() error { return e.Err }
 
+// Kinded is a backend error that names its own kind (the Python class name: "ReadError"), for the outcome's result line.
+type Kinded interface{ Kind() string }
+
+// Evidenced is a backend error that offers evidence: the short, non-secret internal reason (a status, a rule id, a
+// reason class; never a token, a header or a response body) that goes to the gateway's log and onto the call's outcome
+// record, so a failure is diagnosable from evidence (Python: BackendError.evidence).
+type Evidenced interface{ Evidence() string }
+
+// AgentMessaged is a backend error whose reason the agent may be told (Python: agent_message; the GitHub error: a status
+// and the other side's own reason, never a token). Any other error stays opaque to the agent.
+type AgentMessaged interface{ AgentMessage() string }
+
+// MaxEvidence is the longest evidence kept (Python: BackendError.evidence, str(self)[:160]).
+const MaxEvidence = 160
+
+// ClipEvidence cuts s to MaxEvidence characters.
+func ClipEvidence(s string) string {
+	if r := []rune(s); len(r) > MaxEvidence {
+		return string(r[:MaxEvidence])
+	}
+	return s
+}
+
+// BackendError is what the agent is told when a backend failed: "backend error", and the error's agent message after it
+// when it offers one (Python: dispatch._backend_error).
+func BackendError(err error) string {
+	var m AgentMessaged
+	if errors.As(err, &m) {
+		if msg := m.AgentMessage(); msg != "" {
+			return "backend error: " + msg
+		}
+	}
+	return "backend error"
+}
+
+// ErrorResult is the outcome's result for a backend that failed: "error:<kind>", and for an error with evidence the
+// short reason after it (Python: dispatch._error_result: error:GitHubError: GitHub token broker 502: ...).
+func ErrorResult(err error) string {
+	return "error:" + ErrorKind(err) + evidenceSuffix(err)
+}
+
+func evidenceSuffix(err error) string {
+	var e Evidenced
+	if errors.As(err, &e) {
+		if ev := e.Evidence(); ev != "" {
+			return ": " + ev
+		}
+	}
+	return ""
+}
+
+// logBackendFailure is the gateway's own account of a backend failure, for whoever reads its log: the session, agent
+// and tool, the error's kind and its evidence when it offers one. The agent is told none of it (Python:
+// dispatch._log_backend_failure).
+func (g *Gateway) logBackendFailure(s *session.Session, tool string, err error) {
+	run := "-"
+	s.Lock()
+	if s.Run != nil {
+		run = *s.Run
+	}
+	s.Unlock()
+	attrs := []any{"tool", tool, "agent", s.Agent, "session", s.ID, "run", run, "kind", ErrorKind(err)}
+	if ev := evidenceSuffix(err); ev != "" {
+		attrs = append(attrs, "evidence", strings.TrimPrefix(ev, ": "))
+	}
+	g.Log.Warn("backend failure", attrs...)
+}
+
 // ErrorKind is the kind a backend error reports.
 func ErrorKind(err error) string {
 	var k *KindError
+	var kd Kinded
 	switch {
 	case errors.As(err, &k):
 		return k.Kind
+	case errors.As(err, &kd):
+		return kd.Kind()
 	case errors.Is(err, context.DeadlineExceeded):
 		return "Timeout"
 	case errors.Is(err, context.Canceled):
@@ -356,8 +427,9 @@ func (g *Gateway) outageCall(ctx context.Context, p *Principal, sessionID string
 		dd := &core.Verdict{Rule: den.Rule, Name: "refused", Message: den.Message, Hint: den.Hint, Tier: tier}
 		return &Result{Decision: dd.AsMap(), Error: str(den.Message), Session: &s.ID}
 	default:
-		rec("error:" + ErrorKind(herr))
-		return &Result{Decision: allowed.AsMap(), Error: str("backend error"), Session: &s.ID}
+		g.logBackendFailure(s, tool, herr)
+		rec(ErrorResult(herr))
+		return &Result{Decision: allowed.AsMap(), Error: str(BackendError(herr)), Session: &s.ID}
 	}
 }
 
@@ -442,6 +514,17 @@ func effect(spec *tools.Spec, args map[string]any, data any) *client.Effect {
 			e.Commit, _ = v.(string)
 		case "branch":
 			e.Branch, _ = v.(string)
+		case "merge":
+			// "person": the pull request is marked for a person to merge (A-11 propose scope), with the paths that need one.
+			e.Merge, _ = v.(string)
+		case "needsPerson":
+			if list, ok := v.([]any); ok {
+				for _, p := range list {
+					if ps, ok := p.(string); ok {
+						e.NeedsPerson = append(e.NeedsPerson, ps)
+					}
+				}
+			}
 		}
 	}
 	if spec.WritesFiles {
@@ -471,7 +554,7 @@ func effect(spec *tools.Spec, args map[string]any, data any) *client.Effect {
 		}
 		e.Paths = uniqSorted(paths)
 	}
-	if e.Repo == "" && e.PR == 0 && e.Commit == "" && e.Branch == "" && len(e.Paths) == 0 {
+	if e.Repo == "" && e.PR == 0 && e.Commit == "" && e.Branch == "" && len(e.Paths) == 0 && e.Merge == "" && len(e.NeedsPerson) == 0 {
 		return nil // an empty effect is no effect (the Python gateway sends none)
 	}
 	return e

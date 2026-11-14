@@ -98,6 +98,10 @@ type Session struct {
 	Input      map[string]any
 	Outcome    map[string]any
 	Usage      map[string]int64
+	// Signals is what the gateway saw this session's calls do, for a run's warnings (Python: results.observe and
+	// results.warnings, which the run slice ports). This slice keeps it whole across a load and a save, so a session the
+	// Python gateway wrote keeps what it counted.
+	Signals map[string]any
 }
 
 // Lock guards the session's fields.
@@ -201,6 +205,7 @@ type Record struct {
 	Input      map[string]any   `json:"input"`
 	Outcome    map[string]any   `json:"outcome"`
 	Usage      map[string]int64 `json:"usage"`
+	Signals    map[string]any   `json:"signals"`
 }
 
 // IsoFormat is Python's datetime.isoformat for an aware UTC time.
@@ -230,11 +235,15 @@ func (s *Session) ToRecord() Record {
 	for k, v := range s.Usage {
 		usage[k] = v
 	}
+	signals := map[string]any{}
+	for k, v := range s.Signals {
+		signals[k] = v
+	}
 	return Record{ID: s.ID, Principal: s.Principal, Agent: s.Agent, Limits: l,
 		CreatedAt: s.CreatedAt.UTC().Format(IsoFormat), ExpiresAt: s.ExpiresAt.UTC().Format(IsoFormat),
 		ParentID: s.ParentID, Depth: s.Depth, TaskID: s.TaskID, Used: budgetsMap(&s.Used), Reserved: budgetsMap(&s.Reserved),
 		Children: nonNil(s.Children), Tripped: s.Tripped, TripReason: s.TripReason, Denials: s.Denials, Closed: s.Closed,
-		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage}
+		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals}
 }
 
 // FromRecord is the inverse of ToRecord, for a row either gateway wrote.
@@ -251,10 +260,14 @@ func FromRecord(r Record) (*Session, error) {
 	for k, v := range r.Usage {
 		usage[k] = v
 	}
+	signals := map[string]any{}
+	for k, v := range r.Signals {
+		signals[k] = v
+	}
 	return &Session{ID: r.ID, Principal: r.Principal, Agent: r.Agent, Limits: r.Limits, CreatedAt: created, ExpiresAt: expires,
 		ParentID: r.ParentID, Depth: r.Depth, TaskID: r.TaskID, Used: budgetsFrom(r.Used), Reserved: budgetsFrom(r.Reserved),
 		Children: r.Children, Tripped: r.Tripped, TripReason: r.TripReason, Denials: r.Denials, Closed: r.Closed, Run: r.Run,
-		Input: r.Input, Outcome: r.Outcome, Usage: usage}, nil
+		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals}, nil
 }
 
 func parseTime(v string) (time.Time, error) {
