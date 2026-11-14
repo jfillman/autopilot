@@ -13,3 +13,6 @@ import (
 func (g *Gateway) Spawn(ctx context.Context, parent *session.Session, d *definitions.Definition, v *core.Verdict, newID string, args map[string]any, now time.Time) (any, error) {
 	return g.spawn(ctx, parent, d, v, newID, args, now)
 }
+
+// RunInput is a spawn's input check.
+func RunInput(v any) (map[string]any, error) { return runInput(v) }

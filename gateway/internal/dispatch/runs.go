@@ -188,12 +188,8 @@ func pyJSONLen(v any) int {
 				switch {
 				case r == '"' || r == '\\' || r == '\n' || r == '\r' || r == '\t' || r == '\b' || r == '\f':
 					b.WriteString("\\x")
-				case r < 0x20 || (r >= 0x7f && r < 0x10000):
-					if r == 0x7f {
-						b.WriteByte('x') // DEL is printable to Python's encoder
-					} else {
-						b.WriteString("\\uXXXX")
-					}
+				case r < 0x20 || (r >= 0x7f && r < 0x10000): // everything outside " " to "~" is \uXXXX, DEL included
+					b.WriteString("\\uXXXX")
 				case r >= 0x10000:
 					b.WriteString("\\uXXXX\\uXXXX")
 				default:

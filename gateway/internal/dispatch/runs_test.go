@@ -971,3 +971,26 @@ func TestRunAgentAsOpensTheSessionAsThePersonAndLaunchesIt(t *testing.T) {
 }
 
 var _ = definitions.Parse
+
+// An input's size is counted the way Python's json.dumps counts it (ensure_ascii): everything outside " " to "~" is six
+// characters, DEL included, an astral character twelve. The limit is the AgentRun's 4096.
+func TestRunInputSizeIsCountedLikePythonCountsIt(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int // len(json.dumps({"p": in}, separators=(",", ":")))
+	}{
+		{"abc", 11}, {"\x7f", 14}, {"é", 14}, {"😀", 20}, {"\n", 10}, {"\x01", 14}, {`"`, 10}, {`\`, 10}, {"a\x7fb", 16},
+	}
+	for _, c := range cases {
+		pad := dispatch.MaxInputChars - c.want
+		// exactly at the limit is accepted; one more character is refused
+		ok := map[string]any{"p": c.in + strings.Repeat("x", pad)}
+		over := map[string]any{"p": c.in + strings.Repeat("x", pad+1)}
+		if _, err := dispatch.RunInput(ok); err != nil {
+			t.Errorf("%q at the limit: %v", c.in, err)
+		}
+		if _, err := dispatch.RunInput(over); err == nil {
+			t.Errorf("%q one over the limit was accepted", c.in)
+		}
+	}
+}
