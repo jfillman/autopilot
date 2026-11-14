@@ -85,7 +85,8 @@ type Gateway struct {
 	// candidate cannot run (see Candidate).
 	CandidateParse func(document any) (*definitions.Definition, error)
 	Fingerprint    func(d *definitions.Definition) string
-	// RuntimeImages are the prefix globs a candidate's runtime image may come from; empty allows any digest-pinned image.
+	// RuntimeImages are the globs a candidate's runtime image must match (the whole image, see checkCandidateImage); empty
+	// refuses every candidate (Python: any registry).
 	RuntimeImages []string
 
 	readMu        sync.Mutex
