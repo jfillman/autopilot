@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
@@ -122,27 +123,41 @@ func (g *Gateway) Candidate(agent string, document any, budget any) (*definition
 	if cand.RunsIn() != "cluster" {
 		return nil, "", &ControlError{"R001", agent + " runs in a person's MCP client; Preflight runs in-cluster agents", "", 409}
 	}
-	if !strings.Contains(*cand.Image, "@sha256:") {
-		return nil, "", &ControlError{"R008", "the candidate's runtime image must be pinned by digest", "", 400}
-	}
-	// TODO(S3): this equals Python and is too loose to put behind a route. An empty RuntimeImages allows any registry, and the
-	// digest is matched as a substring of the image. Before any route calls Candidate: the image must end in "@sha256:" plus
-	// 64 hex digits, and an empty allow-list must refuse. (docs/admin/go-gateway.md, "Not carried".)
-	if len(g.RuntimeImages) > 0 {
-		ok := false
-		for _, glob := range g.RuntimeImages {
-			if fnmatch(glob, *cand.Image) || strings.HasPrefix(*cand.Image, strings.TrimRight(glob, "*")) {
-				ok = true
-			}
-		}
-		if !ok {
-			return nil, "", &ControlError{"R008", "the candidate's runtime image is not on this deployment's list", "", 400}
-		}
+	if err := g.checkCandidateImage(*cand.Image); err != nil {
+		return nil, "", err
 	}
 	b, _ := budget.(map[string]any)
 	fp := g.Fingerprint(cand)
 	d, err := g.ClampCandidate(cand, agent, b, fp)
 	return d, fp, err
+}
+
+// candidateImage is a runtime image a candidate may name: a name, then "@sha256:" and exactly 64 lowercase hex digits at the very
+// end. The digest is what makes the image the one that was reviewed; a tag, an upper-case digest, text after the digest and
+// a second "@" are not that.
+var candidateImage = regexp.MustCompile(`^[^@\s]+@sha256:[0-9a-f]{64}$`)
+
+// allZeroDigest is the placeholder digest the loader refuses (profile.PLACEHOLDER_DIGEST): it names no image.
+var allZeroDigest = "@sha256:" + strings.Repeat("0", 64)
+
+// checkCandidateImage refuses a candidate's runtime image unless it is pinned by a full digest and is on this deployment's
+// allow-list. Two differences from Python's _candidate, both deliberate (a candidate document is untrusted input behind a
+// route): an empty allow-list refuses every candidate (Python allows any registry), and a glob matches the whole image: the
+// bare-prefix fallback Python adds (image.startswith(glob.rstrip("*"))) is gone, so "ghcr.io/team" never admits
+// "ghcr.io/team-evil/x" or "ghcr.io/teamx/x", and a glob with no wildcard is an exact image.
+func (g *Gateway) checkCandidateImage(image string) error {
+	if !candidateImage.MatchString(image) || strings.HasSuffix(image, allZeroDigest) {
+		return &ControlError{"R008", "the candidate's runtime image must be pinned by digest (name@sha256: and 64 lowercase hex digits)", "", 400}
+	}
+	for _, glob := range g.RuntimeImages {
+		if glob != "" && fnmatch(glob, image) {
+			return nil
+		}
+	}
+	if len(g.RuntimeImages) == 0 {
+		return &ControlError{"R008", "this deployment lists no runtime images, so no candidate may run", "", 400}
+	}
+	return &ControlError{"R008", "the candidate's runtime image is not on this deployment's list", "", 400}
 }
 
 // RunAgentAs starts an in-cluster run of a task agent for a person who has already been checked (who may run what, and

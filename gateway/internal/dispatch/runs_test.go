@@ -894,6 +894,7 @@ func TestCandidateRefusesUntilTheDefinitionSchemaIsCarried(t *testing.T) {
 		return &d, nil
 	}
 	r.g.Fingerprint = func(*definitions.Definition) string { return "abcdef0123456789" }
+	r.g.RuntimeImages = []string{"ghcr.io/jfillman/*"}
 	cand, fp, err := r.g.Candidate("researcher", map[string]any{"name": "researcher"}, map[string]any{"tool_calls": json.Number("5")})
 	if err != nil || fp != "abcdef0123456789" || cand.Name != "pf-researcher-abcdef01" || cand.Limits.ToolCalls != 5 || cand.Limits.GithubCalls != 0 || r.g.Defs[cand.Name] != nil {
 		t.Fatalf("%+v %v", cand, err)
@@ -909,7 +910,7 @@ func TestCandidateRefusesUntilTheDefinitionSchemaIsCarried(t *testing.T) {
 	}
 	// a name that is a live definition is never shadowed
 	r.g.Defs["pf-researcher-abcdef01"] = r.g.Defs["researcher"]
-	r.g.RuntimeImages = nil
+	r.g.RuntimeImages = []string{"ghcr.io/jfillman/*"}
 	if _, _, err := r.g.Candidate("researcher", map[string]any{"name": "researcher"}, nil); asCtl(err) == nil || asCtl(err).Rule != "R001" {
 		t.Errorf("%v", err)
 	}
@@ -976,6 +977,74 @@ func TestRunAgentAsOpensTheSessionAsThePersonAndLaunchesIt(t *testing.T) {
 }
 
 var _ = definitions.Parse
+
+// The image check is stricter than Python's on purpose (docs/admin/go-gateway.md, differences): a candidate document is
+// untrusted input behind a route. Python, for the same inputs, in the comments.
+func TestCandidateImageCheck(t *testing.T) {
+	r := newRunRig(t)
+	good := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("ab", 32)
+	r.g.CandidateParse = func(doc any) (*definitions.Definition, error) {
+		d := *r.g.Defs["researcher"]
+		img := doc.(map[string]any)["image"].(string)
+		d.Image = &img
+		return &d, nil
+	}
+	r.g.Fingerprint = func(*definitions.Definition) string { return "abcdef0123456789" }
+	try := func(allow []string, image string) *dispatch.ControlError {
+		r.g.RuntimeImages = allow
+		_, _, err := r.g.Candidate("researcher", map[string]any{"name": "researcher", "image": image}, nil)
+		if err == nil {
+			return nil
+		}
+		var ce *dispatch.ControlError
+		if !errors.As(err, &ce) {
+			t.Fatalf("%v", err)
+		}
+		return ce
+	}
+	glob := []string{"ghcr.io/jfillman/*"}
+	if ce := try(glob, good); ce != nil {
+		t.Fatalf("a good image was refused: %v", ce)
+	}
+	refused := map[string]string{
+		"empty allow-list (Python: allows any registry)": "nil",
+		"a tag":                         "ghcr.io/jfillman/x:latest",
+		"a digest in the middle":        "ghcr.io/jfillman/x@sha256:" + strings.Repeat("ab", 32) + "/y",
+		"a digest in the name only":     "ghcr.io/jfillman/x@sha256:abc:@sha256:abc",
+		"63 hex digits":                 "ghcr.io/jfillman/x@sha256:" + strings.Repeat("a", 63),
+		"65 hex digits":                 "ghcr.io/jfillman/x@sha256:" + strings.Repeat("a", 65),
+		"upper-case hex":                "ghcr.io/jfillman/x@sha256:" + strings.Repeat("AB", 32),
+		"text after the digest":         "ghcr.io/jfillman/x@sha256:" + strings.Repeat("a", 64) + "\n",
+		"a space":                       "ghcr.io/jfillman/x y@sha256:" + strings.Repeat("a", 64),
+		"a second @":                    "ghcr.io/jfillman/x@y@sha256:" + strings.Repeat("a", 64),
+		"all zeros":                     "ghcr.io/jfillman/x@sha256:" + strings.Repeat("0", 64),
+		"no name":                       "@sha256:" + strings.Repeat("a", 64),
+		"another registry":              "ghcr.io/other/x@sha256:" + strings.Repeat("a", 64),
+		"a path boundary (bare prefix)": "ghcr.io/jfillman-evil/x@sha256:" + strings.Repeat("a", 64),
+	}
+	for name, image := range refused {
+		allow := glob
+		if image == "nil" {
+			allow, image = nil, good
+		}
+		if try(allow, image) == nil {
+			t.Errorf("%s: %q was accepted", name, image)
+		}
+	}
+	// a glob is the whole image: with no wildcard it is one exact image; a bare prefix never admits a longer name
+	if try([]string{"ghcr.io/jfillman"}, good) == nil || try([]string{"ghcr.io/jfillman/"}, good) == nil {
+		t.Error("a bare prefix matched across a path boundary")
+	}
+	if try([]string{good}, good) != nil {
+		t.Error("the exact image was refused")
+	}
+	if try([]string{"ghcr.io/jfillman/*@sha256:*"}, good) != nil {
+		t.Error("the documented glob form was refused")
+	}
+	if try([]string{"", "ghcr.io/jfillman/[a-z]*"}, good) == nil {
+		t.Error("an empty glob or a bracket glob admitted an image")
+	}
+}
 
 // An input's size is counted the way Python's json.dumps counts it (ensure_ascii): everything outside " " to "~" is six
 // characters, DEL included, an astral character twelve. The limit is the AgentRun's 4096.
