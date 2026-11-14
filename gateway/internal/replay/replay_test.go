@@ -307,7 +307,11 @@ func withRun(s *session.Session, want *client.EvaluationRequest) {
 }
 
 func principalOf(sub client.Subject) *dispatch.Principal {
-	return &dispatch.Principal{ID: sub.ID, Kind: sub.Properties.Kind, TierCeiling: sub.Properties.TierCeiling}
+	p := &dispatch.Principal{ID: sub.ID, Kind: sub.Properties.Kind, TierCeiling: sub.Properties.TierCeiling}
+	if sub.Properties.ActingAs != "" {
+		p.Pod = runs.PodName // a run's token is bound to its pod (a corpus line of a run acting as its session)
+	}
+	return p
 }
 
 func (r *replayer) newGateway(core *core.Core, st *session.Store, defs map[string]*definitions.Definition, p *dispatch.Principal, tool string, now time.Time) *dispatch.Gateway {

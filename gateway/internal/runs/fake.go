@@ -119,6 +119,14 @@ func (f *Fake) Principal(run string) string {
 	return Principal(run)
 }
 
+// PodName is the pod a run's workload runs in.
+func (f *Fake) PodName(run string) string {
+	if f.NoPrincipal || !ValidRunName(run) {
+		return ""
+	}
+	return PodName
+}
+
 // Set changes what the fake does, under its lock.
 func (f *Fake) Set(fn func(*Fake)) {
 	f.mu.Lock()

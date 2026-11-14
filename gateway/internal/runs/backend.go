@@ -45,5 +45,13 @@ func (b *Backend) Ended(ctx context.Context, s *session.Session) (string, error)
 	return b.Store.Outcome(ctx, RunName(s.ID))
 }
 
+// PodName is the pod a run's workload runs in, "" for a name no run has.
+func (b *Backend) PodName(run string) string {
+	if !ValidRunName(run) {
+		return ""
+	}
+	return PodName
+}
+
 // Principal is the identity a run's workload authenticates as (see the package-level Principal).
 func (b *Backend) Principal(run string) string { return Principal(run) }

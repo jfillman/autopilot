@@ -264,7 +264,7 @@ func TestAModelCallActsAsTheSessionOnlyForItsOwnRun(t *testing.T) {
 		id := "d-model"
 		return client.EvaluationResult{Decision: true, DecisionID: &id, Record: &client.RecordRef{Seq: 1}, Context: client.DecisionContext{Message: "allowed"}}
 	}
-	au := auth.Static{"mine": {ID: "agent-r-0000a1/run", Kind: "workload"}, "sibling": {ID: "agent-r-0000b2/run", Kind: "workload"},
+	au := auth.Static{"mine": {ID: "agent-r-0000a1/run", Kind: "workload", Pod: "agent"}, "sibling": {ID: "agent-r-0000b2/run", Kind: "workload", Pod: "agent"},
 		"user": {ID: "agent-r-0000a1/run", Kind: "user"}}
 	g, _ := dispatch.New(nil, r.store, core.New(r.fc.Client(time.Second), core.NewMemoryOutbox(), false), au, tools.Default(), nil)
 	g.SetRuns(&fakeRuns{})
@@ -288,6 +288,12 @@ func (fakeRuns) Create(context.Context, *session.Session, *definitions.Definitio
 }
 func (fakeRuns) Delete(context.Context, *session.Session) error          { return nil }
 func (fakeRuns) Ended(context.Context, *session.Session) (string, error) { return "", nil }
+func (fakeRuns) PodName(run string) string {
+	if run == "r-0000a1" {
+		return "agent"
+	}
+	return ""
+}
 func (fakeRuns) Principal(run string) string {
 	if run == "r-0000a1" {
 		return "agent-r-0000a1/run"
