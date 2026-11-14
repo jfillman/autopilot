@@ -143,7 +143,9 @@ func TestAdoptChildStormCannotOverspendTheParent(t *testing.T) {
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 	go func() { // model usage charges the parent's model tokens (clamped to what is left) while spawns race
-		for {
+		// bounded: an unbounded charger can use up every model token before a spawn gets in, and the test then sees no
+		// child made (a flake of the test, not of the store)
+		for charged := 0; charged < 500; {
 			select {
 			case <-stop:
 				return
@@ -151,6 +153,7 @@ func TestAdoptChildStormCannotOverspendTheParent(t *testing.T) {
 				p.Lock()
 				if room := p.Remaining("model_tokens"); room > 0 {
 					p.Used.ModelTokens++
+					charged++
 				}
 				p.Unlock()
 			}
