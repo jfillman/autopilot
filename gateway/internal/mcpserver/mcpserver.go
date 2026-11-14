@@ -7,7 +7,8 @@
 //	session_open  open a session for an agent definition, optionally narrowing it with requested limits
 //	call          call one tool inside a session
 //
-// run_finish and session_close, which need the run backend, are not in this slice (see docs/admin/go-gateway.md).
+//	run_finish    an in-cluster run hands back its result as it exits and closes its session
+//	session_close the session's own caller ends it (owner-only), deleting its runs; recorded as session.end
 package mcpserver
 
 import (
@@ -157,7 +158,82 @@ func Server(g *dispatch.Gateway) *mcp.Server {
 			r, err := g.Call(ctx, token, in.Session, in.Tool, in.Args)
 			return answer(r, err)
 		})
+
+	s.AddTool(&mcp.Tool{Name: "run_finish", Description: "For an in-cluster run only: hand back the run's result as it exits and close its session. " +
+		"status is done, budget, expired or error; final_text is the answer (kept 30 days); tool_calls is [{tool, ok, rule}].",
+		InputSchema: schema(map[string]any{"session": map[string]any{"type": "string"}, "status": map[string]any{"type": "string"},
+			"final_text": map[string]any{"type": "string"}, "turns": map[string]any{"type": "integer"},
+			"tool_calls": map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "object"}},
+			"reason":     map[string]any{"type": "string"}}, "session", "status")},
+		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			token, err := tokenOf(req)
+			if err != nil {
+				return failure("unauthenticated"), nil
+			}
+			var in map[string]any
+			if err := decode(req, &in); err != nil {
+				return failure("invalid arguments"), nil
+			}
+			sid, _ := in["session"].(string)
+			if sid == "" || in["status"] == nil {
+				return failure("session and status are required"), nil
+			}
+			body := map[string]any{"status": in["status"], "final_text": orDefault(in["final_text"], ""), "turns": orDefault(in["turns"], int64(0)),
+				"tool_calls": orDefault(in["tool_calls"], []any{}), "reason": orDefault(in["reason"], "")}
+			out, err := g.FinishRun(ctx, token, sid, body)
+			return controlAnswer(out, err)
+		})
+
+	s.AddTool(&mcp.Tool{Name: "session_close", Description: "End one of your own sessions now instead of leaving it live until its TTL: it and its " +
+		"children close, their in-cluster runs are deleted, and the end is recorded. Only the session's own caller may; `reason` is optional and recorded.",
+		InputSchema: schema(map[string]any{"session": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}}, "session")},
+		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			token, err := tokenOf(req)
+			if err != nil {
+				return failure("unauthenticated"), nil
+			}
+			var in struct {
+				Session string `json:"session"`
+				Reason  string `json:"reason"`
+			}
+			if err := decode(req, &in); err != nil || in.Session == "" {
+				return failure("session is required"), nil
+			}
+			var reason any
+			if in.Reason != "" {
+				reason = in.Reason
+			}
+			out, err := g.CloseSession(ctx, token, in.Session, reason)
+			return controlAnswer(out, err)
+		})
 	return s
+}
+
+func orDefault(v, d any) any {
+	if v == nil {
+		return d
+	}
+	return v
+}
+
+// controlAnswer is a run_finish or session_close answer: {"ok": true, ...} or {"ok": false, "rule", "error"}. A token the
+// authenticator refused is a tool error, as for every other tool.
+func controlAnswer(out map[string]any, err error) (*mcp.CallToolResult, error) {
+	var ce *dispatch.ControlError
+	var ae *core.AuthError
+	switch {
+	case errors.As(err, &ae):
+		return failure("token not accepted"), nil
+	case errors.As(err, &ce):
+		return value(map[string]any{"ok": false, "rule": ce.Rule, "error": ce.Message}), nil
+	case err != nil:
+		return failure("the gateway could not handle this call"), nil
+	}
+	res := map[string]any{"ok": true}
+	for k, v := range out {
+		res[k] = v
+	}
+	return value(res), nil
 }
 
 func answer(r *dispatch.Result, err error) (*mcp.CallToolResult, error) {

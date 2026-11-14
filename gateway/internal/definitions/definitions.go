@@ -30,6 +30,10 @@ type Definition struct {
 	FieldAllow     []string
 	FieldDeny      []string
 	Image          *string
+	Framework      string
+	Sandbox        string
+	Sidecars       []map[string]string
+	Instructions   *string
 	Owner          *string
 	Description    string
 	RawProfile     json.RawMessage
@@ -54,7 +58,11 @@ type doc struct {
 	} `json:"identity"`
 	Profile json.RawMessage `json:"profile"`
 	Runtime struct {
-		Image *string `json:"image"`
+		Image        *string             `json:"image"`
+		Framework    string              `json:"framework"`
+		Sandbox      string              `json:"sandbox"`
+		Sidecars     []map[string]string `json:"sidecars"`
+		Instructions *string             `json:"instructions"`
 	} `json:"runtime"`
 }
 
@@ -129,6 +137,13 @@ func Parse(raw []byte, baseline *tools.Registry) (*Definition, error) {
 	if toolset["human.request"] {
 		toolset["human.request.get"] = true
 	}
+	framework, sandbox := d.Runtime.Framework, d.Runtime.Sandbox
+	if framework == "" {
+		framework = "generic"
+	}
+	if sandbox == "" {
+		sandbox = "standard"
+	}
 	def := &Definition{
 		Name: d.Name, Kind: d.Kind, IdentityType: d.Identity.Type, ServiceAccount: d.Identity.ServiceAccount,
 		Limits: client.Limits{TierCeiling: p.TierCeiling, TTLMinutes: *l.TTLMinutes, ToolCalls: *l.ToolCalls,
@@ -136,7 +151,8 @@ func Parse(raw []byte, baseline *tools.Registry) (*Definition, error) {
 			Tools: sortedKeys(toolset), Models: sortedList(p.Models), Network: label, Compute: compute},
 		ReposAllow: nonNil(p.Repos.Allow), APIAllow: nonNil(p.APIs.Allow), FieldAllow: nonNil(p.Repos.FieldAllow),
 		DenyPaths: dedupe(baseline.BaselineDenyPaths, p.Repos.DenyPaths), FieldDeny: dedupe(baseline.BaselineDenyFields, p.Repos.FieldDeny),
-		Image: d.Runtime.Image, Owner: d.Owner, Description: d.Description, RawProfile: d.Profile,
+		Image: d.Runtime.Image, Framework: framework, Sandbox: sandbox, Sidecars: d.Runtime.Sidecars,
+		Instructions: d.Runtime.Instructions, Owner: d.Owner, Description: d.Description, RawProfile: d.Profile,
 	}
 	return def, nil
 }

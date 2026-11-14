@@ -130,7 +130,11 @@ func (m *Models) Authorize(ctx context.Context, token, sessionID, model string, 
 		return Decision{}, err
 	}
 	s := m.G.Store.Get(sessionID)
-	req := m.Request(p.ID, s, sessionID, model, est, "")
+	acting := p.ID
+	if s != nil {
+		acting = m.G.Acting(s, p)
+	}
+	req := m.Request(p.ID, s, sessionID, model, est, acting)
 	v, err := m.G.Core.Evaluate(ctx, req)
 	if err != nil {
 		var un *core.Unreachable

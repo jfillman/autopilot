@@ -18,6 +18,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
@@ -71,6 +72,26 @@ type Gateway struct {
 	// BuildRequest, when set, replaces ToolRequest as the evaluation a tool call sends. Only the conformance control
 	// interface sets it: the harness controls the evaluation, and everything after the answer is production code.
 	BuildRequest func(p *Principal, sessionID string, s *session.Session, tool string, args map[string]any, now time.Time) (*client.EvaluationRequest, error)
+	// Runs is the run backend (what a session's run is: an AgentRun XR on Hangar), or nil: a gateway with none refuses
+	// run.spawn and run.close as having no backend, and no caller acts as a run's session. Set it with SetRuns.
+	Runs RunBackend
+	// Results keeps a finished run's answer for results.RETENTION (nil: only the session's outcome is kept).
+	Results ResultStore
+	// ModelVersions is the upstream model each model alias routes to, for the run records' pinned model version.
+	ModelVersions map[string]string
+	// Preflight is the Preflight result of a definition for its run records, or nil (not-run).
+	Preflight func(d *definitions.Definition) *PreflightResult
+	// CandidateParse parses and validates a candidate definition document, and Fingerprint names it; without both a
+	// candidate cannot run (see Candidate).
+	CandidateParse func(document any) (*definitions.Definition, error)
+	Fingerprint    func(d *definitions.Definition) string
+	// RuntimeImages are the prefix globs a candidate's runtime image may come from; empty allows any digest-pinned image.
+	RuntimeImages []string
+
+	cmu           sync.Mutex
+	candidates    map[string]*definitions.Definition
+	candidateRuns []candidateRun
+
 	// OnPersistError is called when the sessions cannot be saved. The in-memory sessions are then ahead of the
 	// database and only a restart puts them back in step, so the serve command exits (crash-only).
 	OnPersistError func(error)
@@ -100,6 +121,16 @@ func New(defs map[string]*definitions.Definition, st *session.Store, c *core.Cor
 		OnPersistError: func(err error) { slog.Error("sessions not saved", "err", err.Error()) }}, nil
 }
 
+// Def is a live definition, else a candidate under Preflight, by its run name (Python: Gateway._def).
+func (g *Gateway) Def(name string) *definitions.Definition {
+	if d := g.Defs[name]; d != nil {
+		return d
+	}
+	g.cmu.Lock()
+	defer g.cmu.Unlock()
+	return g.candidates[name]
+}
+
 func (g *Gateway) flush(ctx context.Context, ss ...*session.Session) {
 	// A save is never abandoned because the caller went away: the state it holds was already changed.
 	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -126,14 +157,18 @@ func (g *Gateway) ToolRequest(p *Principal, sessionID string, s *session.Session
 	if err != nil {
 		return nil, err
 	}
+	acting := ""
+	if s != nil {
+		acting = g.Acting(s, p)
+	}
 	req := &client.EvaluationRequest{
-		Subject:  Subject(p, ""),
+		Subject:  Subject(p, acting),
 		Action:   client.Action{Name: "tool.call", Properties: client.ActionProperties{Args: raw}},
 		Resource: client.Resource{Type: "tool", ID: tool},
 		Context:  client.Context{Now: now, SessionID: sessionID},
 	}
 	if s != nil {
-		d := g.Defs[s.Agent]
+		d := g.Def(s.Agent)
 		if d == nil {
 			return nil, fmt.Errorf("no definition for agent %q", s.Agent)
 		}
@@ -176,13 +211,27 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 	if err != nil {
 		return nil, err
 	}
+	// run.spawn is decided as session.spawn: the core cuts the child's grant, this gateway checks it and creates the run.
+	spawn := s != nil && tool == "run.spawn" && g.Runs != nil && g.Handlers[tool] != nil
+	var childDef *definitions.Definition
+	newID := ""
+	if spawn {
+		newID = g.Store.NewID()
+		childDef = g.applySpawn(req, args, newID)
+	}
 	v, err := g.Core.Evaluate(ctx, req)
 	if err != nil {
+		if spawn {
+			g.Store.GiveBack(newID)
+		}
 		var un *core.Unreachable
 		if errors.As(err, &un) {
 			return g.outageCall(ctx, p, sessionID, s, tool, args, now, un), nil
 		}
 		return nil, err
+	}
+	if spawn && !v.Allow {
+		g.Store.GiveBack(newID)
 	}
 	if s == nil || !v.Allow {
 		g.charge(s, v)
@@ -196,9 +245,20 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 		return &Result{Decision: v.AsMap(), Error: str("no backend for this tool in this deployment"), AuditSeq: firstSeq(seq, v.Seq), Session: &s.ID}, nil
 	}
 	g.charge(s, v)
+	if tool == "airframe.plan" {
+		g.observe(s, tool, nil) // counted whether it answers or is refused: each is a guess
+	}
+	if spawn {
+		handler = func(ctx context.Context, parent *session.Session, a map[string]any) (any, error) {
+			return g.spawn(ctx, parent, childDef, v, newID, a)
+		}
+	}
 	data, herr := g.run(ctx, handler, s, args)
 	switch {
 	case herr == nil:
+		if tool == "airframe.apply" {
+			g.observe(s, tool, data)
+		}
 		seq := g.outcome(ctx, v.DecisionID, core.OutcomeArgs{Result: "ok", Effect: effect(spec, args, data)})
 		return &Result{OK: true, Decision: v.AsMap(), Data: data, AuditSeq: firstSeq(seq, v.Seq), Session: &s.ID}, nil
 	default:
@@ -385,7 +445,7 @@ func (g *Gateway) outageCall(ctx context.Context, p *Principal, sessionID string
 		!strings.HasPrefix(tool, "chat.") && s != nil && args != nil
 	if ok {
 		s.Lock()
-		ok = !s.Expired(now) && !s.Tripped && s.Principal == p.ID && contains(s.Limits.Tools, tool) &&
+		ok = !s.Expired(now) && !s.Tripped && g.actingLocked(s, p) == s.Principal && contains(s.Limits.Tools, tool) &&
 			hasAll(args, spec.RequiredArgs) && !hasAny(args, OutageScopedArgs) &&
 			s.CanSpend("tool_calls", 1) && s.CanSpend("github_calls", spec.GithubCost)
 		s.Unlock()
@@ -608,7 +668,7 @@ func (g *Gateway) OpenRequest(p *Principal, agent string, limits json.RawMessage
 		Resource: client.Resource{Type: "agent", ID: agent},
 		Context:  client.Context{Now: now, NewSessionID: newSessionID},
 	}
-	if d := g.Defs[agent]; d != nil {
+	if d := g.Def(agent); d != nil {
 		req.Context.Agent = d.AgentDef()
 	}
 	return req
@@ -634,6 +694,13 @@ func (g *Gateway) Open(ctx context.Context, token, agent string, limits json.Raw
 	if err != nil {
 		g.Store.GiveBack(newID)
 		return nil, err
+	}
+	if v.Allow && v.Grant != nil && (v.Grant.Session != newID || g.Store.Get(v.Grant.Session) != nil) {
+		// A grant for a session id the gateway did not name, or one that already exists, would replace a live session.
+		g.Store.GiveBack(newID)
+		g.Log.Error("the core granted a session id the gateway did not name or that already exists: refused")
+		return &Result{Decision: map[string]any{"allow": false, "rule": core.RefusedRule, "message": "Clearance's grant was refused"},
+			Error: str("Clearance's grant was refused"), AuditSeq: v.Seq}, nil
 	}
 	if !v.Allow || v.Grant == nil {
 		g.Store.GiveBack(newID)
@@ -677,7 +744,7 @@ func (g *Gateway) SessionTools(ctx context.Context, token, sessionID string) (na
 	}
 	s.Lock()
 	defer s.Unlock()
-	if s.Closed || s.Principal != p.ID {
+	if s.Closed || g.actingLocked(s, p) != s.Principal {
 		return nil, false, nil
 	}
 	names = map[string]bool{}

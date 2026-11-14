@@ -1,0 +1,5044 @@
+{
+ "base": {
+  "children": 1,
+  "compute": "small",
+  "github_calls": 0,
+  "model_tokens": 100000,
+  "models": [
+   "claude-sonnet-5"
+  ],
+  "network": "clearance+model",
+  "open_prs": 0,
+  "tier_ceiling": "T1",
+  "tool_calls": 40,
+  "tools": [
+   "argo.app.get",
+   "catalog.read",
+   "logs.query"
+  ],
+  "ttl_minutes": 30
+ },
+ "cases": [
+  {
+   "parent": "fresh",
+   "request": null,
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {},
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 5,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:10:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 10
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "widening": [
+     "ttl_minutes"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tools:repo.pr.open"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "widening": [
+     "models:claude-opus-9"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "widening": [
+     "compute"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "widening": [
+     "children"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "widening": [
+     "github_calls",
+     "open_prs"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling",
+     "tool_calls",
+     "tools:x.y",
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "fresh",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": null,
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {},
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 5,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:10:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 10
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "widening": [
+     "ttl_minutes"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tools:repo.pr.open"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "widening": [
+     "models:claude-opus-9"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "widening": [
+     "compute"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "widening": [
+     "children"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "widening": [
+     "github_calls",
+     "open_prs"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling",
+     "tool_calls",
+     "tools:x.y",
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "spent",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 10000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": null,
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {},
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 5,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:10:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 10
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "widening": [
+     "ttl_minutes"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tools:repo.pr.open"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "widening": [
+     "models:claude-opus-9"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "widening": [
+     "compute"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "widening": [
+     "children"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "widening": [
+     "github_calls",
+     "open_prs"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling",
+     "tool_calls",
+     "tools:x.y",
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "low-tier",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": null,
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {},
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 5,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:10:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 10
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "widening": [
+     "ttl_minutes"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tools:repo.pr.open"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "widening": [
+     "models:claude-opus-9"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "widening": [
+     "compute"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "widening": [
+     "children"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "widening": [
+     "github_calls",
+     "open_prs"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling",
+     "tool_calls",
+     "tools:x.y",
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "ending",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:12:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 12
+    }
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": null,
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {},
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "seconds-left",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": null,
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {},
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "deep",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "error": "depth"
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": null,
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {},
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 5,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:10:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 10
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "widening": [
+     "ttl_minutes"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tools:repo.pr.open"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "widening": [
+     "models:claude-opus-9"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "widening": [
+     "compute"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "widening": [
+     "children"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "widening": [
+     "github_calls",
+     "open_prs"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling",
+     "tool_calls",
+     "tools:x.y",
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "one-from-deep",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "depth": 3,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "argo.app.get",
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "closed",
+   "request": null,
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {},
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "closed",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": null,
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {},
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "tripped",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "error": "parent-unavailable"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": null,
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {},
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "no-children",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "error": "budget"
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": null,
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {},
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tool_calls": 5
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 5,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tool_calls": 40
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tool_calls": 41
+   },
+   "result": {
+    "widening": [
+     "tool_calls"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "ttl_minutes": 10
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:10:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 10
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "ttl_minutes": 31
+   },
+   "result": {
+    "widening": [
+     "ttl_minutes"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tier_ceiling": "T0"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tier_ceiling": "T2"
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tools": [
+     "catalog.read"
+    ]
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tools": [
+     "catalog.read",
+     "repo.pr.open"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tools:repo.pr.open"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "models": []
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "models": [
+     "claude-opus-9"
+    ]
+   },
+   "result": {
+    "widening": [
+     "models:claude-opus-9"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "network": "clearance"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "network": "allowlist"
+   },
+   "result": {
+    "widening": [
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "network": "CLEARANCE-MODEL"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "compute": "small"
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "compute": "gpu"
+   },
+   "result": {
+    "widening": [
+     "compute"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "children": 0
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "children": 9
+   },
+   "result": {
+    "widening": [
+     "children"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "github_calls": 1,
+    "model_tokens": 10,
+    "open_prs": 1
+   },
+   "result": {
+    "widening": [
+     "github_calls",
+     "open_prs"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "network": "allowlist",
+    "tier_ceiling": "T3",
+    "tool_calls": 99,
+    "tools": [
+     "x.y"
+    ]
+   },
+   "result": {
+    "widening": [
+     "tier_ceiling",
+     "tool_calls",
+     "tools:x.y",
+     "network"
+    ]
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "bogus": 1
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tier_ceiling": "T9"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "network": "wifi"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "compute": "tpu"
+   },
+   "result": {
+    "bad_request": true
+   }
+  },
+  {
+   "parent": "narrow-tools",
+   "request": {
+    "tools": null,
+    "ttl_minutes": null
+   },
+   "result": {
+    "depth": 1,
+    "expires_at": "2026-09-26T12:30:00+00:00",
+    "limits": {
+     "children": 1,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 100000,
+     "models": [],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T1",
+     "tool_calls": 40,
+     "tools": [
+      "catalog.read"
+     ],
+     "ttl_minutes": 30
+    }
+   }
+  }
+ ],
+ "now": "2026-09-26T12:00:00+00:00",
+ "parents": {
+  "closed": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": true,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "deep": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 3,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "ending": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T12:12:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "fresh": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "low-tier": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "small",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance",
+    "open_prs": 3,
+    "tier_ceiling": "T0",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "narrow-tools": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "catalog.read"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "no-children": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 4,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "one-from-deep": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 2,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "seconds-left": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T12:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "spent": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 40000,
+    "open_prs": 0,
+    "tool_calls": 20
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 1,
+    "github_calls": 0,
+    "model_tokens": 350000,
+    "open_prs": 0,
+    "tool_calls": 70
+   }
+  },
+  "tripped": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": true,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  }
+ }
+}

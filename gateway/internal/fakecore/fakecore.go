@@ -139,3 +139,17 @@ func Deny(rule, message string, spend client.Spend) client.EvaluationResult {
 	return client.EvaluationResult{Decision: false, DecisionID: &id, Record: &client.RecordRef{Seq: 1, Hash: "h"},
 		Context: client.DecisionContext{Rule: rule, Message: message, Spend: spend}}
 }
+
+// RecordBodies is a copy of the records the fake took, as the client sent them.
+func (c *Core) RecordBodies() []json.RawMessage {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]json.RawMessage(nil), c.Records...)
+}
+
+// OutcomeList is a copy of the outcomes the fake took.
+func (c *Core) OutcomeList() []Outcome {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Outcome(nil), c.Outcomes...)
+}

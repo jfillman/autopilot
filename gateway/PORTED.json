@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "2dc50770dacd6e5b8b8b3ef8b486fb5e177b30f4",
+ "level_with": "1faf5b245e43981c54a3b2d22ab55616621cb862",
  "ported": {
   "src/autopilot/conformance.py": {
    "sha256": "3b2bb62ff595c982ea2d95468ab85b209f450b59edfb0936c3e03f89471b05bc",
@@ -25,8 +25,16 @@
     "gateway/internal/dispatch",
     "gateway/internal/backends"
    ],
-   "carries": "BackendError (evidence, agent message), Handler",
-   "left_for_later_slices": "S2/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"
+   "carries": "BackendError (evidence, agent message), Handler, RunBackend (and a fake)",
+   "left_for_later_slices": "S3/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"
+  },
+  "src/autopilot/engine/control.py": {
+   "sha256": "32cd12bba4e646d49131ea2384783c0084f074c73e0a40b0a4ea8f92cdfbc55c",
+   "go": [
+    "gateway/internal/dispatch"
+   ],
+   "carries": "ControlError and check_reason (what session_close and run_finish answer with)",
+   "left_for_later_slices": "S3 holds, may_manage, check_hours and the person controls built on them"
   },
   "src/autopilot/engine/core.py": {
    "sha256": "4d7003b6d8a8941c581bf0574b10742119baadc8294d5ce0efa8a2473eecefba",
@@ -49,15 +57,15 @@
    "go": [
     "gateway/internal/dispatch"
    ],
-   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for",
-   "left_for_later_slices": "S2 launch, run.spawn/close, run_finish, session_close, acting_as, run results, Preflight candidate runs; S3 person controls, inbox, holds, triggers; S4 publish_definitions"
+   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on",
+   "left_for_later_slices": "S3 person controls, the person-facing run_agent and Preflight routes, inbox, holds, open_triggered, triggers; S4 publish_definitions and the schema validation a candidate document needs"
   },
   "src/autopilot/engine/limits.py": {
    "sha256": "6660af78e73681f447f80e2e9732c17d5fe0bbf6e18b8433ede4eb738d71bcea",
    "go": [
     "gateway/internal/session"
    ],
-   "carries": "budget fields and limits",
+   "carries": "budget fields, limits, LimitRequest and narrow (a request can only narrow)",
    "left_for_later_slices": ""
   },
   "src/autopilot/engine/modelproxy.py": {
@@ -82,8 +90,8 @@
    "go": [
     "gateway/internal/pgstate"
    ],
-   "carries": "the tables, the writer lock, sessions and the outbox (schema.sql is generated)",
-   "left_for_later_slices": "S2/S3 use of the results, holds and trigger-ledger tables"
+   "carries": "the tables, the writer lock, sessions, run results and the outbox (schema.sql is generated)",
+   "left_for_later_slices": "S3 use of the inbox, holds and trigger-ledger tables"
   },
   "src/autopilot/engine/profile.py": {
    "sha256": "c0b213a0f587f4866947d3c2e6205acdb4a0d60a24d33958d8a5b5d3307118d8",
@@ -92,6 +100,15 @@
    ],
    "carries": "parse: scope, agent, runs_in",
    "left_for_later_slices": "S4 JSON-schema validation"
+  },
+  "src/autopilot/engine/results.py": {
+   "sha256": "d438e78093c384fdf8a50b31047518f679ae58a6704a27903e3f78138b728cf3",
+   "go": [
+    "gateway/internal/dispatch",
+    "gateway/internal/pgstate"
+   ],
+   "carries": "observe, warnings, clip_text, tool_call_summary, the result store (memory, and gateway_results) and its retention",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/scope.py": {
    "sha256": "39910c51096008cd718595d04aedc40ba3e0b0a4a199420466646d40db37e522",
@@ -106,15 +123,15 @@
    "go": [
     "gateway/internal/mcpserver"
    ],
-   "carries": "the MCP server surface: tools_list, agents_list, session_open, call, healthz, protected-resource metadata",
-   "left_for_later_slices": "S2 run_finish/session_close; S3 the people routes (/v1/...)"
+   "carries": "the MCP server surface: tools_list, agents_list, session_open, call, run_finish, session_close, healthz, protected-resource metadata",
+   "left_for_later_slices": "S3 the people routes (/v1/...)"
   },
   "src/autopilot/engine/session.py": {
    "sha256": "c29446c9438637350a8df372c89ba44b94864cec432ab3f86f4397309f9fb941",
    "go": [
     "gateway/internal/session"
    ],
-   "carries": "the session record (every field, signals included), budgets, breaker, expiry",
+   "carries": "the session record (every field, signals included), budgets, breaker, expiry, the run tree (MAX_DEPTH, close, the cut of a child, the reservation a spawn makes on its parent)",
    "left_for_later_slices": ""
   },
   "src/autopilot/engine/tiers.py": {
@@ -130,9 +147,10 @@
    "sha256": "07bf609d8384966c417a281074514488ebea8263940c9ea70248a25d8ecfc529",
    "go": [
     "gateway/internal/backends",
+    "gateway/internal/runs",
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "which tool has a handler in a deployment (metrics.query, logs.query)",
+   "carries": "which tool has a handler in a deployment (metrics.query, logs.query, run.spawn, run.close), AgentRunBackend (the run's name, its identity, how it ended)",
    "left_for_later_slices": "S5 the other handlers"
   },
   "src/autopilot/hangar_tools.py": {
@@ -141,6 +159,22 @@
     "gateway/internal/tools"
    ],
    "carries": "the Hangar tool pack (registry.json is generated)",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/kube_runs.py": {
+   "sha256": "c2812330a504a32b2f4d00906faff69de94a62490c6a610e505c9e00224bd2d0",
+   "go": [
+    "gateway/internal/runs"
+   ],
+   "carries": "the AgentRun store over the Kubernetes API: the three requests, the allowlist, KubeRunError, RunRefused",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/manifests.py": {
+   "sha256": "734bcf0d7cb9ae0be72e71e12ecd02a0ba2ff65c704cd0716136802d942979b6",
+   "go": [
+    "gateway/internal/runs"
+   ],
+   "carries": "the AgentRun manifest and the run name",
    "left_for_later_slices": ""
   },
   "src/autopilot/reads.py": {
@@ -156,8 +190,8 @@
    "go": [
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "the settings this slice carries, start-up, the expiry sweep, the outbox drain",
-   "left_for_later_slices": "S1/S2/S3/S4/S6 the settings and loops of what is not ported"
+   "carries": "the settings this slice carries, start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store",
+   "left_for_later_slices": "S1/S3/S4/S6 the settings and loops of what is not ported"
   },
   "src/autopilot/settings.py": {
    "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",
@@ -165,6 +199,14 @@
     "gateway/cmd/autopilot-gateway"
    ],
    "carries": "the retired CLEARANCE_* names",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/vendor/agentrun_compose.py": {
+   "sha256": "8855d123963112b483a382f71706c1a871373751cc86a90ac08361ccb42c2846",
+   "go": [
+    "gateway/internal/runs"
+   ],
+   "carries": "what the gateway reads of the composition: RUN_NAME, the run namespace's name (agent-<run>) and its service account `run` (the run's identity), the input's size limit. The rendering itself runs in the cluster, not in the gateway",
    "left_for_later_slices": ""
   },
   "src/autopilot/version.py": {
@@ -185,26 +227,21 @@
   "src/autopilot/api_serve.py": "S6",
   "src/autopilot/argo_sync.py": "S5b",
   "src/autopilot/cicd_propose.py": "S5b",
-  "src/autopilot/engine/control.py": "S3",
   "src/autopilot/engine/events.py": "S3",
   "src/autopilot/engine/inbox.py": "S3",
-  "src/autopilot/engine/results.py": "S2",
-  "src/autopilot/engine/runtimes.py": "S2",
+  "src/autopilot/engine/runtimes.py": "S6",
   "src/autopilot/engine/trigger_ledger.py": "S3",
   "src/autopilot/event_bridge.py": "S3",
   "src/autopilot/github_pr.py": "S5b",
   "src/autopilot/glidepath_api.py": "S5b",
   "src/autopilot/glidepath_live.py": "S5b",
-  "src/autopilot/kube_runs.py": "S2",
-  "src/autopilot/manifests.py": "S2",
   "src/autopilot/metrics.py": "S6",
   "src/autopilot/otlp_logs.py": "S6",
-  "src/autopilot/preflight.py": "S2",
+  "src/autopilot/preflight.py": "S3",
   "src/autopilot/read_api.py": "S6",
   "src/autopilot/reconcile.py": "S3",
   "src/autopilot/scheduler.py": "S3",
   "src/autopilot/triggers.py": "S3",
-  "src/autopilot/vendor/agentrun_compose.py": "S2",
   "src/autopilot/vendor/airframe_sidecars.py": "S5c",
   "src/autopilot/xr_request.py": "S5c"
  },

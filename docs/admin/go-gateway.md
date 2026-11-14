@@ -1,7 +1,7 @@
 # The Go AI gateway (A-9)
 
-**Status: first slice, brought level with the Python gateway as of 2026-11-14 (A-9 S0), built and tested, off by
-default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
+**Status: runs and the run tree are in (A-9 S2, 2026-11-14) on top of the first slice and the catch-up (S0); built and
+tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
 the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
 Python one, how it is kept equal ([the drift guard](#the-drift-guard)), and exactly what is left.
@@ -13,7 +13,7 @@ Clearance's image, `gateway/Dockerfile`):
 
 | Subcommand | Does |
 |---|---|
-| `serve` | the MCP server (`PORT`, default 8080), the model proxy (`MODEL_PORT`, default 8081, only with `MODEL_KEY_FILE`), the expiry sweep and the outbox drain |
+| `serve` | the MCP server (`PORT`, default 8080), the model proxy (`MODEL_PORT`, default 8081, only with `MODEL_KEY_FILE`), the expiry sweep (close, delete runs, backstop outcomes) and the outbox drain |
 | `conformance-control` | the test-only conformance control interface; off unless `GATEWAY_CONFORMANCE_CONTROL=1`, loopback only |
 | `api` | **not ported**: exits 2 and says so. The read API is still the Python `autopilot-gateway api` |
 | `version` | the image's version (`AUTOPILOT_GATEWAY_VERSION`, else the build's) |
@@ -22,7 +22,8 @@ It is built on:
 
 - **MCP**: the official Go SDK (`github.com/modelcontextprotocol/go-sdk` v1.8.0): streamable HTTP, stateless, JSON
   responses, a bearer token verified before any tool runs (401 otherwise), protected-resource metadata, `GET /healthz`.
-  The four tools it carries keep their Python names and result shapes: `tools_list`, `agents_list`, `session_open`, `call`.
+  The tools it carries keep their Python names and result shapes: `tools_list`, `agents_list`, `session_open`, `call`, and
+  (S2) `run_finish` and `session_close`; `run.spawn` and `run.close` are tools inside a session (`call`).
 - **Clearance**: the Go client Clearance ships (`github.com/jfillman/clearance/client`, R-1e), pinned to the same
   release as the Python client and the test core (`CLEARANCE_REF` in `.github/workflows/test.yaml`, `pyproject.toml`,
   `gateway/go.mod`; bump the three together: `tests/test_gateway_go.py` fails when they differ). Autopilot's code reaches
@@ -70,7 +71,7 @@ Python changes since the first slice that belong to a later slice, and are there
 | Slice | Python change since 366442a |
 |---|---|
 | S1 authentication | none: the `engine/auth.py` change was the workload audiences, ported above |
-| S2 runs | `results.observe` and `results.warnings` (run warnings: `airframe.plan` called more than 3 times, `airframe.apply` ok with no PR), the `warnings` on a run's result and outcome; Preflight candidate runs (`Gateway._def`, `_candidate`, `run_agent(document, budget)`); `KubeRunError` as a `BackendError`; the re-vendored `agentrun_compose.py`; `observe` also needs the `airframe.*` handlers (S5c) before it can count anything |
+| S2 runs | **done in S2, below.** One part waits for S5c: `observe` counts `airframe.plan` and `airframe.apply`, which have no handler in Go yet, so nothing makes it count until S5c; the counting itself is ported and tested |
 | S3 people and triggers | the Preflight routes `/v1/preflight/cases` and `/v1/preflight/score` and `document` and `budget` on `POST /v1/agents/{agent}/runs` (`engine/server.py`, `Gateway.preflight_*`) |
 | S4 definitions | publishing the bundled definitions with the pins (`Core.publish_definitions(bundled=)`, `bundled_version`, the retry without the field against a core that predates it, `Definitions.bundled_set`, `AgentDefinition.doc`, `DefinitionsPublisher` at start), and the schema's `profile.airframe.proposeFlight` |
 | S5a read backends | `ReadError` for catalog and app API reads as a `BackendError` |
@@ -78,9 +79,90 @@ Python changes since the first slice that belong to a later slice, and are there
 | S5c Airframe tools | `airframe.apply` (`airframe_apply.py`), `airframe.capabilities` and `airframe.plan` descriptions (already in the generated registry), `AirframeError` as a `BackendError` |
 | S6 `api`, metrics, logs | the setting renames in `api_serve.py` (the retired names are refused there too) |
 
+## What S2 carries: runs and the run tree (2026-11-14)
+
+Everything below is the Python gateway's behaviour for the same inputs, each part with the test that pins it. The sources are
+`engine/dispatch.py`, `session.py`, `limits.py`, `results.py`, `kube_runs.py`, `manifests.py`, `gateway.py` (`AgentRunBackend`)
+and the run parts of `server.py` and `serve.py`.
+
+| Operation | Go | Pinned by |
+|---|---|---|
+| The run backend: an AgentRun XR is built from the session and its definition, created, deleted and read through the Kubernetes API as the gateway's own identity; its own HTTP client, timeout and pool; the token read on every call, no redirect followed; three requests only | `internal/runs` (`Manifest`, `Kube`, `Backend`, a `Fake`) behind `dispatch.RunBackend` | `runs/runs_test.go` (the manifests equal Python's for every bundled in-cluster agent, a child, an input, a hardened sandbox with sidecars: `testdata/manifests.json`; the allowlist, statuses, refusals before a request exists, no secret in an error) |
+| `KubeRunError` and the backend-error report | `runs.Error` and `runs.Refused` carry the evidence and the kind (`error:KubeRunError: API server 500 creating AgentRun r-x`); the agent is told "backend error" | `TestKubeErrorsCarryNoSecrets`, `TestSpawnWhenTheRunBackendFailsTimesOutOrPanics` |
+| `run.spawn` as `session.spawn`, depth, fan-out and budget limits, and how spend and limits pass from parent to child | `dispatch.spawn`, `session.AdoptChild`, `session.CutChild`, `session.Narrow`, `session.Within` | `session/limits_test.go` (297 cases generated from Python's `narrow` and `SessionStore.open`), `session/adoptchild_test.go`, `TestSpawn*`, the replay's 35 `session.spawn` lines against the real core |
+| `run.close`, `session_close`, `run_finish`, `launch` | `dispatch.closeHandler`, `CloseSession`, `FinishRun`, `Launch` | `runs_python_test.go`: the sessions, answers, kept results and records the core was sent equal Python's for the same steps (generated by driving the Python gateway); `TestLaunch*` |
+| A run's identity: a run's own tool and model calls are made as its session | `Gateway.Acting`, used by the tool call, the model proxy, `session_tools`, `run_finish`, `session_close` and the outage read | `TestActingEqualsPython`, `TestARunActsOnlyAsItsOwnSession`, the replay's 8 acting lines |
+| Results and artifacts as far as the run path goes: `observe`, `warnings` on a run's result and outcome, the clipped answer, the per-call summary, the 30-day retention | `dispatch/results.go`, `pgstate.Results` (gateway_results), `MemoryResults` | `TestResultsHelpersEqualPython`, `TestFinishRunEqualsPython`, `pgstate` `TestResultsAreKeptByTheSessionUntilTheyExpire` (needs `AUTOPILOT_TEST_PG`) |
+| Preflight candidate runs as far as they live in dispatch: `_def`, the clamp of `_candidate`, `run_agent` from the person's own session on | `Gateway.Def`, `ClampCandidate`, `Candidate`, `RunAgentAs` | `TestCandidateClampEqualsPython` (40 cases), `TestCandidateRefusesUntilTheDefinitionSchemaIsCarried`, `TestRunAgentAsOpensTheSessionAsThePersonAndLaunchesIt` |
+| The expiry sweep: closing, deleting each run with a `run.delete` record, retrying a failed delete, the backstop outcomes (`no-result`, `expired`) | `Gateway.Expire`, run by `serve` | `TestExpireEqualsPython`, `TestTheSweepSurvivesABackendThatPanicsOrFails` |
+| The `signals` counting S0 left | `dispatch.Observe`, called around the handler as Python does | `TestResultsHelpersEqualPython` |
+
+### The run's identity, in plain words
+
+A caller acts as a session only when it IS that session's run. The gateway decides that from three things, all of which it
+holds itself: the session has a run (a name the gateway wrote when it created the run, never taken from a caller), the caller
+is a workload token that the Kubernetes token review verified, and the caller's verified identity (`namespace/serviceaccount`)
+is exactly `agent-<run>/run` for that run, a name of `r-` and 6 to 32 hex digits. Then the gateway tells the core "this caller
+acts as the session's principal", and the core decides as it would for the person. Nothing the caller sends is read: not an
+argument, a header, a label or a name.
+
+So these all act as themselves and are refused by the core as another principal's session (R001): a sibling run, a child
+acting as its parent, a parent acting as its child, a run in another namespace with the same service account name, the run's
+own namespace with another service account, a person whose id looks like a run's, a run of a session with no run (finished or
+deleted), and a replayed token after `run.close`. Each is a test (`TestARunActsOnlyAsItsOwnSession`,
+`TestAReplayedRunTokenActsAsNothingAfterItsRunIsGone`, `TestAClosedSessionWhoseRunWasNotDeletedStillAllowsNothing`).
+
+Stricter than Python, deliberately: the caller must be a `workload` (Python only compares ids), and the run's name must be a
+real run name. `acting.json` records Python's answer and Go's for each case; the two differ only for a user whose id is a run's
+and for a run name no run has.
+
+### What is deliberately not the same as Python
+
+All of these leave the answer for ordinary inputs unchanged.
+
+- **The gateway checks the core's spawn grant.** The core cuts a child's limits; Python adopts the grant as it is. Go also
+  refuses it (R007, nothing created, one refused outcome) when it is wider than the definition's limits cut to what the parent
+  has left, names another principal, task or agent than the parent's, reuses a session id, goes deeper than 3, outlives the
+  parent, or reserves other than the child's limits. Budget, depth, fan-out, tools, models, tier, network and compute can only
+  narrow from parent to child even if the core would allow more. Every grant the real core made in the replay corpus passes.
+- **A spawn's check and reservation are one step under the parent's lock** (`Store.AdoptChild`), and one session's calls are
+  serialized, so concurrent spawns cannot overspend a parent, even while the model proxy charges it. The storm tests run with
+  `-race`.
+- **Write-ahead of the run's name.** A run's name is saved with its session (and a spawn's reservation with the parent) before
+  the run is created; Python keeps everything in memory until the operation ends. See the crash points.
+- **A run that fails to be created is deleted again**, best effort, because a timeout can come after the API server took it.
+  Python leaves it to its own deadline. A spawn whose call ran out of time after the run was made is undone too.
+- **A session launches once.** A second `launch` of a session with a run is refused (R001); Python tries to create it again
+  and gets the API server's 409.
+- **A spawn's `input`** must be an object that fits the AgentRun's 4 KiB, and every label value in the manifest must be a
+  valid Kubernetes label value: refused (R008, or `RunRefused` before any request) rather than left to the API server.
+- **`run.close` with a `run_id` that is not a string** is refused R001; Python raises a TypeError.
+- **A run's answer is saved before its session closes**, in two transactions (Python: one). A crash between leaves the session
+  open and the run finishes again; the first answer is the one kept.
+
+### Crash points
+
+What the database holds if the process dies at each point, and what the next gateway does. The sessions are saved at each
+step marked (save).
+
+| Dies | Database holds | Next gateway |
+|---|---|---|
+| in a spawn, after the core's decision, before the child exists | nothing new (the core has the allow record) | nothing: an unused session id, no run, no reservation. Python the same |
+| after the child exists in memory, before its save | nothing new | the same |
+| after the write-ahead save, before the run is created (save) | the child, live, naming its run; the parent's reservation and the call's charge | the run does not exist, so no pod holds the child's identity. The sweep closes the child at its deadline, deletes the run it names (a 404 is success, recorded `deleted`), and the reservation comes back. Python: the state is lost whole, nothing to clean |
+| after the run is created, before the call ends | the same row; the run exists | the child's pod can call (its session is known, so it is decided and recorded); the sweep deletes it at the deadline or when the session closes. Python: the pod's session is unknown to the restarted gateway, so every call is refused, and the AgentRun is left to its own deadline (the composition enforces it without the gateway) |
+| a launch, after the write-ahead save, before or after the run exists (save) | the session naming its run | the same sweep |
+| a launch's `run.launch` record cannot be written (core down) | the run was created; the record was required | the run is deleted again, the session names none (fail closed, as Python) |
+| a finish, after the answer is kept, before the session closes | the answer; the session open | the run finishes again; the first answer stays |
+| a close, after the session closes in memory, before its save | the session still live | the person or run closes it again; its budget was never returned in the saved rows |
+| the run's delete fails | the session closed, still naming its run | every sweep retries and records each attempt (`error:KubeRunError`, then `deleted`) |
+
+What a crash cannot undo: the evidence records the gateway wrote before it died (the core has them), and a run the API server
+took after the gateway lost its connection to it.
+
 ## The drift guard
 
-`gateway/PORTED.json` lists every Python file the Go gateway ports (21 of them), the Go paths that carry it, what of it
+`gateway/PORTED.json` lists every Python file the Go gateway ports (26 of them), the Go paths that carry it, what of it
 the Go gateway carries, what is left in it for a later slice, and the SHA-256 the file had when the Go code was last
 brought level with it. `tests/test_gateway_go.py` fails when a listed file's hash differs. A hash cannot tell whether a
 change matters to the port, so the failure asks the author to read it and do one of two things: port the change to Go in
@@ -118,9 +200,11 @@ port is right (the equivalence tests do). Its use is that nobody changes a porte
    line it can take, the evaluation the Go gateway builds equals the Python one field for field, the decision (allow,
    rule, name, message, hint, tier, problems) is identical, the spend leaves the session as the Python one did, the
    grant a `session.open` makes is identical, and the decision record the core writes has the corpus line's fields.
-   Against clearance v0.44.0 (the CI pin): 341 tool calls, 261 session opens, 42 model calls; 329 spends,
-   605 records and 247 grants compared; zero differences. (The first slice ran it against v0.31.0 and v0.35.0 with the
-   same counts.) Five tool calls are listed as decided differently on purpose since the corpus was recorded: Glidepath's
+   Against clearance v0.44.0 (the CI pin): 342 tool calls, 261 session opens, 35 session spawns, 49 model calls; 372
+   spends, 648 records and 265 grants compared; zero differences. (Before S2: 341 tool calls, 261 opens, 42 model calls,
+   329 spends, 605 records, 247 grants; the spawns and the runs acting as their sessions were skipped. The first slice ran
+   it against v0.31.0 and v0.35.0.) The 35 spawns go through the real `Gateway.Call` with the real core's grant, so the
+   gateway's own check of the grant (`session.AdoptChild`) is shown to accept everything the core makes. Five tool calls are listed as decided differently on purpose since the corpus was recorded: Glidepath's
    contract v2 `propose` class changed the text of the Flight-environment refusals (`decidedDifferentlySince` in
    `replay_test.go`; the corpus is not edited). `TestReplayDetectsDrift` shows a changed field is noticed.
    The corpus is not edited; the lines the replay cannot take are listed below.
@@ -141,13 +225,13 @@ port is right (the equivalence tests do). Its use is that nobody changes a porte
 
 | Corpus lines | Why |
 |---|---|
-| `session.spawn` (35), a `tool.call` or `model.call` by a run acting as its session (8) | need the run backend (`run.spawn`, and the run pod's identity, `Gateway._acting`); not in this slice |
+| nothing now: the 35 `session.spawn` lines and the 8 `tool.call` (1) and `model.call` (7) lines of a run acting as its session, skipped before S2 for want of the run backend, are compared like the others (request, decision, spend, the grant the child is created from, the record) | |
 | triggered `session.open` (31) | `open_triggered`, holds and the trigger ledger are not ported |
 | `activation` and probe lines (the rest) | the core's own decision engine; they carry no gateway request |
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
 
-## What is not in this slice
+## What is not carried (after S2)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
 does not (`AUTOPILOT_OIDC_ISSUER`, `TOWER_ISSUER`, `GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`,
@@ -159,12 +243,17 @@ Not ported, and still the Python gateway's:
 - **Authentication beyond workloads**: the Go gateway verifies Kubernetes service-account tokens (TokenReview) only. The
   people's OIDC verifier (Dex), the GitHub Actions verifier and the foreign-cluster workload verifier (Tower's backend)
   are not ported, so people cannot sign in to it and Tower cannot reach it.
-- **The run tree and runs**: the `RunBackend` (AgentRun XRs), `run.spawn`, `run.close`, `launch`, `run_finish`,
-  `session_close`, the run pod's identity (`acting_as`: until it is ported a run's model and tool calls are refused
-  by the core's R001 as another principal's), the expiry sweep's run deletion and backstop outcomes (the Go sweep closes
-  expired sessions and drains the outbox only).
-- **The human inbox** (`human.request`), person controls (freeze, end, hold, release, `run_agent`), run results and
-  artifacts, the trigger scheduler, the event bridge, the reconciliation sweep and the trigger ledger.
+- **The person-facing side of runs (S3)**: `run_agent` as a route (who may run what, holds) and the Preflight routes
+  `/v1/preflight/cases` and `/v1/preflight/score`, with the cases, the scoring and the ledger (`preflight.py`). What a person's
+  run does once checked is here (`RunAgentAs`, `Candidate`). `Candidate` refuses (`ErrNotCarried`) until a validated parse and
+  a fingerprint are supplied: a candidate document is untrusted and the definition schema is S4's, so S3 must not call it
+  before S4 or supply both.
+- **The human inbox** (`human.request`), person controls (freeze, end, hold, release), the trigger scheduler, `open_triggered`,
+  the event bridge, the reconciliation sweep and the trigger ledger (S3). `session_close` here is the owner's tool; Tower's End
+  is S3's.
+- **Artifacts** (`artifact.put`, `artifact.get`): no handler (S5a); a run's answer is kept as the run path needs it.
+- **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`): a candidate's image globs are
+  `Gateway.RuntimeImages`, which nothing sets yet (S6).
 - **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader: the Go gateway reads the
   bundled `agents/` and the pinned set the Python loader keeps in `gateway_definitions`, and publishes nothing. It does
   not validate definitions against the JSON schema (the loader that wrote the set did).
@@ -194,6 +283,9 @@ It reads the variables the Python gateway reads, for the part it carries: `PORT`
 `AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.
+
+`serve` needs no new variable for runs: the run backend is the in-cluster Kubernetes API (as the Python gateway always uses it),
+so the gateway's identity needs the Role on AgentRuns in `autopilot-runs` it already has.
 
 Tests: `cd gateway && go vet ./... && go test -race ./...`. The replay needs a clearance checkout (`CLEARANCE_SRC`) and the
 core binary (`CLEARANCE_CORE_BIN`); the database tests need a scratch Postgres (`AUTOPILOT_TEST_PG`); without them those

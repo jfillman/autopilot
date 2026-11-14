@@ -184,3 +184,47 @@ func TestTheOutboxIsOrderedAndSurvivesARestart(t *testing.T) {
 		t.Fatal("nothing should wait")
 	}
 }
+
+// A finished run's answer is kept by session until it expires, the first one wins, and what has expired is dropped by the
+// next put (engine/pg.py PgResults).
+func TestResultsAreKeptByTheSessionUntilTheyExpire(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	r := pgstate.NewResults(st)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	rec := func(id, text string, days int) map[string]any {
+		return map[string]any{"session": id, "task_id": "t-" + id, "final_text": text, "status": "done", "warnings": []any{},
+			"expires_at": now.Add(time.Duration(days) * 24 * time.Hour).Format("2006-01-02T15:04:05Z")}
+	}
+	if err := r.Put(ctx, rec("s-1", "first", 30), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Put(ctx, rec("s-1", "second", 30), now); err != nil { // a finish retried writes once
+		t.Fatal(err)
+	}
+	got, err := r.Get(ctx, "s-1", now)
+	if err != nil || got["final_text"] != "first" || got["status"] != "done" {
+		t.Fatalf("%v %v", got, err)
+	}
+	if got, _ := r.Get(ctx, "s-nope", now); got != nil {
+		t.Fatalf("%v", got)
+	}
+	if got, _ := r.Get(ctx, "s-1", now.Add(31*24*time.Hour)); got != nil {
+		t.Fatal("an expired answer is not read")
+	}
+	if err := r.Put(ctx, rec("s-2", "later", 30), now.Add(31*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := st.Pool.QueryRow(ctx, "SELECT count(*) FROM gateway_results WHERE session = 's-1'").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a put drops what has expired: %d %v", n, err)
+	}
+	if err := r.Put(ctx, map[string]any{"session": "", "expires_at": "x"}, now); err == nil {
+		t.Fatal("a record with no session or expiry is refused")
+	}
+}

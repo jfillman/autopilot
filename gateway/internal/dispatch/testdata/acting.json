@@ -1,0 +1,618 @@
+[
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "user:alice",
+  "kind": "workload",
+  "python": "user:alice",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "user:alice",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "user:alice",
+  "kind": "workload",
+  "python": "user:alice",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": "r-0000a1",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "agent-r-0000a1/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-/run",
+  "go": "agent-/run",
+  "kind": "workload",
+  "python": "agent-/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "agent-r-0000a1/run",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-abababababababababababababababab/run",
+  "go": "user:alice",
+  "kind": "workload",
+  "python": "user:alice",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": "r-abababababababababababababababab",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "agent-r-0000a1/run",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-AB/run",
+  "go": "agent-r-AB/run",
+  "kind": "workload",
+  "python": "user:alice",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": "r-AB",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "agent-r-0000a1/run",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-12/run",
+  "go": "agent-r-12/run",
+  "kind": "workload",
+  "python": "user:alice",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": "r-12",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "agent-r-0000a1/run",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-x/run",
+  "go": "agent-x/run",
+  "kind": "workload",
+  "python": "user:alice",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": "x",
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:alice",
+  "go": "user:alice",
+  "kind": "user",
+  "python": "user:alice",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run",
+  "go": "agent-r-0000a1/run",
+  "kind": "user",
+  "python": "agent-r-0000a1/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000b2/run",
+  "go": "agent-r-0000b2/run",
+  "kind": "workload",
+  "python": "agent-r-0000b2/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/default",
+  "go": "agent-r-0000a1/default",
+  "kind": "workload",
+  "python": "agent-r-0000a1/default",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1/run/x",
+  "go": "agent-r-0000a1/run/x",
+  "kind": "workload",
+  "python": "agent-r-0000a1/run/x",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "other/run",
+  "go": "other/run",
+  "kind": "workload",
+  "python": "other/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-r-0000a1",
+  "go": "agent-r-0000a1",
+  "kind": "workload",
+  "python": "agent-r-0000a1",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "agent-/run",
+  "go": "agent-/run",
+  "kind": "workload",
+  "python": "agent-/run",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "user:bob",
+  "go": "user:bob",
+  "kind": "user",
+  "python": "user:bob",
+  "run": null,
+  "session_principal": "user:alice"
+ },
+ {
+  "caller": "",
+  "go": "",
+  "kind": "workload",
+  "python": "",
+  "run": null,
+  "session_principal": "user:alice"
+ }
+]

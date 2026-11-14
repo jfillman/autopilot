@@ -5,6 +5,18 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S2: runs, the run tree and run identity in the Go gateway)
+- The Go gateway (`gateway/`, still off by default and not deployed) creates, reads and deletes AgentRun XRs, spawns and closes
+  runs, launches and finishes them (`run_finish`), closes a session with its runs (`session_close`), keeps a run's answer
+  and its warnings, and its expiry sweep deletes runs and writes the backstop outcomes, as the Python gateway does. A run's
+  own tool and model calls are made as its session (`acting_as`), only for the run the session names and only from the workload
+  identity that run has. The replay now takes the 35 `session.spawn` lines and the 8 acting lines it skipped.
+- The Go gateway also checks the core's spawn grant against the parent before it creates a child (a child can never be wider
+  than the parent has left), saves a run's name before it creates the run so a crash leaves a session the sweep cleans, and
+  refuses a second launch of a session. `docs/admin/go-gateway.md` lists each difference from Python and each crash point.
+- `tools/gen_gateway_registry.py` also writes fixtures for the limit rules, the AgentRun manifests, who acts as a session,
+  the run results helpers, the operations that end a run and the Preflight clamp, generated from the Python code.
+
 ### Changed (A-9 S0: the Go gateway is level with the Python one, and a guard keeps it so)
 - The Go gateway (`gateway/`, still off by default and not deployed) now does what the Python gateway does on the part it
   carries: the decision path asks the core for 1 s per attempt (`CLEARANCE_CORE_TIMEOUT`), workload tokens are checked for
