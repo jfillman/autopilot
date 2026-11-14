@@ -173,3 +173,17 @@ func TestPythonReprAndStr(t *testing.T) {
 		t.Error("str")
 	}
 }
+
+// bytes.decode("utf-8", "replace") in Python, for each of these (the expected text is what Python 3.13 printed).
+func TestInvalidUTF8IsReplacedAsPythonReplacesIt(t *testing.T) {
+	r := "\ufffd"
+	for in, want := range map[string]string{
+		"\xff\xfe": r + r, "a\xe2\x82": "a" + r, "\xe2\x82\xac": "\u20ac", "\xe2\x28\xa1": r + "(" + r, "\xf0\x9f\x98": r, "\xc0\xaf": r + r,
+		"\xed\xa0\x80": r + r + r, "\xf4\x90\x80\x80": r + r + r + r, "\x80\x80": r + r, "ab\xc3": "ab" + r,
+		"\xf0\x80\x80\x80": r + r + r + r, "\xe0\x80\x80": r + r + r,
+	} {
+		if got := decodeUTF8Replace([]byte(in)); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+}

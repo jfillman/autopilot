@@ -154,20 +154,54 @@ func get(ctx context.Context, c *http.Client, lim limiter, timeout time.Duration
 	return resp.StatusCode, b, false, nil
 }
 
-// decodeUTF8Replace is bytes.decode("utf-8", "replace"): each invalid byte becomes U+FFFD.
+// decodeUTF8Replace is bytes.decode("utf-8", "replace"): each maximal run of bytes that could begin a character and then
+// fails becomes one U+FFFD (a truncated three-byte character is one, two stray bytes are two), as Python's decoder does.
 func decodeUTF8Replace(b []byte) string {
 	if utf8.Valid(b) {
 		return string(b)
 	}
 	var sb strings.Builder
 	for len(b) > 0 {
-		r, n := utf8.DecodeRune(b)
-		if r == utf8.RuneError && n == 1 {
-			sb.WriteRune(utf8.RuneError)
-		} else {
+		if r, n := utf8.DecodeRune(b); r != utf8.RuneError || n > 1 {
 			sb.Write(b[:n])
+			b = b[n:]
+			continue
 		}
-		b = b[n:]
+		sb.WriteRune(utf8.RuneError)
+		b = b[invalidPrefix(b):]
 	}
 	return sb.String()
+}
+
+// invalidPrefix is the length of the longest prefix of b (at least 1) that is the start of a well-formed character: the
+// lead byte and as many continuation bytes as the Unicode table allows after it.
+func invalidPrefix(b []byte) int {
+	lo, hi := byte(0x80), byte(0xbf)
+	need := 0
+	switch c := b[0]; {
+	case c >= 0xc2 && c <= 0xdf:
+		need = 1
+	case c == 0xe0:
+		need, lo = 2, 0xa0
+	case c >= 0xe1 && c <= 0xec, c == 0xee, c == 0xef:
+		need = 2
+	case c == 0xed:
+		need, hi = 2, 0x9f
+	case c == 0xf0:
+		need, lo = 3, 0x90
+	case c >= 0xf1 && c <= 0xf3:
+		need = 3
+	case c == 0xf4:
+		need, hi = 3, 0x8f
+	default:
+		return 1
+	}
+	n := 1
+	for ; n <= need && n < len(b); n++ {
+		if b[n] < lo || b[n] > hi {
+			break
+		}
+		lo, hi = 0x80, 0xbf
+	}
+	return n
 }
