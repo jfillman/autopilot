@@ -725,10 +725,13 @@ func TestOpenTriggeredRefusesWhatTheCoreShouldNotHaveGranted(t *testing.T) {
 		"more calls":                  func(g *client.Grant) { g.Limits.ToolCalls = d.ToolCalls + 1 },
 		"more tokens":                 func(g *client.Grant) { g.Limits.ModelTokens = d.ModelTokens * 2 },
 		"a higher tier":               func(g *client.Grant) { g.Limits.TierCeiling = "T3" },
-		"a longer ttl":                func(g *client.Grant) { g.Limits.TTLMinutes = d.TTLMinutes + 60; g.ExpiresAt = g.ExpiresAt.Add(time.Hour) },
-		"a deadline past the ttl":     func(g *client.Grant) { g.ExpiresAt = g.ExpiresAt.Add(time.Hour) },
-		"a bigger network":            func(g *client.Grant) { g.Limits.Network = "allowlist" },
-		"another task":                func(g *client.Grant) { g.TaskID = "t-ffffffffffff" },
+		"a longer ttl": func(g *client.Grant) {
+			g.Limits.TTLMinutes = d.TTLMinutes + 60
+			g.ExpiresAt = g.ExpiresAt.Add(time.Hour)
+		},
+		"a deadline past the ttl": func(g *client.Grant) { g.ExpiresAt = g.ExpiresAt.Add(time.Hour) },
+		"a bigger network":        func(g *client.Grant) { g.Limits.Network = "allowlist" },
+		"another task":            func(g *client.Grant) { g.TaskID = "t-ffffffffffff" },
 	}
 	for name, mod := range cases {
 		p := newPeopleRig(t)
