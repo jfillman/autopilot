@@ -11,9 +11,10 @@ import (
 // (CLEARANCE_CORE_URL, CLEARANCE_CORE_TOKEN_FILE) keep their names.
 //
 // An old name that is still set is refused at start rather than ignored: running without the setting the operator
-// asked for (an audience, a delegate list) would be a silent change. CLEARANCE_EPHEMERAL and CLEARANCE_OIDC_ISSUER are
-// refused already, with their AUTOPILOT_ twins, as features this slice does not carry (serve.go, unported).
+// asked for (an audience, a delegate list) would be a silent change. CLEARANCE_EPHEMERAL is refused already,
+// with its AUTOPILOT_ twin, as a feature this slice does not carry (serve.go, unported).
 var retired = map[string]string{
+	"CLEARANCE_OIDC_ISSUER":        "AUTOPILOT_OIDC_ISSUER",
 	"CLEARANCE_OIDC_AUDIENCE":      "AUTOPILOT_OIDC_AUDIENCE",
 	"CLEARANCE_OIDC_ALLOWED_USERS": "AUTOPILOT_OIDC_ALLOWED_USERS",
 	"CLEARANCE_OIDC_JWKS_URL":      "AUTOPILOT_OIDC_JWKS_URL",

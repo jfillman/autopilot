@@ -51,6 +51,55 @@ when it is stale). The bundled agent definitions parse to the same scope and age
 - A panic in a backend is an `error:Panic` outcome, not a crash. A failed save of sessions exits the process (crash-only,
   as the Python gateway does); the restart reloads them.
 
+## Authentication
+
+The Go gateway verifies the same three kinds of caller as the Python one (`src/autopilot/engine/auth.py`), chosen by
+the token's issuer, behind the same one-minute cache:
+
+| Caller | Verifier | Principal | Set by |
+|---|---|---|---|
+| a service account of this cluster | the API server's TokenReview | `<namespace>/<name>`, kind `workload` | `AUTOPILOT_AUDIENCE` |
+| a person (Dex in the lab) | the issuer's JWKS: signature, issuer, audience, expiry | `user:<claim>`, kind `user` | `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL` (default `<issuer>/keys`), `AUTOPILOT_OIDC_USER_CLAIM` (default `email`) |
+| another cluster's service account (Tower's backend) | that cluster's public issuer's JWKS | `<TOWER_CLUSTER>/<namespace>/<name>`, kind `workload` | `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL` (default `<issuer>/jwks.json`) |
+
+The variables, their defaults and their start-up checks are the Python gateway's (an issuer needs its audience and an
+allow-list, `TOWER_ISSUER` needs a cluster name and service-account globs, trailing slashes on issuers are removed).
+The allow-lists use Python's `fnmatch` rules (`*` matches `/`), reproduced in Go, not `path.Match`. The metadata's
+authorization server is the OIDC issuer, else this server. The GitHub Actions verifier of `engine/auth.py` is ported
+(`auth.GitHubActions`, with the `repository` attribute and the immutable-id `sub` form) and tested, but `serve` does not
+wire it: the Python gateway does not either (since R-3b the core takes GitHub Actions callers, and `CLEARANCE_GITHUB_OIDC_*`
+fail its start).
+
+What the verifier accepts, and refuses without saying why (every refusal is the same `token rejected`, nothing from the
+token is logged):
+
+- Only `RS256` and `ES256` (the GitHub verifier only `RS256`), each tied to the key's type; never `none`, never HMAC, never
+  another algorithm; a token with a `crit` header is refused. The key is picked by `kid`.
+- `exp`, `iat`, `iss`, `aud` and `sub` must be present; `exp`, `nbf` and `iat` are checked with 30 seconds of leeway;
+  `iss` and `aud` are compared exactly (an `aud` list must hold the audience).
+- The routing step reads `iss` without trusting it, only to choose the verifier; a token for an issuer that is not
+  configured goes to TokenReview, which refuses it, and a token that is not a JWT is refused.
+- A cached success never outlives the token's `exp`; a failure is never cached.
+- The JWKS is fetched over https (plain http only for loopback and `.local` hosts, the lab's Dex), within 10 seconds, at
+  most 1 MiB, following redirects only on the same host. An unknown `kid` refetches it at most once a minute, however
+  many requests ask, and a failed fetch counts as an attempt.
+
+Where it differs from Python on purpose (all stricter, or an error handled where Python's escapes):
+
+| Go | Python |
+|---|---|
+| a token over 16 KiB is refused before parsing | no limit |
+| a JWKS URL over plain http is refused at start unless the host is loopback or `.local` | any http(s) URL, any redirect, any size |
+| a JWKS key that is not RSA (at least 2048 bits) or P-256 is skipped | one unreadable key makes the whole refresh fail |
+| `exp`, `iat`, `nbf` must be JSON numbers | `int()` also accepts a numeric string |
+| a failed JWKS fetch, or an `alg` that does not fit the key, is a refusal | raises an error that is not `AuthError` (the server answers 500, not 401) |
+| refusals are all one message | the message names the reason (it is not sent to the caller) |
+
+`tests/test_gateway_go_auth.py` feeds the same tokens to both and compares the answer (accepted or refused, principal,
+kind, tier ceiling, attributes), and the allow-list globs and the `sub` canonicalisation too; the Go table tests
+(`gateway/internal/auth`) cover every refusal above, and a fuzz target (`FuzzTokenParsingAndRouting`) holds that no input
+is accepted and none panics.
+
 ## How it is proven equal to the Python gateway
 
 1. **The R-3 replay corpus** (Clearance's golden corpus, `testdata/golden/corpus.jsonl`, recorded from the Python
@@ -88,15 +137,11 @@ when it is stale). The bundled agent definitions parse to the same scope and age
 ## What is not in this slice
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`AUTOPILOT_OIDC_ISSUER`, `TOWER_ISSUER`, `GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`,
-`GLIDEPATH_API_URL`, `BACKSTAGE_URL`, `APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes
-a feature is live when it is not.
+does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `BACKSTAGE_URL`,
+`APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes a feature is live when it is not.
 
 Not ported, and still the Python gateway's:
 
-- **Authentication beyond workloads**: the Go gateway verifies Kubernetes service-account tokens (TokenReview) only. The
-  people's OIDC verifier (Dex), the GitHub Actions verifier and the foreign-cluster workload verifier (Tower's backend)
-  are not ported, so people cannot sign in to it and Tower cannot reach it.
 - **The run tree and runs**: the `RunBackend` (AgentRun XRs), `run.spawn`, `run.close`, `launch`, `run_finish`,
   `session_close`, the run pod's identity (`acting_as`: until it is ported a run's model and tool calls are refused
   by the core's R001 as another principal's), the expiry sweep's run deletion and backstop outcomes (the Go sweep closes
@@ -128,6 +173,7 @@ GATEWAY_DSN=postgresql://... CLEARANCE_CORE_URL=http://clearance-core:8080 \
 
 It reads the variables the Python gateway reads, for the part it carries: `PORT`, `MODEL_PORT`, `GATEWAY_DSN`,
 `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `AUTOPILOT_AGENTS_DIR`, `AUTOPILOT_AUDIENCE`, `MODEL_TOKEN_AUDIENCE`,
+`AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL`, `AUTOPILOT_OIDC_USER_CLAIM`, `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL`,
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
 `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
