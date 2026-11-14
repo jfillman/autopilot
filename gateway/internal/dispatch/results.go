@@ -32,6 +32,8 @@ type ResultStore interface {
 	// Put keeps a record; a session that already has one keeps the first (a finish that is retried writes once).
 	Put(ctx context.Context, record map[string]any, now time.Time) error
 	Get(ctx context.Context, sessionID string, now time.Time) (map[string]any, error)
+	// Delete removes a session's record (a finish that lost to the deadline takes back the answer it kept).
+	Delete(ctx context.Context, sessionID string) error
 }
 
 // MemoryResults is a ResultStore in memory (tests).
@@ -56,6 +58,14 @@ func (m *MemoryResults) Put(_ context.Context, rec map[string]any, now time.Time
 	if _, kept := m.Rows[id]; !kept {
 		m.Rows[id] = rec
 	}
+	return nil
+}
+
+// Delete removes a record.
+func (m *MemoryResults) Delete(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.Rows, id)
 	return nil
 }
 

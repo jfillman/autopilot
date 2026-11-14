@@ -63,3 +63,9 @@ func (r *Results) Get(ctx context.Context, sessionID string, now time.Time) (map
 	var out map[string]any
 	return out, json.Unmarshal(raw, &out)
 }
+
+// Delete removes a session's record.
+func (r *Results) Delete(ctx context.Context, sessionID string) error {
+	_, err := r.st.Pool.Exec(ctx, "DELETE FROM gateway_results WHERE session = $1", sessionID)
+	return err
+}

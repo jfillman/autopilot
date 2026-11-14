@@ -144,6 +144,20 @@ All of these leave the answer for ordinary inputs unchanged.
   same sweep. Go retries on a backoff (1, 2, 4 ... capped at 30 minutes), records a failure when it starts and then at most
   once an hour while it keeps failing, records the success once, and handles each run at most once per sweep. A close by a
   person or a run always tries at once.
+- **The failure state of a delete that keeps failing is saved with the session** (a `delete_failure` key inside the session's
+  JSON document: attempts, first failure, last record, next try), so a restart continues the backoff and the hourly record
+  limit instead of retrying everything at once. No schema change. The Python gateway reads a row by the keys it knows, so it
+  ignores the key; its next save of that session writes the row without it and the backoff starts again. The first failure and
+  each hourly record are also logged at error level, naming the run, the session, the error kind and the attempts. A person's
+  or a run's own close always records its own result. The sweep's log line counts the sessions it actually tried, not those
+  waiting out a backoff.
+- **A session closed while its run is being created** (a person's End, the parent's close, the sweep) has the run deleted
+  afterwards and the agent told, with the refund made once by the close; Python would leave a live run. A launch whose
+  `run.launch` record cannot be written, and whose delete fails too, keeps the run's name so the sweep retries the delete.
+- **`run_finish` checks again, under the session's lock, just before it sets the outcome**: a finish that lost to the deadline
+  or the sweep's `expired` takes back the answer it stored and is refused R004.
+- **The sweep's reads rotate** (each sweep starts after the last session the previous one reached) and its wait for them has a
+  deadline of its own, so a mostly hung API server starves no session and a backend that ignores its context cannot hang it.
 - **The sweep has one deadline and holds no session lock across the API server.** Closing the sessions past their deadline
   comes first and needs no API server; the reads of how runs ended run a few at a time (8) within the sweep's deadline, with
   no session lock held, and are applied only to a session that is idle (an operation in flight is looked at on the next sweep)

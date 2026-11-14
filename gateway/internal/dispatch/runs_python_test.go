@@ -82,8 +82,10 @@ func finalRows(t testing.TB, r *runRig, ids ...string) map[string]any {
 			t.Fatalf("no session %s", id)
 		}
 		s.Lock()
-		out[id] = norm(t, s.ToRecord())
+		rec := s.ToRecord()
 		s.Unlock()
+		rec.DeleteFail = nil // the Go gateway's own key for a delete that keeps failing; the Python row has none
+		out[id] = norm(t, rec)
 	}
 	return out
 }

@@ -88,8 +88,8 @@ type Gateway struct {
 	// RuntimeImages are the prefix globs a candidate's runtime image may come from; empty allows any digest-pinned image.
 	RuntimeImages []string
 
-	delMu         sync.Mutex
-	delState      map[string]*delFail
+	readMu        sync.Mutex
+	readCursor    string // the last session whose run state the sweep started reading (the next sweep starts after it)
 	cmu           sync.Mutex
 	candidates    map[string]*definitions.Definition
 	candidateRuns []candidateRun

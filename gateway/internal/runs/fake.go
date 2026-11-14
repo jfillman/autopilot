@@ -22,6 +22,10 @@ type Fake struct {
 	CreateErr, DeleteErr, EndedErr error
 	// DeleteCalls is how many deletes were attempted, failed or not.
 	DeleteCalls int
+	// EndedCalls is how many times the sweep asked how a run ended.
+	EndedCalls int
+	// EndedFor counts the asks by session id.
+	EndedFor map[string]int
 	// CreateThenFail makes Create start the run and then report a failure (a timeout after the API server took it).
 	CreateThenFail error
 	// Phases is how each run ended, by run name ("" or absent: still running).
@@ -38,7 +42,7 @@ type Fake struct {
 
 // NewFake is an empty Fake.
 func NewFake() *Fake {
-	return &Fake{Live: map[string]string{}, Inputs: map[string]map[string]any{}, Phases: map[string]string{}}
+	return &Fake{EndedFor: map[string]int{}, Live: map[string]string{}, Inputs: map[string]map[string]any{}, Phases: map[string]string{}}
 }
 
 // Name is the run name a session gets.
@@ -83,6 +87,10 @@ func (f *Fake) Delete(_ context.Context, s *session.Session) error {
 // Ended is how the session's run ended.
 // A run that does not exist (yet, or any more) is "Gone", as the real API server's 404 says.
 func (f *Fake) Ended(ctx context.Context, s *session.Session) (string, error) {
+	f.mu.Lock()
+	f.EndedCalls++
+	f.EndedFor[s.ID]++
+	f.mu.Unlock()
 	if f.OnEnded != nil {
 		f.OnEnded(ctx)
 		if ctx.Err() != nil {

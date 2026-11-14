@@ -838,6 +838,7 @@ type failingResults struct{}
 func (failingResults) Put(context.Context, map[string]any, time.Time) error {
 	return errors.New("down")
 }
+func (failingResults) Delete(context.Context, string) error { return nil }
 func (failingResults) Get(context.Context, string, time.Time) (map[string]any, error) {
 	return nil, nil
 }
