@@ -1,8 +1,8 @@
-// Package auth turns a bearer token into a Principal. This slice carries the workload authenticator (a Kubernetes
-// service-account token, checked by the API server's TokenReview for an audience), a short cache over any
-// authenticator, and a static one for tests. The people's OIDC verifier, the GitHub Actions and the foreign-cluster
-// workload verifiers of the Python gateway (engine/auth.py) are not ported yet, so a Go gateway built from this slice
-// accepts workload tokens only. Every failure is *core.AuthError with no detail about the token.
+// Package auth turns a bearer token into a Principal: the workload authenticator (a Kubernetes service-account token,
+// checked by the API server's TokenReview), the people's OIDC verifier (oidc.go), the foreign-cluster workload verifier
+// and the GitHub Actions verifier, the router that picks one by the token's unverified issuer, a short cache over any
+// of them, and a static one for tests. They are engine/auth.py's, with the same behaviour for the same token. Every
+// failure is *core.AuthError with no detail about the token.
 package auth
 
 import (
@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -156,6 +157,7 @@ type Cache struct {
 	Inner dispatch.Authenticator
 	TTL   time.Duration
 	Now   func() time.Time
+	Max   int // entries kept; default 4096
 	mu    sync.Mutex
 	m     map[string]cached
 }
@@ -188,8 +190,30 @@ func (c *Cache) Authenticate(ctx context.Context, token string) (*dispatch.Princ
 		until = exp
 	}
 	c.mu.Lock()
-	if c.m == nil || len(c.m) > 4096 {
+	if c.m == nil {
 		c.m = map[string]cached{}
+	}
+	max := c.Max
+	if max <= 0 {
+		max = 4096
+	}
+	if _, exists := c.m[key]; !exists && len(c.m) >= max { // as Python: the quarter that expires soonest goes, not everything
+		type kv struct {
+			k string
+			t time.Time
+		}
+		all := make([]kv, 0, len(c.m))
+		for k, e := range c.m {
+			all = append(all, kv{k, e.expires})
+		}
+		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+		n := max / 4
+		if n < 1 {
+			n = 1
+		}
+		for _, e := range all[:n] {
+			delete(c.m, e.k)
+		}
 	}
 	c.m[key] = cached{p, until}
 	c.mu.Unlock()

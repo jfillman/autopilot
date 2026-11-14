@@ -47,6 +47,7 @@ type config struct {
 	modelKeyFile            string
 	modelTimeout            time.Duration
 	pgConns                 int32
+	auth                    authConfig
 }
 
 type configError string
@@ -87,7 +88,7 @@ func number(env func(string) string, k string, d float64) (float64, error) {
 
 // unported are variables of the Python gateway whose features this slice does not carry. Starting with one set would
 // mean running without something the operator asked for, so the gateway refuses (docs/admin/go-gateway.md).
-var unported = []string{"AUTOPILOT_OIDC_ISSUER", "CLEARANCE_OIDC_ISSUER", "TOWER_ISSUER", "GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
+var unported = []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
 	"GLIDEPATH_API_URL", "BACKSTAGE_URL", "APP_API_SERVICES", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
 
 func configFromEnv(env func(string) string) (*config, error) {
@@ -149,6 +150,15 @@ func configFromEnv(env func(string) string) (*config, error) {
 	c.modelAudience = getenv(env, "MODEL_TOKEN_AUDIENCE", "model-proxy")
 	c.resourceURL = getenv(env, "AUTOPILOT_RESOURCE_URL", fmt.Sprintf("http://localhost:%d/mcp", c.port))
 	c.issuerURL = env("AUTOPILOT_ISSUER_URL")
+	if c.auth, err = authConfigFromEnv(env); err != nil {
+		return nil, err
+	}
+	if c.issuerURL == "" { // the authorization server the metadata names: the OIDC issuer, else this server (as Python)
+		c.issuerURL = c.resourceURL
+		if c.auth.oidcIssuer != "" {
+			c.issuerURL = c.auth.oidcIssuer
+		}
+	}
 	c.allowReads = boolEnv(env, "GATEWAY_OUTAGE_ALLOW_READS", false)
 	exp := 60.0
 	if v := env("AUTOPILOT_EXPIRE_SECONDS"); v != "" {
@@ -239,7 +249,12 @@ func serve(_ []string) int {
 		}
 	}
 	handlers := backends.Handlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL})
-	authn := &auth.Cache{Inner: auth.NewWorkload(cfg.runAudiences[0], cfg.runAudiences[1:]...), TTL: time.Minute}
+	authn, prefetch, err := cfg.auth.build(cfg.audience, auth.NewWorkload(cfg.runAudiences[0], cfg.runAudiences[1:]...))
+	if err != nil {
+		log.Error("configuration: " + err.Error())
+		return 2
+	}
+	prefetch()
 	g, err := dispatch.New(defs, store, c, authn, reg, handlers)
 	if err != nil {
 		log.Error(err.Error())

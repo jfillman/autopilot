@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "1faf5b245e43981c54a3b2d22ab55616621cb862",
+ "level_with": "a066983b2b44c3fdefe25ecf1df1dddc696494b4",
  "ported": {
   "src/autopilot/conformance.py": {
    "sha256": "3b2bb62ff595c982ea2d95468ab85b209f450b59edfb0936c3e03f89471b05bc",
@@ -16,8 +16,8 @@
    "go": [
     "gateway/internal/auth"
    ],
-   "carries": "WorkloadAuthenticator (TokenReview, the audience set), CachingAuthenticator",
-   "left_for_later_slices": "S1 OIDCAuthenticator (Dex), GitHub Actions, ForeignWorkloadAuthenticator (Tower), RoutingAuthenticator"
+   "carries": "WorkloadAuthenticator (TokenReview, the audience set), CachingAuthenticator; S1: OIDCAuthenticator (Dex), ForeignWorkloadAuthenticator (Tower), GitHubActionsAuthenticator (ported and tested, not wired: serve.py does not wire it), RoutingAuthenticator, JWKS",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/backends.py": {
    "sha256": "fc30b2e661953b26a930214c2c510d1d4fa3dc9db006cb3aaac58a1ff1e4dfc2",
@@ -190,8 +190,8 @@
    "go": [
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "the settings this slice carries, start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store",
-   "left_for_later_slices": "S1/S3/S4/S6 the settings and loops of what is not ported"
+   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store",
+   "left_for_later_slices": "S3/S4/S6 the settings and loops of what is not ported"
   },
   "src/autopilot/settings.py": {
    "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",

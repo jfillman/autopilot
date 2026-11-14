@@ -1,7 +1,7 @@
 # The Go AI gateway (A-9)
 
-**Status: runs and the run tree are in (A-9 S2, 2026-11-14) on top of the first slice and the catch-up (S0); built and
-tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
+**Status: people and Tower sign-in (A-9 S1) and runs and the run tree (A-9 S2, 2026-11-14) are in, on top of the first slice and
+the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
 the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
 Python one, how it is kept equal ([the drift guard](#the-drift-guard)), and exactly what is left.
@@ -70,7 +70,7 @@ Python changes since the first slice that belong to a later slice, and are there
 
 | Slice | Python change since 366442a |
 |---|---|
-| S1 authentication | none: the `engine/auth.py` change was the workload audiences, ported above |
+| S1 authentication | none: the `engine/auth.py` change was the workload audiences, ported above; people's and Tower's sign-in is S1's own section |
 | S2 runs | **done in S2, below.** One part waits for S5c: `observe` counts `airframe.plan` and `airframe.apply`, which have no handler in Go yet, so nothing makes it count until S5c; the counting itself is ported and tested |
 | S3 people and triggers | the Preflight routes `/v1/preflight/cases` and `/v1/preflight/score` and `document` and `budget` on `POST /v1/agents/{agent}/runs` (`engine/server.py`, `Gateway.preflight_*`) |
 | S4 definitions | publishing the bundled definitions with the pins (`Core.publish_definitions(bundled=)`, `bundled_version`, the retry without the field against a core that predates it, `Definitions.bundled_set`, `AgentDefinition.doc`, `DefinitionsPublisher` at start), and the schema's `profile.airframe.proposeFlight` |
@@ -192,6 +192,71 @@ port is right (the equivalence tests do). Its use is that nobody changes a porte
 - A panic in a backend is an `error:Panic` outcome, not a crash. A failed save of sessions exits the process (crash-only,
   as the Python gateway does); the restart reloads them.
 
+## Authentication
+
+The Go gateway verifies the same three kinds of caller as the Python one (`src/autopilot/engine/auth.py`), chosen by
+the token's issuer, behind the same one-minute cache:
+
+| Caller | Verifier | Principal | Set by |
+|---|---|---|---|
+| a service account of this cluster | the API server's TokenReview | `<namespace>/<name>`, kind `workload` | `AUTOPILOT_RUN_AUDIENCES` (default `autopilot`) |
+| a person (Dex in the lab) | the issuer's JWKS: signature, issuer, audience, expiry | `user:<claim>`, kind `user` | `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL` (default `<issuer>/keys`), `AUTOPILOT_OIDC_USER_CLAIM` (default `email`) |
+| another cluster's service account (Tower's backend) | that cluster's public issuer's JWKS | `<TOWER_CLUSTER>/<namespace>/<name>`, kind `workload` | `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL` (default `<issuer>/jwks.json`); the audience is `AUTOPILOT_AUDIENCE` (default `clearance`) |
+
+List only run audiences in `AUTOPILOT_RUN_AUDIENCES`: naming another service's audience there makes that service's local
+service-account tokens acceptable as workloads.
+
+The variables, their defaults and their start-up checks are the Python gateway's (an issuer needs its audience and an
+allow-list, `TOWER_ISSUER` needs a cluster name and service-account globs, trailing slashes on issuers are removed).
+The allow-lists use Python's `fnmatch` rules (`*` matches `/`), reproduced in Go, not `path.Match`. The metadata's
+authorization server is the OIDC issuer, else this server. The GitHub Actions verifier of `engine/auth.py` is ported
+(`auth.GitHubActions`, with the `repository` attribute and the immutable-id `sub` form) and tested, but `serve` does not
+wire it: the Python gateway does not either (since R-3b the core takes GitHub Actions callers, and `CLEARANCE_GITHUB_OIDC_*`
+fail its start).
+
+What the verifier accepts, and refuses without saying why (every refusal is the same `token rejected`, nothing from the
+token is logged):
+
+- Only `RS256` and `ES256` (the GitHub verifier only `RS256`), each tied to the key's type; never `none`, never HMAC, never
+  another algorithm; a token with a `crit` header is refused. The key is picked by `kid`.
+- `exp`, `iat`, `iss`, `aud` and `sub` must be present; `exp`, `nbf` and `iat` are checked with 30 seconds of leeway;
+  `iss` and `aud` are compared exactly (an `aud` list must hold the audience).
+- The routing step reads `iss` without trusting it, only to choose the verifier; a token for an issuer that is not
+  configured goes to TokenReview, which refuses it, and a token that is not a JWT is refused.
+- A cached success never outlives the token's `exp`; a failure is never cached.
+- The JWKS is fetched over https, within 10 seconds, at most 1 MiB, following redirects only on the same host. Plain http
+  is allowed for loopback hosts (local runs) and, for any other host, only with `AUTOPILOT_JWKS_ALLOW_HTTP=1` (a Go-only
+  setting, off by default): the lab that serves Dex over http turns it on in its render, and `serve` logs a warning naming
+  the host at start. Nothing in the code treats a host name such as `.local` as special.
+- An unknown `kid` refetches the key set at most once a minute after a successful fetch, however many requests ask, and at
+  most once every 5 seconds after a failed one, so a blip at the issuer does not lock sign-in out for a minute. The fetch
+  runs detached from the request that triggered it (a caller that names an unknown `kid` and hangs up cannot cancel it);
+  callers share it and leave when their own context ends. `serve` fetches each key set once in the background at start;
+  a failed first fetch is a warning, not fatal.
+- The key set is refetched every 10 minutes whether or not a token asks. A key the issuer removed stays trusted until
+  the next refetch (the request that notices the age still uses the old keys), and for as long as the issuer cannot be
+  reached: the same as Python, which refetches only for an unknown `kid`.
+- Only a token whose signature has verified can start the 10-minute refetch, so an unauthenticated caller cannot drive it. An
+  answer with no usable key counts as a failed fetch (the keys held are kept), and after a failure the retry waits 5 s,
+  then 10, 20, 40 and at most 60 s, until a fetch succeeds.
+- A token may hold only base64url characters and its two dots (anything else, a newline included, is refused before decoding).
+
+Where it differs from Python on purpose (all stricter, or an error handled where Python's escapes):
+
+| Go | Python |
+|---|---|
+| a token over 16 KiB is refused before parsing | no limit |
+| a JWKS URL over plain http is refused at start unless the host is loopback or `AUTOPILOT_JWKS_ALLOW_HTTP=1` | any http(s) URL, any redirect, any size |
+| a JWKS key that is not RSA (at least 2048 bits) or P-256 is skipped | one unreadable key makes the whole refresh fail |
+| `exp`, `iat`, `nbf` must be JSON numbers | `int()` also accepts a numeric string |
+| a failed JWKS fetch, or an `alg` that does not fit the key, is a refusal | raises an error that is not `AuthError` (the server answers 500, not 401) |
+| refusals are all one message | the message names the reason (it is not sent to the caller) |
+
+`tests/test_gateway_go_auth.py` feeds the same tokens to both and compares the answer (accepted or refused, principal,
+kind, tier ceiling, attributes), and the allow-list globs and the `sub` canonicalisation too; the Go table tests
+(`gateway/internal/auth`) cover every refusal above, and a fuzz target (`FuzzTokenParsingAndRouting`) holds that no input
+is accepted and none panics.
+
 ## How it is proven equal to the Python gateway
 
 1. **The R-3 replay corpus** (Clearance's golden corpus, `testdata/golden/corpus.jsonl`, recorded from the Python
@@ -234,15 +299,11 @@ port is right (the equivalence tests do). Its use is that nobody changes a porte
 ## What is not carried (after S2)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`AUTOPILOT_OIDC_ISSUER`, `TOWER_ISSUER`, `GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`,
-`GLIDEPATH_API_URL`, `BACKSTAGE_URL`, `APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes
-a feature is live when it is not.
+does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `BACKSTAGE_URL`,
+`APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes a feature is live when it is not.
 
 Not ported, and still the Python gateway's:
 
-- **Authentication beyond workloads**: the Go gateway verifies Kubernetes service-account tokens (TokenReview) only. The
-  people's OIDC verifier (Dex), the GitHub Actions verifier and the foreign-cluster workload verifier (Tower's backend)
-  are not ported, so people cannot sign in to it and Tower cannot reach it.
 - **The person-facing side of runs (S3)**: `run_agent` as a route (who may run what, holds) and the Preflight routes
   `/v1/preflight/cases` and `/v1/preflight/score`, with the cases, the scoring and the ledger (`preflight.py`). What a person's
   run does once checked is here (`RunAgentAs`, `Candidate`). `Candidate` refuses (`ErrNotCarried`) until a validated parse and
@@ -279,6 +340,7 @@ GATEWAY_DSN=postgresql://... CLEARANCE_CORE_URL=http://clearance-core:8080 \
 
 It reads the variables the Python gateway reads, for the part it carries: `PORT`, `MODEL_PORT`, `GATEWAY_DSN`,
 `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `AUTOPILOT_AGENTS_DIR`, `AUTOPILOT_AUDIENCE`, `MODEL_TOKEN_AUDIENCE`,
+`AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL`, `AUTOPILOT_OIDC_USER_CLAIM`, `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL`, `AUTOPILOT_JWKS_ALLOW_HTTP` (Go only),
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
 `AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run

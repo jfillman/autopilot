@@ -76,8 +76,10 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "src/autopilot/hangar_tools.py": (("gateway/internal/tools",), "the Hangar tool pack (registry.json is generated)", ""),
     "src/autopilot/engine/modelproxy.py": (("gateway/internal/modelproxy",), "the model proxy: decision, metering, charge", ""),
     "src/autopilot/engine/auth.py": (
-        ("gateway/internal/auth",), "WorkloadAuthenticator (TokenReview, the audience set), CachingAuthenticator",
-        "S1 OIDCAuthenticator (Dex), GitHub Actions, ForeignWorkloadAuthenticator (Tower), RoutingAuthenticator"),
+        ("gateway/internal/auth",), "WorkloadAuthenticator (TokenReview, the audience set), CachingAuthenticator; S1: OIDCAuthenticator (Dex), "
+        "ForeignWorkloadAuthenticator (Tower), GitHubActionsAuthenticator (ported and tested, not wired: serve.py does not "
+        "wire it), RoutingAuthenticator, JWKS",
+        ""),
     "src/autopilot/engine/server.py": (
         ("gateway/internal/mcpserver",), "the MCP server surface: tools_list, agents_list, session_open, call, run_finish, "
         "session_close, healthz, protected-resource metadata", "S3 the people routes (/v1/...)"),
@@ -89,9 +91,10 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/internal/runs", "gateway/cmd/autopilot-gateway"),
                                  "which tool has a handler in a deployment (metrics.query, logs.query, run.spawn, run.close), "
                                  "AgentRunBackend (the run's name, its identity, how it ended)", "S5 the other handlers"),
-    "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries, start-up, the expiry sweep "
-                               "(closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store",
-                               "S1/S3/S4/S6 the settings and loops of what is not ported"),
+    "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the "
+                               "authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), "
+                               "the outbox drain, the run backend and result store",
+                               "S3/S4/S6 the settings and loops of what is not ported"),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     "src/autopilot/conformance.py": (("gateway/internal/conformance", "gateway/cmd/autopilot-gateway"),
                                      "the conformance control interface", ""),
