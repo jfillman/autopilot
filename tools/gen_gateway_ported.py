@@ -35,9 +35,12 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage "
         "path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, "
         "finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record "
-        "and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on",
-        "S3 person controls, the person-facing run_agent and Preflight routes, inbox, holds, open_triggered, triggers; "
-        "S4 publish_definitions and the schema validation a candidate document needs"),
+        "and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on; S3: _person, "
+        "_manager, freeze_session, end_session, hold_triggers, release_triggers, hold_for, human_requests, human_answer and the "
+        "inbox's handlers, open_triggered, record_event, run_agent (the route's checks, holds, Preflight candidates as far as "
+        "Candidate goes), preflight_case_list and preflight_score",
+        "S4 publish_definitions, apply_cluster_definitions and the schema validation a candidate document needs (a `document` is "
+        "refused until then)"),
     "src/autopilot/engine/core.py": (
         ("gateway/internal/core",),
         "the decision path: evaluation, outcome, records, outbox, outage policy, canonical JSON, the client's timeout "
@@ -60,16 +63,28 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "(agent-<run>) and its service account `run` (the run's identity), the input's size limit. The rendering itself runs in "
         "the cluster, not in the gateway", ""),
     "src/autopilot/engine/control.py": (
-        ("gateway/internal/dispatch",), "ControlError and check_reason (what session_close and run_finish answer with)",
-        "S3 holds, may_manage, check_hours and the person controls built on them"),
+        ("gateway/internal/dispatch",), "ControlError, check_reason, check_hours, Hold and its store, may_manage: the person controls", ""),
+    "src/autopilot/engine/inbox.py": (("gateway/internal/dispatch",), "the human inbox: the request, its checks, who may answer, the store", ""),
+    "src/autopilot/engine/events.py": (("gateway/internal/dispatch",), "the event history: from_summary and the record", ""),
+    "src/autopilot/engine/trigger_ledger.py": (("gateway/internal/triggers", "gateway/internal/pgstate"),
+                                               "the trigger ledger and the cursors: claim, decide, advance, prune, the keys", ""),
+    "src/autopilot/triggers.py": (("gateway/internal/triggers", "gateway/internal/definitions"),
+                                  "the topic matcher (as a table, not a recursion), the Glidepath event matcher, interval parsing, "
+                                  "the task ids, the storm brake; alert and RabbitMQ matchers have no caller in Python and are not carried", ""),
+    "src/autopilot/event_bridge.py": (("gateway/internal/triggers",), "the event bridge: the stream, the catch-up, the cursor, the brake, "
+                                      "the summary, the history (on a client of its own, with limits)", ""),
+    "src/autopilot/reconcile.py": (("gateway/internal/triggers",), "the reconciliation sweep", ""),
+    "src/autopilot/scheduler.py": (("gateway/internal/triggers",), "interval triggers: slots, grace, missed slots, once per slot", ""),
+    "src/autopilot/preflight.py": (("gateway/internal/dispatch",), "the cases, the checks, the score, the ledger and the fingerprint "
+                                   "(Go's own digest) behind the Preflight routes; the scripted-run harness is Python's local tooling", ""),
     "src/autopilot/engine/pg.py": (
-        ("gateway/internal/pgstate",), "the tables, the writer lock, sessions, run results and the outbox (schema.sql is generated)",
-        "S3 use of the inbox, holds and trigger-ledger tables"),
+        ("gateway/internal/pgstate",), "the tables, the writer lock, sessions, run results, the outbox, the inbox, holds, the event history "
+        "and the trigger ledger and cursors (schema.sql is generated)", ""),
     "src/autopilot/engine/definitions.py": (
         ("gateway/internal/definitions",), "reading the bundled set and the pinned set",
         "S4 publishing the set, bundled_set, the Agent XR loader"),
     "src/autopilot/engine/profile.py": (
-        ("gateway/internal/definitions",), "parse: scope, agent, runs_in", "S4 JSON-schema validation"),
+        ("gateway/internal/definitions",), "parse: scope, agent, runs_in, the interval and Glidepath event triggers", "S4 JSON-schema validation"),
     "src/autopilot/engine/scope.py": (("gateway/internal/dispatch",), "normalize (repository-relative paths)", ""),
     "src/autopilot/engine/tiers.py": (("gateway/internal/tools", "gateway/internal/dispatch"),
                                       "ToolSpec, tiers, the target and effect of a call", ""),
@@ -82,10 +97,11 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         ""),
     "src/autopilot/engine/server.py": (
         ("gateway/internal/mcpserver",), "the MCP server surface: tools_list, agents_list, session_open, call, run_finish, "
-        "session_close, healthz, protected-resource metadata", "S3 the people routes (/v1/...)"),
+        "session_close, healthz, protected-resource metadata, the people routes (/v1/...: the inbox, freeze, end, hold, release, run, "
+        "Preflight)", ""),
     "src/autopilot/engine/backends.py": (
         ("gateway/internal/dispatch", "gateway/internal/backends"), "BackendError (evidence, agent message), Handler, RunBackend "
-        "(and a fake)", "S3/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"),
+        "(and a fake), the human inbox's handlers (human.request, human.request.get)", "S5 the other core tools' handlers (repo.*, artifacts, chat)"),
     "src/autopilot/reads.py": (("gateway/internal/backends",), "PrometheusAPI and LokiAPI (metrics.query, logs.query)",
                                "S5a catalog.read, argo.app.get, app.api.get"),
     "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/internal/runs", "gateway/cmd/autopilot-gateway"),
@@ -93,8 +109,10 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
                                  "AgentRunBackend (the run's name, its identity, how it ended)", "S5 the other handlers"),
     "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the "
                                "authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), "
-                               "the outbox drain, the run backend and result store",
-                               "S3/S4/S6 the settings and loops of what is not ported"),
+                               "the outbox drain, the run backend and result store; S3: EVENTS_ENABLED and GLIDEPATH_API_URL (with it), "
+                               "SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, "
+                               "RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler",
+                               "S4/S5/S6 the settings and loops of what is not ported (the Backstage directory, the metrics port)"),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     "src/autopilot/conformance.py": (("gateway/internal/conformance", "gateway/cmd/autopilot-gateway"),
                                      "the conformance control interface", ""),
@@ -106,10 +124,6 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
 # moves it to PORTED.
 NOT_PORTED: dict[str, str] = {
     "src/autopilot/engine/runtimes.py": "S6",      # the catalog file and GET /v1/runtimes; a candidate's image globs are Gateway.RuntimeImages
-    "src/autopilot/preflight.py": "S3",            # the cases, the scoring and the ledger of the person-facing Preflight routes
-    "src/autopilot/engine/events.py": "S3", "src/autopilot/engine/inbox.py": "S3",
-    "src/autopilot/engine/trigger_ledger.py": "S3", "src/autopilot/event_bridge.py": "S3", "src/autopilot/reconcile.py": "S3",
-    "src/autopilot/scheduler.py": "S3", "src/autopilot/triggers.py": "S3",
     "src/autopilot/agent_xrs.py": "S4",
     "src/autopilot/argo_sync.py": "S5b", "src/autopilot/cicd_propose.py": "S5b", "src/autopilot/github_pr.py": "S5b",
     "src/autopilot/glidepath_api.py": "S5b", "src/autopilot/glidepath_live.py": "S5b",
