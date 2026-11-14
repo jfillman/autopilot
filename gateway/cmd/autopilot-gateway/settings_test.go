@@ -97,3 +97,44 @@ func TestRunAudiences(t *testing.T) {
 		t.Fatalf("%v %v", c, err)
 	}
 }
+
+// A-9 S3: EVENTS_ENABLED and what it needs are carried; GLIDEPATH_API_URL only with it (glidepath's tools are a later slice);
+// EVENTS_RABBITMQ_ENABLED is refused as the Python gateway refuses it; and the settings the triggers and the people's side read are
+// the Python gateway's, with its checks.
+func TestTheTriggerSettings(t *testing.T) {
+	c, err := configFromEnv(envOf(base(nil)))
+	if err != nil || c.eventsEnabled || c.schedulesEnabled || c.reconcileEvery != 300*time.Second || c.reconcileWindowHours != 24 || len(c.delegates) != 0 || len(c.admins) != 0 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	c, err = configFromEnv(envOf(base(map[string]string{"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "https://glidepath-api.example", "SCHEDULES_ENABLED": "true",
+		"RECONCILE_SECONDS": "60", "RECONCILE_WINDOW_HOURS": "48", "AUTOPILOT_DELEGATES": "hangar/tower/*, x/y", "AUTOPILOT_ADMINS": " user:root ,", "GLIDEPATH_TOKEN_FILE": "/t"})))
+	if err != nil || !c.eventsEnabled || !c.schedulesEnabled || c.glidepathURL != "https://glidepath-api.example" || c.glidepathTokenFile != "/t" ||
+		c.reconcileEvery != time.Minute || c.reconcileWindowHours != 48 || !slices.Equal(c.delegates, []string{"hangar/tower/*", "x/y"}) || !slices.Equal(c.admins, []string{"user:root"}) {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if c, err = configFromEnv(envOf(base(map[string]string{"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g", "RECONCILE_SECONDS": "0"}))); err != nil || c.reconcileEvery != 0 {
+		t.Fatalf("the sweep is off with 0: %+v %v", c, err)
+	}
+	for name, env := range map[string]map[string]string{
+		"events need the URL":              {"EVENTS_ENABLED": "1"},
+		"the URL is http(s)":               {"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "ftp://x"},
+		"the URL alone is not carried":     {"GLIDEPATH_API_URL": "http://g"},
+		"RabbitMQ is designed, not built":  {"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g", "EVENTS_RABBITMQ_ENABLED": "1"},
+		"a flag is 0 or 1":                 {"EVENTS_ENABLED": "maybe"},
+		"a schedules flag is 0 or 1":       {"SCHEDULES_ENABLED": "2"},
+		"the sweep is at least 30 seconds": {"RECONCILE_SECONDS": "10"},
+		"the sweep is a number":            {"RECONCILE_SECONDS": "x"},
+		"the window is at most 744":        {"RECONCILE_WINDOW_HOURS": "745"},
+		"the window is positive":           {"RECONCILE_WINDOW_HOURS": "0"},
+		"the window is whole":              {"RECONCILE_WINDOW_HOURS": "1.5"},
+		"the retired delegates name":       {"CLEARANCE_DELEGATES": "x"},
+		"the retired admins name":          {"CLEARANCE_ADMINS": "x"},
+	} {
+		if _, err := configFromEnv(envOf(base(env))); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, err := configFromEnv(envOf(base(map[string]string{"EVENTS_ENABLED": "0", "GLIDEPATH_API_URL": "http://g"}))); err == nil {
+		t.Error("the URL with events off is not carried")
+	}
+}

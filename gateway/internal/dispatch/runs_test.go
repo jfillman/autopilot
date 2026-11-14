@@ -999,7 +999,7 @@ func TestRunAgentAsOpensTheSessionAsThePersonAndLaunchesIt(t *testing.T) {
 		open = req
 		id := "d-open"
 		d := req.Context.Agent
-		g := &client.Grant{Session: req.Context.NewSessionID, TaskID: "t-" + req.Context.NewSessionID[2:], Principal: req.Subject.ID, Agent: d.Name, Limits: d.Limits, ExpiresAt: req.Context.Now.Add(30 * time.Minute)}
+		g := &client.Grant{Session: req.Context.NewSessionID, TaskID: "t-" + req.Context.NewSessionID[2:], Principal: req.Subject.ID, Agent: d.Name, Limits: d.Limits, ExpiresAt: req.Context.Now.Add(time.Duration(d.Limits.TTLMinutes) * time.Minute)}
 		return client.EvaluationResult{Decision: true, DecisionID: &id, Record: &client.RecordRef{Seq: 1, Hash: "h"}, Context: client.DecisionContext{Message: "allowed", Grant: g}}
 	}
 	// researcher is a task agent with a runtime image

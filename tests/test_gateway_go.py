@@ -203,3 +203,14 @@ def test_the_go_gateway_refuses_what_it_does_not_carry_yet(go_binary):
     env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1", "GITHUB_PR_ENABLED": "1"}
     r = subprocess.run([str(go_binary), "serve"], env=env, capture_output=True, text=True)
     assert r.returncode == 2 and "GITHUB_PR_ENABLED" in r.stderr, "it must not start without a feature it was asked for"
+
+    # A-9 S3 carries EVENTS_ENABLED (the event bridge); glidepath-api's URL only together with it, and the RabbitMQ source is refused
+    # as the Python gateway refuses it.
+    env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1", "GLIDEPATH_API_URL": "http://127.0.0.1:1"}
+    r = subprocess.run([str(go_binary), "serve"], env=env, capture_output=True, text=True)
+    assert r.returncode == 2 and "GLIDEPATH_API_URL" in r.stderr
+    r = subprocess.run([str(go_binary), "serve"], env={**env, "EVENTS_ENABLED": "1", "EVENTS_RABBITMQ_ENABLED": "1"}, capture_output=True, text=True)
+    assert r.returncode == 2 and "EVENTS_RABBITMQ_ENABLED" in r.stderr
+    r = subprocess.run([str(go_binary), "serve"], env={**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1",
+                                                          "EVENTS_ENABLED": "1"}, capture_output=True, text=True)
+    assert r.returncode == 2 and "needs GLIDEPATH_API_URL" in r.stderr

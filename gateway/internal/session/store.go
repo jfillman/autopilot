@@ -214,6 +214,21 @@ func (st *Store) AdoptChild(g *client.Grant, sp client.Spend, callerID, wantID, 
 	return s, s.serial.Unlock, nil
 }
 
+// FindLive is the live top-level session of an agent for a task, or nil (Python: SessionStore.find_live): not closed, not past
+// its deadline, no parent. A trigger's task id is a hash of the agent and the trigger's key, so a live session found here is the
+// run an earlier firing of the same trigger started.
+func (st *Store) FindLive(agent, taskID string, now time.Time) *Session {
+	for _, s := range st.All() {
+		s.Lock()
+		hit := s.Agent == agent && s.TaskID == taskID && !s.Expired(now) && s.ParentID == nil
+		s.Unlock()
+		if hit {
+			return s
+		}
+	}
+	return nil
+}
+
 // Charge applies the spend the core's decision names to the session the request named (internal/decide doc.go): add
 // the counters to used, count a denial, trip the breaker with Trip, and trip the session and every descendant with
 // TripTree. A spawn's Children and Reserve are the parent's, applied by Adopt. Caller holds s's lock.

@@ -37,6 +37,8 @@ type Definition struct {
 	Owner          *string
 	Description    string
 	RawProfile     json.RawMessage
+	// Triggers are what starts the agent (see Trigger); a definition that names none has one manual trigger.
+	Triggers []Trigger
 }
 
 // RunsIn is where the agent's loop runs: "cluster" when the definition names a runtime image, else "client".
@@ -56,8 +58,9 @@ type doc struct {
 		Type           string  `json:"type"`
 		ServiceAccount *string `json:"serviceAccount"`
 	} `json:"identity"`
-	Profile json.RawMessage `json:"profile"`
-	Runtime struct {
+	Profile  json.RawMessage    `json:"profile"`
+	Triggers *[]json.RawMessage `json:"triggers"`
+	Runtime  struct {
 		Image        *string             `json:"image"`
 		Framework    string              `json:"framework"`
 		Sandbox      string              `json:"sandbox"`
@@ -153,6 +156,11 @@ func Parse(raw []byte, baseline *tools.Registry) (*Definition, error) {
 		DenyPaths: dedupe(baseline.BaselineDenyPaths, p.Repos.DenyPaths), FieldDeny: dedupe(baseline.BaselineDenyFields, p.Repos.FieldDeny),
 		Image: d.Runtime.Image, Framework: framework, Sandbox: sandbox, Sidecars: d.Runtime.Sidecars,
 		Instructions: d.Runtime.Instructions, Owner: d.Owner, Description: d.Description, RawProfile: d.Profile,
+	}
+	if d.Triggers != nil {
+		def.Triggers = parseTriggers(*d.Triggers, true)
+	} else {
+		def.Triggers = parseTriggers(nil, false)
 	}
 	return def, nil
 }

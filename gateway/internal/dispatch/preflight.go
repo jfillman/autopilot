@@ -160,19 +160,27 @@ func (g *Gateway) checkCandidateImage(image string) error {
 	return &ControlError{"R008", "the candidate's runtime image is not on this deployment's list", "", 400}
 }
 
-// RunAgentAs starts an in-cluster run of a task agent for a person who has already been checked (who may run what, and
-// holds, are the person controls' rule, a later slice): a session opened as the person, then Launch with their input as the
-// run's task. The session is the person's, so the run acts with their delegated authority inside the definition's envelope.
-// Recorded as session.open (via the delegate) and run.launch. fp is the candidate's fingerprint, or "" for a live
-// definition, which is d. (Python: Gateway.run_agent from the open on.)
+// RunAgentAs starts an in-cluster run of a task agent for a person who has already been checked (who may run what is the person
+// controls' rule, RunAgent): a session opened as the person, then Launch with their input as the run's task. The session is the
+// person's, so the run acts with their delegated authority inside the definition's envelope. Recorded as session.open (via the
+// delegate) and run.launch. fp is the candidate's fingerprint, or "" for a live definition, which is d. (Python:
+// Gateway.run_agent from the open on.)
 func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *definitions.Definition, fp string, runInput *string) (map[string]any, error) {
+	var in any
+	if runInput != nil {
+		in = *runInput
+	}
+	return g.runAgentAs(ctx, person, via, agent, d, fp, in, false)
+}
+
+// runAgentAs is RunAgentAs for a request's input as it came (anything: a non-string is refused R008). With gate, a live agent's
+// hold is checked (R024) and the check and the open happen under the hold gate's read lock, so a hold that has been saved is
+// never raced by a run that read "no hold" (Gateway.HoldTriggers). A candidate is not held (Python: `document is None`).
+func (g *Gateway) runAgentAs(ctx context.Context, person, via, agent string, d *definitions.Definition, fp string, runInput any, gate bool) (map[string]any, error) {
 	if fp != "" {
-		g.cmu.Lock()
-		if g.candidates == nil {
-			g.candidates = map[string]*definitions.Definition{}
-		}
-		g.candidates[d.Name] = d
-		g.cmu.Unlock()
+		// Registered for the open and the launch, which find the definition by its run name; forgotten again unless the run is
+		// remembered for scoring, so a refused request leaves nothing behind.
+		defer g.useCandidate(d, fp)()
 	}
 	if d.Kind != "task" || d.IdentityType != "delegated" {
 		return nil, &ControlError{"R001", fmt.Sprintf("%s is a %s agent; only task agents are run by a person", agent, d.Kind),
@@ -184,10 +192,11 @@ func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *
 	}
 	text := ""
 	if runInput != nil {
-		if len([]rune(*runInput)) > MaxRunInput {
+		s, ok := runInput.(string)
+		if !ok || len([]rune(s)) > MaxRunInput {
 			return nil, &ControlError{"R008", fmt.Sprintf("input is a string of at most %d characters", MaxRunInput), "", 400}
 		}
-		text = *runInput
+		text = s
 	}
 	instructions := ""
 	if d.Instructions != nil {
@@ -195,6 +204,24 @@ func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *
 	}
 	if strings.TrimSpace(text) == "" && instructions == "" {
 		return nil, &ControlError{"R008", agent + " has no instructions of its own: say what it should do", "", 400}
+	}
+	gated := gate
+	endGate := func() {
+		if gated {
+			gated = false
+			g.holdGate.RUnlock()
+		}
+	}
+	if gate {
+		g.holdGate.RLock()
+		defer endGate()
+		h, err := g.holdForLocked(ctx, agent)
+		if err != nil {
+			return nil, err
+		}
+		if h != nil {
+			return nil, &ControlError{"R024", fmt.Sprintf("%s is held until %s: %s", agent, core.Iso(h.Until), h.Reason), "Release the hold first.", 409}
+		}
 	}
 	now := g.Now()
 	newID := g.Store.NewID()
@@ -220,11 +247,17 @@ func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *
 		}
 		return nil, &ControlError{rule, v.Message, v.Hint, 409}
 	}
-	if v.Grant.Session != newID || g.Store.Get(v.Grant.Session) != nil {
+	if g.Store.Get(v.Grant.Session) != nil {
 		g.Store.GiveBack(newID)
 		return nil, &ControlError{core.RefusedRule, "Clearance's grant was refused", "", 503}
 	}
+	if why := checkOpenGrant(v.Grant, newID, person, d, now); why != "" {
+		g.Store.GiveBack(newID)
+		g.Log.Error("the core's grant for a person's run failed the gateway's own check: refused", "agent", d.Name, "why", why)
+		return nil, &ControlError{core.RefusedRule, "Clearance's grant was refused", "", 503}
+	}
 	s := g.Store.Adopt(v.Grant, now, nil, 0)
+	endGate() // the session exists: the hold gate has done its work
 	g.flush(ctx, s)
 	prompt := strings.TrimSpace(text)
 	if prompt == "" {
@@ -235,10 +268,12 @@ func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *
 		task["instructions"] = instructions
 	}
 	out, lerr := g.Launch(ctx, s.ID, task)
-	if lerr != nil {
-		return nil, lerr
-	}
-	if !out.OK {
+	if lerr != nil || !out.OK {
+		// A run that was not launched leaves no live session behind: nobody was told its id.
+		g.flush(ctx, g.Store.CloseTouched(s.ID)...)
+		if lerr != nil {
+			return nil, lerr
+		}
 		rule, _ := out.Decision["rule"].(string)
 		if rule == "" {
 			rule = "R001"
@@ -265,6 +300,33 @@ func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *
 	return view, nil
 }
 
+// useCandidate registers a candidate definition under its run name for the duration of one request and returns the function that
+// ends it: the entry stays only while a request uses it or a run of it is remembered for scoring (rememberCandidate), so requests
+// that are refused leave nothing in the table (Python keeps every candidate it was asked to run, until a later run ages it out).
+func (g *Gateway) useCandidate(d *definitions.Definition, fp string) func() {
+	g.cmu.Lock()
+	if g.candidates == nil {
+		g.candidates, g.candidateUse = map[string]*definitions.Definition{}, map[string]int{}
+	}
+	g.candidates[d.Name] = d
+	g.candidateUse[d.Name]++
+	g.cmu.Unlock()
+	return func() {
+		g.cmu.Lock()
+		defer g.cmu.Unlock()
+		if g.candidateUse[d.Name]--; g.candidateUse[d.Name] > 0 {
+			return
+		}
+		delete(g.candidateUse, d.Name)
+		for _, r := range g.candidateRuns {
+			if r.run == d.Name {
+				return
+			}
+		}
+		delete(g.candidates, d.Name)
+	}
+}
+
 func (g *Gateway) rememberCandidate(c candidateRun) {
 	g.cmu.Lock()
 	defer g.cmu.Unlock()
@@ -277,7 +339,7 @@ func (g *Gateway) rememberCandidate(c candidateRun) {
 		kept[r.run] = true
 	}
 	for name := range g.candidates {
-		if !kept[name] {
+		if !kept[name] && g.candidateUse[name] == 0 {
 			delete(g.candidates, name)
 		}
 	}
