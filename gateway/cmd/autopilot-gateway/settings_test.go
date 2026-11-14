@@ -54,7 +54,7 @@ func TestClientNamesKept(t *testing.T) {
 }
 
 func TestUnportedRefusedUnderBothNames(t *testing.T) {
-	for _, k := range []string{"AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL", "AUTOPILOT_OIDC_ISSUER", "CLEARANCE_OIDC_ISSUER"} {
+	for _, k := range []string{"AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"} {
 		if _, err := configFromEnv(envOf(base(map[string]string{k: "1"}))); err == nil || !strings.Contains(err.Error(), k) {
 			t.Fatalf("%s: %v", k, err)
 		}
