@@ -387,23 +387,28 @@ func TestJWKSRedirectOnTheSameHostIsFollowed(t *testing.T) {
 }
 
 func TestJWKSURLRules(t *testing.T) {
-	for u, ok := range map[string]bool{
-		"https://dex.example/keys":             true,
-		"http://dex.hangar-dev.local/dex/keys": true,
-		"http://localhost:5556/keys":           true,
-		"http://127.0.0.1:5556/keys":           true,
-		"http://[::1]:5556/keys":               true,
-		"http://dex.example/keys":              false,
-		"http://10.0.0.5/keys":                 false,
-		"http://localhost.evil.test/keys":      false,
-		"ftp://dex.example/keys":               false,
-		"file:///etc/passwd":                   false,
-		"https://user:pw@dex.example/keys":     false,
-		"":                                     false,
+	for _, c := range []struct {
+		url             string
+		strict, optedIn bool // accepted by default, accepted with AUTOPILOT_JWKS_ALLOW_HTTP
+	}{
+		{"https://dex.example/keys", true, true},
+		{"http://localhost:5556/keys", true, true},
+		{"http://127.0.0.1:5556/keys", true, true},
+		{"http://[::1]:5556/keys", true, true},
+		{"http://dex.hangar-dev.local/dex/keys", false, true}, // no host name is special: the lab sets the option
+		{"http://dex.example/keys", false, true},
+		{"http://10.0.0.5/keys", false, true},
+		{"http://localhost.evil.test/keys", false, true},
+		{"ftp://dex.example/keys", false, false},
+		{"file:///etc/passwd", false, false},
+		{"https://user:pw@dex.example/keys", false, false},
+		{"", false, false},
 	} {
-		_, err := NewJWKS(u)
-		if (err == nil) != ok {
-			t.Errorf("%q: ok=%v err=%v", u, ok, err)
+		if _, err := NewJWKS(c.url, false); (err == nil) != c.strict {
+			t.Errorf("%q default: ok=%v err=%v", c.url, c.strict, err)
+		}
+		if _, err := NewJWKS(c.url, true); (err == nil) != c.optedIn {
+			t.Errorf("%q opted in: ok=%v err=%v", c.url, c.optedIn, err)
 		}
 	}
 }

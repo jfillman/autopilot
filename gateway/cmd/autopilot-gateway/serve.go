@@ -227,11 +227,12 @@ func serve(_ []string) int {
 		}
 	}
 	handlers := backends.Handlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL})
-	authn, err := cfg.auth.build(cfg.audience, auth.NewWorkload(cfg.audience))
+	authn, prefetch, err := cfg.auth.build(cfg.audience, auth.NewWorkload(cfg.audience))
 	if err != nil {
 		log.Error("configuration: " + err.Error())
 		return 2
 	}
+	prefetch()
 	g, err := dispatch.New(defs, store, c, authn, reg, handlers)
 	if err != nil {
 		log.Error(err.Error())

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ type authConfig struct {
 	oidcAllowed                                       []string
 	towerCluster, towerIssuer, towerJWKS              string
 	towerAccounts                                     []string
+	allowHTTP                                         bool // AUTOPILOT_JWKS_ALLOW_HTTP: a JWKS URL may be plain http (a lab issuer)
 }
 
 func csv(v string) []string {
@@ -30,6 +34,7 @@ func csv(v string) []string {
 // authConfigFromEnv applies the Python gateway's rules and defaults, with its messages.
 func authConfigFromEnv(env func(string) string) (authConfig, error) {
 	var a authConfig
+	a.allowHTTP = boolEnv(env, "AUTOPILOT_JWKS_ALLOW_HTTP", false)
 	issuer, audience := env("AUTOPILOT_OIDC_ISSUER"), env("AUTOPILOT_OIDC_AUDIENCE")
 	if (issuer != "") != (audience != "") {
 		return a, configError("AUTOPILOT_OIDC_ISSUER and AUTOPILOT_OIDC_AUDIENCE are set together or not at all")
@@ -60,24 +65,52 @@ func authConfigFromEnv(env func(string) string) (authConfig, error) {
 
 // build returns the authenticator the Python gateway's build_auth builds: a short cache over a router that sends a
 // token to the verifier its (unverified) issuer names, and every other token to the in-cluster workload verifier.
-// foreignAudience is AUTOPILOT_AUDIENCE, the audience of Tower's tokens.
-func (a authConfig) build(foreignAudience string, workload dispatch.Authenticator) (dispatch.Authenticator, error) {
+// foreignAudience is AUTOPILOT_AUDIENCE, the audience of Tower's tokens. The second result starts, in the background,
+// one fetch of each configured key set; a failed fetch is a warning, never fatal (the first token that needs the keys
+// tries again).
+func (a authConfig) build(foreignAudience string, workload dispatch.Authenticator) (dispatch.Authenticator, func(), error) {
 	byIssuer := map[string]dispatch.Authenticator{}
-	if a.oidcIssuer != "" {
-		keys, err := auth.NewJWKS(a.oidcJWKS)
+	var sets []*auth.JWKS
+	keyset := func(setting, raw string) (*auth.JWKS, error) {
+		keys, err := auth.NewJWKS(raw, a.allowHTTP)
 		if err != nil {
-			return nil, configError("AUTOPILOT_OIDC_JWKS_URL: " + err.Error())
+			return nil, configError(setting + ": " + err.Error())
+		}
+		if u, _ := url.Parse(raw); u != nil && u.Scheme == "http" && !loopback(u.Hostname()) {
+			slog.Warn("a JWKS is fetched over plain http (AUTOPILOT_JWKS_ALLOW_HTTP is on): its keys can be replaced by anyone on the path", "host", u.Host, "setting", setting)
+		}
+		sets = append(sets, keys)
+		return keys, nil
+	}
+	if a.oidcIssuer != "" {
+		keys, err := keyset("AUTOPILOT_OIDC_JWKS_URL", a.oidcJWKS)
+		if err != nil {
+			return nil, nil, err
 		}
 		byIssuer[a.oidcIssuer] = &auth.OIDC{Issuer: a.oidcIssuer, Audience: a.oidcAudience, Keys: keys, UserClaim: a.oidcUserClaim,
 			TierCeiling: 1, Allowed: a.oidcAllowed}
 	}
 	if a.towerIssuer != "" {
-		keys, err := auth.NewJWKS(a.towerJWKS)
+		keys, err := keyset("TOWER_JWKS_URL", a.towerJWKS)
 		if err != nil {
-			return nil, configError("TOWER_JWKS_URL: " + err.Error())
+			return nil, nil, err
 		}
 		byIssuer[a.towerIssuer] = &auth.Foreign{Name: a.towerCluster, Issuer: a.towerIssuer, Audience: foreignAudience, Keys: keys,
 			Allowed: a.towerAccounts, TierCeiling: 1}
 	}
-	return &auth.Cache{Inner: &auth.Router{OIDC: byIssuer, Workload: workload}, TTL: time.Minute}, nil
+	prefetch := func() {
+		for _, k := range sets {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := k.Refresh(ctx); err != nil {
+					u, _ := url.Parse(k.URL)
+					slog.Warn("the first fetch of a JWKS failed; the first token that needs it tries again", "host", u.Host)
+				}
+			}()
+		}
+	}
+	return &auth.Cache{Inner: &auth.Router{OIDC: byIssuer, Workload: workload}, TTL: time.Minute}, prefetch, nil
 }
+
+func loopback(h string) bool { return auth.LoopbackHost(h) }

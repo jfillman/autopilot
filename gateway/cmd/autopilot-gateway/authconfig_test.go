@@ -12,20 +12,24 @@ func TestAuthConfigIsPythonsConfig(t *testing.T) {
 		env  map[string]string
 		want string // "" = accepted
 	}{
-		"nothing set":                    {nil, ""},
-		"issuer without audience":        {map[string]string{"AUTOPILOT_OIDC_ISSUER": "https://dex"}, "set together"},
-		"audience without issuer":        {map[string]string{"AUTOPILOT_OIDC_AUDIENCE": "c"}, "set together"},
-		"issuer needs allowed":           {map[string]string{"AUTOPILOT_OIDC_ISSUER": "https://dex", "AUTOPILOT_OIDC_AUDIENCE": "c"}, "needs AUTOPILOT_OIDC_ALLOWED_USERS"},
-		"tower needs cluster":            {map[string]string{"TOWER_ISSUER": "https://t", "TOWER_SERVICE_ACCOUNTS": "a/b"}, "needs TOWER_CLUSTER"},
-		"tower needs accounts":           {map[string]string{"TOWER_ISSUER": "https://t", "TOWER_CLUSTER": "c"}, "needs TOWER_CLUSTER and TOWER_SERVICE_ACCOUNTS"},
-		"tower cluster alone is ignored": {map[string]string{"TOWER_CLUSTER": "c"}, ""},
-		"retired name":                   {map[string]string{"CLEARANCE_OIDC_ISSUER": "https://dex"}, "CLEARANCE_OIDC_ISSUER -> AUTOPILOT_OIDC_ISSUER"},
-		"plain http, public host":        {map[string]string{"AUTOPILOT_OIDC_ISSUER": "http://dex.example", "AUTOPILOT_OIDC_AUDIENCE": "c", "AUTOPILOT_OIDC_ALLOWED_USERS": "*"}, "must be https"},
+		"nothing set":                      {nil, ""},
+		"issuer without audience":          {map[string]string{"AUTOPILOT_OIDC_ISSUER": "https://dex"}, "set together"},
+		"audience without issuer":          {map[string]string{"AUTOPILOT_OIDC_AUDIENCE": "c"}, "set together"},
+		"issuer needs allowed":             {map[string]string{"AUTOPILOT_OIDC_ISSUER": "https://dex", "AUTOPILOT_OIDC_AUDIENCE": "c"}, "needs AUTOPILOT_OIDC_ALLOWED_USERS"},
+		"tower needs cluster":              {map[string]string{"TOWER_ISSUER": "https://t", "TOWER_SERVICE_ACCOUNTS": "a/b"}, "needs TOWER_CLUSTER"},
+		"tower needs accounts":             {map[string]string{"TOWER_ISSUER": "https://t", "TOWER_CLUSTER": "c"}, "needs TOWER_CLUSTER and TOWER_SERVICE_ACCOUNTS"},
+		"tower cluster alone is ignored":   {map[string]string{"TOWER_CLUSTER": "c"}, ""},
+		"retired name":                     {map[string]string{"CLEARANCE_OIDC_ISSUER": "https://dex"}, "CLEARANCE_OIDC_ISSUER -> AUTOPILOT_OIDC_ISSUER"},
+		"plain http, public host":          {map[string]string{"AUTOPILOT_OIDC_ISSUER": "http://dex.example", "AUTOPILOT_OIDC_AUDIENCE": "c", "AUTOPILOT_OIDC_ALLOWED_USERS": "*"}, "must be https"},
+		"plain http, .local host, default": {map[string]string{"AUTOPILOT_OIDC_ISSUER": "http://dex.hangar-dev.local/dex", "AUTOPILOT_OIDC_AUDIENCE": "c", "AUTOPILOT_OIDC_ALLOWED_USERS": "*"}, "AUTOPILOT_JWKS_ALLOW_HTTP"},
+		"plain http, opted in":             {map[string]string{"AUTOPILOT_OIDC_ISSUER": "http://dex.hangar-dev.local/dex", "AUTOPILOT_OIDC_AUDIENCE": "c", "AUTOPILOT_OIDC_ALLOWED_USERS": "*", "AUTOPILOT_JWKS_ALLOW_HTTP": "1"}, ""},
+		"plain http, loopback":             {map[string]string{"AUTOPILOT_OIDC_ISSUER": "http://127.0.0.1:5556/dex", "AUTOPILOT_OIDC_AUDIENCE": "c", "AUTOPILOT_OIDC_ALLOWED_USERS": "*"}, ""},
+		"tower over plain http, default":   {map[string]string{"TOWER_ISSUER": "http://t.example", "TOWER_CLUSTER": "c", "TOWER_SERVICE_ACCOUNTS": "a/b"}, "TOWER_JWKS_URL"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg, err := configFromEnv(envOf(base(c.env)))
 			if err == nil && (c.env["AUTOPILOT_OIDC_ISSUER"] != "" || c.env["TOWER_ISSUER"] != "") {
-				_, err = cfg.auth.build("clearance", nil)
+				_, _, err = cfg.auth.build("clearance", nil)
 			}
 			if c.want == "" && err != nil {
 				t.Fatal(err)
@@ -66,7 +70,7 @@ func TestAuthConfigIsPythonsConfig(t *testing.T) {
 // With nothing configured the chain still refuses a token it has no verifier for, and never reaches a JWKS.
 func TestBuiltChainWithoutOIDCRefusesNonWorkloadTokens(t *testing.T) {
 	cfg, _ := configFromEnv(envOf(base(nil)))
-	chain, err := cfg.auth.build("clearance", nil)
+	chain, _, err := cfg.auth.build("clearance", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

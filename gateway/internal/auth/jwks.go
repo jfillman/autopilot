@@ -25,36 +25,53 @@ const (
 	minRSABits    = 2048
 )
 
-// JWKS is an issuer's signing keys, fetched from its JWKS URL and refreshed when a token names a key not seen yet,
-// at most once per MinRefresh (a minute, as the Python gateway does), so a stream of bad kids cannot make the gateway
-// hammer the issuer: nothing a caller sends triggers a fetch more often than that, and concurrent requests share the
-// one refresh. A failed fetch counts as an attempt (the next try is a minute away), as in Python.
+// JWKS is an issuer's signing keys, fetched from its JWKS URL and refreshed when a token names a key not seen yet.
+//
+//   - An unknown kid refetches at most once per MinRefresh (a minute) after a successful fetch, however many requests ask,
+//     and after a FAILED fetch at most once per FailRetry (5 s), so a blip at the issuer does not lock sign-in out for a
+//     minute. The attempt is recorded when the fetch ENDS.
+//   - The fetch runs detached from the request that triggered it (its own 10 s timeout), so a caller that names an
+//     unknown kid and hangs up cannot cancel the refresh for everyone else; callers wait for it only as long as their
+//     own context lives, and share the one fetch.
+//   - Every MaxAge (10 minutes) the key set is refetched whether or not a token asks, so a key the issuer withdrew stops
+//     being trusted. The request that notices the age still uses the old keys; the refetch runs behind it. Until that
+//     refetch, and for as long as the issuer cannot be reached, a withdrawn key stays trusted, as in Python.
 type JWKS struct {
 	URL        string
-	MinRefresh time.Duration // default one minute
+	MinRefresh time.Duration // after a successful fetch, between refetches for an unknown kid; default one minute
+	FailRetry  time.Duration // after a failed fetch; default 5 s
+	MaxAge     time.Duration // an unconditional refetch this long after the last success; default 10 minutes
 	HTTP       *http.Client  // tests; nil builds one (see newJWKSClient)
 	Now        func() time.Time
 
-	refresh sync.Mutex // one refresh at a time
-	mu      sync.RWMutex
-	keys    map[string]crypto.PublicKey // by kid
-	noKid   []crypto.PublicKey          // keys the issuer published without a kid
-	fetched time.Time
-	tried   bool
+	mu       sync.RWMutex
+	keys     map[string]crypto.PublicKey // by kid
+	noKid    []crypto.PublicKey          // keys the issuer published without a kid
+	attempts bool                        // a fetch has ended
+	lastOK   bool                        // the last fetch to end succeeded
+	last     time.Time                   // when it ended
+	lastGood time.Time                   // when the last successful fetch ended
+	inflight *flight
+}
+
+// flight is one fetch in progress, shared by everyone who needs it.
+type flight struct {
+	done chan struct{}
+	err  error
 }
 
 // NewJWKS returns a key set for a JWKS URL, or an error when the URL may not be fetched (see checkJWKSURL).
-func NewJWKS(rawURL string) (*JWKS, error) {
-	if err := checkJWKSURL(rawURL); err != nil {
+func NewJWKS(rawURL string, allowHTTP bool) (*JWKS, error) {
+	if err := checkJWKSURL(rawURL, allowHTTP); err != nil {
 		return nil, err
 	}
 	return &JWKS{URL: rawURL}, nil
 }
 
-// checkJWKSURL: https, with one named exception. The Python gateway fetches any http(s) URL; the lab's Dex is served
-// over plain http on a `.local` name (tools/hangar_login.py), so http is accepted for loopback and `.local` hosts
-// only. Any other http URL is refused at start, with this message.
-func checkJWKSURL(raw string) error {
+// checkJWKSURL: https, or http for a loopback host (local runs and tests), or http for any host only when the operator
+// opted in (AUTOPILOT_JWKS_ALLOW_HTTP). The Python gateway fetches any http(s) URL; a lab that serves its issuer over
+// plain http says so in its configuration, the product does not guess from a host name.
+func checkJWKSURL(raw string, allowHTTP bool) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.User != nil {
 		return errors.New(raw + " is not a usable JWKS URL")
@@ -63,16 +80,16 @@ func checkJWKSURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		if labHost(u.Hostname()) {
+		if allowHTTP || LoopbackHost(u.Hostname()) {
 			return nil
 		}
 	}
-	return errors.New("JWKS URL " + raw + " must be https (plain http only for loopback and .local lab hosts)")
+	return errors.New("JWKS URL " + raw + " must be https (AUTOPILOT_JWKS_ALLOW_HTTP=1 allows plain http for a lab issuer)")
 }
 
-func labHost(h string) bool {
-	h = strings.ToLower(h)
-	if h == "localhost" || strings.HasSuffix(h, ".local") {
+// LoopbackHost is localhost or a loopback address.
+func LoopbackHost(h string) bool {
+	if strings.EqualFold(h, "localhost") {
 		return true
 	}
 	ip := net.ParseIP(h)
@@ -86,11 +103,11 @@ func (j *JWKS) now() time.Time {
 	return time.Now()
 }
 
-func (j *JWKS) minRefresh() time.Duration {
-	if j.MinRefresh > 0 {
-		return j.MinRefresh
+func orDefault(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
 	}
-	return time.Minute
+	return def
 }
 
 func (j *JWKS) lookup(kid string, hasKid bool) (crypto.PublicKey, bool) {
@@ -106,34 +123,74 @@ func (j *JWKS) lookup(kid string, hasKid bool) (crypto.PublicKey, bool) {
 	return nil, false
 }
 
-// Key returns the key for a token's kid (absent hasKid matches a key published without one, as in Python), refreshing
-// the set first when the kid is unknown and the last attempt is old enough. It never returns detail.
+// start returns the fetch in progress, or begins one when the last attempt is old enough for interval (after a
+// failure: for FailRetry), or returns nil when it is too soon.
+func (j *JWKS) start(ctx context.Context, interval time.Duration) *flight {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.inflight != nil {
+		return j.inflight
+	}
+	age := j.now().Sub(j.last)
+	if j.attempts && ((j.lastOK && age < interval) || (!j.lastOK && age < orDefault(j.FailRetry, 5*time.Second))) {
+		return nil
+	}
+	f := &flight{done: make(chan struct{})}
+	j.inflight = f
+	go j.run(context.WithoutCancel(ctx), f)
+	return f
+}
+
+func (j *JWKS) run(ctx context.Context, f *flight) {
+	keys, noKid, err := j.fetch(ctx)
+	j.mu.Lock()
+	j.attempts, j.last, j.lastOK = true, j.now(), err == nil
+	if err == nil {
+		j.keys, j.noKid, j.lastGood = keys, noKid, j.last
+	}
+	j.inflight = nil
+	j.mu.Unlock()
+	f.err = err
+	close(f.done)
+}
+
+// Refresh fetches the key set now unless a fetch is in progress (then it waits for that one), and returns the fetch's
+// error. The gateway calls it once per issuer at start, in the background: a failure is not fatal, the first token
+// that needs the keys tries again.
+func (j *JWKS) Refresh(ctx context.Context) error {
+	f := j.start(ctx, 0)
+	if f == nil {
+		return nil
+	}
+	select {
+	case <-f.done:
+		return f.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Key returns the key for a token's kid (absent hasKid matches a key published without one, as in Python). An unknown
+// kid refetches the set first, within the limits above. It never returns detail.
 func (j *JWKS) Key(ctx context.Context, kid string, hasKid bool) (crypto.PublicKey, error) {
 	if k, ok := j.lookup(kid, hasKid); ok {
-		return k, nil
-	}
-	j.refresh.Lock()
-	// Another request may have refreshed while this one waited, or the attempt may be too recent.
-	if k, ok := j.lookup(kid, hasKid); ok {
-		j.refresh.Unlock()
-		return k, nil
-	}
-	j.mu.RLock()
-	due := !j.tried || j.now().Sub(j.fetched) >= j.minRefresh()
-	j.mu.RUnlock()
-	if due {
-		j.mu.Lock()
-		j.tried, j.fetched = true, j.now()
-		j.mu.Unlock()
-		if keys, noKid, err := j.fetch(ctx); err == nil {
-			j.mu.Lock()
-			j.keys, j.noKid = keys, noKid
-			j.mu.Unlock()
+		j.mu.RLock()
+		old := !j.lastGood.IsZero() && j.now().Sub(j.lastGood) >= orDefault(j.MaxAge, 10*time.Minute)
+		j.mu.RUnlock()
+		if old {
+			j.start(ctx, orDefault(j.MaxAge, 10*time.Minute)) // behind this request; the next one sees the new set
 		}
-	}
-	j.refresh.Unlock()
-	if k, ok := j.lookup(kid, hasKid); ok {
 		return k, nil
+	}
+	if f := j.start(ctx, orDefault(j.MinRefresh, time.Minute)); f != nil {
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			return nil, refuse("token rejected")
+		}
+		if k, ok := j.lookup(kid, hasKid); ok {
+			return k, nil
+		}
 	}
 	return nil, refuse("token rejected")
 }

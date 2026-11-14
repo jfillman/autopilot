@@ -11,8 +11,10 @@ Where the Go side differs from Python on purpose it is not fed here; Go tests pi
 docs/admin/go-gateway.md lists them: a token over 16 KiB, a string exp, a JWKS with a key PyJWT cannot read, a
 plain-http JWKS URL, a JWKS fetch that fails (Python raises a non-AuthError).
 """
+import base64
 import json
 import os
+import random
 import shutil
 import subprocess
 import time
@@ -21,7 +23,8 @@ from pathlib import Path
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 
 from autopilot.engine.auth import (JWKS, ForeignWorkloadAuthenticator, GitHubActionsAuthenticator, OIDCAuthenticator,
@@ -140,6 +143,77 @@ def cases():
     return out
 
 
+def raw_token(header_json, payload_json, key=RSA1):
+    """A token whose JSON is written by hand (duplicate keys, odd numbers), signed RS256 over exactly those bytes."""
+    b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=").decode()  # noqa: E731
+    signing = b(header_json.encode()) + "." + b(payload_json.encode())
+    return signing + "." + b(key.sign(signing.encode(), padding.PKCS1v15(), hashes.SHA256()))
+
+
+def body(**over):
+    """claims() as JSON text with the given members replaced by raw JSON text (so 1e400 or a duplicate stay as written)."""
+    base = {"iss": json.dumps(ISS), "aud": json.dumps(AUD), "sub": '"abc"', "iat": str(int(time.time()) - 10),
+            "exp": str(int(time.time()) + 3600), "email": '"ada@example.com"'}
+    base.update(over)
+    return "{" + ",".join(f'"{k}":{v}' for k, v in base.items() if v is not None) + "}"
+
+
+def more_cases():
+    """The edge cases of numbers, duplicate keys, null kid, aud lists and unusual user claims. A case with `go` set is
+    one where Go is deliberately stricter: Python's answer is the natural one and Go's must be exactly `go`."""
+    n = int(time.time())
+    out = []
+
+    def oidc(name, token, allowed=("*",), claim="email", go=None):
+        c = dict(name=name, kind="oidc", token=token, issuer=ISS, audience=AUD, claim=claim, allowed=list(allowed))
+        if go is not None:
+            c["go"] = go
+        out.append(c)
+
+    H = '{"alg":"RS256","kid":"k1"}'
+    for label, over in {
+        "float exp": {"exp": str(n + 3600) + ".7"}, "float iat": {"iat": str(n - 10) + ".5"},
+        "huge exp": {"exp": "1e30"}, "huge integer exp": {"exp": "9" * 30}, "huge iat": {"iat": "1e30"},
+        "exp 1e400": {"exp": "1e400"}, "negative exp": {"exp": "-5"}, "negative iat": {"iat": "-5"}, "negative nbf": {"nbf": "-5"},
+        "zero exp": {"exp": "0"}, "float nbf future": {"nbf": str(n + 60) + ".5"}, "exp true": {"exp": "true"},
+        "iat null": {"iat": "null"}, "exp null": {"exp": "null"}, "nbf null": {"nbf": "null"}, "exp array": {"exp": "[1]"},
+        "exp tiny float": {"exp": "1e-9"},
+    }.items():
+        oidc(label, raw_token(H, body(**over)))
+    # Python's int() reads a numeric string; Go insists on a JSON number.
+    for k in ("exp", "iat", "nbf"):
+        oidc(f"{k} as a string", raw_token(H, body(**{k: f'"{n + 3600 if k == "exp" else n - 10}"'})), go={"ok": False})
+    # A token over 16 KiB: Python has no limit.
+    oidc("oversized", tok(claims(pad="a" * 20000)), go={"ok": False})
+    # Duplicate JSON keys: the last one wins in both.
+    oidc("duplicate kid, last good", raw_token('{"alg":"RS256","kid":"nope","kid":"k1"}', body()))
+    oidc("duplicate kid, last bad", raw_token('{"alg":"RS256","kid":"k1","kid":"nope"}', body()))
+    oidc("duplicate alg, last none", raw_token('{"alg":"RS256","alg":"none","kid":"k1"}', body()))
+    oidc("duplicate aud, last good", raw_token(H, body(aud='"x","aud":"tower"')))
+    oidc("duplicate aud, last bad", raw_token(H, body(aud='"tower","aud":"x"')))
+    oidc("duplicate exp, last expired", raw_token(H, body(exp=f"{n + 3600},\"exp\":{n - 3600}")))
+    oidc("duplicate email", raw_token(H, body(email='"eve@evil.test","email":"ada@example.com"')))
+    # kid: null, a number, absent
+    oidc("null kid", raw_token('{"alg":"RS256","kid":null}', body()))
+    oidc("numeric kid", raw_token('{"alg":"RS256","kid":1}', body()))
+    oidc("empty kid", raw_token('{"alg":"RS256","kid":""}', body()))
+    # aud with non-strings
+    for label, a in {"[aud, 1]": f'["{AUD}",1]', "[1, aud]": f'[1,"{AUD}"]', "[null, aud]": f'[null,"{AUD}"]', "[[aud]]": f'[["{AUD}"]]',
+                     "object": f'{{"{AUD}":1}}', "empty list": "[]", "empty string": '""', "number": "5", "true": "true",
+                     "list of aud twice": f'["{AUD}","{AUD}"]'}.items():
+        oidc("aud " + label, raw_token(H, body(aud=a)))
+    # unusual user claims: the principal is user:<claim> byte for byte
+    for label, v in {"slash": "a/b@example.com", "colon": "a:b@example.com", "newline": "a\nb@example.com", "non-ascii": "\u00e9a@example.com",
+                     "space": "a b@example.com", "glob chars": "a*[b]?@example.com", "emoji": "\U0001f600@example.com", "long": "a" * 300 + "@example.com",
+                     "empty": "", "only newline": "\n"}.items():
+        oidc("user claim " + label, tok(claims(email=v)))
+    oidc("claim with newline vs glob", tok(claims(email="a\nb@example.com")), allowed=("a?b@example.com",))
+    oidc("claim with newline vs star", tok(claims(email="a\nb@example.com")), allowed=("a*@example.com",))
+    oidc("claim with newline vs class", tok(claims(email="a\nb@example.com")), allowed=("a[!x]b@example.com",))
+    oidc("non-string preferred_username", tok(claims(preferred_username=["a"])), claim="preferred_username")
+    return out
+
+
 def python_outcome(c):
     keys = JWKS("http://unused", fetch=lambda url: JWKS_DOC)
     if c["kind"] == "oidc":
@@ -171,26 +245,51 @@ GLOBS = [("ada@example.com", "*@example.com"), ("ada@example.com", "*@example.or
          ("a[", "a["), ("a[b", "a[b"), ("ab", "a["), ("a\nb", "a*b"), ("repo:acme/shop:ref:x", "repo:acme/shop:*"),
          ("repo:acme/shop2:ref:x", "repo:acme/shop:*"), ("user:x", "[!u]ser:x"), ("é", "?"), ("ab", "[b-a]b"),
          ("app-backstage-prod/backstage", "app-*/backstage")]
+def generated_globs(count=2500):
+    """Seeded pattern/name pairs over an alphabet of the characters that matter to fnmatch."""
+    rnd = random.Random(20261114)
+    pat_chars, name_chars = "ab/:*?[]!-^\\\n\u00e9", "ab/:]!-^\n\u00e9["
+    pairs = []
+    for _ in range(count):
+        pat = "".join(rnd.choice(pat_chars) for _ in range(rnd.randint(0, 7)))
+        name = "".join(rnd.choice(name_chars) for _ in range(rnd.randint(0, 6)))
+        pairs.append((name, pat))
+        # and a name built from the pattern, so a good share of the pairs match
+        derived = "".join(rnd.choice("ab/:") if ch in "*?" else ch for ch in pat if ch not in "[]!")
+        pairs.append((derived, pat))
+    return pairs
+
+
 SUBS = ["repo:acme/shop:ref:refs/heads/main", "repo:acme@1/shop@2:ref:refs/heads/main", "repo:acme@1/shop@2",
         "repo:acme/shop@2:environment:prod", "repo:acme@x/shop", "org:acme", "repo:a/b/c:ref", "repo:acme@1/shop@2:ref:a:b"]
 
 
 def test_go_and_python_authenticators_agree(tmp_path):
-    cs = cases()
+    cs = cases() + more_cases()
     infile, outfile = tmp_path / "in.json", tmp_path / "out.json"
-    infile.write_text(json.dumps({"jwks": JWKS_DOC, "cases": cs, "globs": GLOBS, "subs": SUBS}))
+    infile.write_text(json.dumps({"jwks": JWKS_DOC, "cases": cs, "globs": GLOBS + generated_globs(), "subs": SUBS}))
     env = {**os.environ, "AUTOPILOT_AUTH_EQUIV_IN": str(infile), "AUTOPILOT_AUTH_EQUIV_OUT": str(outfile), "GOFLAGS": "-mod=readonly"}
     r = subprocess.run([GO, "test", "-count=1", "-run", "TestEquivalenceHelper", "./internal/auth"], cwd=ROOT / "gateway",
                        capture_output=True, text=True, env=env, timeout=600)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
     go = json.loads(outfile.read_text())
     assert len(go["cases"]) == len(cs) > 50, "the Go side answered a different number of cases (a vacuous comparison)"
-    accepted = 0
+    accepted = different = 0
     for c, g in zip(cs, go["cases"]):
         py = python_outcome(c)
         g = {k: v for k, v in g.items() if v not in (None, 0, {}) or k == "ok"}
+        if "go" in c:
+            # Go is deliberately stricter here: pin the exact difference, so it cannot widen or quietly vanish.
+            assert py["ok"] and g == c["go"], f"{c['name']}: expected python accepts and go {c['go']}, got python {py} go {g}"
+            different += 1
+            continue
         assert g == py, f"{c['kind']} {c.get('name')}: python {py} != go {g}\n{c['token'][:60]}..."
         accepted += py["ok"]
-    assert 8 <= accepted < len(cs), "the cases must include both accepted and refused tokens"
-    assert go["globs"] == [fnmatchcase(n, p) for n, p in GLOBS]
+    assert different == 4, "the deliberate differences are exactly the numeric-string claims and the oversized token"
+    assert 20 <= accepted < len(cs), "the cases must include both accepted and refused tokens"
+    pairs = GLOBS + generated_globs()
+    assert len(go["globs"]) == len(pairs) >= 5000
+    wrong = [(n, p, got) for (n, p), got in zip(pairs, go["globs"]) if got != fnmatchcase(n, p)]
+    assert not wrong, f"{len(wrong)} glob differences, first: {wrong[:5]}"
+    assert 200 < sum(go["globs"]) < len(pairs) - 200, "the generated globs must both match and miss"
     assert go["subs"] == [canonical_sub(s) for s in SUBS]

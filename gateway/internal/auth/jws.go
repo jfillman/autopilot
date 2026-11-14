@@ -42,6 +42,12 @@ func parseJWT(token string) (*jwt, error) {
 	if len(token) > MaxTokenBytes {
 		return nil, refuse("token rejected")
 	}
+	for i := 0; i < len(token); i++ { // base64url and the two dots only; Go's decoder would skip CR and LF
+		c := token[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return nil, refuse("token rejected")
+		}
+	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, refuse("token rejected")
@@ -139,7 +145,7 @@ func checkClaims(c map[string]any, issuer, audience string, leeway time.Duration
 	if !ok || iat > nowS+lee {
 		return refuse("token rejected")
 	}
-	if v, present := c["nbf"]; present && v != nil {
+	if v, present := c["nbf"]; present { // present means a number, even null (Python: int(None) is an error)
 		nbf, ok := numericDate(v)
 		if !ok || nbf > nowS+lee {
 			return refuse("token rejected")
@@ -175,9 +181,12 @@ func numericDate(v any) (float64, bool) {
 }
 
 func audienceMatches(aud any, want string) bool {
+	if want == "" {
+		return false // an unconfigured audience matches nothing
+	}
 	switch a := aud.(type) {
 	case string:
-		return a != "" && a == want
+		return want != "" && a == want
 	case []any:
 		found := false
 		for _, e := range a {

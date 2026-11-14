@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -130,6 +131,7 @@ type Cache struct {
 	Inner dispatch.Authenticator
 	TTL   time.Duration
 	Now   func() time.Time
+	Max   int // entries kept; default 4096
 	mu    sync.Mutex
 	m     map[string]cached
 }
@@ -162,8 +164,30 @@ func (c *Cache) Authenticate(ctx context.Context, token string) (*dispatch.Princ
 		until = exp
 	}
 	c.mu.Lock()
-	if c.m == nil || len(c.m) > 4096 {
+	if c.m == nil {
 		c.m = map[string]cached{}
+	}
+	max := c.Max
+	if max <= 0 {
+		max = 4096
+	}
+	if len(c.m) >= max { // as Python: the quarter that expires soonest goes, not everything
+		type kv struct {
+			k string
+			t time.Time
+		}
+		all := make([]kv, 0, len(c.m))
+		for k, e := range c.m {
+			all = append(all, kv{k, e.expires})
+		}
+		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+		n := max / 4
+		if n < 1 {
+			n = 1
+		}
+		for _, e := range all[:n] {
+			delete(c.m, e.k)
+		}
 	}
 	c.m[key] = cached{p, until}
 	c.mu.Unlock()
