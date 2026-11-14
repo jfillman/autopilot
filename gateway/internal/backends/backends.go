@@ -199,15 +199,41 @@ func (h *HTTP) Logql(ctx context.Context, q string) (any, error) {
 	return map[string]any{"resultType": rtype, "result": out, "lines": lines, "truncated": truncated}, nil
 }
 
-// Config says which backends this deployment has.
+// Config says which backends this deployment has. Prometheus, Loki, Backstage and the application APIs are on when their
+// setting is; Argo CD reads are on when ArgoNamespaces is not empty; artifacts are on when Artifacts is set.
 type Config struct {
 	PrometheusURL string
 	LokiURL       string
 	Timeout       time.Duration
+
+	// BackstageURL is BACKSTAGE_URL; the token is read from BackstageTokenFile on every call.
+	BackstageURL       string
+	BackstageTokenFile string
+	// AppAPIServices is APP_API_SERVICES: {service: base URL}.
+	AppAPIServices map[string]string
+	// ArgoNamespaces is ARGO_APP_NAMESPACES (empty: no argo.app.get). Kube is the API server reader; nil is the in-cluster one.
+	ArgoNamespaces []string
+	Kube           *KubeReader
+	// Artifacts keeps artifact.put and artifact.get; Now is the clock they read (nil: the wall clock).
+	Artifacts ArtifactStore
+	Now       func() time.Time
 }
 
-// Handlers builds a handler per tool whose backend is configured.
+// Handlers builds a handler per tool whose backend is configured. It is NewHandlers for a configuration that cannot fail
+// (the first slice's two URLs); it panics on one that does, which only a program that built the configuration by hand can hold.
 func Handlers(c Config) map[string]dispatch.Handler {
+	h, err := NewHandlers(c)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}
+
+// BackstageTokenFileDefault is where Python looks for the catalog token (BACKSTAGE_TOKEN_FILE).
+const BackstageTokenFileDefault = "/var/run/clearance/backstage-token"
+
+// NewHandlers builds a handler per tool whose backend is configured, or says why a setting is not usable.
+func NewHandlers(c Config) (map[string]dispatch.Handler, error) {
 	h := map[string]dispatch.Handler{}
 	if c.Timeout == 0 {
 		c.Timeout = 30 * time.Second
@@ -226,5 +252,81 @@ func Handlers(c Config) map[string]dispatch.Handler {
 			return l.Logql(ctx, q)
 		}
 	}
-	return h
+	if c.BackstageURL != "" {
+		tf := c.BackstageTokenFile
+		if tf == "" {
+			tf = BackstageTokenFileDefault
+		}
+		cat, err := NewCatalog(c.BackstageURL, tf, c.Timeout)
+		if err != nil {
+			return nil, err
+		}
+		h["catalog.read"] = func(ctx context.Context, _ *session.Session, a map[string]any) (any, error) {
+			return cat.Read(ctx, a["query"])
+		}
+	}
+	if len(c.AppAPIServices) > 0 {
+		apis, err := NewAppAPIs(c.AppAPIServices, 0)
+		if err != nil {
+			return nil, err
+		}
+		h["app.api.get"] = func(ctx context.Context, _ *session.Session, a map[string]any) (any, error) {
+			return apis.Get(ctx, a["service"], a["path"])
+		}
+	}
+	if len(c.ArgoNamespaces) > 0 {
+		for _, n := range c.ArgoNamespaces {
+			if !nsPattern.MatchString(n) {
+				return nil, fmt.Errorf("ARGO_APP_NAMESPACES: %s is not a namespace name (a DNS label)", pyStrRepr(n))
+			}
+		}
+		kube := c.Kube
+		if kube == nil {
+			kube = NewKubeReader()
+		}
+		argo := &Argo{Kube: kube, Namespaces: c.ArgoNamespaces}
+		h["argo.app.get"] = func(ctx context.Context, _ *session.Session, a map[string]any) (any, error) {
+			return argo.Get(ctx, a["app"])
+		}
+	}
+	if c.Artifacts != nil {
+		store, now := c.Artifacts, c.Now
+		if now == nil {
+			now = func() time.Time { return time.Now().UTC() }
+		}
+		h["artifact.put"] = func(ctx context.Context, s *session.Session, a map[string]any) (any, error) {
+			name, content, err := ValidatePut(a["name"], a["content"])
+			if err != nil {
+				return nil, err
+			}
+			task := taskOf(s)
+			if task == "" {
+				return nil, errNoTask
+			}
+			return store.Put(ctx, task, name, content, now())
+		}
+		h["artifact.get"] = func(ctx context.Context, s *session.Session, a map[string]any) (any, error) {
+			task := taskOf(s)
+			if task == "" {
+				return nil, errNoTask
+			}
+			name, _ := a["name"].(string)
+			if !artifactName.MatchString(name) {
+				return nil, nil // no such artifact, as Python's query finds none
+			}
+			content, ok, err := store.Get(ctx, task, name, now())
+			if err != nil || !ok {
+				return nil, err
+			}
+			return content, nil
+		}
+	}
+	return h, nil
+}
+
+// taskOf is the task a session's artifacts belong to.
+func taskOf(s *session.Session) string {
+	s.Lock()
+	defer s.Unlock()
+	return s.TaskID
 }

@@ -48,6 +48,7 @@ type config struct {
 	modelTimeout            time.Duration
 	pgConns                 int32
 	auth                    authConfig
+	reads                   readSettings
 }
 
 type configError string
@@ -89,7 +90,7 @@ func number(env func(string) string, k string, d float64) (float64, error) {
 // unported are variables of the Python gateway whose features this slice does not carry. Starting with one set would
 // mean running without something the operator asked for, so the gateway refuses (docs/admin/go-gateway.md).
 var unported = []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
-	"GLIDEPATH_API_URL", "BACKSTAGE_URL", "APP_API_SERVICES", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
+	"GLIDEPATH_API_URL", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
 
 func configFromEnv(env func(string) string) (*config, error) {
 	var stale []string
@@ -174,6 +175,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 	}
 	c.callTimeout = time.Duration(ct * float64(time.Second))
 	c.prometheusURL, c.lokiURL = env("PROMETHEUS_URL"), env("LOKI_URL")
+	if c.reads, err = readBackends(env); err != nil {
+		return nil, err
+	}
 	c.modelRoutes = map[string]string{}
 	for _, pair := range strings.Split(env("MODEL_ROUTES"), ",") {
 		if pair = strings.TrimSpace(pair); pair != "" {
@@ -248,7 +252,14 @@ func serve(_ []string) int {
 			log.Warn("a pinned definition was not loaded", "why", s)
 		}
 	}
-	handlers := backends.Handlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL})
+	artifacts := pgstate.NewArtifacts(st)
+	handlers, err := backends.NewHandlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL,
+		BackstageURL: cfg.reads.backstageURL, BackstageTokenFile: cfg.reads.backstageTokenFile, AppAPIServices: cfg.reads.appAPIServices,
+		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: artifacts})
+	if err != nil {
+		log.Error("configuration: " + err.Error())
+		return 2
+	}
 	authn, prefetch, err := cfg.auth.build(cfg.audience, auth.NewWorkload(cfg.runAudiences[0], cfg.runAudiences[1:]...))
 	if err != nil {
 		log.Error("configuration: " + err.Error())
@@ -289,7 +300,7 @@ func serve(_ []string) int {
 	log.Info("autopilot-gateway (Go) starting", "version", gatewayVersion(), "tools", reg.Len(), "agents", len(defs), "port", cfg.port,
 		"model_proxy", cfg.modelKeyFile != "")
 
-	go sweep(ctx, g, cfg.expireEvery)
+	go sweep(ctx, g, cfg.expireEvery, artifacts.Purge)
 	errc := make(chan error, len(servers))
 	for _, s := range servers {
 		go func() { errc <- s.ListenAndServe() }()
@@ -311,7 +322,7 @@ func serve(_ []string) int {
 
 // sweep closes sessions past their deadline, deletes their runs, and posts what the outbox holds once the core answers
 // again (dispatch.Gateway.Expire). A panic in one sweep is logged, not fatal: the next one retries.
-func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
+func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration, purge func(context.Context, time.Time, int, int) (int64, error)) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -329,6 +340,12 @@ func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
 				defer cancel()
 				if done := g.Expire(sctx); len(done) > 0 {
 					slog.Info("expired sessions and deleted their runs", "n", len(done))
+				}
+				// Expired artifacts of every task, 500 rows at a time and at most 20 batches a sweep (a put cleans only its own task's).
+				if n, err := purge(sctx, time.Now().UTC(), 500, 20); err != nil {
+					slog.Warn("the artifact purge failed", "err", err.Error())
+				} else if n > 0 {
+					slog.Info("deleted expired artifacts", "n", n)
 				}
 			}()
 		}

@@ -1,0 +1,1876 @@
+{
+ "ops": [
+  {
+   "at": 0,
+   "content": "hello",
+   "micro": 0,
+   "name": "plan.md",
+   "op": "put",
+   "result": {
+    "bytes": 5,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "plan.md"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": "hello"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 5,
+   "content": "replaced \u00e9",
+   "micro": 0,
+   "name": "plan.md",
+   "op": "put",
+   "result": {
+    "bytes": 11,
+    "expires_at": "2026-11-21T12:00:05+00:00",
+    "stored": "plan.md"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 6,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": "replaced \u00e9"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 1,
+   "content": "x",
+   "micro": 123456,
+   "name": "micro",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:01.123456+00:00",
+    "stored": "micro"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 2,
+   "content": "x",
+   "micro": 0,
+   "name": "micro-zero",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:02+00:00",
+    "stored": "micro-zero"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'a b' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "a b",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'a/b' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "a/b",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'../x' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "../x",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "micro": 0,
+   "name": ".",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "."
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "micro": 0,
+   "name": "..",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": ".."
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'... is not an artifact name",
+     "rule": "ART-NAME"
+    },
+    "requests": []
+   },
+   "micro": 0,
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "op": "put",
+   "task": "t-1",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'\u00e9' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "\u00e9",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "None is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": null,
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "5 is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": 5,
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "['a'] is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": [
+    "a"
+   ],
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'a\\x00b' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "a\u0000b",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'a,b' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "a,b",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "\"it's\" is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "micro": 0,
+   "name": "it's",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn'... is not an artifact name",
+     "rule": "ART-NAME"
+    },
+    "requests": []
+   },
+   "micro": 0,
+   "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+   "op": "put",
+   "task": "t-1",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'a ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba b' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'a ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba'... is not an artifact name",
+     "rule": "ART-NAME"
+    },
+    "requests": []
+   },
+   "micro": 0,
+   "name": "a ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba b",
+   "op": "put",
+   "task": "t-1",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
+  },
+  {
+   "at": 0,
+   "content": "ok",
+   "micro": 0,
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "op": "put",
+   "result": {
+    "bytes": 2,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'trailing-newline\\n' is not an artifact name",
+     "rule": "ART-NAME"
+    }
+   },
+   "micro": 0,
+   "name": "trailing-newline\n",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "trailing-newline\n"
+   },
+   "task": "t-1",
+   "why": "Python's $ matches before a trailing newline; Go refuses the name"
+  },
+  {
+   "at": 0,
+   "content": 5,
+   "denied": {
+    "hint": "Pass a string (JSON-encode structured data).",
+    "message": "an artifact's content is text",
+    "rule": "ART-CONTENT"
+   },
+   "micro": 0,
+   "name": "c",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "denied": {
+    "hint": "Pass a string (JSON-encode structured data).",
+    "message": "an artifact's content is text",
+    "rule": "ART-CONTENT"
+   },
+   "micro": 0,
+   "name": "c",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": {
+    "a": 1
+   },
+   "denied": {
+    "hint": "Pass a string (JSON-encode structured data).",
+    "message": "an artifact's content is text",
+    "rule": "ART-CONTENT"
+   },
+   "micro": 0,
+   "name": "c",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": [
+    "x"
+   ],
+   "denied": {
+    "hint": "Pass a string (JSON-encode structured data).",
+    "message": "an artifact's content is text",
+    "rule": "ART-CONTENT"
+   },
+   "micro": 0,
+   "name": "c",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": 1.5,
+   "denied": {
+    "hint": "Pass a string (JSON-encode structured data).",
+    "message": "an artifact's content is text",
+    "rule": "ART-CONTENT"
+   },
+   "micro": 0,
+   "name": "c",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": true,
+   "denied": {
+    "hint": "Pass a string (JSON-encode structured data).",
+    "message": "an artifact's content is text",
+    "rule": "ART-CONTENT"
+   },
+   "micro": 0,
+   "name": "c",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "a\u0000b",
+   "go": {
+    "denied": {
+     "hint": "Pass a string without a NUL character (JSON-encode structured data).",
+     "message": "an artifact's content is text",
+     "rule": "ART-CONTENT"
+    }
+   },
+   "micro": 0,
+   "name": "nul",
+   "op": "put",
+   "result": {
+    "bytes": 3,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "nul"
+   },
+   "task": "t-1",
+   "why": "Python hands the NUL to the database driver, which fails the call; Go refuses the content"
+  },
+  {
+   "at": 0,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "max",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "max"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262145,
+     ""
+    ]
+   },
+   "denied": {
+    "hint": "Store a summary, or split it.",
+    "message": "262145 bytes is over the 262144-byte limit for one artifact",
+    "rule": "ART-SIZE"
+   },
+   "micro": 0,
+   "name": "over",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": {
+    "$str": [
+     "",
+     "\u00e9",
+     131073,
+     ""
+    ]
+   },
+   "denied": {
+    "hint": "Store a summary, or split it.",
+    "message": "262146 bytes is over the 262144-byte limit for one artifact",
+    "rule": "ART-SIZE"
+   },
+   "micro": 0,
+   "name": "overwide",
+   "op": "put",
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": {
+    "$str": [
+     "",
+     "\u00e9",
+     131072,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "wide",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "wide"
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "max",
+   "op": "get",
+   "result": {
+    "content": {
+     "$str": [
+      "",
+      "a",
+      262144,
+      ""
+     ]
+    }
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "other task",
+   "micro": 0,
+   "name": "plan.md",
+   "op": "put",
+   "result": {
+    "bytes": 10,
+    "expires_at": "2026-11-21T12:00:00+00:00",
+    "stored": "plan.md"
+   },
+   "task": "t-2"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": "other task"
+   },
+   "task": "t-2"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-3"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": ""
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "missing",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "a b",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "../x",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": null,
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": 5,
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": null,
+   "micro": 0,
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n00",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n00"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n01",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n01"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n02",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n02"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n03",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n03"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n04",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n04"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n05",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n05"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n06",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n06"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n07",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n07"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n08",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n08"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n09",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n09"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n10",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n10"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n11",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n11"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n12",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n12"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n13",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n13"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n14",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n14"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n15",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n15"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n16",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n16"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n17",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n17"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n18",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n18"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n19",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n19"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n20",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n20"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n21",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n21"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n22",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n22"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n23",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n23"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n24",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n24"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n25",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n25"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n26",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n26"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n27",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n27"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n28",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n28"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n29",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n29"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n30",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n30"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "micro": 0,
+   "name": "n31",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n31"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "x",
+   "denied": {
+    "hint": "Replace an existing artifact by its name instead of adding one.",
+    "message": "this task may keep 32 artifacts and 2097152 bytes",
+    "rule": "ART-QUOTA"
+   },
+   "micro": 0,
+   "name": "n32",
+   "op": "put",
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": "replaced",
+   "micro": 0,
+   "name": "n00",
+   "op": "put",
+   "result": {
+    "bytes": 8,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "n00"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": null,
+   "micro": 0,
+   "name": "n00",
+   "op": "get",
+   "result": {
+    "content": "replaced"
+   },
+   "task": "t-q"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b0",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b0"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b1",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b1"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b2",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b2"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b3",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b3"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b4",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b4"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b5",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b5"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b6",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b6"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b7",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b7"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": "a",
+   "denied": {
+    "hint": "Replace an existing artifact by its name instead of adding one.",
+    "message": "this task may keep 32 artifacts and 2097152 bytes",
+    "rule": "ART-QUOTA"
+   },
+   "micro": 0,
+   "name": "b8",
+   "op": "put",
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "micro": 0,
+   "name": "b0",
+   "op": "put",
+   "result": {
+    "bytes": 262144,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b0"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": "aaaaaaaaaa",
+   "micro": 0,
+   "name": "b0",
+   "op": "put",
+   "result": {
+    "bytes": 10,
+    "expires_at": "2026-11-21T12:00:10+00:00",
+    "stored": "b0"
+   },
+   "task": "t-b"
+  },
+  {
+   "at": 10,
+   "content": {
+    "$str": [
+     "",
+     "a",
+     262144,
+     ""
+    ]
+   },
+   "denied": {
+    "hint": "Replace an existing artifact by its name instead of adding one.",
+    "message": "this task may keep 32 artifacts and 2097152 bytes",
+    "rule": "ART-QUOTA"
+   },
+   "micro": 0,
+   "name": "b8",
+   "op": "put",
+   "task": "t-b"
+  },
+  {
+   "at": 604805,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 604806,
+   "content": null,
+   "micro": 0,
+   "name": "plan.md",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-1"
+  },
+  {
+   "at": 100,
+   "content": "x",
+   "micro": 0,
+   "name": "e",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:01:40+00:00",
+    "stored": "e"
+   },
+   "task": "t-e"
+  },
+  {
+   "at": 604899,
+   "content": null,
+   "micro": 0,
+   "name": "e",
+   "op": "get",
+   "result": {
+    "content": "x"
+   },
+   "task": "t-e"
+  },
+  {
+   "at": 259300,
+   "content": "y",
+   "micro": 0,
+   "name": "e",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-24T12:01:40+00:00",
+    "stored": "e"
+   },
+   "task": "t-e"
+  },
+  {
+   "at": 604905,
+   "content": null,
+   "micro": 0,
+   "name": "e",
+   "op": "get",
+   "result": {
+    "content": "y"
+   },
+   "task": "t-e"
+  },
+  {
+   "at": 864101,
+   "content": null,
+   "micro": 0,
+   "name": "e",
+   "op": "get",
+   "result": {
+    "content": null
+   },
+   "task": "t-e"
+  },
+  {
+   "at": 1000,
+   "content": "x",
+   "micro": 0,
+   "name": "old",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-21T12:16:40+00:00",
+    "stored": "old"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n00",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n00"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n01",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n01"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n02",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n02"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n03",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n03"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n04",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n04"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n05",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n05"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n06",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n06"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n07",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n07"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n08",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n08"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n09",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n09"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n10",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n10"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n11",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n11"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n12",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n12"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n13",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n13"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n14",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n14"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n15",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n15"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n16",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n16"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n17",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n17"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n18",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n18"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n19",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n19"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n20",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n20"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n21",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n21"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n22",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n22"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n23",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n23"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n24",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n24"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n25",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n25"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n26",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n26"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n27",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n27"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n28",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n28"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n29",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n29"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "n30",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "n30"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "micro": 0,
+   "name": "last",
+   "op": "put",
+   "result": {
+    "bytes": 1,
+    "expires_at": "2026-11-28T12:16:40+00:00",
+    "stored": "last"
+   },
+   "task": "t-x"
+  },
+  {
+   "at": 605800,
+   "content": "x",
+   "denied": {
+    "hint": "Replace an existing artifact by its name instead of adding one.",
+    "message": "this task may keep 32 artifacts and 2097152 bytes",
+    "rule": "ART-QUOTA"
+   },
+   "micro": 0,
+   "name": "one-too-many",
+   "op": "put",
+   "task": "t-x"
+  }
+ ],
+ "start": "2026-11-14T12:00:00+00:00"
+}
