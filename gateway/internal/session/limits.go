@@ -1,8 +1,6 @@
 package session
 
 import (
-	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -25,147 +23,6 @@ var (
 func tierRank(s string) (int, bool)    { n, ok := tiers[s]; return n, ok }
 func networkRank(s string) (int, bool) { n, ok := networks[s]; return n, ok }
 func computeRank(s string) (int, bool) { n, ok := computes[s]; return n, ok }
-
-// Error is a refusal to cut a child session (Python: SessionError, with its code).
-type Error struct{ Code, Msg string }
-
-func (e *Error) Error() string { return e.Msg }
-
-// WideningError lists every field a request tried to push above what it inherited (Python: limits.WideningError).
-type WideningError struct{ Fields []string }
-
-func (e *WideningError) Error() string {
-	return "requested limits widen: " + strings.Join(e.Fields, ", ")
-}
-
-// LimitRequest is what a session or run asks for: every field optional, missing means inherit (Python: LimitRequest).
-type LimitRequest struct {
-	TierCeiling *string
-	TTLMinutes  *int64
-	ToolCalls   *int64
-	GithubCalls *int64
-	OpenPRs     *int64
-	ModelTokens *int64
-	Children    *int64
-	Tools       *[]string
-	Models      *[]string
-	Network     *string
-	Compute     *string
-}
-
-// ParseLimitRequest reads a request the way LimitRequest.from_dict does: an unknown field is an error, as is a tier,
-// network or compute that is not one of the names.
-func ParseLimitRequest(raw json.RawMessage) (LimitRequest, error) {
-	var r LimitRequest
-	if len(raw) == 0 || string(raw) == "null" {
-		return r, nil
-	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return r, err
-	}
-	var unknown []string
-	for k, v := range m {
-		var err error
-		switch k {
-		case "tier_ceiling":
-			r.TierCeiling, err = optString(v)
-			if err == nil && r.TierCeiling != nil {
-				if _, ok := tierRank(*r.TierCeiling); !ok {
-					err = fmt.Errorf("unknown tier %q", *r.TierCeiling)
-				}
-			}
-		case "ttl_minutes":
-			r.TTLMinutes, err = optInt(v)
-		case "tool_calls":
-			r.ToolCalls, err = optInt(v)
-		case "github_calls":
-			r.GithubCalls, err = optInt(v)
-		case "open_prs":
-			r.OpenPRs, err = optInt(v)
-		case "model_tokens":
-			r.ModelTokens, err = optInt(v)
-		case "children":
-			r.Children, err = optInt(v)
-		case "tools":
-			r.Tools, err = optList(v)
-		case "models":
-			r.Models, err = optList(v)
-		case "network":
-			r.Network, err = optString(v)
-			if err == nil && r.Network != nil {
-				n := canonicalNetwork(*r.Network)
-				if _, ok := networkRank(n); !ok {
-					err = fmt.Errorf("unknown network mode %q", *r.Network)
-				}
-				r.Network = &n
-			}
-		case "compute":
-			r.Compute, err = optString(v)
-			if err == nil && r.Compute != nil {
-				c := strings.ToLower(*r.Compute)
-				if _, ok := computeRank(c); !ok {
-					err = fmt.Errorf("unknown compute class %q", *r.Compute)
-				}
-				r.Compute = &c
-			}
-		default:
-			unknown = append(unknown, k)
-		}
-		if err != nil {
-			return r, fmt.Errorf("%s: %w", k, err)
-		}
-	}
-	if len(unknown) > 0 {
-		sort.Strings(unknown)
-		return r, fmt.Errorf("unknown limit fields: %v", unknown)
-	}
-	return r, nil
-}
-
-// canonicalNetwork is Network.parse then Network.label: "CLEARANCE-MODEL" and "clearance_model" are "clearance+model".
-func canonicalNetwork(s string) string {
-	return strings.ToLower(strings.NewReplacer("+", "_", "-", "_").Replace(s)) // "clearance_model"
-}
-
-func optString(v json.RawMessage) (*string, error) {
-	if string(v) == "null" {
-		return nil, nil
-	}
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return nil, err
-	}
-	if s == "" {
-		return nil, nil // Python: `if d.get(...)` treats "" as missing
-	}
-	return &s, nil
-}
-
-func optInt(v json.RawMessage) (*int64, error) {
-	if string(v) == "null" {
-		return nil, nil
-	}
-	var n int64
-	if err := json.Unmarshal(v, &n); err != nil {
-		return nil, err
-	}
-	return &n, nil
-}
-
-func optList(v json.RawMessage) (*[]string, error) {
-	if string(v) == "null" {
-		return nil, nil
-	}
-	var l []string
-	if err := json.Unmarshal(v, &l); err != nil {
-		return nil, err
-	}
-	if l == nil {
-		l = []string{}
-	}
-	return &l, nil
-}
 
 func setOf(a []string) map[string]bool {
 	m := make(map[string]bool, len(a))
@@ -202,77 +59,6 @@ func minInt(a, b int64) int64 {
 	return b
 }
 
-// Narrow applies a request to inherited limits. It can only narrow: every field that tried to go above what was
-// inherited is named in the WideningError and nothing is applied (Python: limits.narrow).
-func Narrow(parent client.Limits, req LimitRequest) (client.Limits, error) {
-	out := parent
-	var widened []string
-	capInt := func(name string, want *int64, inherited int64, set func(int64)) {
-		if want == nil {
-			return
-		}
-		if *want > inherited {
-			widened = append(widened, name)
-		} else {
-			set(*want)
-		}
-	}
-	if req.TierCeiling != nil {
-		want, _ := tierRank(*req.TierCeiling)
-		have, ok := tierRank(parent.TierCeiling)
-		if !ok || want > have {
-			widened = append(widened, "tier_ceiling")
-		} else {
-			out.TierCeiling = *req.TierCeiling
-		}
-	}
-	capInt("ttl_minutes", req.TTLMinutes, parent.TTLMinutes, func(n int64) { out.TTLMinutes = n })
-	capInt("tool_calls", req.ToolCalls, parent.ToolCalls, func(n int64) { out.ToolCalls = n })
-	capInt("github_calls", req.GithubCalls, parent.GithubCalls, func(n int64) { out.GithubCalls = n })
-	capInt("open_prs", req.OpenPRs, parent.OpenPRs, func(n int64) { out.OpenPRs = n })
-	capInt("model_tokens", req.ModelTokens, parent.ModelTokens, func(n int64) { out.ModelTokens = n })
-	capInt("children", req.Children, parent.Children, func(n int64) { out.Children = n })
-	if req.Tools != nil {
-		if extra := minus(*req.Tools, parent.Tools); len(extra) > 0 {
-			widened = append(widened, "tools:"+strings.Join(extra, ","))
-		} else {
-			out.Tools = sortedSet(setOf(*req.Tools))
-		}
-	}
-	if req.Models != nil {
-		if extra := minus(*req.Models, parent.Models); len(extra) > 0 {
-			widened = append(widened, "models:"+strings.Join(extra, ","))
-		} else {
-			out.Models = sortedSet(setOf(*req.Models))
-		}
-	}
-	if req.Network != nil {
-		want, _ := networkRank(*req.Network)
-		have, ok := networkRank(parent.Network)
-		if !ok || want > have {
-			widened = append(widened, "network")
-		} else {
-			out.Network = labelOf(*req.Network)
-		}
-	}
-	if req.Compute != nil {
-		want, _ := computeRank(*req.Compute)
-		have, ok := computeRank(parent.Compute)
-		if !ok || want > have {
-			widened = append(widened, "compute")
-		} else {
-			out.Compute = *req.Compute
-		}
-	}
-	if len(widened) > 0 {
-		return parent, &WideningError{Fields: widened}
-	}
-	return out, nil
-}
-
-// labelOf is Network.label for a canonical parse name ("clearance_model" -> "clearance+model").
-func labelOf(s string) string { return strings.ReplaceAll(s, "_", "+") }
-
 func minus(a, b []string) []string {
 	bs := setOf(b)
 	m := map[string]bool{}
@@ -282,13 +68,6 @@ func minus(a, b []string) []string {
 		}
 	}
 	return sortedSet(m)
-}
-
-// Child is a cut child session: its limits, deadline and depth.
-type Child struct {
-	Limits    client.Limits
-	ExpiresAt time.Time
-	Depth     int
 }
 
 // MinutesLeft is how many whole minutes remain before the deadline (Python: Session.minutes_left). Caller holds the lock.
@@ -329,33 +108,6 @@ func ChildBase(parent *Session, base client.Limits, now time.Time) client.Limits
 		}
 	}
 	return out
-}
-
-// CutChild is what the Python SessionStore.open decides for a child: refuse when the parent cannot have one, else the
-// limits the definition's limits and the request leave (never wider than the parent has left), the deadline (never
-// past the parent's) and the depth. It changes nothing. Caller holds the parent's lock.
-func CutChild(parent *Session, base client.Limits, req LimitRequest, now time.Time) (*Child, error) {
-	if parent.Expired(now) || parent.Tripped {
-		return nil, &Error{"parent-unavailable", "parent is expired or tripped"}
-	}
-	if parent.Depth+1 > MaxDepth {
-		return nil, &Error{"depth", fmt.Sprintf("run tree deeper than %d", MaxDepth)}
-	}
-	if !parent.CanSpend("children", 1) {
-		return nil, &Error{"budget", "children budget exhausted"}
-	}
-	limits, err := Narrow(ChildBase(parent, base, now), req)
-	if err != nil {
-		return nil, err
-	}
-	if limits.TTLMinutes < 1 {
-		return nil, &Error{"ttl", "no time left to run"}
-	}
-	exp := now.Add(time.Duration(limits.TTLMinutes) * time.Minute)
-	if parent.ExpiresAt.Before(exp) {
-		exp = parent.ExpiresAt
-	}
-	return &Child{Limits: limits, ExpiresAt: exp.UTC(), Depth: parent.Depth + 1}, nil
 }
 
 // Within reports the fields of a grant's limits that are above what the parent could give a child of this definition

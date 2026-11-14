@@ -2,7 +2,6 @@ package session_test
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"reflect"
 	"testing"
@@ -12,10 +11,10 @@ import (
 	"github.com/jfillman/clearance/client"
 )
 
-// The limit rules, held equal to the Python gateway's (engine/limits.py narrow, SessionStore.open): the cases are
-// generated from the Python code by tools/gen_gateway_registry.py. A child is never wider than the parent has left, never
-// deeper than MaxDepth, never past the parent's deadline; a request can only narrow.
-func TestCutChildEqualsPython(t *testing.T) {
+// What a child may have at most, held equal to the Python gateway's cut (SessionStore.open, with no request): the child's
+// definition limits cut to what the parent has left, field by field. The cases are generated from the Python code. Python's
+// request narrowing (limits.narrow) is the core's job here and is not in Go: the gateway only checks the grant against this.
+func TestChildBaseEqualsPythonsCutOfAChild(t *testing.T) {
 	raw, err := os.ReadFile("testdata/limits.json")
 	if err != nil {
 		t.Fatal(err)
@@ -30,71 +29,32 @@ func TestCutChildEqualsPython(t *testing.T) {
 			Result  struct {
 				Limits    *client.Limits `json:"limits"`
 				ExpiresAt time.Time      `json:"expires_at"`
-				Depth     int            `json:"depth"`
-				Widening  []string       `json:"widening"`
-				Error     string         `json:"error"`
-				Bad       bool           `json:"bad_request"`
 			} `json:"result"`
 		} `json:"cases"`
 	}
 	if err := json.Unmarshal(raw, &fx); err != nil {
 		t.Fatal(err)
 	}
-	if len(fx.Cases) < 200 {
-		t.Fatalf("only %d cases: the fixture is not the one the generator writes", len(fx.Cases))
-	}
-	seen := map[string]int{}
+	n := 0
 	for _, c := range fx.Cases {
+		if c.Result.Limits == nil || (string(c.Request) != "null" && string(c.Request) != "{}") {
+			continue
+		}
 		parent, err := session.FromRecord(fx.Parents[c.Parent])
 		if err != nil {
 			t.Fatal(err)
 		}
-		req, perr := session.ParseLimitRequest(c.Request)
-		if c.Result.Bad {
-			if perr == nil {
-				t.Errorf("%s %s: a bad request was accepted", c.Parent, c.Request)
-			}
-			seen["bad"]++
-			continue
-		}
-		if perr != nil {
-			t.Errorf("%s %s: %v", c.Parent, c.Request, perr)
-			continue
-		}
 		parent.Lock()
-		got, err := session.CutChild(parent, fx.Base, req, fx.Now)
+		got := session.ChildBase(parent, fx.Base, fx.Now)
 		parent.Unlock()
-		switch {
-		case c.Result.Widening != nil:
-			var w *session.WideningError
-			if !errors.As(err, &w) || !reflect.DeepEqual(w.Fields, c.Result.Widening) {
-				t.Errorf("%s %s: want widening %v, got %v", c.Parent, c.Request, c.Result.Widening, err)
-			}
-			seen["widening"]++
-		case c.Result.Error != "":
-			var e *session.Error
-			if !errors.As(err, &e) || e.Code != c.Result.Error {
-				t.Errorf("%s %s: want error %q, got %v", c.Parent, c.Request, c.Result.Error, err)
-			}
-			seen["error"]++
-		default:
-			if err != nil {
-				t.Errorf("%s %s: %v", c.Parent, c.Request, err)
-				continue
-			}
-			if !reflect.DeepEqual(got.Limits, *c.Result.Limits) || !got.ExpiresAt.Equal(c.Result.ExpiresAt) || got.Depth != c.Result.Depth {
-				t.Errorf("%s %s:\n go     %+v %v %d\n python %+v %v %d", c.Parent, c.Request, got.Limits, got.ExpiresAt, got.Depth,
-					*c.Result.Limits, c.Result.ExpiresAt, c.Result.Depth)
-			}
-			seen["ok"]++
+		if !reflect.DeepEqual(got, *c.Result.Limits) {
+			t.Errorf("%s:\n go     %+v\n python %+v", c.Parent, got, *c.Result.Limits)
 		}
+		n++
 	}
-	for _, k := range []string{"ok", "widening", "error", "bad"} {
-		if seen[k] == 0 {
-			t.Errorf("no case compares %q: a comparison of nothing proves nothing", k)
-		}
+	if n < 5 {
+		t.Fatalf("only %d cases compared", n)
 	}
-	t.Logf("compared %v", seen)
 }
 
 // A grant the core cut is only as wide as the parent allows: Within names every field above what a child of this

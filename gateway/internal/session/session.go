@@ -75,8 +75,9 @@ func LimitOf(l *client.Limits, f string) int64 {
 // operations on one session (a call's decision, spend and outcome), so a session never overspends by racing itself,
 // while different sessions run in parallel.
 type Session struct {
-	mu     sync.Mutex
-	serial sync.Mutex
+	mu       sync.Mutex
+	serial   sync.Mutex
+	runEpoch uint64
 
 	ID         string
 	Principal  string
@@ -112,6 +113,25 @@ func (s *Session) Unlock() { s.mu.Unlock() }
 
 // Serial takes the per-session operation lock; the returned func releases it.
 func (s *Session) Serial() func() { s.serial.Lock(); return s.serial.Unlock }
+
+// TrySerial takes the per-session operation lock if it is free, and says whether it did. The sweep uses it so it never waits
+// behind (or stalls) a call on the session: a session that is busy is looked at again on the next sweep.
+func (s *Session) TrySerial() (release func(), ok bool) {
+	if !s.serial.TryLock() {
+		return nil, false
+	}
+	return s.serial.Unlock, true
+}
+
+// RunEpoch counts the times the session's run was made, replaced or settled (BumpRunEpoch). The sweep reads a run's state
+// without holding the session, then acts only if the epoch is still the one it read under.
+func (s *Session) RunEpoch() uint64 { s.mu.Lock(); defer s.mu.Unlock(); return s.runEpoch }
+
+// RunEpochLocked is RunEpoch for a caller that holds the session's lock.
+func (s *Session) RunEpochLocked() uint64 { return s.runEpoch }
+
+// BumpRunEpoch records that the run changed (set, created, abandoned).
+func (s *Session) BumpRunEpoch() { s.mu.Lock(); s.runEpoch++; s.mu.Unlock() }
 
 // Remaining is what is left of a budget (limit less used less reserved). Caller holds the lock.
 func (s *Session) Remaining(f string) int64 {

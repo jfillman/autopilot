@@ -88,6 +88,8 @@ type Gateway struct {
 	// RuntimeImages are the prefix globs a candidate's runtime image may come from; empty allows any digest-pinned image.
 	RuntimeImages []string
 
+	delMu         sync.Mutex
+	delState      map[string]*delFail
 	cmu           sync.Mutex
 	candidates    map[string]*definitions.Definition
 	candidateRuns []candidateRun
@@ -253,7 +255,7 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 			return g.spawn(ctx, parent, childDef, v, newID, a, now)
 		}
 	}
-	data, herr := g.run(ctx, handler, s, args)
+	data, herr := g.runWith(ctx, handler, s, args, spawn)
 	switch {
 	case herr == nil:
 		if tool == "airframe.apply" {
@@ -282,14 +284,20 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 }
 
 // run calls a handler under the call's deadline, turning a panic into an error (a backend must not take the gateway down).
-func (g *Gateway) run(ctx context.Context, h Handler, s *session.Session, args map[string]any) (data any, err error) {
+func (g *Gateway) run(ctx context.Context, h Handler, s *session.Session, args map[string]any) (any, error) {
+	return g.runWith(ctx, h, s, args, false)
+}
+
+// runWith is run; with keep, an answer the handler returned is kept even if the call's time ran out after it was made (a
+// spawn has already settled whether it undoes its child, so its answer must not be turned into a timeout behind its back).
+func (g *Gateway) runWith(ctx context.Context, h Handler, s *session.Session, args map[string]any, keep bool) (data any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			data, err = nil, &KindError{Kind: "Panic", Err: fmt.Errorf("%v", r)}
 		}
 	}()
 	data, err = h(ctx, s, args)
-	if err == nil && ctx.Err() != nil {
+	if err == nil && !keep && ctx.Err() != nil {
 		return nil, &KindError{Kind: "Timeout", Err: ctx.Err()}
 	}
 	return data, err

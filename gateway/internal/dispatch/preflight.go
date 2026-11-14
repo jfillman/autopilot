@@ -125,6 +125,9 @@ func (g *Gateway) Candidate(agent string, document any, budget any) (*definition
 	if !strings.Contains(*cand.Image, "@sha256:") {
 		return nil, "", &ControlError{"R008", "the candidate's runtime image must be pinned by digest", "", 400}
 	}
+	// TODO(S3): this equals Python and is too loose to put behind a route. An empty RuntimeImages allows any registry, and the
+	// digest is matched as a substring of the image. Before any route calls Candidate: the image must end in "@sha256:" plus
+	// 64 hex digits, and an empty allow-list must refuse. (docs/admin/go-gateway.md, "Not carried".)
 	if len(g.RuntimeImages) > 0 {
 		ok := false
 		for _, glob := range g.RuntimeImages {

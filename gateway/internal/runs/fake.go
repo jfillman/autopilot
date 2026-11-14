@@ -20,12 +20,18 @@ type Fake struct {
 	Inputs map[string]map[string]any
 	// CreateErr, DeleteErr and EndedErr, when set, are what the call returns.
 	CreateErr, DeleteErr, EndedErr error
+	// DeleteCalls is how many deletes were attempted, failed or not.
+	DeleteCalls int
 	// CreateThenFail makes Create start the run and then report a failure (a timeout after the API server took it).
 	CreateThenFail error
 	// Phases is how each run ended, by run name ("" or absent: still running).
 	Phases map[string]string
 	// NoPrincipal makes Principal answer "" (a backend that names no identity for its runs).
 	NoPrincipal bool
+	// ReturnName, when set, is the name Create answers with (a backend naming a run other than Name said it would).
+	ReturnName string
+	// OnEnded, when set, runs inside Ended with the call's context (a hung API server blocks here until it ends).
+	OnEnded func(ctx context.Context)
 	// OnCreate, when set, runs inside Create before it returns (a test's hook to stop the call mid-way).
 	OnCreate func()
 }
@@ -55,6 +61,9 @@ func (f *Fake) Create(_ context.Context, s *session.Session, d *definitions.Defi
 	if f.CreateThenFail != nil {
 		return "", f.CreateThenFail
 	}
+	if f.ReturnName != "" {
+		return f.ReturnName, nil
+	}
 	return name, nil
 }
 
@@ -62,6 +71,7 @@ func (f *Fake) Create(_ context.Context, s *session.Session, d *definitions.Defi
 func (f *Fake) Delete(_ context.Context, s *session.Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.DeleteCalls++
 	if f.DeleteErr != nil {
 		return f.DeleteErr
 	}
@@ -71,13 +81,26 @@ func (f *Fake) Delete(_ context.Context, s *session.Session) error {
 }
 
 // Ended is how the session's run ended.
-func (f *Fake) Ended(_ context.Context, s *session.Session) (string, error) {
+// A run that does not exist (yet, or any more) is "Gone", as the real API server's 404 says.
+func (f *Fake) Ended(ctx context.Context, s *session.Session) (string, error) {
+	if f.OnEnded != nil {
+		f.OnEnded(ctx)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.EndedErr != nil {
 		return "", f.EndedErr
 	}
-	return f.Phases[RunName(s.ID)], nil
+	if p := f.Phases[RunName(s.ID)]; p != "" {
+		return p, nil
+	}
+	if _, ok := f.Live[s.ID]; !ok {
+		return "Gone", nil
+	}
+	return "", nil
 }
 
 // Principal is the identity a run's pod authenticates as.
@@ -117,11 +140,13 @@ type FakeStore struct {
 	Err       error
 	// FailDelete names the runs whose delete fails (an API server error), until it is emptied.
 	FailDelete map[string]bool
+	// DeleteCalls counts delete attempts by run name, failed or not.
+	DeleteCalls map[string]int
 }
 
 // NewFakeStore is an empty FakeStore.
 func NewFakeStore() *FakeStore {
-	return &FakeStore{Manifests: map[string]map[string]any{}, Outcomes: map[string]string{}}
+	return &FakeStore{Manifests: map[string]map[string]any{}, Outcomes: map[string]string{}, DeleteCalls: map[string]int{}}
 }
 
 // Create keeps the manifest.
@@ -139,6 +164,7 @@ func (f *FakeStore) Create(_ context.Context, m map[string]any) error {
 func (f *FakeStore) Delete(_ context.Context, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.DeleteCalls[name]++
 	if f.Err != nil {
 		return f.Err
 	}

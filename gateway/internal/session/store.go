@@ -148,51 +148,58 @@ func (e *GrantError) Error() string { return e.Why }
 // and nothing is created. wantID is the id the gateway named in the evaluation; def is the child definition's limits.
 // Because the check and the reservation share the parent's lock, concurrent spawns cannot reserve more than the parent
 // has, whatever else is charging it (the model proxy's usage does not take the session's operation lock).
-func (st *Store) AdoptChild(g *client.Grant, sp client.Spend, wantID, wantAgent string, def client.Limits, now time.Time) (*Session, error) {
+//
+// callerID is the session that made the spawn call: the grant's parent must BE that session, not merely another live session
+// of the same principal and task. The child is returned with its operation lock (Serial) already held, and release gives it
+// up: the sweep cannot act on a child while its run is being made.
+func (st *Store) AdoptChild(g *client.Grant, sp client.Spend, callerID, wantID, wantAgent string, def client.Limits, now time.Time) (*Session, func(), error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if g.Parent == nil {
-		return nil, &GrantError{"the grant names no parent"}
+		return nil, nil, &GrantError{"the grant names no parent"}
+	}
+	if *g.Parent != callerID {
+		return nil, nil, &GrantError{"the grant's parent is not the session that asked"}
 	}
 	p := st.s[*g.Parent]
 	if p == nil {
-		return nil, &GrantError{"the grant's parent is not a session of this gateway"}
+		return nil, nil, &GrantError{"the grant's parent is not a session of this gateway"}
 	}
 	if g.Session == "" || g.Session != wantID {
-		return nil, &GrantError{"the grant's session id is not the one the gateway named"}
+		return nil, nil, &GrantError{"the grant's session id is not the one the gateway named"}
 	}
 	if st.s[g.Session] != nil {
-		return nil, &GrantError{"the grant's session id is already a session"}
+		return nil, nil, &GrantError{"the grant's session id is already a session"}
 	}
 	if g.Agent != wantAgent {
-		return nil, &GrantError{"the grant is for another agent than the one asked for"}
+		return nil, nil, &GrantError{"the grant is for another agent than the one asked for"}
 	}
 	p.Lock()
 	defer p.Unlock()
 	if g.Principal != p.Principal || g.TaskID != p.TaskID {
-		return nil, &GrantError{"the grant names another principal or task than the parent's"}
+		return nil, nil, &GrantError{"the grant names another principal or task than the parent's"}
 	}
 	if g.Depth != p.Depth+1 || g.Depth > MaxDepth {
-		return nil, &GrantError{"the grant's depth is not the parent's plus one, within the run tree's depth limit"}
+		return nil, nil, &GrantError{"the grant's depth is not the parent's plus one, within the run tree's depth limit"}
 	}
 	if p.Expired(now) || p.Tripped {
-		return nil, &GrantError{"the parent is expired, closed or tripped"}
+		return nil, nil, &GrantError{"the parent is expired, closed or tripped"}
 	}
 	if !p.CanSpend("children", 1) {
-		return nil, &GrantError{"the parent has no children budget left"}
+		return nil, nil, &GrantError{"the parent has no children budget left"}
 	}
 	if over := Within(p, def, g.Limits, now); len(over) > 0 {
-		return nil, &GrantError{"the grant widens what the parent has left: " + strings.Join(over, ", ")}
+		return nil, nil, &GrantError{"the grant widens what the parent has left: " + strings.Join(over, ", ")}
 	}
 	if g.ExpiresAt.After(p.ExpiresAt) || g.ExpiresAt.After(now.Add(time.Duration(g.Limits.TTLMinutes)*time.Minute)) {
-		return nil, &GrantError{"the grant outlives the parent or its own ttl"}
+		return nil, nil, &GrantError{"the grant outlives the parent or its own ttl"}
 	}
 	if sp.Children != 1 || sp.Reserve == nil || sp.Reserve.Children != 0 {
-		return nil, &GrantError{"the spend does not count one child and reserve its budgets"}
+		return nil, nil, &GrantError{"the spend does not count one child and reserve its budgets"}
 	}
 	for _, f := range BudgetFields {
 		if f != "children" && Budget(sp.Reserve, f) != LimitOf(&g.Limits, f) {
-			return nil, &GrantError{"the spend reserves other than the child's " + f}
+			return nil, nil, &GrantError{"the spend reserves other than the child's " + f}
 		}
 	}
 	s := &Session{ID: g.Session, Principal: g.Principal, Agent: g.Agent, Limits: g.Limits, CreatedAt: now.UTC(),
@@ -202,8 +209,9 @@ func (st *Store) AdoptChild(g *client.Grant, sp client.Spend, wantID, wantAgent 
 	}
 	p.Used.Children += sp.Children
 	p.Children = append(p.Children, s.ID)
+	s.serial.Lock() // held until the caller has made the child's run
 	st.s[s.ID] = s
-	return s, nil
+	return s, s.serial.Unlock, nil
 }
 
 // Charge applies the spend the core's decision names to the session the request named (internal/decide doc.go): add

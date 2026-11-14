@@ -27,6 +27,9 @@ func newParent(t *testing.T) (*session.Store, *session.Session) {
 	st, _ := session.NewStore(context.Background(), nil)
 	p := st.Adopt(&client.Grant{Session: "s-p", TaskID: "t-p", Principal: "user:alice", Agent: "orch", Limits: lim(nil),
 		ExpiresAt: t0.Add(time.Hour)}, t0, nil, 0)
+	// another live session of the same principal and task: a grant must not be able to attach a child to it
+	st.Adopt(&client.Grant{Session: "s-other", TaskID: "t-p", Principal: "user:alice", Agent: "orch", Limits: lim(nil),
+		ExpiresAt: t0.Add(time.Hour)}, t0, nil, 0)
 	return st, p
 }
 
@@ -64,10 +67,11 @@ func TestAdoptChildReservesAndRefusesWhatTheParentCannotGive(t *testing.T) {
 		{"another agent", func(g *client.Grant, _ *client.Spend) { g.Agent = "other" }, "another agent"},
 		{"the parent's own id", func(g *client.Grant, _ *client.Spend) { g.Session = "s-p" }, "not the one the gateway named"},
 		{"an id the gateway did not name", func(g *client.Grant, _ *client.Spend) { g.Session = "s-x" }, "not the one the gateway named"},
+		{"a parent that is not the caller", func(g *client.Grant, _ *client.Spend) { p := "s-other"; g.Parent = &p }, "not the session that asked"},
 		{"too deep", func(g *client.Grant, _ *client.Spend) { g.Depth = 4 }, "depth"},
 		{"depth skipped", func(g *client.Grant, _ *client.Spend) { g.Depth = 2 }, "depth"},
 		{"no parent", func(g *client.Grant, _ *client.Spend) { g.Parent = nil }, "no parent"},
-		{"an unknown parent", func(g *client.Grant, _ *client.Spend) { p := "s-nope"; g.Parent = &p }, "not a session"},
+		{"an unknown parent", func(g *client.Grant, _ *client.Spend) { p := "s-nope"; g.Parent = &p }, "not the session that asked"},
 		{"reserves less than the child may spend", func(_ *client.Grant, sp *client.Spend) { sp.Reserve.ToolCalls = 1 }, "reserves other"},
 		{"reserves more than the child may spend", func(_ *client.Grant, sp *client.Spend) { sp.Reserve.ModelTokens = 9999 }, "reserves other"},
 		{"reserves a children budget", func(_ *client.Grant, sp *client.Spend) { sp.Reserve.Children = 1 }, "does not count"},
@@ -80,7 +84,7 @@ func TestAdoptChildReservesAndRefusesWhatTheParentCannotGive(t *testing.T) {
 			st, p := newParent(t)
 			g, sp := grantFor("s-kid", kid)
 			c.mod(g, &sp)
-			child, err := st.AdoptChild(g, sp, "s-kid", "kid", def, t0)
+			child, _, err := st.AdoptChild(g, sp, "s-p", "s-kid", "kid", def, t0)
 			if c.want == "" {
 				if err != nil || child == nil || p.Reserved.ToolCalls != 10 || p.Reserved.ModelTokens != 500 || p.Used.Children != 1 || len(p.Children) != 1 {
 					t.Fatalf("%v %+v", err, p)
@@ -103,11 +107,11 @@ func TestAdoptChildRefusesAnExistingSessionIDAndAParentThatCannotHaveOne(t *test
 	})
 	st, p := newParent(t)
 	g, sp := grantFor("s-kid", kid)
-	if _, err := st.AdoptChild(g, sp, "s-kid", "kid", lim(nil), t0); err != nil {
+	if _, _, err := st.AdoptChild(g, sp, "s-p", "s-kid", "kid", lim(nil), t0); err != nil {
 		t.Fatal(err)
 	}
 	// the same id again would replace a live session
-	if _, err := st.AdoptChild(g, sp, "s-kid", "kid", lim(nil), t0); err == nil || !strings.Contains(err.Error(), "already a session") {
+	if _, _, err := st.AdoptChild(g, sp, "s-p", "s-kid", "kid", lim(nil), t0); err == nil || !strings.Contains(err.Error(), "already a session") {
 		t.Fatalf("%v", err)
 	}
 	for name, mod := range map[string]func(){
@@ -119,14 +123,14 @@ func TestAdoptChildRefusesAnExistingSessionIDAndAParentThatCannotHaveOne(t *test
 		p = p2 // the case's change is made to this parent
 		mod()
 		g2, sp2 := grantFor("s-k2", kid)
-		if _, err := st2.AdoptChild(g2, sp2, "s-k2", "kid", lim(nil), t0); err == nil {
+		if _, _, err := st2.AdoptChild(g2, sp2, "s-p", "s-k2", "kid", lim(nil), t0); err == nil {
 			t.Errorf("%s parent got a child", name)
 		}
 	}
 	st3, p3 := newParent(t)
 	p3.Used.Children = 50
 	g3, sp3 := grantFor("s-k3", kid)
-	if _, err := st3.AdoptChild(g3, sp3, "s-k3", "kid", lim(nil), t0); err == nil || !strings.Contains(err.Error(), "children budget") {
+	if _, _, err := st3.AdoptChild(g3, sp3, "s-p", "s-k3", "kid", lim(nil), t0); err == nil || !strings.Contains(err.Error(), "children budget") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -161,7 +165,7 @@ func TestAdoptChildStormCannotOverspendTheParent(t *testing.T) {
 				l.ToolCalls, l.GithubCalls, l.OpenPRs, l.ModelTokens, l.Children, l.TTLMinutes = 10, 0, 0, 1000, 0, 20
 			})
 			g, sp := grantFor(id, kid)
-			if _, err := st.AdoptChild(g, sp, id, "kid", lim(nil), t0); err != nil {
+			if _, _, err := st.AdoptChild(g, sp, "s-p", id, "kid", lim(nil), t0); err != nil {
 				refused.Add(1)
 				st.GiveBack(id)
 				return
@@ -190,7 +194,7 @@ func TestCloseTouchedReturnsTheParentItGaveBudgetBackTo(t *testing.T) {
 		l.ToolCalls, l.GithubCalls, l.OpenPRs, l.ModelTokens, l.Children, l.TTLMinutes = 10, 0, 0, 100, 0, 5
 	})
 	g, sp := grantFor("s-kid", kid)
-	child, err := st.AdoptChild(g, sp, "s-kid", "kid", lim(nil), t0)
+	child, _, err := st.AdoptChild(g, sp, "s-p", "s-kid", "kid", lim(nil), t0)
 	if err != nil {
 		t.Fatal(err)
 	}

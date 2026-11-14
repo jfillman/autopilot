@@ -308,8 +308,8 @@ func TestExpireEqualsPython(t *testing.T) {
 	if !reflect.DeepEqual(sortedIDs(first), c.First) {
 		t.Errorf("the first sweep deleted the runs of %v, python %v", first, c.First)
 	}
-	r.api.SetFailDelete() // the API server answers again: the sweep retries what failed
-	second := r.g.ExpireAt(ctx, c.Now)
+	r.api.SetFailDelete()                                 // the API server answers again: the sweep retries what failed
+	second := r.g.ExpireAt(ctx, c.Now.Add(2*time.Minute)) // past the failed delete's backoff (Python retries at once)
 	if !reflect.DeepEqual(sortedIDs(second), c.Second) {
 		t.Errorf("the second sweep deleted the runs of %v, python %v", second, c.Second)
 	}

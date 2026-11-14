@@ -30,6 +30,8 @@ type memPersist struct {
 	saves int
 	// failAfter, when > 0, makes the save after that many fail (a crash: the process would exit).
 	failAfter int
+	// onSave, when set, runs at the start of every save (a slow database).
+	onSave func()
 }
 
 func newPersist(recs ...session.Record) *memPersist {
@@ -51,6 +53,9 @@ func (p *memPersist) Load(context.Context) ([]session.Record, error) {
 }
 
 func (p *memPersist) Save(_ context.Context, recs []session.Record) error {
+	if p.onSave != nil {
+		p.onSave()
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.saves++

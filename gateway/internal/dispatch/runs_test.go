@@ -236,8 +236,8 @@ func TestAReplayedRunTokenActsAsNothingAfterItsRunIsGone(t *testing.T) {
 			t.Fatalf("a replayed token after run.close: %v", replay.Decision)
 		}
 	}
-	if _, err := r.g.FinishRun(context.Background(), pod, "s-0000a1", map[string]any{"status": "done"}); asCtl(err) == nil || asCtl(err).Rule != "R004" {
-		t.Fatalf("finishing a closed session: %v", err)
+	if _, err := r.g.FinishRun(context.Background(), pod, "s-0000a1", map[string]any{"status": "done"}); asCtl(err) == nil || asCtl(err).Rule != "R001" {
+		t.Fatalf("finishing a session whose run is gone: %v", err) // not its run any more: the answer a stranger gets
 	}
 	if _, err := r.g.CloseSession(context.Background(), pod, "s-0000a1", nil); asCtl(err) == nil || asCtl(err).Rule != "CT-FORBIDDEN" {
 		t.Fatalf("closing again, as a run with no run: %v", err)
@@ -260,6 +260,7 @@ func TestAClosedSessionWhoseRunWasNotDeletedStillAllowsNothing(t *testing.T) {
 		t.Fatalf("%v", res.Decision)
 	}
 	r.api.SetFailDelete()
+	r.g.Now = func() time.Time { return t0.Add(2 * time.Minute) } // past the failed delete's backoff
 	r.g.Expire(context.Background())
 	if r.store.Get("s-0000a1").Run != nil {
 		t.Fatal("the sweep did not retry the delete")
@@ -615,6 +616,7 @@ func TestRunCloseWithAFailedDeleteIsRecordedAndRetriedBytheSweep(t *testing.T) {
 		t.Fatalf("%v", results)
 	}
 	r.api.SetFailDelete()
+	r.g.Now = func() time.Time { return t0.Add(2 * time.Minute) } // past the failed delete's backoff
 	r.g.Expire(context.Background())
 	if child.Run != nil || len(r.api.Manifests) != 0 {
 		t.Fatal("the sweep did not retry")
@@ -847,6 +849,7 @@ func TestTheSweepSurvivesABackendThatPanicsOrFails(t *testing.T) {
 	r := newRunRig(t, withPersist(newPersist(rows...)))
 	f := runs.NewFake()
 	f.EndedErr = errors.New("boom")
+	f.Live["s-0000a1"], f.Live["s-0000a2"] = "r-0000a1", "r-0000a2" // both runs exist
 	r.g.SetRuns(f)
 	r.g.Expire(context.Background()) // asked again next time; nothing closed
 	if r.store.Get("s-0000a1").Closed {
@@ -860,6 +863,7 @@ func TestTheSweepSurvivesABackendThatPanicsOrFails(t *testing.T) {
 		t.Fatalf("%+v %v", s.Outcome, s.Run)
 	}
 	f.DeleteErr = nil
+	r.g.Now = func() time.Time { return t0.Add(2 * time.Minute) } // past the failed delete's backoff
 	r.g.Expire(context.Background())
 	if r.store.Get("s-0000a1").Run != nil {
 		t.Fatal("not retried")

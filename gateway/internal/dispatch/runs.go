@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -240,25 +241,24 @@ func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definit
 		g.Store.GiveBack(newID)
 		return nil, err
 	}
-	child, err := g.Store.AdoptChild(v.Grant, v.Spend, newID, d.Name, d.Limits, now)
+	child, release, err := g.Store.AdoptChild(v.Grant, v.Spend, parent.ID, newID, d.Name, d.Limits, now)
 	if err != nil {
 		g.Store.GiveBack(newID)
 		g.Log.Warn("a spawn grant failed the gateway's own check: refused", "session", parent.ID, "agent", d.Name, "why", err.Error())
 		return nil, &core.Denied{Rule: "R007", Message: "the child's limits are not within what this run has left",
 			Hint: "Ask for less, or wait for budget to come back from a closed child."}
 	}
+	// The child's operation lock is held from its creation to the end of this function (parent first, then child: the only
+	// order anywhere), so the sweep cannot read or settle a child whose run is still being made.
+	defer release()
 	// Write-ahead: the run's name is saved with the child, and the parent's reservation with it, before the run exists.
 	name := g.Runs.Name(child)
 	child.Lock()
 	child.Run = &name
 	child.Unlock()
+	child.BumpRunEpoch()
 	g.flush(ctx, child, parent)
 	run, cerr := g.createRun(ctx, child, d, input)
-	if cerr == nil && ctx.Err() != nil {
-		// The run was made but the call's time ran out: the agent will be told the call failed and never learn this child's
-		// id, so it is not left alive holding the parent's budget.
-		cerr = ctx.Err()
-	}
 	if cerr != nil {
 		g.abandonRun(ctx, child)
 		return nil, cerr
@@ -268,7 +268,15 @@ func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definit
 		child.Run = &run
 		child.Unlock()
 	}
+	child.BumpRunEpoch()
 	g.flush(ctx, child)
+	if ctx.Err() != nil {
+		// The call's time ran out while the run was made or saved: the agent will be told the call failed and never learn this
+		// child's id, so it is not left alive holding the parent's budget. Either it gets the success it earned or the child
+		// is undone, never the mix (Call does not turn a spawn's success into a timeout after this point).
+		g.abandonRun(ctx, child)
+		return nil, ctx.Err()
+	}
 	child.Lock()
 	exp := child.ExpiresAt
 	child.Unlock()
@@ -287,6 +295,7 @@ func (g *Gateway) abandonRun(ctx context.Context, s *session.Session) {
 		s.Run = nil
 		s.Unlock()
 	}
+	s.BumpRunEpoch()
 	g.flush(ctx, append(touched, s)...)
 }
 
@@ -302,14 +311,39 @@ func (g *Gateway) closeHandler(ctx context.Context, s *session.Session, a map[st
 	if !own {
 		return nil, &core.Denied{Rule: "R001", Message: "not one of this session's runs", Hint: "You may only close your own run or its children."}
 	}
-	touched := g.deleteRuns(ctx, target, s, "closed")
+	touched := g.deleteRuns(ctx, target, s, "closed", nil)
 	g.flush(ctx, touched...)
 	return map[string]any{"closed": target.ID}, nil
 }
 
-// deleteRuns closes a session and deletes its run and its descendants' runs, each with a run.delete record. A delete
-// that fails is recorded and the session keeps its run, so the next sweep retries it. It returns the sessions it changed.
-func (g *Gateway) deleteRuns(ctx context.Context, target, actor *session.Session, why string) []*session.Session {
+// sweepRun is what one expiry sweep carries: its clock, and the runs it has already handled (each at most once per sweep,
+// however many ancestors and pending entries name it).
+type sweepRun struct {
+	now  time.Time
+	seen map[string]bool
+}
+
+// delFail is a run whose delete keeps failing: how many times, when the sweep may try again, and when it last wrote a record.
+type delFail struct {
+	fails        int
+	next         time.Time
+	lastRecorded time.Time
+}
+
+const (
+	deleteBackoffMin    = time.Minute
+	deleteBackoffMax    = 30 * time.Minute
+	deleteFailureRecord = time.Hour
+)
+
+// deleteRuns closes a session and deletes its run and its descendants' runs, each with a run.delete record. A delete that
+// fails is recorded and the session keeps its run, so a later sweep retries it. It returns the sessions it changed.
+//
+// A sweep (sw not nil) is bounded, which the Python sweep is not: a run whose delete keeps failing is retried on a backoff
+// (1, 2, 4 ... 30 minutes), its failure is recorded when it starts failing and then at most once an hour while it keeps
+// failing, and its success is recorded once; and each run is handled at most once per sweep. A close by a person or a run
+// (sw nil) always tries.
+func (g *Gateway) deleteRuns(ctx context.Context, target, actor *session.Session, why string, sw *sweepRun) []*session.Session {
 	touched := g.Store.CloseTouched(target.ID)
 	actor.Lock()
 	actorPrincipal := actor.Principal
@@ -328,18 +362,65 @@ func (g *Gateway) deleteRuns(ctx context.Context, target, actor *session.Session
 		if run == "" {
 			continue
 		}
-		bctx, cancel := g.bg(ctx)
+		now := g.Now()
+		if sw != nil {
+			if sw.seen[sid] || ctx.Err() != nil {
+				continue
+			}
+			sw.seen[sid] = true
+			now = sw.now
+			g.delMu.Lock()
+			st := g.delState[sid]
+			g.delMu.Unlock()
+			if st != nil && now.Before(st.next) {
+				continue
+			}
+		}
+		var bctx context.Context
+		var cancel context.CancelFunc
+		if sw != nil {
+			bctx, cancel = context.WithTimeout(ctx, 10*time.Second) // the sweep's own deadline is honoured
+		} else {
+			bctx, cancel = g.bg(ctx)
+		}
 		derr := callBackend(func() error { return g.Runs.Delete(bctx, s) })
 		cancel()
 		args := map[string]any{"run": run, "why": why}
 		if derr != nil {
-			g.record(ctx, "run.delete", s, actorPrincipal, args, "error:"+ErrorKind(derr), false) //nolint:errcheck // not required
+			g.delMu.Lock()
+			if g.delState == nil {
+				g.delState = map[string]*delFail{}
+			}
+			st := g.delState[sid]
+			first := st == nil
+			if first {
+				st = &delFail{}
+				g.delState[sid] = st
+			}
+			st.fails++
+			delay := deleteBackoffMin << min(st.fails-1, 10)
+			if delay > deleteBackoffMax {
+				delay = deleteBackoffMax
+			}
+			st.next = now.Add(delay)
+			write := first || now.Sub(st.lastRecorded) >= deleteFailureRecord
+			if write {
+				st.lastRecorded = now
+			}
+			g.delMu.Unlock()
+			if write {
+				g.record(ctx, "run.delete", s, actorPrincipal, args, "error:"+ErrorKind(derr), false) //nolint:errcheck // not required
+			}
 			continue
 		}
+		g.delMu.Lock()
+		delete(g.delState, sid)
+		g.delMu.Unlock()
 		g.record(ctx, "run.delete", s, actorPrincipal, args, "deleted", false) //nolint:errcheck
 		s.Lock()
 		s.Run = nil
 		s.Unlock()
+		s.BumpRunEpoch()
 		touched = append(touched, s)
 	}
 	return touched
@@ -417,9 +498,11 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 	s.Lock()
 	s.Run = &name
 	s.Unlock()
+	s.BumpRunEpoch()
 	g.flush(ctx, s) // write-ahead
 	run, cerr := g.createRun(ctx, s, d, input)
 	if cerr != nil {
+		defer s.BumpRunEpoch()
 		bctx, cancel := g.bg(ctx)
 		if derr := callBackend(func() error { return g.Runs.Delete(bctx, s) }); derr == nil {
 			s.Lock()
@@ -433,6 +516,7 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 	s.Run = &run
 	s.Input = InputView(input)
 	s.Unlock()
+	s.BumpRunEpoch()
 	seq, rerr := g.record(ctx, "run.launch", s, principal, map[string]any{"run": run}, "created", true)
 	if rerr != nil {
 		var un *core.Unreachable
@@ -445,6 +529,7 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 		s.Lock()
 		s.Run, s.Input = nil, nil
 		s.Unlock()
+		s.BumpRunEpoch()
 		v := core.OutageVerdict(un, nil)
 		return &Result{Decision: map[string]any{"allow": false, "rule": v.Rule}, Error: str(v.Message), Session: &s.ID}, nil
 	}
@@ -477,20 +562,29 @@ func (g *Gateway) FinishRun(ctx context.Context, token, sessionID string, body a
 	if err != nil {
 		return nil, err
 	}
+	// An unknown session, another's, and one whose run is not the caller get the same answer, so a caller learns nothing of
+	// which session ids exist (Python answers an unknown or closed one R004 first).
+	notYours := &ControlError{"R001", "only this session's own run may finish it", "", 403}
 	s := g.Store.Get(sessionID)
 	if s == nil {
-		return nil, &ControlError{"R004", "no live session", "The session already ended: its outcome is kept.", 409}
+		return nil, notYours
 	}
 	defer s.Serial()()
 	defer g.flush(ctx, s)
 	s.Lock()
-	closed, hasRun, acting, owner := s.Closed, s.Run != nil && *s.Run != "", g.actingLocked(s, p), s.Principal
+	closed, hasRun, acting, owner, expires := s.Closed, s.Run != nil && *s.Run != "", g.actingLocked(s, p), s.Principal, s.ExpiresAt
+	expiredOutcome := s.Outcome != nil && s.Outcome["status"] == "expired"
 	s.Unlock()
-	if closed {
+	if acting != owner {
+		return nil, notYours
+	}
+	// The session's own caller learns it has ended. Past its deadline, or once the sweep has written "expired", a late
+	// finish cannot overwrite that outcome.
+	if closed || expiredOutcome || !g.Now().Before(expires) {
 		return nil, &ControlError{"R004", "no live session", "The session already ended: its outcome is kept.", 409}
 	}
-	if !hasRun || acting != owner {
-		return nil, &ControlError{"R001", "only this session's own run may finish it", "", 403}
+	if !hasRun {
+		return nil, notYours
 	}
 	b, _ := body.(map[string]any)
 	status, _ := b["status"].(string)
@@ -619,7 +713,7 @@ func (g *Gateway) CloseSession(ctx context.Context, token, sessionID string, rea
 			}
 		}
 	}
-	touched = append(touched, g.deleteRuns(ctx, s, s, "closed")...)
+	touched = append(touched, g.deleteRuns(ctx, s, s, "closed", nil)...)
 	g.flush(ctx, touched...)
 	deleted := []string{}
 	for _, sid := range withRuns {
@@ -662,14 +756,18 @@ func (g *Gateway) controlRecord(ctx context.Context, person, kind string, s *ses
 
 // Expire closes every session past its deadline and deletes its run, and its children's, each with a record; then posts
 // what waits in the outbox, if the core answers (Python: Gateway.expire). The run itself already ended at its deadline
-// (the run backend enforces that without Clearance); this is the cleanup. A deletion that fails is recorded and retried by
-// the next sweep, because the session keeps its run. It returns the sessions whose runs it deleted.
+// (the run backend enforces that without Clearance); this is the cleanup. A deletion that fails is recorded and retried by a
+// later sweep, because the session keeps its run. It returns the sessions whose runs it tried to delete.
+//
+// One deadline bounds the whole sweep (ctx): the closing of expired sessions comes first and needs no API server, so a slow
+// one cannot delay it, and what the sweep has not reached is carried to the next.
 func (g *Gateway) Expire(ctx context.Context) []string { return g.ExpireAt(ctx, g.Now()) }
 
 // ExpireAt is Expire as of a given time (Python: expire(now)).
 func (g *Gateway) ExpireAt(ctx context.Context, now time.Time) []string {
-	g.backstopOutcomes(ctx, now)
+	g.deadlineOutcomes(now)
 	g.Store.Sweep(now)
+	g.backstopOutcomes(ctx, now)
 	var pending []*session.Session
 	for _, s := range g.Store.All() {
 		s.Lock()
@@ -678,9 +776,10 @@ func (g *Gateway) ExpireAt(ctx context.Context, now time.Time) []string {
 		}
 		s.Unlock()
 	}
+	sw := &sweepRun{now: now, seen: map[string]bool{}}
 	var done []string
 	for _, s := range pending {
-		if g.Runs == nil {
+		if g.Runs == nil || ctx.Err() != nil {
 			break
 		}
 		s.Lock()
@@ -691,7 +790,7 @@ func (g *Gateway) ExpireAt(ctx context.Context, now time.Time) []string {
 		hasRun := s.Run != nil
 		s.Unlock()
 		if hasRun {
-			g.deleteRuns(ctx, s, s, why)
+			g.deleteRuns(ctx, s, s, why, sw)
 			done = append(done, s.ID)
 		}
 	}
@@ -708,47 +807,86 @@ func (g *Gateway) ExpireAt(ctx context.Context, now time.Time) []string {
 	return done
 }
 
-// backstopOutcomes closes the sessions whose run ended without run_finish (an older runtime, or a crash): the run
-// backend says how the workload ended, and the session closes with that as its outcome. A session that reaches its
-// deadline first is given the outcome "expired".
-func (g *Gateway) backstopOutcomes(ctx context.Context, now time.Time) {
+// deadlineOutcomes gives a session that reached its deadline the outcome "expired". It needs no API server and no session
+// operation lock: a finish at the deadline is refused (FinishRun), so nothing writes an outcome beside it.
+func (g *Gateway) deadlineOutcomes(now time.Time) {
 	for _, s := range g.Store.All() {
+		s.Lock()
+		if !s.Closed && s.Outcome == nil && !now.Before(s.ExpiresAt) {
+			s.Outcome = map[string]any{"status": "expired", "finished_at": core.Iso(s.ExpiresAt), "result": nil, "via": "deadline"}
+		}
+		s.Unlock()
+	}
+}
+
+// MaxOutcomeReads is how many run states a sweep asks the API server for at once.
+const MaxOutcomeReads = 8
+
+type endedRead struct {
+	s     *session.Session
+	run   string
+	epoch uint64
+	phase string
+	err   error
+}
+
+// backstopOutcomes closes the sessions whose run ended without run_finish (an older runtime, or a crash): the run backend
+// says how the workload ended, and the session closes with that as its outcome. The reads happen with no session lock held
+// (a live call on the session is never stalled by a slow API server), a few at a time, within the sweep's deadline; the
+// outcome is applied only if the session has not changed since it was read (no operation in flight, the same run, no run
+// made or settled in between), so a run that was being created cannot be mistaken for one that is gone.
+func (g *Gateway) backstopOutcomes(ctx context.Context, now time.Time) {
+	if g.Runs == nil {
+		return
+	}
+	var reads []*endedRead
+	for _, s := range g.Store.All() {
+		s.Lock()
+		if !s.Closed && s.Outcome == nil && s.Run != nil && *s.Run != "" && now.Before(s.ExpiresAt) {
+			reads = append(reads, &endedRead{s: s, run: *s.Run, epoch: s.RunEpochLocked()})
+		}
+		s.Unlock()
+	}
+	sem := make(chan struct{}, MaxOutcomeReads)
+	var wg sync.WaitGroup
+	for _, r := range reads {
+		if ctx.Err() != nil {
+			break // the rest wait for the next sweep
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(r *endedRead) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			r.err = callBackend(func() (e error) { r.phase, e = g.Runs.Ended(rctx, r.s); return })
+			r.phase = firstChars(r.phase, 40)
+		}(r)
+	}
+	wg.Wait()
+	for _, r := range reads {
+		if r.err != nil || r.phase == "" {
+			continue // asked again on the next sweep
+		}
 		func() {
-			defer s.Serial()()
-			s.Lock()
-			skip := s.Closed || s.Outcome != nil
-			expired := !now.Before(s.ExpiresAt)
-			exp := s.ExpiresAt
-			var run string
-			if s.Run != nil {
-				run = *s.Run
+			release, ok := r.s.TrySerial()
+			if !ok {
+				return // an operation is in flight on it; the next sweep looks again
 			}
+			defer release()
+			s := r.s
+			s.Lock()
+			unchanged := !s.Closed && s.Outcome == nil && s.Run != nil && *s.Run == r.run && s.RunEpochLocked() == r.epoch
 			principal := s.Principal
+			if unchanged {
+				s.Outcome = map[string]any{"status": "no-result", "run_phase": r.phase, "finished_at": core.Iso(now), "result": nil, "via": "run"}
+			}
 			s.Unlock()
-			if skip {
+			if !unchanged {
 				return
 			}
-			if expired {
-				s.Lock()
-				s.Outcome = map[string]any{"status": "expired", "finished_at": core.Iso(exp), "result": nil, "via": "deadline"}
-				s.Unlock()
-				return
-			}
-			if run == "" || g.Runs == nil {
-				return
-			}
-			var phase string
-			bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-			err := callBackend(func() (e error) { phase, e = g.Runs.Ended(bctx, s); return })
-			cancel()
-			if err != nil || phase == "" {
-				return // asked again on the next sweep
-			}
-			phase = firstChars(phase, 40)
-			s.Lock()
-			s.Outcome = map[string]any{"status": "no-result", "run_phase": phase, "finished_at": core.Iso(now), "result": nil, "via": "run"}
-			s.Unlock()
-			g.record(ctx, "run.finish", s, principal, map[string]any{"run": run, "phase": phase}, "no-result", false) //nolint:errcheck
+			g.record(ctx, "run.finish", s, principal, map[string]any{"run": r.run, "phase": r.phase}, "no-result", false) //nolint:errcheck
 			g.flush(ctx, g.Store.CloseTouched(s.ID)...)
 		}()
 	}
