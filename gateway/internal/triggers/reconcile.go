@@ -32,6 +32,9 @@ const (
 	Settle         = 2 * time.Minute
 	ReconcileEvery = 300 * time.Second
 	WindowHours    = 24
+	// MaxWindowHours is the longest window the sweep reads: a day shorter than the ledger keeps its rows, so a run whose row was
+	// pruned is never in the window (and so never launched again). Python allows 744.
+	MaxWindowHours = int((Retention - 24*time.Hour) / time.Hour)
 	RunsLimit      = 1000 // GET /v1/runs's maximum
 	EventType      = "dev.cdevents.pipelinerun.finished.0.3.0"
 	maxSweepRows   = 20000
@@ -137,6 +140,9 @@ func NewReconciler(b *Bridge, interval time.Duration, windowHours int) *Reconcil
 	}
 	if windowHours <= 0 {
 		windowHours = WindowHours
+	}
+	if windowHours > MaxWindowHours {
+		windowHours = MaxWindowHours
 	}
 	return &Reconciler{bridge: b, log: b.log, Interval: interval, WindowHours: windowHours}
 }

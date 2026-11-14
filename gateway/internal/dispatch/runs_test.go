@@ -1113,6 +1113,15 @@ func TestCandidateImageCheck(t *testing.T) {
 	if try([]string{"ghcr.io/jfillman/*@sha256:*"}, good) != nil {
 		t.Error("the documented glob form was refused")
 	}
+	// a pattern of many stars does not backtrack exponentially (the matcher is linear)
+	start := time.Now()
+	many := strings.Repeat("*a", 40) + "*b"
+	long := "ghcr.io/jfillman/" + strings.Repeat("a", 200) + "@sha256:" + strings.Repeat("ab", 32)
+	r.g.RuntimeImages = []string{many}
+	_, _, _ = r.g.Candidate("researcher", map[string]any{"name": "researcher", "image": long}, nil)
+	if time.Since(start) > 2*time.Second {
+		t.Errorf("an image glob of many stars took %v", time.Since(start))
+	}
 	if try([]string{"", "ghcr.io/jfillman/[a-z]*"}, good) == nil {
 		t.Error("an empty glob or a bracket glob admitted an image")
 	}

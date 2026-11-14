@@ -65,6 +65,10 @@ type Ledger interface {
 	// Claim takes (agent, key): true when it is this caller's (no row, or a `claimed` row claimed at or before staleBefore). The
 	// primary key decides who launches.
 	Claim(ctx context.Context, agent, key, via, eventID string, now, staleBefore time.Time) (bool, error)
+	// Opened records the session opened for a claimed key, right after the open and before the launch, so any later holder of the
+	// claim (a restart, the sweep, a replay) can see that a session was opened for this key and must not open another, whatever
+	// became of it. A claim taken over from an orphan keeps the session. The row stays `claimed` until it is decided.
+	Opened(ctx context.Context, agent, key, session string) error
 	// Decide writes the decision of a claimed row.
 	Decide(ctx context.Context, agent, key, state, session, run string) error
 	// Get is the row, or nil.
@@ -124,7 +128,8 @@ type MemoryLedger struct {
 	rows    map[[2]string]*Row
 	cursors map[string]*Cursor
 	// FailClaim, FailDecide and FailCursor make the next call of that kind fail once (a database that went away).
-	FailClaim, FailDecide, FailAdvance error
+	FailClaim, FailDecide, FailAdvance, FailOpened error
+	decideFails                                    int // Decide fails this many more times (DecideFails)
 }
 
 // Fail makes the next call of kind ("claim", "decide" or "advance") fail with err (nil clears it), under the ledger's lock.
@@ -135,10 +140,19 @@ func (m *MemoryLedger) Fail(kind string, err error) {
 	case "claim":
 		m.FailClaim = err
 	case "decide":
-		m.FailDecide = err
+		m.FailDecide, m.decideFails = err, 1
+	case "opened":
+		m.FailOpened = err
 	case "advance":
 		m.FailAdvance = err
 	}
+}
+
+// DecideFails makes the next n calls of Decide fail with err (a database that stays away for a while).
+func (m *MemoryLedger) DecideFails(err error, n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.FailDecide, m.decideFails = err, n
 }
 
 func (m *MemoryLedger) init() {
@@ -170,8 +184,28 @@ func (m *MemoryLedger) Claim(_ context.Context, agent, key, via, eventID string,
 	if r := m.rows[[2]string{agent, key}]; r != nil && !(r.State == "claimed" && !r.ClaimedAt.After(staleBefore)) {
 		return false, nil
 	}
-	m.rows[[2]string{agent, key}] = &Row{Agent: agent, Key: key, Via: via, EventID: sp(eventID), State: "claimed", ClaimedAt: now}
+	var kept *string // a claim taken over from an orphan keeps the session that was opened for it
+	if r := m.rows[[2]string{agent, key}]; r != nil {
+		kept = r.Session
+	}
+	m.rows[[2]string{agent, key}] = &Row{Agent: agent, Key: key, Via: via, EventID: sp(eventID), State: "claimed", Session: kept, ClaimedAt: now}
 	return true, nil
+}
+
+// Opened is Ledger.Opened.
+func (m *MemoryLedger) Opened(_ context.Context, agent, key, session string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	if m.FailOpened != nil {
+		err := m.FailOpened
+		m.FailOpened = nil
+		return err
+	}
+	if r := m.rows[[2]string{agent, key}]; r != nil && r.State == "claimed" {
+		r.Session = sp(session)
+	}
+	return nil
 }
 
 // Decide is Ledger.Decide.
@@ -182,10 +216,9 @@ func (m *MemoryLedger) Decide(_ context.Context, agent, key, state, session, run
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.init()
-	if m.FailDecide != nil {
-		err := m.FailDecide
-		m.FailDecide = nil
-		return err
+	if m.decideFails > 0 {
+		m.decideFails--
+		return m.FailDecide
 	}
 	if r := m.rows[[2]string{agent, key}]; r != nil {
 		r.State, r.Session, r.Run = state, sp(session), sp(run)

@@ -487,10 +487,16 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 	defer s.Serial()()
 	defer g.flush(ctx, s)
 	s.Lock()
-	closed, agent, hasRun, principal := s.Closed, s.Agent, s.Run != nil, s.Principal
+	closed, tripped, agent, hasRun, principal := s.Closed, s.Tripped, s.Agent, s.Run != nil, s.Principal
 	s.Unlock()
 	if closed {
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("no live session")}, nil
+	}
+	if tripped {
+		// A frozen session (a person's freeze, or the breaker) starts no run: it is closed, as a launch that failed is, so nothing
+		// is left live that nothing will use.
+		g.flush(ctx, g.Store.CloseTouched(s.ID)...)
+		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("this session is frozen: it starts no run"), Session: &s.ID}, nil
 	}
 	refuse := func(msg string) (*Result, error) {
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R001"}, Error: str(msg), Session: &s.ID}, nil

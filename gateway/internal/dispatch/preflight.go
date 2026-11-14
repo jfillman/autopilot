@@ -18,6 +18,8 @@ import (
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
+	"github.com/jfillman/autopilot/gateway/internal/glob"
+	"github.com/jfillman/autopilot/gateway/internal/session"
 )
 
 // PreflightCap is the envelope a candidate run is clamped to; a budget in the request can only lower it. The candidate
@@ -174,8 +176,7 @@ func (g *Gateway) RunAgentAs(ctx context.Context, person, via, agent string, d *
 }
 
 // runAgentAs is RunAgentAs for a request's input as it came (anything: a non-string is refused R008). With gate, a live agent's
-// hold is checked (R024) and the check and the open happen under the hold gate's read lock, so a hold that has been saved is
-// never raced by a run that read "no hold" (Gateway.HoldTriggers). A candidate is not held (Python: `document is None`).
+// hold is checked (R024), before the core is asked and again right before the session is adopted (Gateway.HoldTriggers). A candidate is not held (Python: `document is None`).
 func (g *Gateway) runAgentAs(ctx context.Context, person, via, agent string, d *definitions.Definition, fp string, runInput any, gate bool) (map[string]any, error) {
 	if fp != "" {
 		// Registered for the open and the launch, which find the definition by its run name; forgotten again unless the run is
@@ -205,17 +206,10 @@ func (g *Gateway) runAgentAs(ctx context.Context, person, via, agent string, d *
 	if strings.TrimSpace(text) == "" && instructions == "" {
 		return nil, &ControlError{"R008", agent + " has no instructions of its own: say what it should do", "", 400}
 	}
-	gated := gate
-	endGate := func() {
-		if gated {
-			gated = false
-			g.holdGate.RUnlock()
-		}
-	}
+	// The hold is read under the hold gate's read lock, which is let go before the core is asked (the gate is never held across the
+	// network), and read again under it right before the session is adopted.
 	if gate {
-		g.holdGate.RLock()
-		defer endGate()
-		h, err := g.holdForLocked(ctx, agent)
+		h, err := g.HoldFor(ctx, agent)
 		if err != nil {
 			return nil, err
 		}
@@ -256,8 +250,25 @@ func (g *Gateway) runAgentAs(ctx context.Context, person, via, agent string, d *
 		g.Log.Error("the core's grant for a person's run failed the gateway's own check: refused", "agent", d.Name, "why", why)
 		return nil, &ControlError{core.RefusedRule, "Clearance's grant was refused", "", 503}
 	}
-	s := g.Store.Adopt(v.Grant, now, nil, 0)
-	endGate() // the session exists: the hold gate has done its work
+	var s *session.Session
+	if gate {
+		g.holdGate.RLock()
+		h, herr := g.holdForLocked(ctx, agent)
+		if herr == nil && h == nil {
+			s = g.Store.Adopt(v.Grant, now, nil, 0)
+		}
+		g.holdGate.RUnlock()
+		if herr != nil {
+			g.Store.GiveBack(newID)
+			return nil, herr
+		}
+		if h != nil {
+			g.Store.GiveBack(newID)
+			return nil, &ControlError{"R024", fmt.Sprintf("%s is held until %s: %s", agent, core.Iso(h.Until), h.Reason), "Release the hold first.", 409}
+		}
+	} else {
+		s = g.Store.Adopt(v.Grant, now, nil, 0)
+	}
 	g.flush(ctx, s)
 	prompt := strings.TrimSpace(text)
 	if prompt == "" {
@@ -358,37 +369,12 @@ func (g *Gateway) CandidateRun(sessionID string) (agent, run, fingerprint string
 	return "", "", "", false
 }
 
-// fnmatch is fnmatch.fnmatchcase for the two wildcards a runtime image glob uses: * (any run of characters, / included)
-// and ? (one). A pattern with a bracket never matches here, which fails closed.
+// fnmatch matches a runtime image glob: `*` (any run of characters, / included) and `?` (one), by the linear matcher the other
+// allow-lists use (internal/glob; the recursive matcher this replaced backtracks exponentially on a pattern of many stars). A
+// pattern with a bracket never matches here, which fails closed (the semantics checkCandidateImage pinned).
 func fnmatch(pattern, s string) bool {
 	if strings.Contains(pattern, "[") {
 		return false
 	}
-	p, t := []rune(pattern), []rune(s)
-	var match func(i, j int) bool
-	match = func(i, j int) bool {
-		for i < len(p) {
-			switch p[i] {
-			case '*':
-				for k := j; k <= len(t); k++ {
-					if match(i+1, k) {
-						return true
-					}
-				}
-				return false
-			case '?':
-				if j >= len(t) {
-					return false
-				}
-			default:
-				if j >= len(t) || t[j] != p[i] {
-					return false
-				}
-			}
-			i++
-			j++
-		}
-		return j == len(t)
-	}
-	return match(0, 0)
+	return glob.Match(s, pattern)
 }

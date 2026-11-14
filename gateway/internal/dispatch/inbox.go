@@ -36,6 +36,8 @@ const (
 	// InboxRetention is how long a request is kept after it expired. Python keeps them for ever; Go prunes (the sweep), so the
 	// table is bounded by what the sessions' budgets and TTLs allow in this window.
 	InboxRetention = 30 * 24 * time.Hour
+	// MaxListed is how many pending requests one person is shown at most.
+	MaxListed = 5000
 )
 
 var requestID = regexp.MustCompile(`^h-[0-9a-f]{12}$`)
@@ -184,6 +186,10 @@ type InboxStore interface {
 	Get(ctx context.Context, id string) (*HumanRequest, error)
 	Save(ctx context.Context, r *HumanRequest) error
 	Pending(ctx context.Context, now time.Time) ([]*HumanRequest, error)
+	// PendingFor is the pending requests a person may answer (their own sessions' and those of the groups they are in), oldest
+	// first, at most MaxListed of them: the filter is the store's, so other people's pending requests cannot crowd a person's own
+	// out of the limit.
+	PendingFor(ctx context.Context, now time.Time, person string, groups []string) ([]*HumanRequest, error)
 	CountPending(ctx context.Context, sessionID string, now time.Time) (int, error)
 	// Prune deletes the requests that expired before the cutoff and returns how many.
 	Prune(ctx context.Context, before time.Time) (int, error)
@@ -250,6 +256,22 @@ func (m *MemoryInbox) Pending(_ context.Context, now time.Time) ([]*HumanRequest
 		}
 		return out[i].ID < out[j].ID
 	})
+	return out, nil
+}
+
+// PendingFor is Pending narrowed to what the person may answer.
+func (m *MemoryInbox) PendingFor(ctx context.Context, now time.Time, person string, groups []string) ([]*HumanRequest, error) {
+	all, _ := m.Pending(ctx, now)
+	gs := map[string]bool{}
+	for _, g := range groups {
+		gs[g] = true
+	}
+	var out []*HumanRequest
+	for _, r := range all {
+		if MayAnswer(r, person, gs) && len(out) < MaxListed {
+			out = append(out, r)
+		}
+	}
 	return out, nil
 }
 
@@ -429,24 +451,25 @@ func (g *Gateway) groupsOf(ctx context.Context, person string) map[string]bool {
 
 // HumanRequests are the pending requests this person may answer, oldest first (Gateway.human_requests). Without an inbox: none.
 func (g *Gateway) HumanRequests(ctx context.Context, token, onBehalfOf string) ([]map[string]any, error) {
-	if g.Inbox == nil {
-		return []map[string]any{}, nil
-	}
-	person, _, err := g.Person(ctx, token, onBehalfOf)
+	person, _, err := g.Person(ctx, token, onBehalfOf) // the caller is checked before anything else is said, an inbox or none
 	if err != nil {
 		return nil, err
 	}
-	groups := g.groupsOf(ctx, person)
+	if g.Inbox == nil {
+		return []map[string]any{}, nil
+	}
+	var groups []string
+	for gr := range g.groupsOf(ctx, person) {
+		groups = append(groups, gr)
+	}
 	now := g.Now()
-	pending, err := g.Inbox.Pending(ctx, now)
+	pending, err := g.Inbox.PendingFor(ctx, now, person, groups)
 	if err != nil {
 		return nil, err
 	}
 	out := []map[string]any{}
 	for _, r := range pending {
-		if MayAnswer(r, person, groups) {
-			out = append(out, r.View(now))
-		}
+		out = append(out, r.View(now))
 	}
 	return out, nil
 }
@@ -489,12 +512,12 @@ func (a *answerLocks) lock(id string) func() {
 // one answer (the second is HR-ANSWERED) and one record. A request that is not the person's to answer is "no such request for
 // you", the same answer as one that does not exist.
 func (g *Gateway) HumanAnswer(ctx context.Context, token, id string, answer any, onBehalfOf string) (map[string]any, error) {
-	if g.Inbox == nil {
-		return nil, &InboxError{"HR-OFF", "this deployment has no human inbox", "", 404}
-	}
 	person, via, err := g.Person(ctx, token, onBehalfOf)
 	if err != nil {
 		return nil, err
+	}
+	if g.Inbox == nil {
+		return nil, &InboxError{"HR-OFF", "this deployment has no human inbox", "", 404}
 	}
 	unknown := &InboxError{"HR-UNKNOWN", "no such request for you", "", 404}
 	if !requestID.MatchString(id) {

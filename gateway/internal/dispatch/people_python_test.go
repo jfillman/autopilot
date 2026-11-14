@@ -356,7 +356,17 @@ func TestPersonOperationsEqualPython(t *testing.T) {
 			}
 			continue
 		}
-		sameError(t, label, c.Error, err)
+		wantErr := c.Error
+		if (c.Op == "freeze" || c.Op == "end") && wantErr != nil && wantErr.Rule == "CT-FORBIDDEN" {
+			// Deliberate: Python answers 403 and names the agent; Go answers the 404 of a session that does not exist (the route must not
+			// tell which session ids exist or whose they are).
+			wantErr = &struct {
+				Rule    string `json:"rule"`
+				Message string `json:"message"`
+				Status  int    `json:"status"`
+			}{"CT-UNKNOWN", "no such session", 404}
+		}
+		sameError(t, label, wantErr, err)
 		if c.Error == nil {
 			// audit_seq is the core's: the fake takes a different count than Python's recorder, so compare the rest
 			delete(out, "audit_seq")

@@ -87,6 +87,31 @@ func (i *Inbox) Pending(ctx context.Context, now time.Time) ([]*dispatch.HumanRe
 	return out, rows.Err()
 }
 
+// PendingFor is the pending requests a person may answer: the filter is in the query (on the owner and group fields Python writes),
+// so other people's pending requests cannot hide a person's own beyond the limit, which is per person.
+func (i *Inbox) PendingFor(ctx context.Context, now time.Time, person string, groups []string) ([]*dispatch.HumanRequest, error) {
+	if groups == nil {
+		groups = []string{}
+	}
+	rows, err := i.st.Pool.Query(ctx, "SELECT record FROM gateway_human_requests WHERE status = 'pending' AND expires_at > $1 "+
+		"AND (record->>'owner' = $2 OR record->>'group' = ANY($3)) ORDER BY record->>'created_at', id LIMIT $4", now, person, groups, dispatch.MaxListed)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*dispatch.HumanRequest
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		if r, err := loadRequest(raw); err == nil {
+			out = append(out, r)
+		}
+	}
+	return out, rows.Err()
+}
+
 // CountPending is how many pending, unexpired requests a session has.
 func (i *Inbox) CountPending(ctx context.Context, sessionID string, now time.Time) (int, error) {
 	var n int
@@ -180,6 +205,17 @@ const (
 	MaxEventRows = 200_000
 )
 
+// ClampEventTime is a time within [now - retention, now + 5 minutes].
+func ClampEventTime(t, now time.Time) time.Time {
+	if lo := now.Add(-dispatch.EventRetention); t.Before(lo) {
+		return lo
+	}
+	if hi := now.Add(5 * time.Minute); t.After(hi) {
+		return hi
+	}
+	return t
+}
+
 // NewEvents returns the event history on st.
 func NewEvents(st *State) *Events { return &Events{st: st} }
 
@@ -191,8 +227,12 @@ func (e *Events) Record(ctx context.Context, ev *dispatch.EventRecord) error {
 	if err != nil {
 		return err
 	}
+	// received_at is the retention key and the order the size cap evicts in; the upstream's value is not trusted for it: a time far in
+	// the future would never age out and would push real history out. The stored event keeps the time it carried.
+	now := time.Now().UTC()
+	key := ClampEventTime(ev.ReceivedAt, now)
 	_, err = e.st.Pool.Exec(ctx, "INSERT INTO gateway_events (id, received_at, source, app, routing_key, record) VALUES ($1, $2, $3, $4, $5, $6) "+
-		"ON CONFLICT (id) DO UPDATE SET record = EXCLUDED.record, written_at = now()", ev.ID, ev.ReceivedAt, ev.Source, ev.App, ev.RoutingKey, raw)
+		"ON CONFLICT (id) DO UPDATE SET record = EXCLUDED.record, written_at = now()", ev.ID, key, ev.Source, ev.App, ev.RoutingKey, raw)
 	if err != nil {
 		return err
 	}
@@ -225,12 +265,19 @@ func (t *Triggers) Claim(ctx context.Context, agent, key, via, eventID string, n
 	var one int
 	err := t.st.Pool.QueryRow(ctx, "INSERT INTO gateway_trigger_launches (agent, key, via, event_id, state, claimed_at) "+
 		"VALUES ($1, $2, $3, $4, 'claimed', $5) ON CONFLICT (agent, key) DO UPDATE SET via = EXCLUDED.via, event_id = EXCLUDED.event_id, "+
-		"claimed_at = EXCLUDED.claimed_at, session = NULL, run = NULL, updated_at = now() WHERE gateway_trigger_launches.state = 'claimed' "+
+		"claimed_at = EXCLUDED.claimed_at, run = NULL, updated_at = now() WHERE gateway_trigger_launches.state = 'claimed' "+
 		"AND gateway_trigger_launches.claimed_at <= $6 RETURNING 1", agent, key, via, nullable(eventID), now, staleBefore).Scan(&one)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// Opened is Ledger.Opened: the session opened for a claimed key, written before its launch.
+func (t *Triggers) Opened(ctx context.Context, agent, key, session string) error {
+	_, err := t.st.Pool.Exec(ctx, "UPDATE gateway_trigger_launches SET session = $1, updated_at = now() WHERE agent = $2 AND key = $3 AND state = 'claimed'",
+		session, agent, key)
+	return err
 }
 
 // Decide is Ledger.Decide.

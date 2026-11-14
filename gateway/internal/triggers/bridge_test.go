@@ -25,26 +25,29 @@ var t0 = time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 // fakeGW is the gateway as the triggers see it: it models the session half of a trigger (a live session of the same task is a
 // dedupe), and can be told to fail, hold or panic.
 type fakeGW struct {
-	mu        sync.Mutex
-	defs      map[string]*definitions.Definition
-	opens     []string // agent/task per open
-	launches  []string // session per launch
-	sessions  map[string]string
-	hasRun    map[string]bool
-	n         int
-	holdRule  map[string]string // agent -> rule an open is refused with
-	openErr   error
-	panicOn   map[string]bool
-	launchOK  bool // false: a launch is refused (launch-failed)
-	events    []map[string]any
-	outcomes  [][]map[string]any
-	onOpen    func(ctx context.Context)
-	abandoned []string
+	mu           sync.Mutex
+	defs         map[string]*definitions.Definition
+	opens        []string // agent/task per open
+	launches     []string // session per launch
+	sessions     map[string]string
+	hasRun       map[string]bool
+	n            int
+	holdRule     map[string]string // agent -> rule an open is refused with
+	openErr      error
+	panicOn      map[string]bool
+	launchOK     bool // false: a launch is refused (launch-failed)
+	events       []map[string]any
+	outcomes     [][]map[string]any
+	onOpen       func(ctx context.Context)
+	abandoned    []string
+	closed       map[string]bool
+	lateHold     map[string]bool // a hold that only the launch sees
+	beforeLaunch func()
 }
 
 func newGW(defs ...*definitions.Definition) *fakeGW {
 	g := &fakeGW{defs: map[string]*definitions.Definition{}, sessions: map[string]string{}, hasRun: map[string]bool{}, holdRule: map[string]string{},
-		panicOn: map[string]bool{}, launchOK: true}
+		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, lateHold: map[string]bool{}}
 	for _, d := range defs {
 		g.defs[d.Name] = d
 	}
@@ -97,6 +100,37 @@ func (g *fakeGW) AbandonTriggered(_ context.Context, sid string, _ bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.abandoned = append(g.abandoned, sid)
+	g.closed[sid] = true
+}
+
+// SessionState: a session is known when an open made it (or a test planted it), live until it is abandoned or closed.
+func (g *fakeGW) SessionState(sid string) (bool, bool, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	known := false
+	for _, s := range g.sessions {
+		known = known || s == sid
+	}
+	run := ""
+	if g.hasRun[sid] {
+		run = "r-" + sid[2:]
+	}
+	return known, known && !g.closed[sid], run
+}
+
+// LaunchTriggered is Launch, refused with R024 for an agent whose hold rule is R024 (the hold read right before the launch).
+func (g *fakeGW) LaunchTriggered(ctx context.Context, agent, sid string, input map[string]any) (*dispatch.Result, error) {
+	if g.beforeLaunch != nil {
+		g.beforeLaunch()
+	}
+	g.mu.Lock()
+	rule := g.holdRule[agent]
+	late := g.lateHold[agent]
+	g.mu.Unlock()
+	if rule == "R024" && !late {
+		return &dispatch.Result{Decision: map[string]any{"allow": false, "rule": "R024"}}, nil
+	}
+	return g.Launch(ctx, sid, input)
 }
 
 func (g *fakeGW) SessionHasRun(sid string) bool {
@@ -158,12 +192,13 @@ func newRig(t *testing.T, gw *fakeGW, base string) *rig {
 }
 
 func (r *rig) bridge(base string, mod ...func(*triggers.BridgeConfig)) *triggers.Bridge {
-	cfg := triggers.BridgeConfig{BaseURL: base, TokenFile: r.tok, Now: func() time.Time { return r.now }, BackoffMin: time.Millisecond, BackoffMax: 4 * time.Millisecond}
+	cfg := triggers.BridgeConfig{BaseURL: base, TokenFile: r.tok, AllowHTTP: true, Now: func() time.Time { return r.now }, BackoffMin: time.Millisecond, BackoffMax: 4 * time.Millisecond}
 	for _, m := range mod {
 		m(&cfg)
 	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "http://glidepath.invalid"
+		cfg.AllowHTTP = true
 	}
 	b, err := triggers.NewBridge(r.gw, r.ledger, cfg, r.m, nil)
 	if err != nil {
@@ -370,16 +405,12 @@ func TestALedgerFailureIsNotAnEventHandled(t *testing.T) {
 	if err != nil || got[0].Result != "launched" {
 		t.Fatalf("not retried: %+v %v", got, err)
 	}
-	r.ledger.Fail("decide", errors.New("connection lost"))
-	if _, err := r.b.Handle(ctx, finished("e2", "pr-2", "failure"), "stream"); err == nil {
-		t.Fatal("a decision that could not be written was reported as handled")
+	r.ledger.Fail("decide", errors.New("connection lost")) // once: the write is retried and succeeds
+	if _, err := r.b.Handle(ctx, finished("e2", "pr-2", "failure"), "stream"); err != nil {
+		t.Fatalf("a decision that fails once is retried: %v", err)
 	}
-	// the run exists and the row is `claimed`: after a restart the claim is an orphan, answered by the live run, which is not launched twice
-	n := gw.nLaunch()
-	r.now = t0.Add(time.Minute)
-	got, _ = r.bridge("").Handle(ctx, finished("e2", "pr-2", "failure"), "stream")
-	if got[0].Result != "deduped" || gw.nLaunch() != n {
-		t.Fatalf("%+v launches %d, was %d", got, gw.nLaunch(), n)
+	if row, _ := r.ledger.Get(ctx, "triage-agent", "gate-api.pipelinerun.finished/pr-2"); row == nil || row.State != "launched" {
+		t.Fatalf("%+v", row)
 	}
 }
 

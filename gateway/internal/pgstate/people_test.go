@@ -2,6 +2,7 @@ package pgstate_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -190,5 +191,62 @@ func TestTheCursorOnlyMovesForwardAndKeepsItsFloor(t *testing.T) {
 	_ = l.Advance(ctx, "glidepath", "1794000000000001-0B")
 	if c, _ = l.Cursor(ctx, "glidepath", t0); *c.LastID != "1794000000000001-0a" {
 		t.Fatalf("%s: compared by the locale", *c.LastID)
+	}
+}
+
+func TestPendingForFiltersInTheStoreAndThePerPersonLimitHolds(t *testing.T) {
+	st, ctx := open(t)
+	in := pgstate.NewInbox(st)
+	grp := "group:default/team"
+	for i := 0; i < 40; i++ {
+		_ = in.Add(ctx, &dispatch.HumanRequest{ID: fmt.Sprintf("h-%012x", i), TaskID: "t", Session: "s", Agent: "a", Owner: "user:other", Question: "q", CreatedAt: t0.Add(time.Duration(i) * time.Second), ExpiresAt: t0.Add(time.Hour), Status: "pending"})
+	}
+	_ = in.Add(ctx, &dispatch.HumanRequest{ID: "h-0000000000a1", TaskID: "t", Session: "s", Agent: "a", Owner: "user:alice", Question: "mine", CreatedAt: t0.Add(time.Hour - time.Second), ExpiresAt: t0.Add(2 * time.Hour), Status: "pending"})
+	_ = in.Add(ctx, &dispatch.HumanRequest{ID: "h-0000000000a2", TaskID: "t", Session: "s", Agent: "a", Owner: "user:other", Group: &grp, Question: "team", CreatedAt: t0, ExpiresAt: t0.Add(2 * time.Hour), Status: "pending"})
+	got, err := in.PendingFor(ctx, t0, "user:alice", nil)
+	if err != nil || len(got) != 1 || got[0].Question != "mine" {
+		t.Fatalf("%v %v", got, err)
+	}
+	if got, _ = in.PendingFor(ctx, t0, "user:alice", []string{grp}); len(got) != 2 || got[0].Question != "team" {
+		t.Fatalf("%v", got)
+	}
+	if got, _ = in.PendingFor(ctx, t0, "user:nobody", []string{"group:x"}); len(got) != 0 {
+		t.Fatal(got)
+	}
+}
+
+// The ledger row keeps the session across a takeover of an orphan claim; Opened writes only to a claimed row; the event time that keys
+// retention is clamped.
+func TestTheLedgerRowKeepsTheOpenedSessionAcrossATakeover(t *testing.T) {
+	st, ctx := open(t)
+	l := pgstate.NewTriggers(st)
+	_, _ = l.Claim(ctx, "a", "k", "stream", "e1", t0, t0.Add(-time.Minute))
+	if err := l.Opened(ctx, "a", "k", "s-1"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := l.Claim(ctx, "a", "k", "recent", "e2", t0.Add(time.Hour), t0.Add(time.Minute)); !ok {
+		t.Fatal("takeover")
+	}
+	row, _ := l.Get(ctx, "a", "k")
+	if row.Session == nil || *row.Session != "s-1" || row.State != "claimed" {
+		t.Fatalf("%+v", row)
+	}
+	_ = l.Decide(ctx, "a", "k", "deduped", "s-1", "")
+	_ = l.Opened(ctx, "a", "k", "s-other")
+	if row, _ = l.Get(ctx, "a", "k"); *row.Session != "s-1" || row.State != "deduped" {
+		t.Fatalf("a decided row was changed: %+v", row)
+	}
+}
+
+func TestTheEventTimeThatKeysRetentionIsClamped(t *testing.T) {
+	now := t0
+	if got := pgstate.ClampEventTime(now.Add(1000*time.Hour), now); !got.Equal(now.Add(5 * time.Minute)) {
+		t.Fatal(got)
+	}
+	if got := pgstate.ClampEventTime(now.Add(-1000*24*time.Hour), now); !got.Equal(now.Add(-dispatch.EventRetention)) {
+		t.Fatal(got)
+	}
+	if got := pgstate.ClampEventTime(now.Add(-time.Hour), now); !got.Equal(now.Add(-time.Hour)) {
+		t.Fatal(got)
 	}
 }

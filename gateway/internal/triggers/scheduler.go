@@ -239,9 +239,13 @@ func (s *Scheduler) Tick(ctx context.Context) []SlotOutcome {
 		if !won {
 			continue // fired before this process started (a restart inside the window)
 		}
-		out := s.fire(ctx, sc, slot, start)
+		out, ferr := s.fire(ctx, sc, slot, start)
+		if ferr != nil {
+			s.log.Error("the schedule's ledger could not record a session", "agent", sc.agent, "err", errKind(ferr))
+			continue
+		}
 		cctx, cancel = s.db(ctx)
-		if err := s.ledger.Decide(cctx, sc.agent, key, out.Result, out.Session, out.Run); err != nil {
+		if err := retry(cctx, RetryWaits, func() error { return s.ledger.Decide(cctx, sc.agent, key, out.Result, out.Session, out.Run) }); err != nil {
 			s.log.Error("the schedule's decision could not be written", "agent", sc.agent, "err", errKind(err))
 		}
 		cancel()
@@ -265,57 +269,57 @@ func (s *Scheduler) Tick(ctx context.Context) []SlotOutcome {
 	return done
 }
 
-// fire opens and launches one claimed slot; the decision for its ledger row.
-func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start time.Time) (out SlotOutcome) {
+// fire opens and launches one claimed slot; the decision for its ledger row (a ledger error is the second result).
+func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start time.Time) (out SlotOutcome, err error) {
 	out = SlotOutcome{Agent: sc.agent, Slot: slot, Result: "launch-failed"}
 	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil { // one agent's failed launch must not skip the others in this tick
 			s.log.Error("a schedule panicked", "agent", sc.agent, "slot", slot, "panic", fmt.Sprint(r))
-			out.Result = "launch-failed"
+			out.Result, err = "launch-failed", nil
 		}
 	}()
-	r, err := s.gw.OpenTriggered(fctx, sc.agent, "interval:"+sc.everyS, SlotTaskID(sc.agent, slot))
-	if err != nil {
-		s.log.Error("a schedule could not open its session", "agent", sc.agent, "slot", slot, "err", errKind(err))
-		return out
+	key := SlotKey(sc.everyS, slot)
+	gctx, gcancel := s.db(fctx)
+	row, _ := s.ledger.Get(gctx, sc.agent, key)
+	gcancel()
+	prior := ""
+	if row != nil && row.Session != nil {
+		prior = *row.Session
 	}
-	if !r.OK {
-		out.Rule, _ = r.Decision["rule"].(string)
-		out.Result = "refused"
-		if out.Rule == "R024" {
-			out.Result = "held"
+	res, ferr := fireClaimed(fctx, s.gw, s.ledger, s.log, RetryWaits, sc.agent, key, prior, func(ctx context.Context) (*opened, *fireOut) {
+		r, oerr := s.gw.OpenTriggered(ctx, sc.agent, "interval:"+sc.everyS, SlotTaskID(sc.agent, slot))
+		if oerr != nil {
+			s.log.Error("a schedule could not open its session", "agent", sc.agent, "slot", slot, "err", errKind(oerr))
+			return nil, &fireOut{Result: "launch-failed"}
 		}
-		return out
-	}
-	if r.Session != nil {
-		out.Session = *r.Session
-	}
-	data, _ := r.Data.(map[string]any)
-	if deduped, _ := data["deduped"].(bool); deduped && s.gw.SessionHasRun(out.Session) {
-		out.Result = "deduped"
-		return out
-	}
-	input := map[string]any{"prompt": fmt.Sprintf("Scheduled run (%s, slot starting %s). Carry out your instructions.", sc.everyS, dispatch.PyIso(start))}
-	if d := s.gw.Definitions()[sc.agent]; d != nil && d.Instructions != nil && *d.Instructions != "" {
-		input["instructions"] = *d.Instructions
-	}
-	launched, err := s.gw.Launch(fctx, out.Session, input)
-	if err != nil {
-		s.log.Error("a schedule's run was not launched", "agent", sc.agent, "slot", slot, "err", errKind(err))
-		s.gw.AbandonTriggered(ctx, out.Session, true)
-		return out
-	}
-	if launched.OK {
-		out.Result = "launched"
-		if d, ok := launched.Data.(map[string]any); ok {
-			out.Run, _ = d["run"].(string)
+		if !r.OK {
+			rule, _ := r.Decision["rule"].(string)
+			if rule == "R024" {
+				return nil, &fireOut{Result: "held", Rule: rule}
+			}
+			return nil, &fireOut{Result: "refused", Rule: rule}
 		}
-	} else {
-		s.gw.AbandonTriggered(ctx, out.Session, false)
+		data, _ := r.Data.(map[string]any)
+		sid := ""
+		if r.Session != nil {
+			sid = *r.Session
+		}
+		dd, _ := data["deduped"].(bool)
+		return &opened{session: sid, deduped: dd}, nil
+	}, func() map[string]any {
+		input := map[string]any{"prompt": fmt.Sprintf("Scheduled run (%s, slot starting %s). Carry out your instructions.", sc.everyS, dispatch.PyIso(start))}
+		if d := s.gw.Definitions()[sc.agent]; d != nil && d.Instructions != nil && *d.Instructions != "" {
+			input["instructions"] = *d.Instructions
+		}
+		return input
+	})
+	if ferr != nil {
+		return out, ferr
 	}
-	return out
+	out.Result, out.Session, out.Run, out.Rule = res.Result, res.Session, res.Run, res.Rule
+	return out, nil
 }
 
 // Run ticks until ctx ends. A failed tick is logged, never fatal.

@@ -34,11 +34,12 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 	if len(trigger) > MaxTriggerLen {
 		return nil, fmt.Errorf("a trigger name is at most %d characters", MaxTriggerLen)
 	}
-	g.holdGate.RLock()
-	defer g.holdGate.RUnlock()
 	now := g.Now()
 	newID := g.Store.NewID()
-	req, live, err := g.triggeredRequest(ctx, agent, trigger, taskID, newID, now)
+	// The hold is read under the gate's read lock and the lock is let go: the gate is never held across the core's decision or a
+	// save, so a hold (the emergency brake) never waits for a slow core. The hold is read again, under the lock, right before the
+	// session is adopted.
+	req, live, err := g.TriggeredRequestLive(ctx, agent, trigger, taskID, newID, now)
 	if err != nil {
 		g.Store.GiveBack(newID)
 		return nil, err
@@ -62,18 +63,23 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 	}
 	gr := v.Grant
 	if gr.Deduped {
-		// The core says a live session of this task is the run. It must be the one this gateway told it about: anything else is
-		// not a dedupe the gateway can stand behind.
+		// The core says a live session of this task is the run. It must be the one this gateway told it about, and it must be a
+		// session a trigger of THIS agent opened: the task id is a hash anybody can compute, so a session of a person's (or of
+		// another principal's) that carries it is not a run to launch an event into. Python records no marker on a triggered
+		// session, so what marks one is its principal: the definition's own workload identity, which only a trigger's open is
+		// granted (a person's session is `user:...`, a run's own principal is the person's).
 		g.Store.GiveBack(newID)
 		if live == nil || gr.Session != live.ID {
 			g.Log.Error("the core answered a trigger with a dedupe the gateway did not offer: refused", "agent", agent)
 			return refusedGrant(v), nil
 		}
 		live.Lock()
-		gone := live.Closed
+		okLive := !live.Closed && live.Agent == agent && live.TaskID == taskID && live.ParentID == nil && d != nil && d.IdentityType == "workload" &&
+			d.ServiceAccount != nil && live.Principal == *d.ServiceAccount
 		out := map[string]any{"session": live.ID, "task_id": live.TaskID, "expires_at": core.Iso(live.ExpiresAt), "deduped": true}
 		live.Unlock()
-		if gone { // closed while the core was deciding: not a run a trigger can be answered with
+		if !okLive { // closed while the core was deciding, or not a session this trigger opened
+			g.Log.Error("a dedupe onto a session that is not this agent's own trigger session: refused", "agent", agent, "session", live.ID)
 			return refusedGrant(v), nil
 		}
 		return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: out, AuditSeq: v.Seq, Session: &live.ID}, nil
@@ -97,12 +103,63 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 		g.Log.Error("the core's grant for a triggered run failed the gateway's own check: refused", "agent", agent, "why", why)
 		return refusedGrant(v), nil
 	}
-	s := g.Store.Adopt(gr, now, nil, 0)
+	// Adopt under the gate, after reading the hold again: a hold that was saved while the core was deciding refuses the open here
+	// (nothing is adopted), and one saved after this point is the launch's to catch (LaunchTriggered).
+	g.holdGate.RLock()
+	held, herr := g.holdForLocked(ctx, agent)
+	var s *session.Session
+	if herr == nil && held == nil {
+		s = g.Store.Adopt(gr, now, nil, 0)
+	}
+	g.holdGate.RUnlock()
+	if herr != nil {
+		g.Store.GiveBack(newID)
+		return nil, herr
+	}
+	if held != nil {
+		g.Store.GiveBack(newID)
+		return heldResult(agent, held, v), nil
+	}
 	g.flush(ctx, s)
 	s.Lock()
 	out := map[string]any{"session": s.ID, "task_id": s.TaskID, "expires_at": core.Iso(s.ExpiresAt), "deduped": false}
 	s.Unlock()
 	return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: out, AuditSeq: v.Seq, Session: &s.ID}, nil
+}
+
+// heldResult is the refusal of an open or a launch that a hold stopped after the core had decided (R024, as the core's own).
+func heldResult(agent string, h *Hold, v *core.Verdict) *Result {
+	msg := fmt.Sprintf("triggers held by %s until %s: %s", h.By, core.Iso(h.Until), h.Reason)
+	r := &Result{Decision: map[string]any{"allow": false, "rule": "R024", "message": msg}, Error: str(msg)}
+	if v != nil {
+		r.AuditSeq = v.Seq
+	}
+	return r
+}
+
+// LaunchTriggered launches the run of a session a trigger opened, with the hold read again right before the launch and after it:
+// a session opened before a hold was acknowledged must not run after it. A held agent's session is closed and the answer is R024;
+// a launch that raced a hold (the run was made, and the hold was saved meanwhile) is undone: the session is closed and its run
+// deleted.
+func (g *Gateway) LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*Result, error) {
+	if h, err := g.HoldFor(ctx, agent); err != nil {
+		return nil, err
+	} else if h != nil {
+		g.AbandonTriggered(ctx, sessionID, false)
+		return heldResult(agent, h, nil), nil
+	}
+	res, err := g.Launch(ctx, sessionID, input)
+	if err != nil || !res.OK {
+		return res, err
+	}
+	h, herr := g.HoldFor(ctx, agent)
+	if herr != nil || h == nil {
+		return res, nil
+	}
+	if s := g.Store.Get(sessionID); s != nil {
+		g.flush(ctx, g.deleteRuns(ctx, s, s, "closed", nil)...)
+	}
+	return heldResult(agent, h, nil), nil
 }
 
 func refusedGrant(v *core.Verdict) *Result {
@@ -113,10 +170,16 @@ func refusedGrant(v *core.Verdict) *Result {
 // TriggeredRequest is the core's evaluation of a triggered open as OpenTriggered builds it (Gateway.open_triggered): the agent's
 // hold and any live session of the same task are in the context. Exported for the replay.
 func (g *Gateway) TriggeredRequest(ctx context.Context, agent, trigger, taskID, newID string, now time.Time) (*client.EvaluationRequest, error) {
+	req, _, err := g.TriggeredRequestLive(ctx, agent, trigger, taskID, newID, now)
+	return req, err
+}
+
+// TriggeredRequestLive is TriggeredRequest, and the live session of the task it showed the core, if any. The hold is read under
+// the gate's read lock, which is let go before it returns.
+func (g *Gateway) TriggeredRequestLive(ctx context.Context, agent, trigger, taskID, newID string, now time.Time) (*client.EvaluationRequest, *session.Session, error) {
 	g.holdGate.RLock()
 	defer g.holdGate.RUnlock()
-	req, _, err := g.triggeredRequest(ctx, agent, trigger, taskID, newID, now)
-	return req, err
+	return g.triggeredRequest(ctx, agent, trigger, taskID, newID, now)
 }
 
 // triggeredRequest builds the evaluation; the caller holds the hold gate. live is the live session of the task, if any.
@@ -154,6 +217,21 @@ func (g *Gateway) triggeredRequest(ctx context.Context, agent, trigger, taskID, 
 
 // Definitions is the definition set (the triggers read it for what each agent's triggers are).
 func (g *Gateway) Definitions() map[string]*definitions.Definition { return g.Defs }
+
+// SessionState says whether a session is known to this gateway, whether it is live (not closed, not past its deadline) and the run
+// it names, "" when it has none.
+func (g *Gateway) SessionState(sessionID string) (known, live bool, run string) {
+	s := g.Store.Get(sessionID)
+	if s == nil {
+		return false, false, ""
+	}
+	s.Lock()
+	defer s.Unlock()
+	if s.Run != nil {
+		run = *s.Run
+	}
+	return true, !s.Expired(g.Now()), run
+}
 
 // SessionHasRun says whether a live session has a run (its name written, or made): a session a trigger opened and nothing launched
 // has none.

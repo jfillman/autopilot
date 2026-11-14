@@ -132,3 +132,38 @@ func globTokens(p string) []globTok {
 	}
 	return out
 }
+
+// MatchSegments reports whether id matches any of the delegate-style globs segment by segment: the id and the glob are split at `/`,
+// must have the same number of segments, and each segment must match its own (so a `*` or a `?` never crosses a `/`).
+func MatchSegments(id string, globs []string) bool {
+	parts := splitSlash(id)
+	for _, g := range globs {
+		gp := splitSlash(g)
+		if len(gp) != len(parts) {
+			continue
+		}
+		ok := true
+		for i := range gp {
+			if !Match(parts[i], gp[i]) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+func splitSlash(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '/' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, s[start:])
+}

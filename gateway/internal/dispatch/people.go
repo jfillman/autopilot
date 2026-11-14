@@ -23,10 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/glob"
@@ -197,11 +200,11 @@ func (g *Gateway) Person(ctx context.Context, token, onBehalfOf string) (person,
 		return "", "", err
 	}
 	if onBehalfOf != "" {
-		if !glob.MatchAny(p.ID, g.Delegates) {
+		if !IsDelegate(p, g.Delegates) {
 			return "", "", &InboxError{"HR-DELEGATE", p.ID + " may not act for a person", "", 403}
 		}
-		if !strings.HasPrefix(onBehalfOf, "user:") || len(onBehalfOf) > MaxOnBehalfOf || len(onBehalfOf) == len("user:") || strings.ContainsAny(onBehalfOf, "\x00\r\n") {
-			return "", "", &InboxError{"HR-PERSON", "on-behalf-of must name a person (user:<name>)", "", 400}
+		if err := checkPersonName(onBehalfOf); err != nil {
+			return "", "", err
 		}
 		return onBehalfOf, p.ID, nil
 	}
@@ -209,6 +212,57 @@ func (g *Gateway) Person(ctx context.Context, token, onBehalfOf string) (person,
 		return "", "", &InboxError{"HR-PERSON", p.ID + " is not a person", "", 403}
 	}
 	return p.ID, "", nil
+}
+
+// runIdentity is a run pod's identity (agent-<run>/run, a run name of r- and 6 to 32 hex digits).
+var runIdentity = regexp.MustCompile(`^agent-r-[0-9a-f]{6,32}/run$`)
+
+// IsDelegate says whether the caller may act for a person it names: a workload (never a person), that is not a run, whose id
+// matches a delegate glob segment by segment (`*` and `?` stay inside one segment, so a glob cannot cross a `/`). A principal of
+// another cluster has three segments (cluster/namespace/name) and matches only a glob of three; one of this cluster has two.
+// A run is refused whatever the list says.
+func IsDelegate(p *Principal, globs []string) bool {
+	if p.Kind != "workload" || runIdentity.MatchString(p.ID) {
+		return false
+	}
+	return glob.MatchSegments(p.ID, globs)
+}
+
+// ValidateDelegateGlob is the start-up check of one entry of AUTOPILOT_DELEGATES: two segments (namespace/name) or three
+// (cluster/namespace/name); every segment but the last is literal (no `*`, `?` or `[`), so a delegate is named by where it runs and
+// only its name may be a pattern; and not `*`.
+func ValidateDelegateGlob(g string) error {
+	parts := strings.Split(g, "/")
+	if len(parts) < 2 || len(parts) > 3 {
+		return fmt.Errorf("%q: a delegate is namespace/name (this cluster) or cluster/namespace/name (another)", g)
+	}
+	for i, p := range parts {
+		if p == "" {
+			return fmt.Errorf("%q: an empty segment", g)
+		}
+		if i < len(parts)-1 && strings.ContainsAny(p, "*?[") {
+			return fmt.Errorf("%q: the namespace (and the cluster) of a delegate must be literal; only its name may be a pattern", g)
+		}
+	}
+	return nil
+}
+
+// checkPersonName is what a delegate may name: user:<name>, at most MaxOnBehalfOf bytes, with no control, format or separator
+// character in it (a tab, an ESC, a newline, U+2028, a zero-width or direction mark).
+func checkPersonName(name string) error {
+	bad := func(msg string) error { return &InboxError{"HR-PERSON", msg, "", 400} }
+	if !strings.HasPrefix(name, "user:") || len(name) > MaxOnBehalfOf || len(name) == len("user:") {
+		return bad("on-behalf-of must name a person (user:<name>)")
+	}
+	if !utf8.ValidString(name) {
+		return bad("on-behalf-of must name a person (user:<name>)")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return bad("on-behalf-of must name a person (user:<name>)")
+		}
+	}
+	return nil
 }
 
 // personFor is Person for a control: the inbox refusals are the control's (CT-...).
@@ -278,7 +332,7 @@ func (g *Gateway) FreezeSession(ctx context.Context, token, sessionID string, re
 	agent := s.Agent
 	s.Unlock()
 	if err := g.mayManage(ctx, person, agent, s); err != nil {
-		return nil, err
+		return nil, noSuchSession(err)
 	}
 	text, err := CheckReason(reason)
 	if err != nil {
@@ -305,6 +359,16 @@ func (g *Gateway) FreezeSession(ctx context.Context, token, sessionID string, re
 	g.flush(ctx, append([]*session.Session{s}, g.sessionsOf(g.descendants(s))...)...)
 	rec := g.personRecord(ctx, person, via, "session.freeze", s, agent, s.ID, map[string]any{"reason": text}, "frozen: "+text)
 	return map[string]any{"session": s.ID, "agent": agent, "tripped": true, "trip_reason": reasonOut, "audit_seq": nilSeq(rec)}, nil
+}
+
+// noSuchSession is the answer to a person who may not manage a session: the same 404 as for a session that does not exist, naming
+// no agent, so the route cannot be used to find out which session ids exist or whose they are. Any other error is kept.
+// (Python answers 403 and names the agent.)
+func noSuchSession(err error) error {
+	if ce, ok := err.(*ControlError); ok && ce.Rule == "CT-FORBIDDEN" {
+		return &ControlError{"CT-UNKNOWN", "no such session", "", 404}
+	}
+	return err
 }
 
 func (g *Gateway) sessionsOf(ids []string) []*session.Session {
@@ -337,7 +401,7 @@ func (g *Gateway) EndSession(ctx context.Context, token, sessionID string, reaso
 	agent := s.Agent
 	s.Unlock()
 	if err := g.mayManage(ctx, person, agent, s); err != nil {
-		return nil, err
+		return nil, noSuchSession(err)
 	}
 	text, err := CheckReason(reason)
 	if err != nil {

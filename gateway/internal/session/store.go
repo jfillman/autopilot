@@ -266,6 +266,18 @@ func (st *Store) TripTree(id, reason string) {
 // Close ends a session and its children, returning the reserved budget to the parent with what was used.
 func (st *Store) Close(id string) { st.CloseTouched(id) }
 
+// closeHook, when set (tests), runs in CloseTouched between the snapshot of a session's children and the closing of its children.
+var closeHook func(id string)
+
+func containsID(a []string, x string) bool {
+	for _, y := range a {
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
 // CloseTouched is Close, and returns every session it changed (the ones it closed and the parents that took their
 // budget back), so the caller can save them together: a parent whose budget came back must not be left saved with it
 // still reserved against a child that is saved closed.
@@ -281,6 +293,9 @@ func (st *Store) CloseTouched(id string) []*Session {
 	}
 	kids := append([]string(nil), s.Children...)
 	s.Unlock()
+	if closeHook != nil {
+		closeHook(id)
+	}
 	var touched []*Session
 	for _, c := range kids {
 		touched = append(touched, st.CloseTouched(c)...)
@@ -292,7 +307,20 @@ func (st *Store) CloseTouched(id string) []*Session {
 	}
 	s.Closed = true
 	parent, limits, used := s.ParentID, s.Limits, s.Used
+	// A spawn that landed after the snapshot above and before this close adopted its child under a parent that was still open
+	// (AdoptChild refuses a closed parent, and only now is it closed). It appended itself to Children under the lock, so the
+	// children are read again: nothing can be added after Closed is set, and what was added in the window is closed here, so no
+	// live child is left under a closed parent until its ttl.
+	var late []string
+	for _, c := range s.Children {
+		if !containsID(kids, c) {
+			late = append(late, c)
+		}
+	}
 	s.Unlock()
+	for _, c := range late {
+		touched = append(touched, st.CloseTouched(c)...)
+	}
 	touched = append(touched, s)
 	if parent != nil {
 		if p := st.Get(*parent); p != nil {

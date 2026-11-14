@@ -629,9 +629,10 @@ func TestHoldAndRelease(t *testing.T) {
 	}
 }
 
-// A hold and a trigger's open are ordered: when the hold call returns, no open that read "no hold" is still in flight, and every
-// later open sees the hold. The open is held inside the core's evaluation by a channel, not a sleep.
-func TestAHoldWaitsForAnOpenInFlightAndLaterOpensSeeIt(t *testing.T) {
+// The hold (the emergency brake) never waits for a slow core, and is not undone by an open already past its check: the open is held
+// inside the core's evaluation by a channel; the hold is acknowledged at once; the open then finds the hold when it comes to adopt its
+// session, refuses (R024) and adopts nothing; every later open is refused too.
+func TestAHoldIsNotDelayedByAnOpenInFlightAndTheOpenThenRefuses(t *testing.T) {
 	p := newPeopleRig(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	p.beforeOpen = func(*client.EvaluationRequest) {
@@ -641,6 +642,7 @@ func TestAHoldWaitsForAnOpenInFlightAndLaterOpensSeeIt(t *testing.T) {
 		}
 	}
 	opened := make(chan *dispatch.Result, 1)
+	n := len(p.store.All())
 	go func() {
 		res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
 		opened <- res
@@ -653,19 +655,223 @@ func TestAHoldWaitsForAnOpenInFlightAndLaterOpensSeeIt(t *testing.T) {
 	}()
 	select {
 	case err := <-held:
-		t.Fatalf("the hold returned while an open that read no hold was still in flight: %v", err)
-	case <-time.After(150 * time.Millisecond):
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the hold waited for an open that was inside the core's decision")
 	}
 	close(release)
-	if res := <-opened; !res.OK {
-		t.Fatalf("%+v", res)
-	}
-	if err := <-held; err != nil {
-		t.Fatal(err)
+	if res := <-opened; res.OK || res.Decision["rule"] != "R024" || len(p.store.All()) != n {
+		t.Fatalf("an open that the hold overtook was adopted: %+v, %d sessions, was %d", res, len(p.store.All()), n)
 	}
 	res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e2", "t-bbbbbbbbbbbb")
 	if res.OK || res.Decision["rule"] != "R024" {
 		t.Fatalf("%+v", res)
+	}
+}
+
+// A trigger session opened before a hold, and launched after it, does not launch: the session is closed and the answer is R024. A
+// launch that is already past that check when the hold is saved is undone (the session closed, its run deleted).
+func TestAHoldStopsALaunchOfASessionOpenedBeforeIt(t *testing.T) {
+	for _, mid := range []bool{false, true} {
+		p := newPeopleRig(t)
+		img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+		p.g.Defs["triage-agent"].Image = &img
+		res, err := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
+		if err != nil || !res.OK {
+			t.Fatalf("%+v %v", res, err)
+		}
+		sid := *res.Session
+		hold := func() {
+			if _, err := p.g.HoldTriggers(ctx, p.person(adminID), "triage-agent", "storm", 1, ""); err != nil {
+				t.Error(err)
+			}
+		}
+		if mid {
+			// the hold is saved while the run is being made (inside the AgentRun create)
+			var once bool
+			p.g.SetRuns(&runs.Backend{Store: &gatedStore{FakeStore: p.api, onCreate: func(string) {
+				if !once {
+					once = true
+					hold()
+				}
+			}}})
+		} else {
+			hold()
+		}
+		out, err := p.g.LaunchTriggered(ctx, "triage-agent", sid, map[string]any{"prompt": "x"})
+		if err != nil || out.OK || out.Decision["rule"] != "R024" {
+			t.Fatalf("mid=%v: %+v %v", mid, out, err)
+		}
+		s := p.store.Get(sid)
+		s.Lock()
+		closed := s.Closed
+		s.Unlock()
+		p.g.Expire(ctx)
+		if !closed || len(p.api.Manifests) != 0 {
+			t.Fatalf("mid=%v: the session is closed %v, runs live %d", mid, closed, len(p.api.Manifests))
+		}
+	}
+}
+
+// A frozen session starts no run: it is closed instead. (Open by trigger, hold released, freeze, then launch.)
+func TestALaunchOfAFrozenSessionIsRefusedAndTheSessionClosed(t *testing.T) {
+	p := newPeopleRig(t)
+	img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+	p.g.Defs["triage-agent"].Image = &img
+	res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
+	sid := *res.Session
+	if _, err := p.g.FreezeSession(ctx, p.person(adminID), sid, "stop", ""); err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.g.Launch(ctx, sid, map[string]any{"prompt": "x"})
+	if err != nil || out.OK || out.Decision["rule"] != "R004" {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if s := p.store.Get(sid); !s.Closed || len(p.api.Manifests) != 0 {
+		t.Fatal("a frozen session was launched, or left open")
+	}
+}
+
+// The task id is a hash anyone can compute: a session of a person's (or of another principal's) that carries it is not a run for a
+// trigger to dedupe onto. The core, shown the live session, answers a dedupe; the gateway refuses, launches nothing, makes no session.
+func TestATriggerDoesNotDedupeOntoASessionItDidNotOpen(t *testing.T) {
+	task := triggers.EventTaskID("triage-agent", "gate-api.pipelinerun.finished/pr-1")
+	for name, mod := range map[string]func(*session.Record){
+		"a person's session of the agent": func(r *session.Record) {},
+		"another workload's":              func(r *session.Record) { r.Principal = "other/identity" },
+	} {
+		p := newPeopleRig(t)
+		img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+		p.g.Defs["triage-agent"].Image = &img
+		_ = p.persist.Save(ctx, []session.Record{sessionRow("s-00ee02", "user:alice", "triage-agent", "", func(r *session.Record) { r.TaskID = task; mod(r) })})
+		st2, _ := session.NewStore(ctx, p.persist)
+		p.g.Store, p.store = st2, st2
+		n := len(p.store.All())
+		res, err := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", task)
+		if err != nil || res.OK || res.Decision["rule"] != core.RefusedRule {
+			t.Errorf("%s: %+v %v", name, res, err)
+		}
+		if len(p.store.All()) != n || len(p.api.Manifests) != 0 {
+			t.Errorf("%s: something was created", name)
+		}
+	}
+	// the agent's own trigger session is still deduped
+	p := newPeopleRig(t)
+	first, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", task)
+	again, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", task)
+	if !again.OK || again.Data.(map[string]any)["deduped"] != true || *again.Session != *first.Session {
+		t.Fatalf("%+v", again)
+	}
+}
+
+// Delegates: a delegate is named by where it runs. Start-up refuses `*`, a leading wildcard and a wildcard namespace or cluster; a glob
+// never crosses a `/`; a run is never a delegate, nor a person; another cluster's principal needs a glob of three segments.
+func TestDelegatesAreNamedByWhereTheyRun(t *testing.T) {
+	for _, bad := range []string{"*", "*/backend", "tower*/backend", "?/x", "[a]/x", "tower", "a/b/c/d", "tower//x", "/x", "hangar-prod/*/backend", "*/*/*", "*/tower/backend"} {
+		if err := dispatch.ValidateDelegateGlob(bad); err == nil {
+			t.Errorf("%q was accepted as a delegate", bad)
+		}
+	}
+	for _, good := range []string{"tower/backend", "tower/back*", "hangar-prod/tower/backend", "hangar-prod/tower/*"} {
+		if err := dispatch.ValidateDelegateGlob(good); err != nil {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+	w := func(id string) *dispatch.Principal { return &dispatch.Principal{ID: id, Kind: "workload"} }
+	cases := []struct {
+		name  string
+		p     *dispatch.Principal
+		globs []string
+		want  bool
+	}{
+		{"a literal", w("tower/backend"), []string{"tower/backend"}, true},
+		{"a name pattern", w("tower/backend-2"), []string{"tower/backend*"}, true},
+		{"a star does not cross a slash", w("tower/a/b"), []string{"tower/*"}, false},
+		{"a star in the name does not reach another namespace", w("other/backend"), []string{"tower/backend"}, false},
+		{"another cluster's principal with a two-segment glob", w("hangar-prod/tower/backend"), []string{"tower/backend"}, false},
+		{"another cluster's principal with three segments", w("hangar-prod/tower/backend"), []string{"hangar-prod/tower/*"}, true},
+		{"a person", &dispatch.Principal{ID: "tower/backend", Kind: "user"}, []string{"tower/backend"}, false},
+		{"a run, named exactly", w("agent-r-0000a1/run"), []string{"agent-r-0000a1/run"}, false},
+		{"a run, by a name pattern", w("agent-r-0000a1/run"), []string{"agent-r-0000a1/r*"}, false},
+	}
+	for _, c := range cases {
+		if got := dispatch.IsDelegate(c.p, c.globs); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+	// through Person: a run that is on the list is still refused, and the header may hold nothing but a plain name
+	p := newPeopleRig(t)
+	p.g.Delegates = []string{"agent-r-0000a1/run", "hangar-prod/tower/*"}
+	if _, _, err := p.g.Person(ctx, p.pod("r-0000a1"), adminID); ctlRule(err) != "HR-DELEGATE" {
+		t.Fatalf("a run that is also a delegate: %v", err)
+	}
+	for _, name := range []string{"user:a\tb", "user:a\x1bb", "user:a\u2028b", "user:a\u2029b", "user:a\u200bb", "user:a\u202eb", "user:a\x7fb", "user:\xff"} {
+		if _, _, err := p.g.Person(ctx, p.who(delegateID, "workload"), name); ctlRule(err) != "HR-PERSON" {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	if _, _, err := p.g.Person(ctx, p.who(delegateID, "workload"), "user:alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	// a delegate naming an admin is allowed (as in Python) and the record names both
+	if _, err := p.g.HoldTriggers(ctx, p.who(delegateID, "workload"), "triage-agent", "storm", 1, adminID); err != nil {
+		t.Fatal(err)
+	}
+	recs := p.recordsOf("trigger.hold")
+	if len(recs) != 1 || recs[0]["principal"] != adminID || !strings.HasSuffix(recs[0]["result"].(string), " via "+delegateID) {
+		t.Fatalf("%v", recs)
+	}
+}
+
+// Freeze and end answer one 404 for a session that does not exist and one that is not the person's to manage, naming no agent.
+// (Python: 403 naming the agent.)
+func TestFreezeAndEndDoNotTellAnUnknownSessionFromAForeignOne(t *testing.T) {
+	p := newPeopleRig(t)
+	bob := p.person("user:bob")
+	for name, do := range map[string]func(string) error{
+		"freeze": func(sid string) error { _, err := p.g.FreezeSession(ctx, bob, sid, "x", ""); return err },
+		"end":    func(sid string) error { _, err := p.g.EndSession(ctx, bob, sid, "x", ""); return err },
+	} {
+		foreign, unknown := do("s-0000a1"), do("s-nope")
+		for _, err := range []error{foreign, unknown} {
+			if ctlRule(err) != "CT-UNKNOWN" || ctlStatus(err) != 404 || strings.Contains(err.Error(), "orchestrator") || strings.Contains(err.Error(), "bob") {
+				t.Errorf("%s: %v", name, err)
+			}
+		}
+		if foreign.Error() != unknown.Error() {
+			t.Errorf("%s: the two answers differ: %q and %q", name, foreign, unknown)
+		}
+	}
+	if s := p.store.Get("s-0000a1"); s.Tripped || s.Closed {
+		t.Fatal("changed")
+	}
+}
+
+// The inbox listing is filtered by the store, so other people's pending requests cannot hide a person's own.
+func TestTheInboxListingIsPerPerson(t *testing.T) {
+	p := newPeopleRig(t)
+	for i := 0; i < 30; i++ {
+		_ = p.inbox.Add(ctx, &dispatch.HumanRequest{ID: fmt.Sprintf("h-%012x", i), TaskID: "t", Session: "s", Agent: "a", Owner: "user:other", Question: "q", CreatedAt: t0.Add(time.Duration(i) * time.Second), ExpiresAt: t0.Add(time.Hour), Status: "pending"})
+	}
+	_ = p.inbox.Add(ctx, &dispatch.HumanRequest{ID: "h-0000000000ff", TaskID: "t", Session: "s", Agent: "a", Owner: "user:alice", Question: "mine", CreatedAt: t0.Add(time.Hour - time.Second), ExpiresAt: t0.Add(2 * time.Hour), Status: "pending"})
+	list, err := p.g.HumanRequests(ctx, p.person("user:alice"), "")
+	if err != nil || len(list) != 1 || list[0]["question"] != "mine" {
+		t.Fatalf("%v %v", list, err)
+	}
+}
+
+// A closed session's trigger answered by an inbox with no store: the caller is checked first (a bad token is never told HR-OFF).
+func TestAnInboxlessGatewayChecksTheCallerFirst(t *testing.T) {
+	p := newPeopleRig(t)
+	p.g.Inbox = nil
+	var ae *core.AuthError
+	if _, err := p.g.HumanAnswer(ctx, "bad", "h-000000000001", "x", ""); !errors.As(err, &ae) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := p.g.HumanRequests(ctx, "bad", ""); !errors.As(err, &ae) {
+		t.Fatalf("%v", err)
 	}
 }
 
@@ -1204,7 +1410,7 @@ func TestTriggersThroughTheRealGateway(t *testing.T) {
 	p.g.Defs["triage-agent"].Image = &img
 	ledger := &triggers.MemoryLedger{}
 	now := t0
-	b, err := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
+	b, err := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", AllowHTTP: true, TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1235,7 +1441,7 @@ func TestTriggersThroughTheRealGateway(t *testing.T) {
 	}
 	// a replay, from a new process: once
 	now = t0.Add(time.Hour)
-	b2, _ := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
+	b2, _ := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", AllowHTTP: true, TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
 	got, _ = b2.Handle(ctx, env("e1", "pr-1"), "recent")
 	if len(got) != 1 || got[0].New || len(live()) != 1 || len(p.api.Manifests) != 1 {
 		t.Fatalf("%+v", got)
@@ -1251,7 +1457,7 @@ func TestTriggersThroughTheRealGateway(t *testing.T) {
 		t.Fatal("claim")
 	}
 	now = t0.Add(2 * time.Hour)
-	b3, _ := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
+	b3, _ := triggers.NewBridge(p.g, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", AllowHTTP: true, TokenFile: "/dev/null", Now: func() time.Time { return now }}, nil, nil)
 	got, err = b3.Handle(ctx, env("e2", "pr-2"), "recent")
 	if err != nil || len(got) != 1 || got[0].Result != "launched" || got[0].Session != "s-00ee01" {
 		t.Fatalf("%+v %v", got, err)

@@ -79,6 +79,15 @@ func people(g *dispatch.Gateway, op func(w http.ResponseWriter, r *http.Request,
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "a bearer token is required"})
 			return
 		}
+		// The caller is checked before the body is read or parsed, or anything else is said: a bad token is a 401, never a 400 or a 413.
+		if _, aerr := g.Auth.Authenticate(r.Context(), token); aerr != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "token not accepted"})
+			return
+		}
+		if len(r.Header.Values(OnBehalfOfHeader)) > 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "on-behalf-of is named once", "rule": "HR-PERSON", "hint": ""})
+			return
+		}
 		out, status, err := op(w, r, token, r.Header.Get(OnBehalfOfHeader))
 		var ae *core.AuthError
 		var ie *dispatch.InboxError

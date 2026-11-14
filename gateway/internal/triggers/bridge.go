@@ -86,6 +86,10 @@ type Gateway interface {
 	OpenTriggered(ctx context.Context, agent, trigger, taskID string) (*dispatch.Result, error)
 	Launch(ctx context.Context, sessionID string, input map[string]any) (*dispatch.Result, error)
 	SessionHasRun(sessionID string) bool
+	// SessionState says whether a session is known, whether it is live (not closed, not past its deadline) and the run it names.
+	SessionState(sessionID string) (known, live bool, run string)
+	// LaunchTriggered launches a trigger's session with the hold read again right before and after.
+	LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*dispatch.Result, error)
 	// AbandonTriggered closes a session a trigger opened and could not launch.
 	AbandonTriggered(ctx context.Context, sessionID string, failed bool)
 	RecordEvent(ctx context.Context, summary map[string]any, outcomes []map[string]any) (bool, error)
@@ -127,6 +131,9 @@ type BridgeConfig struct {
 	Idle       time.Duration
 	BackoffMin time.Duration
 	BackoffMax time.Duration
+	// AllowHTTP lets the URL be plain http (GLIDEPATH_API_ALLOW_HTTP, default off). Otherwise the URL must be https, except for a
+	// loopback IP address (127.0.0.0/8, ::1), which tests and local runs use; no host NAME is special.
+	AllowHTTP bool
 	// Wait, when set, replaces the wait between streams (a test records the delays and returns at once); it reports false when ctx ended.
 	Wait func(ctx context.Context, d time.Duration) bool
 }
@@ -156,6 +163,9 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, errors.New("GLIDEPATH_API_URL is an http(s) URL with a host, no credentials, no query")
 	}
+	if u.Scheme == "http" && !cfg.AllowHTTP && !loopbackIP(u.Hostname()) {
+		return nil, errors.New("GLIDEPATH_API_URL is https: the gateway's bearer token goes to it (set GLIDEPATH_API_ALLOW_HTTP=1 to allow plain http)")
+	}
 	if cfg.TokenFile == "" {
 		return nil, errors.New("the event bridge needs a token file")
 	}
@@ -179,7 +189,9 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 	}
 	hc := cfg.Client
 	if hc == nil {
-		tr := &http.Transport{Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: headerTimeout,
+		// No proxy: the environment's proxy settings are not used (Python's urllib uses them), so the gateway's token goes only to the
+		// host named in GLIDEPATH_API_URL, never to a proxy the environment names.
+		tr := &http.Transport{Proxy: nil, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: headerTimeout,
 			MaxIdleConns: 4, MaxIdleConnsPerHost: 2, IdleConnTimeout: 90 * time.Second, DisableCompression: true,
 			DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext}
 		// A redirect is never followed: the bridge sends the gateway's token, and a redirect is the one thing that could carry it
@@ -192,6 +204,14 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 }
 
 // Now is the bridge's clock.
+func loopbackIP(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// Plain reports whether the bridge talks plain http, and to which host, for the warning at start.
+func (b *Bridge) Plain() (bool, string) { return b.base.Scheme == "http", b.base.Hostname() }
+
 func (b *Bridge) Now() time.Time { return b.cfg.Now() }
 
 func (b *Bridge) dbCtx(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -273,25 +293,39 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 			failed = err
 			continue
 		}
+		var o Outcome
 		if !won {
 			gctx, cancel := b.dbCtx(ctx)
 			row, _ := b.ledger.Get(gctx, m.Agent, key)
 			cancel()
-			o := Outcome{Agent: m.Agent, Result: "deduped", Via: via}
-			if row != nil {
-				o.Replay = row.EventID != nil && *row.EventID == eid
-				o.Session, o.Run = deref(row.Session), deref(row.Run)
+			if row != nil && row.State == "claimed" && row.Session != nil && !row.ClaimedAt.Before(b.started) {
+				// A claim this process made, whose session was opened and whose decision could not be written (the stream ended with
+				// a ledger failure and this is the replay): the decision is completed here, not reported as a plain dedupe. The
+				// session recorded in the row says what became of the trigger.
+				o = b.complete(ctx, m, env, key, via, *row.Session)
+			} else {
+				o = Outcome{Agent: m.Agent, Result: "deduped", Via: via}
+				if row != nil {
+					o.Replay = row.EventID != nil && *row.EventID == eid
+					o.Session, o.Run = deref(row.Session), deref(row.Run)
+				}
+				done = append(done, o)
+				continue
 			}
-			done = append(done, o)
-			continue
+		} else {
+			var ferr error
+			if o, ferr = b.fire(ctx, m, env, key, via); ferr != nil {
+				b.log.Error("the trigger ledger could not record a session", "agent", m.Agent, "err", errKind(ferr))
+				failed = ferr
+				continue
+			}
 		}
-		o := b.fire(ctx, m, env, key, via)
 		dctx, cancel := b.dbCtx(ctx)
-		err = b.ledger.Decide(dctx, m.Agent, key, o.Result, o.Session, o.Run)
+		err = retry(dctx, RetryWaits, func() error { return b.ledger.Decide(dctx, m.Agent, key, o.Result, o.Session, o.Run) })
 		cancel()
 		if err != nil {
-			// The run (if any) exists and the row stays `claimed`: after a restart the claim is an orphan, and the live session
-			// answers it as a dedupe. The caller does not advance the cursor, so the event is seen again.
+			// The run (if any) exists and the row stays `claimed` with its session: the replay of this event completes the decision
+			// (above), and a restart's claim finds the session and opens no other. The caller does not advance the cursor.
 			b.log.Error("the trigger ledger could not write a decision", "agent", m.Agent, "err", errKind(err))
 			failed = err
 		}
@@ -362,8 +396,9 @@ func (b *Bridge) brake(agent string, perHour int) *RateLimiter {
 	return r
 }
 
-// fire brakes, opens and launches one claimed trigger; the decision for its ledger row.
-func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via string) (out Outcome) {
+// fire brakes, opens and launches one claimed trigger; the decision for its ledger row. A ledger error (the session could not be tied
+// to the claim) is the second result.
+func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via string) (out Outcome, err error) {
 	eid := env["id"].(string)
 	out = Outcome{Agent: m.Agent, Via: via, New: true}
 	perHour := m.Trigger.MaxPerHour
@@ -373,66 +408,68 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 	if !b.brake(m.Agent, perHour).Allow(b.Now()) {
 		b.log.Warn("an event is over its agent's storm brake and was dropped", "event", eid, "agent", m.Agent, "per_hour", perHour)
 		out.Result = "braked"
-		return out
+		return out, nil
 	}
 	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil { // one agent's failure must not skip the others for this event
 			b.log.Error("a trigger panicked", "event", eid, "agent", m.Agent, "panic", fmt.Sprint(r))
-			out.Result = "launch-failed"
+			out.Result, err = "launch-failed", nil
 		}
 	}()
-	r, err := b.gw.OpenTriggered(fctx, m.Agent, "glidepath:"+eid, EventTaskID(m.Agent, key))
-	if err != nil {
-		b.log.Error("a trigger could not open its session", "event", eid, "agent", m.Agent, "err", errKind(err))
-		out.Result = "launch-failed"
-		return out
+	gctx, gcancel := b.dbCtx(fctx)
+	row, _ := b.ledger.Get(gctx, m.Agent, key)
+	gcancel()
+	prior := ""
+	if row != nil && row.Session != nil {
+		prior = *row.Session // taken over from an orphan: the session its holder opened
 	}
-	if !r.OK {
-		// R024: a person holds this agent's triggers; the event is history, not a run.
-		out.Rule, _ = r.Decision["rule"].(string)
-		out.Result = "refused"
-		if out.Rule == "R024" {
-			out.Result = "held"
+	res, ferr := fireClaimed(fctx, b.gw, b.ledger, b.log, RetryWaits, m.Agent, key, prior, func(ctx context.Context) (*opened, *fireOut) {
+		r, oerr := b.gw.OpenTriggered(ctx, m.Agent, "glidepath:"+eid, EventTaskID(m.Agent, key))
+		if oerr != nil {
+			b.log.Error("a trigger could not open its session", "event", eid, "agent", m.Agent, "err", errKind(oerr))
+			return nil, &fireOut{Result: "launch-failed"}
 		}
-		return out
-	}
-	data, _ := r.Data.(map[string]any)
-	sid := ""
-	if r.Session != nil {
-		sid = *r.Session
-	}
-	out.Session = sid
-	if deduped, _ := data["deduped"].(bool); deduped && b.gw.SessionHasRun(sid) {
-		out.Result = "deduped"
-		return out
-	}
-	// A new session, or a live one an earlier firing of this trigger opened and died before it launched (nothing else makes a live
-	// session of this key with no run: a firing that failed to launch is decided, and a decided row is never claimed again).
-	// Launch refuses a session that already has a run, so a repair cannot make a second one.
-	d := b.gw.Definitions()[m.Agent]
-	input := map[string]any{"event": Summarize(env)}
-	if d != nil && d.Instructions != nil && *d.Instructions != "" {
-		input["instructions"] = *d.Instructions
-	}
-	launched, err := b.gw.Launch(fctx, sid, input)
-	if err != nil {
-		b.log.Error("a trigger's run was not launched", "event", eid, "agent", m.Agent, "err", errKind(err))
-		out.Result = "launch-failed"
-		b.gw.AbandonTriggered(ctx, sid, true)
-		return out
-	}
-	out.Result = "launch-failed"
-	if launched.OK {
-		out.Result = "launched"
-		if data, ok := launched.Data.(map[string]any); ok {
-			out.Run, _ = data["run"].(string)
+		if !r.OK {
+			// R024: a person holds this agent's triggers; the event is history, not a run.
+			rule, _ := r.Decision["rule"].(string)
+			if rule == "R024" {
+				return nil, &fireOut{Result: "held", Rule: rule}
+			}
+			return nil, &fireOut{Result: "refused", Rule: rule}
 		}
-	} else {
-		b.gw.AbandonTriggered(ctx, sid, false)
+		data, _ := r.Data.(map[string]any)
+		sid := ""
+		if r.Session != nil {
+			sid = *r.Session
+		}
+		dd, _ := data["deduped"].(bool)
+		return &opened{session: sid, deduped: dd}, nil
+	}, b.runInput(m.Agent, env))
+	if ferr != nil {
+		return out, ferr
 	}
-	return out
+	out.Result, out.Session, out.Run, out.Rule = res.Result, res.Session, res.Run, res.Rule
+	return out, nil
+}
+
+// complete decides a claim whose session is recorded (see handle).
+func (b *Bridge) complete(ctx context.Context, m Match, env map[string]any, key, via, sid string) Outcome {
+	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
+	defer cancel()
+	res := continueSession(fctx, b.gw, m.Agent, sid, b.runInput(m.Agent, env))
+	return Outcome{Agent: m.Agent, Result: res.Result, Via: via, New: true, Session: res.Session, Run: res.Run, Rule: res.Rule}
+}
+
+func (b *Bridge) runInput(agent string, env map[string]any) func() map[string]any {
+	return func() map[string]any {
+		input := map[string]any{"event": Summarize(env)}
+		if d := b.gw.Definitions()[agent]; d != nil && d.Instructions != nil && *d.Instructions != "" {
+			input["instructions"] = *d.Instructions
+		}
+		return input
+	}
 }
 
 // Summarize is the part of an event a run gets: enough to find the run in Glidepath, small enough for the input cap

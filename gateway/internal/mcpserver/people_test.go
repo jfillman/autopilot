@@ -129,7 +129,7 @@ func TestThePeopleRoutes(t *testing.T) {
 	if code, m, _ := do(t, srv, "POST", "/v1/sessions/s-0000a1/freeze", "alice", "", ``); code != 400 || m["rule"] != "CT-REASON" {
 		t.Fatalf("%d %v", code, m)
 	}
-	if code, m, _ := do(t, srv, "POST", "/v1/sessions/s-0000a1/freeze", "bob", "", `{"reason":"x"}`); code != 403 || m["rule"] != "CT-FORBIDDEN" || m["hint"] == "" {
+	if code, m, _ := do(t, srv, "POST", "/v1/sessions/s-0000a1/freeze", "bob", "", `{"reason":"x"}`); code != 404 || m["rule"] != "CT-UNKNOWN" || m["error"] != "no such session" {
 		t.Fatalf("%d %v", code, m)
 	}
 	code, m, _ := do(t, srv, "POST", "/v1/sessions/s-0000a1/freeze", "delegate", "user:alice", `{"reason":"it opens bad PRs"}`)
@@ -217,4 +217,43 @@ func TestThePeopleRoutes(t *testing.T) {
 		t.Fatal(resp.StatusCode)
 	}
 	_ = resp.Body.Close()
+}
+
+// The caller is checked before the body is read: a bad token is a 401 whatever the body is (not a 400 or a 413), and a header that
+// names a person twice, or a person with a control character in the name, is refused.
+func TestTheCallerIsCheckedBeforeTheBodyAndTheHeaderIsStrict(t *testing.T) {
+	srv, _, _, _ := peopleSetup(t)
+	big := `{"reason":"` + strings.Repeat("x", mcpserver.MaxBody) + `"}`
+	for _, path := range []string{"/v1/sessions/s-0000a1/freeze", "/v1/sessions/s-0000a1/end", "/v1/agents/triage-agent/hold", "/v1/agents/coding-agent/runs",
+		"/v1/human/requests/h-000000000001/answer", "/v1/preflight/score"} {
+		for _, body := range []string{big, `{not json`, ``} {
+			if code, m, _ := do(t, srv, "POST", path, "nope", "", body); code != 401 {
+				t.Errorf("%s with a bad token: %d %v", path, code, m)
+			}
+		}
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/sessions/s-0000a1/freeze", strings.NewReader(`{"reason":"x"}`))
+	req.Header.Set("Authorization", "Bearer delegate")
+	req.Header.Add(mcpserver.OnBehalfOfHeader, "user:alice")
+	req.Header.Add(mcpserver.OnBehalfOfHeader, "user:root")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 400 {
+		t.Fatalf("%v %v", resp, err)
+	}
+	_ = resp.Body.Close()
+	for _, name := range []string{"user:a\x1bb", "user:a\tb", "user:a\u2028b"} {
+		req, _ = http.NewRequest("POST", srv.URL+"/v1/sessions/s-0000a1/freeze", strings.NewReader(`{"reason":"x"}`))
+		req.Header.Set("Authorization", "Bearer delegate")
+		req.Header["X-Hangar-On-Behalf-Of"] = []string{name}
+		if resp, err = http.DefaultClient.Do(req); err == nil {
+			if resp.StatusCode != 400 {
+				t.Errorf("%q: %d", name, resp.StatusCode)
+			}
+			_ = resp.Body.Close()
+		}
+	}
+	// a non-delegate that sends the header is refused, not ignored
+	if code, m, _ := do(t, srv, "POST", "/v1/sessions/s-0000a1/freeze", "alice", "user:root", `{"reason":"x"}`); code != 403 || m["rule"] != "CT-DELEGATE" {
+		t.Fatalf("%d %v", code, m)
+	}
 }

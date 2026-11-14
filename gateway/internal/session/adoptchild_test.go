@@ -214,3 +214,57 @@ func TestCloseTouchedReturnsTheParentItGaveBudgetBackTo(t *testing.T) {
 		t.Fatalf("closing twice changes nothing: %v", again)
 	}
 }
+
+// A spawn that lands between CloseTouched's snapshot of the children and the close of the parent (the window the gateway's sweep,
+// a person's End and a run's close all pass through) must not leave a live child under a closed parent: the parent is closed, and
+// then closes whatever was added in the window. AdoptChild alone cannot refuse it (the parent is still open); the close does.
+func TestAChildAdoptedWhileTheParentIsBeingClosedIsClosedToo(t *testing.T) {
+	st, p := newParent(t)
+	var kid *session.Session
+	session.SetCloseHook(func(id string) {
+		if id != "s-p" || kid != nil {
+			return
+		}
+		l := lim(func(l *client.Limits) {
+			l.ToolCalls, l.GithubCalls, l.OpenPRs, l.ModelTokens, l.Children, l.TTLMinutes = 10, 0, 0, 100, 0, 5
+		})
+		g, sp := grantFor("s-late", l)
+		var err error
+		var rel func()
+		if kid, rel, err = st.AdoptChild(g, sp, "s-p", "s-late", "kid", lim(nil), t0); err != nil {
+			t.Error(err)
+			return
+		}
+		rel()
+	})
+	defer session.SetCloseHook(nil)
+	touched := st.CloseTouched("s-p")
+	if kid == nil {
+		t.Fatal("the hook did not run")
+	}
+	if !kid.Closed || !p.Closed {
+		t.Fatalf("child closed %v, parent closed %v", kid.Closed, p.Closed)
+	}
+	p.Lock()
+	defer p.Unlock()
+	if p.Reserved.ToolCalls != 0 {
+		t.Fatalf("the late child's reservation did not come back: %+v", p.Reserved)
+	}
+	found := false
+	for _, s := range touched {
+		found = found || s == kid
+	}
+	if !found {
+		t.Fatal("the late child is not among the sessions to save")
+	}
+	// and once the parent is closed nothing more can be adopted under it
+	g, sp := grantFor("s-after", lim(func(l *client.Limits) {
+		l.ToolCalls, l.GithubCalls, l.OpenPRs, l.ModelTokens, l.Children, l.TTLMinutes = 1, 0, 0, 1, 0, 5
+	}))
+	p.Unlock()
+	_, _, err := st.AdoptChild(g, sp, "s-p", "s-after", "kid", lim(nil), t0)
+	p.Lock()
+	if err == nil {
+		t.Fatal("a child was adopted under a closed parent")
+	}
+}

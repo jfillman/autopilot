@@ -16,11 +16,17 @@ says what each gateway tag adds. The manager cuts the tags.
   `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA` and `PREFLIGHT_CASES_DIR`. The replay now takes the 31
   triggered `session.open` lines. A candidate definition `document` is refused (501) until the definition schema is carried (S4).
 - Beyond Python, on purpose: the gateway checks the grant the core makes for a trigger or a person's run, authenticates before it
-  answers anything, orders a hold against the opens in flight, rate limits holds and runs, bounds the event bridge's client (no
+  answers anything, makes a hold cover the open and the launch without ever waiting for the core, rate limits holds and runs, bounds the event bridge's client (no
   redirect, capped answers and lines, bounded backoff) and its topic matcher, repairs a session a trigger opened and never launched,
   and closes a session whose launch failed. `docs/admin/go-gateway.md` lists each difference, who may do what and the trigger crash points.
 - `tools/gen_gateway_registry.py` also writes fixtures for the inbox, the controls, the rows they write and the triggers (matcher, keys,
   the bridge and the scheduler driven over a fake gateway), generated from the Python code.
+
+- Review fixes of S3 (Go gateway only): a trigger records the session it opened in its ledger row before it launches, so a stale claim can
+  never launch a second run; a trigger dedupes only onto a session it opened; a frozen session and a held agent start no run; freeze and end
+  answer one 404 for an unknown and a foreign session; delegates are named by where they run (no `*`, no wildcard namespace, never a run, a
+  header with one clean `user:` name); every `/v1` route checks the token before the body; `RECONCILE_WINDOW_HOURS` is at most 696;
+  `GLIDEPATH_API_URL` is https unless `GLIDEPATH_API_ALLOW_HTTP=1`; a child spawned while its parent is being closed is closed too.
 
 ### Changed (A-9 S3 hardening of S2: a candidate's image and a run's pod)
 - A Preflight candidate's runtime image must end in `@sha256:` and 64 lowercase hex digits, an empty allow-list refuses every

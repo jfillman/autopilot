@@ -112,14 +112,14 @@ func TestTheTriggerSettings(t *testing.T) {
 		c.reconcileEvery != time.Minute || c.reconcileWindowHours != 48 || !slices.Equal(c.delegates, []string{"hangar/tower/*", "x/y"}) || !slices.Equal(c.admins, []string{"user:root"}) {
 		t.Fatalf("%+v %v", c, err)
 	}
-	if c, err = configFromEnv(envOf(base(map[string]string{"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g", "RECONCILE_SECONDS": "0"}))); err != nil || c.reconcileEvery != 0 {
+	if c, err = configFromEnv(envOf(base(map[string]string{"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "https://g", "RECONCILE_SECONDS": "0"}))); err != nil || c.reconcileEvery != 0 {
 		t.Fatalf("the sweep is off with 0: %+v %v", c, err)
 	}
 	for name, env := range map[string]map[string]string{
 		"events need the URL":              {"EVENTS_ENABLED": "1"},
 		"the URL is http(s)":               {"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "ftp://x"},
 		"the URL alone is not carried":     {"GLIDEPATH_API_URL": "http://g"},
-		"RabbitMQ is designed, not built":  {"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g", "EVENTS_RABBITMQ_ENABLED": "1"},
+		"RabbitMQ is designed, not built":  {"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "https://g", "EVENTS_RABBITMQ_ENABLED": "1"},
 		"a flag is 0 or 1":                 {"EVENTS_ENABLED": "maybe"},
 		"a schedules flag is 0 or 1":       {"SCHEDULES_ENABLED": "2"},
 		"the sweep is at least 30 seconds": {"RECONCILE_SECONDS": "10"},
@@ -136,5 +136,41 @@ func TestTheTriggerSettings(t *testing.T) {
 	}
 	if _, err := configFromEnv(envOf(base(map[string]string{"EVENTS_ENABLED": "0", "GLIDEPATH_API_URL": "http://g"}))); err == nil {
 		t.Error("the URL with events off is not carried")
+	}
+}
+
+// A delegate is named by where it runs; the reconciliation window stays shorter than the ledger keeps its rows; glidepath-api is https
+// unless plain http is asked for.
+func TestDelegateGlobsWindowAndHTTPSettings(t *testing.T) {
+	for _, bad := range []string{"*", "*/x", "tower*/backend", "hangar-prod/*/backend", "tower"} {
+		if _, err := configFromEnv(envOf(base(map[string]string{"AUTOPILOT_DELEGATES": bad}))); err == nil {
+			t.Errorf("delegate %q accepted", bad)
+		}
+	}
+	if _, err := configFromEnv(envOf(base(map[string]string{"AUTOPILOT_DELEGATES": "hangar-prod/tower/*, tower/backend"}))); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := configFromEnv(envOf(base(map[string]string{"RECONCILE_WINDOW_HOURS": "696"}))); err != nil || c.reconcileWindowHours != 696 {
+		t.Fatalf("%v %v", c, err)
+	}
+	for _, bad := range []string{"697", "744"} {
+		if _, err := configFromEnv(envOf(base(map[string]string{"RECONCILE_WINDOW_HOURS": bad}))); err == nil || !strings.Contains(err.Error(), "696") {
+			t.Errorf("%s: %v", bad, err)
+		}
+	}
+	ev := map[string]string{"EVENTS_ENABLED": "1"}
+	for url, ok := range map[string]bool{"https://glidepath-api.example": true, "http://127.0.0.1:8080": true, "http://[::1]:8080": true, "http://localhost:8080": false,
+		"http://glidepath-api.local": false, "http://glidepath-api": false, "http://10.0.0.5": false} {
+		env := map[string]string{"GLIDEPATH_API_URL": url}
+		for k, v := range ev {
+			env[k] = v
+		}
+		if _, err := configFromEnv(envOf(base(env))); (err == nil) != ok {
+			t.Errorf("%s: %v", url, err)
+		}
+		env["GLIDEPATH_API_ALLOW_HTTP"] = "1"
+		if _, err := configFromEnv(envOf(base(env))); err != nil {
+			t.Errorf("%s with the opt-in: %v", url, err)
+		}
 	}
 }

@@ -270,7 +270,7 @@ func TestTheBridgeEqualsPython(t *testing.T) {
 	ledger := &triggers.MemoryLedger{}
 	m := &triggers.Recorder{}
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	b, err := triggers.NewBridge(gw, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", TokenFile: "/dev/null", Now: func() time.Time { return now }}, m, nil)
+	b, err := triggers.NewBridge(gw, ledger, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", AllowHTTP: true, TokenFile: "/dev/null", Now: func() time.Time { return now }}, m, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

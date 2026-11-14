@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -57,6 +59,7 @@ type config struct {
 	delegates, admins    []string
 	eventsEnabled        bool
 	glidepathURL         string
+	glidepathAllowHTTP   bool // GLIDEPATH_API_ALLOW_HTTP (Go only, default off): the URL may be plain http
 	glidepathTokenFile   string
 	schedulesEnabled     bool
 	reconcileEvery       time.Duration // 0: the sweep is off
@@ -165,6 +168,16 @@ func configFromEnv(env func(string) string) (*config, error) {
 		if !strings.HasPrefix(c.glidepathURL, "http://") && !strings.HasPrefix(c.glidepathURL, "https://") {
 			return nil, configError("GLIDEPATH_API_URL is an http(s) URL")
 		}
+		if c.glidepathAllowHTTP, err = strictFlag(env, "GLIDEPATH_API_ALLOW_HTTP", false); err != nil {
+			return nil, err
+		}
+		if u, perr := url.Parse(c.glidepathURL); perr != nil || u.Host == "" {
+			return nil, configError("GLIDEPATH_API_URL is an http(s) URL with a host")
+		} else if u.Scheme == "http" && !c.glidepathAllowHTTP {
+			if ip := net.ParseIP(u.Hostname()); ip == nil || !ip.IsLoopback() {
+				return nil, configError("GLIDEPATH_API_URL is https (the gateway's bearer token goes to it): set GLIDEPATH_API_ALLOW_HTTP=1 to allow plain http")
+			}
+		}
 		c.glidepathTokenFile = getenv(env, "GLIDEPATH_TOKEN_FILE", "/var/run/secrets/kubernetes.io/serviceaccount/token")
 	}
 	if c.schedulesEnabled, err = strictFlag(env, "SCHEDULES_ENABLED", false); err != nil {
@@ -191,11 +204,19 @@ func configFromEnv(env func(string) string) (*config, error) {
 	if win <= 0 || win != float64(int(win)) {
 		return nil, configError("RECONCILE_WINDOW_HOURS must be a positive whole number")
 	}
-	if win > 744 {
-		return nil, configError("RECONCILE_WINDOW_HOURS is at most 744 (glidepath-api's sinceHours limit)")
+	if win > float64(triggers.MaxWindowHours) {
+		return nil, configError(fmt.Sprintf("RECONCILE_WINDOW_HOURS is at most %d: the trigger ledger keeps its rows %d hours, and a window that reached past them would launch a run whose row was pruned again (the Python gateway allows 744)",
+			triggers.MaxWindowHours, int(triggers.Retention.Hours())))
 	}
 	c.reconcileWindowHours = int(win)
 	c.delegates, c.admins = list(env("AUTOPILOT_DELEGATES")), list(env("AUTOPILOT_ADMINS"))
+	for _, d := range c.delegates {
+		// A delegate may name any person, so it is named by where it runs: a literal namespace (and cluster), and a name that may be a
+		// pattern. `*`, a leading wildcard and a wildcard namespace are refused (the Python gateway takes any glob).
+		if err := dispatch.ValidateDelegateGlob(d); err != nil {
+			return nil, configError("AUTOPILOT_DELEGATES " + err.Error())
+		}
+	}
 	c.runtimeImages = list(env("RUNTIME_IMAGES_EXTRA"))
 	c.preflightCasesDir = env("PREFLIGHT_CASES_DIR")
 	c.dsn = env("GATEWAY_DSN")
@@ -484,9 +505,12 @@ func startTriggers(ctx context.Context, cfg *config, g *dispatch.Gateway, ledger
 		go func() { defer wg.Done(); sc.Run(ctx) }()
 	}
 	if cfg.eventsEnabled {
-		b, err := triggers.NewBridge(g, ledger, triggers.BridgeConfig{BaseURL: cfg.glidepathURL, TokenFile: cfg.glidepathTokenFile}, m, log)
+		b, err := triggers.NewBridge(g, ledger, triggers.BridgeConfig{BaseURL: cfg.glidepathURL, TokenFile: cfg.glidepathTokenFile, AllowHTTP: cfg.glidepathAllowHTTP}, m, log)
 		if err != nil {
 			return wg, err
+		}
+		if plain, host := b.Plain(); plain {
+			log.Warn("the event bridge talks plain http to glidepath-api (GLIDEPATH_API_ALLOW_HTTP): the gateway's bearer token crosses the network unencrypted", "host", host)
 		}
 		wg.Add(1)
 		go func() { defer wg.Done(); b.Run(ctx) }()
