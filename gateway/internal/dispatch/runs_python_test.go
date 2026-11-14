@@ -85,7 +85,7 @@ func finalRows(t testing.TB, r *runRig, ids ...string) map[string]any {
 		s.Lock()
 		rec := s.ToRecord()
 		s.Unlock()
-		rec.DeleteFail = nil // the Go gateway's own key for a delete that keeps failing; the Python row has none
+		rec.DeleteFail, rec.LaunchedAt = nil, nil // the Go gateway's own key for a delete that keeps failing; the Python row has none
 		out[id] = norm(t, rec)
 	}
 	return out

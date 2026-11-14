@@ -4,10 +4,9 @@
 //
 // Triggers fire once (A-5). Every firing has a key. One row per (agent, key) is claimed in the gateway database before anything
 // is opened, and the row's state is the decision made for it. A second claim of the same (agent, key) loses, whoever makes it:
-// the stream after a restart, the recent-events catch-up, the reconciliation sweep or the scheduler. The one exception is a
-// claim left `claimed` (the gateway died between the claim and the decision): it may be claimed again once it is older than Stale
-// or than the claiming process itself (one writer holds the database, so a claim from before this process started is an
-// orphan), and the session half (dispatch.Gateway.OpenTriggered) answers a still-live run of the same task as a dedupe.
+// the stream after a restart, the recent-events catch-up, the reconciliation sweep or the scheduler. The one exception is a claim
+// left `claimed` (a crash, or a write that gave up): handling is serialized and the gateway is the only writer, so it is an orphan and is
+// taken over at once, with the session it had recorded (fire.go says what resuming does).
 //
 // Nothing a trigger source sends picks the principal, the agent, the budget or the tools: the agent is the one whose definition's
 // trigger matched, and what the run may do is the core's cut of that definition.
@@ -15,6 +14,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -59,6 +59,9 @@ type Cursor struct {
 	LastID *string
 	Floor  time.Time
 }
+
+// ErrNotClaimed is the answer of Opened for a key that is not claimed (any more): nothing was written, and nothing may launch.
+var ErrNotClaimed = errors.New("the trigger is not claimed")
 
 // Ledger is the trigger ledger and the cursors (trigger_ledger.TriggerStore). Each call is its own committed transaction.
 type Ledger interface {
@@ -204,8 +207,9 @@ func (m *MemoryLedger) Opened(_ context.Context, agent, key, session string) err
 	}
 	if r := m.rows[[2]string{agent, key}]; r != nil && r.State == "claimed" {
 		r.Session = sp(session)
+		return nil
 	}
-	return nil
+	return ErrNotClaimed
 }
 
 // Decide is Ledger.Decide.

@@ -116,6 +116,10 @@ type Session struct {
 	Signals map[string]any
 	// DeleteFail is the state of a delete that keeps failing, or nil.
 	DeleteFail *DeleteFail
+	// LaunchedAt is when the session's run was created (nil: never). The write-ahead name in Run says a run may exist; this says one did.
+	// It is the Go gateway's own key (the Python gateway reads a row by the keys it knows, so it ignores it, and drops it at its next
+	// save of the session).
+	LaunchedAt *time.Time
 }
 
 // Lock guards the session's fields.
@@ -241,6 +245,8 @@ type Record struct {
 	Signals    map[string]any   `json:"signals"`
 	// DeleteFail is the Go gateway's own key (see DeleteFail); absent for a row the Python gateway wrote.
 	DeleteFail *DeleteFail `json:"delete_failure,omitempty"`
+	// LaunchedAt is the Go gateway's own key (see Session.LaunchedAt); absent for a row the Python gateway wrote.
+	LaunchedAt *time.Time `json:"launched_at,omitempty"`
 }
 
 // IsoFormat is Python's datetime.isoformat for an aware UTC time.
@@ -278,7 +284,7 @@ func (s *Session) ToRecord() Record {
 		CreatedAt: s.CreatedAt.UTC().Format(IsoFormat), ExpiresAt: s.ExpiresAt.UTC().Format(IsoFormat),
 		ParentID: s.ParentID, Depth: s.Depth, TaskID: s.TaskID, Used: budgetsMap(&s.Used), Reserved: budgetsMap(&s.Reserved),
 		Children: nonNil(s.Children), Tripped: s.Tripped, TripReason: s.TripReason, Denials: s.Denials, Closed: s.Closed,
-		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail)}
+		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail), LaunchedAt: copyTime(s.LaunchedAt)}
 }
 
 // FromRecord is the inverse of ToRecord, for a row either gateway wrote.
@@ -302,7 +308,7 @@ func FromRecord(r Record) (*Session, error) {
 	return &Session{ID: r.ID, Principal: r.Principal, Agent: r.Agent, Limits: r.Limits, CreatedAt: created, ExpiresAt: expires,
 		ParentID: r.ParentID, Depth: r.Depth, TaskID: r.TaskID, Used: budgetsFrom(r.Used), Reserved: budgetsFrom(r.Reserved),
 		Children: r.Children, Tripped: r.Tripped, TripReason: r.TripReason, Denials: r.Denials, Closed: r.Closed, Run: r.Run,
-		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail)}, nil
+		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail), LaunchedAt: copyTime(r.LaunchedAt)}, nil
 }
 
 func parseTime(v string) (time.Time, error) {
@@ -312,6 +318,14 @@ func parseTime(v string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, &time.ParseError{Value: v, Message: ": not an ISO 8601 time"}
+}
+
+func copyTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
 }
 
 func copyDF(d *DeleteFail) *DeleteFail {

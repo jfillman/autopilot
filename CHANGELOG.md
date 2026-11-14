@@ -28,6 +28,11 @@ says what each gateway tag adds. The manager cuts the tags.
   header with one clean `user:` name); every `/v1` route checks the token before the body; `RECONCILE_WINDOW_HOURS` is at most 696;
   `GLIDEPATH_API_URL` is https unless `GLIDEPATH_API_ALLOW_HTTP=1`; a child spawned while its parent is being closed is closed too.
 
+- Second review round (Go gateway only): a claim that is still `claimed` is taken over at once and resumed (never answered as a duplicate), so a
+  trigger is neither dropped nor fired twice in any crash window; a taken-over session that names a run that was never made gets its run; a
+  session records when its run was made (`launched_at`); an outcome that could not be written is written as it was; a hold is kept in memory
+  so a stuck database cannot stall opens and launches; a workload definition with no service account is refused as a trigger.
+
 ### Changed (A-9 S3 hardening of S2: a candidate's image and a run's pod)
 - A Preflight candidate's runtime image must end in `@sha256:` and 64 lowercase hex digits, an empty allow-list refuses every
   candidate (the Python gateway allows any registry) and a glob matches the whole image, so a bare prefix no longer matches across a

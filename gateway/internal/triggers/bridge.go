@@ -84,10 +84,8 @@ var (
 type Gateway interface {
 	Definitions() map[string]*definitions.Definition
 	OpenTriggered(ctx context.Context, agent, trigger, taskID string) (*dispatch.Result, error)
-	Launch(ctx context.Context, sessionID string, input map[string]any) (*dispatch.Result, error)
-	SessionHasRun(sessionID string) bool
-	// SessionState says whether a session is known, whether it is live (not closed, not past its deadline) and the run it names.
-	SessionState(sessionID string) (known, live bool, run string)
+	// TriggerSessionState reads a session an earlier holder of a claim opened.
+	TriggerSessionState(sessionID string) dispatch.TriggerSession
 	// LaunchTriggered launches a trigger's session with the hold read again right before and after.
 	LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*dispatch.Result, error)
 	// AbandonTriggered closes a session a trigger opened and could not launch.
@@ -131,6 +129,8 @@ type BridgeConfig struct {
 	Idle       time.Duration
 	BackoffMin time.Duration
 	BackoffMax time.Duration
+	// ResumeWindow is how long after it happened an event may still be (re)started when its session was lost (default WindowHours).
+	ResumeWindow time.Duration
 	// AllowHTTP lets the URL be plain http (GLIDEPATH_API_ALLOW_HTTP, default off). Otherwise the URL must be https, except for a
 	// loopback IP address (127.0.0.0/8, ::1), which tests and local runs use; no host NAME is special.
 	AllowHTTP bool
@@ -149,12 +149,14 @@ type Bridge struct {
 	hc      *http.Client
 	started time.Time
 
-	handling sync.Mutex // the stream and the sweep hand events in from two goroutines
-	lastID   string     // the saved cursor
-	resumed  bool
-	seen     map[string]struct{}
-	seenQ    []string
-	brakes   map[string]*RateLimiter
+	handling  sync.Mutex // the stream and the sweep hand events in from two goroutines
+	lastID    string     // the saved cursor
+	resumed   bool
+	seen      map[string]struct{}
+	seenQ     []string
+	brakes    map[string]*RateLimiter
+	undecided pendingDecisions
+	panics    map[string]int
 }
 
 // NewBridge checks the configuration and builds a bridge. It does not connect.
@@ -171,6 +173,9 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 	}
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if cfg.ResumeWindow <= 0 {
+		cfg.ResumeWindow = WindowHours * time.Hour
 	}
 	if cfg.Idle <= 0 {
 		cfg.Idle = idleDefault
@@ -199,7 +204,7 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 		hc = &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	b := &Bridge{gw: gw, ledger: ledger, metrics: m, log: log, cfg: cfg, base: u, hc: hc, started: cfg.Now(),
-		seen: map[string]struct{}{}, brakes: map[string]*RateLimiter{}}
+		seen: map[string]struct{}{}, brakes: map[string]*RateLimiter{}, panics: map[string]int{}}
 	return b, nil
 }
 
@@ -285,37 +290,35 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 	var failed error
 	for _, m := range MatchGlidepathEvent(b.gw.Definitions(), env) {
 		now := b.Now()
+		// The cut-off is now: a row still `claimed` is an orphan (see fire.go), taken over at once.
 		cctx, cancel := b.dbCtx(ctx)
-		won, err := b.ledger.Claim(cctx, m.Agent, key, via, eid, now, StaleBefore(b.started, now))
+		won, err := b.ledger.Claim(cctx, m.Agent, key, via, eid, now, now)
 		cancel()
 		if err != nil {
 			b.log.Error("the trigger ledger could not claim", "agent", m.Agent, "err", errKind(err))
 			failed = err
 			continue
 		}
-		var o Outcome
-		if !won {
+		if !won { // a decided row: a duplicate
 			gctx, cancel := b.dbCtx(ctx)
 			row, _ := b.ledger.Get(gctx, m.Agent, key)
 			cancel()
-			if row != nil && row.State == "claimed" && row.Session != nil && !row.ClaimedAt.Before(b.started) {
-				// A claim this process made, whose session was opened and whose decision could not be written (the stream ended with
-				// a ledger failure and this is the replay): the decision is completed here, not reported as a plain dedupe. The
-				// session recorded in the row says what became of the trigger.
-				o = b.complete(ctx, m, env, key, via, *row.Session)
-			} else {
-				o = Outcome{Agent: m.Agent, Result: "deduped", Via: via}
-				if row != nil {
-					o.Replay = row.EventID != nil && *row.EventID == eid
-					o.Session, o.Run = deref(row.Session), deref(row.Run)
-				}
-				done = append(done, o)
-				continue
+			o := Outcome{Agent: m.Agent, Result: "deduped", Via: via}
+			if row != nil {
+				o.Replay = row.EventID != nil && *row.EventID == eid
+				o.Session, o.Run = deref(row.Session), deref(row.Run)
 			}
+			done = append(done, o)
+			continue
+		}
+		var o Outcome
+		if p, ok := b.undecided.take(m.Agent, key); ok {
+			// An outcome that was determined and could not be written: written as it was, not worked out again.
+			o = Outcome{Agent: m.Agent, Result: p.Result, Via: via, New: true, Session: p.Session, Run: p.Run, Rule: p.Rule}
 		} else {
 			var ferr error
 			if o, ferr = b.fire(ctx, m, env, key, via); ferr != nil {
-				b.log.Error("the trigger ledger could not record a session", "agent", m.Agent, "err", errKind(ferr))
+				b.log.Error("the trigger could not be carried out and stays claimed for the next delivery", "agent", m.Agent, "err", errKind(ferr))
 				failed = ferr
 				continue
 			}
@@ -324,11 +327,13 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 		err = retry(dctx, RetryWaits, func() error { return b.ledger.Decide(dctx, m.Agent, key, o.Result, o.Session, o.Run) })
 		cancel()
 		if err != nil {
-			// The run (if any) exists and the row stays `claimed` with its session: the replay of this event completes the decision
-			// (above), and a restart's claim finds the session and opens no other. The caller does not advance the cursor.
+			// The outcome is kept and the row stays `claimed`: the next delivery takes the claim over and writes this outcome.
 			b.log.Error("the trigger ledger could not write a decision", "agent", m.Agent, "err", errKind(err))
+			b.undecided.put(m.Agent, key, fireOut{Result: o.Result, Session: o.Session, Run: o.Run, Rule: o.Rule})
 			failed = err
+			continue
 		}
+		b.undecided.drop(m.Agent, key)
 		done = append(done, o)
 	}
 	if failed != nil {
@@ -396,28 +401,25 @@ func (b *Bridge) brake(agent string, perHour int) *RateLimiter {
 	return r
 }
 
-// fire brakes, opens and launches one claimed trigger; the decision for its ledger row. A ledger error (the session could not be tied
-// to the claim) is the second result.
+// fire brakes, opens and launches one claimed trigger; the decision for its ledger row. An error means the trigger is neither decided
+// nor handled (the claim stays, and the next delivery takes it over).
 func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via string) (out Outcome, err error) {
 	eid := env["id"].(string)
 	out = Outcome{Agent: m.Agent, Via: via, New: true}
-	perHour := m.Trigger.MaxPerHour
-	if perHour == 0 {
-		perHour = DefaultPerHour
-	}
-	if !b.brake(m.Agent, perHour).Allow(b.Now()) {
-		b.log.Warn("an event is over its agent's storm brake and was dropped", "event", eid, "agent", m.Agent, "per_hour", perHour)
-		out.Result = "braked"
-		return out, nil
-	}
-	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
-	defer cancel()
+	pk := m.Agent + "\x00" + key
 	defer func() {
 		if r := recover(); r != nil { // one agent's failure must not skip the others for this event
 			b.log.Error("a trigger panicked", "event", eid, "agent", m.Agent, "panic", fmt.Sprint(r))
-			out.Result, err = "launch-failed", nil
+			if b.panics[pk]++; b.panics[pk] >= maxPanics {
+				delete(b.panics, pk)
+				out.Result, err = "launch-failed", nil // it would panic on every delivery: decided
+				return
+			}
+			err = fmt.Errorf("a trigger panicked")
 		}
 	}()
+	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
+	defer cancel()
 	gctx, gcancel := b.dbCtx(fctx)
 	row, _ := b.ledger.Get(gctx, m.Agent, key)
 	gcancel()
@@ -425,28 +427,43 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 	if row != nil && row.Session != nil {
 		prior = *row.Session // taken over from an orphan: the session its holder opened
 	}
-	res, ferr := fireClaimed(fctx, b.gw, b.ledger, b.log, RetryWaits, m.Agent, key, prior, func(ctx context.Context) (*opened, *fireOut) {
-		r, oerr := b.gw.OpenTriggered(ctx, m.Agent, "glidepath:"+eid, EventTaskID(m.Agent, key))
-		if oerr != nil {
-			b.log.Error("a trigger could not open its session", "event", eid, "agent", m.Agent, "err", errKind(oerr))
-			return nil, &fireOut{Result: "launch-failed"}
+	if prior == "" { // a first attempt is under the storm brake; a resumed one already passed it
+		perHour := m.Trigger.MaxPerHour
+		if perHour == 0 {
+			perHour = DefaultPerHour
 		}
-		if !r.OK {
-			// R024: a person holds this agent's triggers; the event is history, not a run.
-			rule, _ := r.Decision["rule"].(string)
-			if rule == "R024" {
-				return nil, &fireOut{Result: "held", Rule: rule}
+		if !b.brake(m.Agent, perHour).Allow(b.Now()) {
+			b.log.Warn("an event is over its agent's storm brake and was dropped", "event", eid, "agent", m.Agent, "per_hour", perHour)
+			out.Result = "braked"
+			return out, nil
+		}
+	}
+	r := &resumer{gw: b.gw, ledger: b.ledger, log: b.log, waits: RetryWaits, agent: m.Agent, key: key,
+		valid: func() bool { return b.Now().Sub(eventTime(env, b.Now())) <= b.cfg.ResumeWindow },
+		input: b.runInput(m.Agent, env),
+		open: func(ctx context.Context) (*opened, *fireOut) {
+			res, oerr := b.gw.OpenTriggered(ctx, m.Agent, "glidepath:"+eid, EventTaskID(m.Agent, key))
+			if oerr != nil {
+				b.log.Error("a trigger could not open its session", "event", eid, "agent", m.Agent, "err", errKind(oerr))
+				return nil, &fireOut{Result: "launch-failed"}
 			}
-			return nil, &fireOut{Result: "refused", Rule: rule}
-		}
-		data, _ := r.Data.(map[string]any)
-		sid := ""
-		if r.Session != nil {
-			sid = *r.Session
-		}
-		dd, _ := data["deduped"].(bool)
-		return &opened{session: sid, deduped: dd}, nil
-	}, b.runInput(m.Agent, env))
+			if !res.OK {
+				// R024: a person holds this agent's triggers; the event is history, not a run.
+				rule, _ := res.Decision["rule"].(string)
+				if rule == "R024" {
+					return nil, &fireOut{Result: "held", Rule: rule}
+				}
+				return nil, &fireOut{Result: "refused", Rule: rule}
+			}
+			data, _ := res.Data.(map[string]any)
+			sid := ""
+			if res.Session != nil {
+				sid = *res.Session
+			}
+			dd, _ := data["deduped"].(bool)
+			return &opened{session: sid, deduped: dd}, nil
+		}}
+	res, ferr := r.run(fctx, prior)
 	if ferr != nil {
 		return out, ferr
 	}
@@ -454,13 +471,20 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 	return out, nil
 }
 
-// complete decides a claim whose session is recorded (see handle).
-func (b *Bridge) complete(ctx context.Context, m Match, env map[string]any, key, via, sid string) Outcome {
-	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
-	defer cancel()
-	res := continueSession(fctx, b.gw, m.Agent, sid, b.runInput(m.Agent, env))
-	return Outcome{Agent: m.Agent, Result: res.Result, Via: via, New: true, Session: res.Session, Run: res.Run, Rule: res.Rule}
+// eventTime is when an event happened, for the trigger's validity: its received time, else the time its id carries, else now.
+func eventTime(env map[string]any, now time.Time) time.Time {
+	if s, ok := env["receivedAt"].(string); ok {
+		if t, ok := ParseRunTime(s); ok {
+			return t
+		}
+	}
+	if t, ok := IDTime(str2(env["id"])); ok {
+		return t
+	}
+	return now
 }
+
+func str2(v any) string { s, _ := v.(string); return s }
 
 func (b *Bridge) runInput(agent string, env map[string]any) func() map[string]any {
 	return func() map[string]any {

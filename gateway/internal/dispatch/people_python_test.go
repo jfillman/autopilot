@@ -341,6 +341,7 @@ func TestPersonOperationsEqualPython(t *testing.T) {
 			out, err = p.g.HoldTriggers(ctx, c.Caller, "triage-agent", "storm", json.Number("2"), on)
 		case "release":
 			_ = p.holds.Put(ctx, &dispatch.Hold{Agent: "triage-agent", By: "user:x", Reason: "r", Since: t0, Until: t0.Add(time.Hour)})
+			_ = p.g.ReloadHolds(ctx)
 			out, err = p.g.ReleaseTriggers(ctx, c.Caller, "triage-agent", on)
 		case "answer":
 			_ = p.inbox.Add(ctx, &dispatch.HumanRequest{ID: "h-000000000001", TaskID: "t-0000a1", Session: "s-0000a1", Agent: "orchestrator", Owner: "user:alice",
@@ -381,7 +382,7 @@ func TestPersonOperationsEqualPython(t *testing.T) {
 			s.Lock()
 			rec := s.ToRecord()
 			s.Unlock()
-			rec.DeleteFail = nil
+			rec.DeleteFail, rec.LaunchedAt = nil, nil
 			var want any
 			_ = json.Unmarshal(raw, &want)
 			if !reflect.DeepEqual(norm(t, rec), dropEmpty(want, "")) {
@@ -450,7 +451,7 @@ func TestControlSequencesEqualPython(t *testing.T) {
 		s.Lock()
 		rec := s.ToRecord()
 		s.Unlock()
-		rec.DeleteFail = nil
+		rec.DeleteFail, rec.LaunchedAt = nil, nil
 		var want any
 		_ = json.Unmarshal(raw, &want)
 		if !reflect.DeepEqual(norm(t, rec), dropEmpty(want, "")) {

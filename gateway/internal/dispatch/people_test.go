@@ -223,6 +223,7 @@ func TestPersonControlsAreForPeopleOnly(t *testing.T) {
 		}, agentOnly},
 		{"release", func(p *peopleRig, c caller) error {
 			_ = p.holds.Put(ctx, &dispatch.Hold{Agent: "triage-agent", By: "user:x", Reason: "r", Since: t0, Until: t0.Add(time.Hour)})
+			_ = p.g.ReloadHolds(ctx)
 			_, err := p.g.ReleaseTriggers(ctx, c.tok, "triage-agent", c.onBehalf)
 			return err
 		}, agentOnly},
@@ -358,6 +359,7 @@ func TestAnUnauthenticatedCallerLearnsNothing(t *testing.T) {
 	}
 	// a person who may not manage an agent cannot tell whether it is held, or whether it exists
 	_ = p.holds.Put(ctx, &dispatch.Hold{Agent: "triage-agent", By: "user:x", Reason: "r", Since: t0, Until: t0.Add(time.Hour)})
+	_ = p.g.ReloadHolds(ctx)
 	bob := p.person("user:bob")
 	_, e1 := p.g.ReleaseTriggers(ctx, bob, "triage-agent", "")
 	_, e2 := p.g.ReleaseTriggers(ctx, bob, "nope", "")
@@ -598,6 +600,7 @@ func TestHoldAndRelease(t *testing.T) {
 		t.Fatalf("researcher is not held: %v", err)
 	}
 	_ = p.holds.Put(ctx, &dispatch.Hold{Agent: "researcher", By: adminID, Reason: "no", Since: t0, Until: t0.Add(time.Hour)})
+	_ = p.g.ReloadHolds(ctx)
 	if _, err := p.g.RunAgent(ctx, root, "researcher", "x", "", nil, nil); ctlRule(err) != "R024" || p.opens.Load() != opens+1 {
 		t.Fatalf("%v", err)
 	}
@@ -616,6 +619,7 @@ func TestHoldAndRelease(t *testing.T) {
 	}
 	// an expired hold holds nothing, and the sweep drops it
 	_ = p.holds.Put(ctx, &dispatch.Hold{Agent: "triage-agent", By: adminID, Reason: "old", Since: t0.Add(-2 * time.Hour), Until: t0.Add(-time.Hour)})
+	_ = p.g.ReloadHolds(ctx)
 	if h, _ := p.g.HoldFor(ctx, "triage-agent"); h != nil {
 		t.Fatal("an expired hold holds")
 	}
@@ -1494,5 +1498,156 @@ func TestTriggersThroughTheRealGateway(t *testing.T) {
 	}
 	if again := triggers.NewScheduler(p.g, ledger, func() time.Time { return time.Date(2026, 9, 27, 0, 2, 0, 0, time.UTC) }, nil, nil).Tick(ctx); len(again) != 0 {
 		t.Fatalf("a restarted scheduler fired the slot again: %+v", again)
+	}
+}
+
+// ---- the hold gate and a blocked store ----------------------------------------------------------------------------------------
+
+// blockingHolds is a hold store whose writes (and, when told, reads) wait on a channel: a database that has stopped answering.
+type blockingHolds struct {
+	*dispatch.MemoryHolds
+	putBlock, getBlock chan struct{}
+	entered            chan struct{}
+}
+
+func (b *blockingHolds) Put(ctx context.Context, h *dispatch.Hold) error {
+	if b.putBlock != nil {
+		b.entered <- struct{}{}
+		<-b.putBlock
+	}
+	return b.MemoryHolds.Put(ctx, h)
+}
+
+func (b *blockingHolds) Get(ctx context.Context, a string) (*dispatch.Hold, error) {
+	if b.getBlock != nil {
+		<-b.getBlock
+	}
+	return b.MemoryHolds.Get(ctx, a)
+}
+
+// A hold waits for the database, not the opens and launches behind it: while the store's write is stuck, opens and launches go on
+// (the gate is not held across it); when the write finishes the hold is in force for every later open. A stuck read changes nothing
+// either, since the gate reads the copy.
+func TestAStuckHoldStoreStallsTheHoldNotTheOpensAndLaunches(t *testing.T) {
+	p := newPeopleRig(t)
+	img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+	p.g.Defs["triage-agent"].Image = &img
+	b := &blockingHolds{MemoryHolds: p.holds, entered: make(chan struct{}, 1)}
+	p.g.Holds = b
+	if _, err := p.g.HoldFor(ctx, "triage-agent"); err != nil { // the copy is loaded
+		t.Fatal(err)
+	}
+	b.putBlock, b.getBlock = make(chan struct{}), make(chan struct{})
+	held := make(chan error, 1)
+	go func() {
+		_, err := p.g.HoldTriggers(ctx, p.person(adminID), "triage-agent", "storm", 1, "")
+		held <- err
+	}()
+	<-b.entered // the hold is inside the store's write
+	done := make(chan *dispatch.Result, 2)
+	go func() {
+		res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
+		if res.OK {
+			l, _ := p.g.LaunchTriggered(ctx, "triage-agent", *res.Session, map[string]any{"prompt": "x"})
+			done <- l
+			return
+		}
+		done <- res
+	}()
+	select {
+	case res := <-done:
+		if !res.OK {
+			t.Fatalf("%+v", res)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("an open and a launch stalled behind a hold whose database write was stuck")
+	}
+	close(b.putBlock)
+	if err := <-held; err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e2", "t-bbbbbbbbbbbb"); res.OK || res.Decision["rule"] != "R024" {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// A hold that cannot be read is not a hold and not an answer: the launch is retried with the bounded backoff and then gives up with a
+// HoldReadError, leaving the session live (the trigger stays resumable), never a decided launch-failed.
+func TestAHoldThatCannotBeReadLeavesTheTriggerResumable(t *testing.T) {
+	p := newPeopleRig(t)
+	img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+	p.g.Defs["triage-agent"].Image = &img
+	res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
+	old := dispatch.HoldReadWaits
+	dispatch.HoldReadWaits = []time.Duration{time.Millisecond, time.Millisecond}
+	defer func() { dispatch.HoldReadWaits = old }()
+	p.g.Holds = &failingHolds{MemoryHolds: p.holds}
+	p.g.ReloadHolds(ctx) //nolint:errcheck // fails: the copy is not loaded
+	_, err := p.g.LaunchTriggered(ctx, "triage-agent", *res.Session, map[string]any{"prompt": "x"})
+	var hr *dispatch.HoldReadError
+	if !errors.As(err, &hr) {
+		t.Fatalf("%v", err)
+	}
+	if s := p.store.Get(*res.Session); s.Closed || len(p.api.Manifests) != 0 {
+		t.Fatal("the session was closed or launched on a hold that could not be read")
+	}
+}
+
+type failingHolds struct{ *dispatch.MemoryHolds }
+
+func (f *failingHolds) All(context.Context) ([]*dispatch.Hold, error) {
+	return nil, errors.New("connection lost")
+}
+
+// ---- resuming a launch --------------------------------------------------------------------------------------------------------
+
+// A session that names a run (the name is written ahead of the run) is not refused when a trigger takes it over: a run that exists is
+// the answer, one that was only reserved is made, under the reserved name; and the session says when its run was made.
+func TestAResumedLaunchMakesAReservedRunAndFindsAnExistingOne(t *testing.T) {
+	p := newPeopleRig(t)
+	p.api.GoneWhenAbsent = true
+	img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
+	p.g.Defs["triage-agent"].Image = &img
+	creates := 0
+	p.g.SetRuns(&runs.Backend{Store: &gatedStore{FakeStore: p.api, onCreate: func(string) { creates++ }}})
+	res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
+	sid := *res.Session
+	s := p.store.Get(sid)
+	name := runName(sid)
+	s.Lock()
+	s.Run = &name // the crash: the name was saved, the run was never made
+	s.Unlock()
+	if s.LaunchedAt != nil {
+		t.Fatal("launched before it was")
+	}
+	out, err := p.g.LaunchTriggered(ctx, "triage-agent", sid, map[string]any{"prompt": "x"})
+	if err != nil || !out.OK || creates != 1 || p.api.Manifests[name] == nil {
+		t.Fatalf("%+v %v creates %d", out, err, creates)
+	}
+	s.Lock()
+	at := s.LaunchedAt
+	s.Unlock()
+	if at == nil {
+		t.Fatal("the run was made and the session does not say so")
+	}
+	if row, _ := p.persist.row(sid); row.LaunchedAt == nil {
+		t.Fatal("not saved")
+	}
+	// again: the run exists, it is the answer, nothing more is made
+	out, err = p.g.LaunchTriggered(ctx, "triage-agent", sid, map[string]any{"prompt": "x"})
+	if err != nil || !out.OK || out.Data.(map[string]any)[dispatch.ExistingRunKey] != true || creates != 1 {
+		t.Fatalf("%+v %v creates %d", out, err, creates)
+	}
+}
+
+// A workload definition with no service account has no identity a triggered run could have (the core would grant the principal ""):
+// it is refused before the core is asked, with the reason.
+func TestATriggerOfAWorkloadWithNoServiceAccountIsRefusedUpFront(t *testing.T) {
+	p := newPeopleRig(t)
+	p.g.Defs["triage-agent"].ServiceAccount = nil
+	opens := p.opens.Load()
+	res, err := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
+	if err != nil || res.OK || res.Decision["rule"] != "R008" || !strings.Contains(*res.Error, "no service account") || p.opens.Load() != opens {
+		t.Fatalf("%+v %v", res, err)
 	}
 }

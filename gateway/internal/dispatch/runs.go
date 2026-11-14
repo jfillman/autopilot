@@ -279,6 +279,8 @@ func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definit
 	// "already gone" for a run that did not exist yet), and the run must be named for it to be deleted.
 	child.Lock()
 	child.Run = &run
+	spawnedAt := g.Now()
+	child.LaunchedAt = &spawnedAt
 	closed := child.Closed
 	child.Unlock()
 	child.BumpRunEpoch()
@@ -480,6 +482,16 @@ func InputView(input map[string]any) map[string]any {
 // must reach the core: when it cannot, the run is deleted again (fail closed). A backend failure is the returned error,
 // as Python raises it.
 func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string]any) (*Result, error) {
+	return g.launch(ctx, sessionID, input, false)
+}
+
+// ExistingRunKey is the Data key of an answer that found the session's run already made (a resumed launch) rather than making it.
+const ExistingRunKey = "existing"
+
+// launch is Launch. With resume (a trigger's session taken over after a crash) a session that already names a run is not refused:
+// the name was written ahead of the run, so the run may never have been made. The run backend is asked: a run that exists is the
+// answer ({"run", "existing": true}); one that is gone is made now, under the name already reserved.
+func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string]any, resume bool) (*Result, error) {
 	s := g.Store.Get(sessionID)
 	if s == nil {
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("no live session")}, nil
@@ -496,7 +508,7 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 		// A frozen session (a person's freeze, or the breaker) starts no run: it is closed, as a launch that failed is, so nothing
 		// is left live that nothing will use.
 		g.flush(ctx, g.Store.CloseTouched(s.ID)...)
-		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("this session is frozen: it starts no run"), Session: &s.ID}, nil
+		return &Result{Decision: map[string]any{"allow": false, "rule": "R004", "frozen": true}, Error: str("this session is frozen: it starts no run"), Session: &s.ID}, nil
 	}
 	refuse := func(msg string) (*Result, error) {
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R001"}, Error: str(msg), Session: &s.ID}, nil
@@ -515,7 +527,19 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 		return refuse("this deployment has no run backend")
 	}
 	if hasRun {
-		return refuse("this session already has a run")
+		if !resume {
+			return refuse("this session already has a run")
+		}
+		s.Lock()
+		have := *s.Run
+		s.Unlock()
+		var phase string
+		if perr := callBackend(func() (e error) { phase, e = g.Runs.Ended(ctx, s); return }); perr != nil {
+			return nil, perr // cannot tell whether the run exists: nothing is made, the caller may try again
+		}
+		if phase != "Gone" {
+			return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"run": have, "session": s.ID, ExistingRunKey: true}, Session: &s.ID}, nil
+		}
 	}
 	name := g.Runs.Name(s)
 	s.Lock()
@@ -535,9 +559,11 @@ func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string
 		cancel()
 		return nil, cerr
 	}
+	launchedAt := g.Now()
 	s.Lock()
 	s.Run = &run
 	s.Input = InputView(input)
+	s.LaunchedAt = &launchedAt
 	closedNow := s.Closed
 	s.Unlock()
 	s.BumpRunEpoch()

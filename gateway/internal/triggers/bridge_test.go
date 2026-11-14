@@ -25,29 +25,30 @@ var t0 = time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 // fakeGW is the gateway as the triggers see it: it models the session half of a trigger (a live session of the same task is a
 // dedupe), and can be told to fail, hold or panic.
 type fakeGW struct {
-	mu           sync.Mutex
-	defs         map[string]*definitions.Definition
-	opens        []string // agent/task per open
-	launches     []string // session per launch
-	sessions     map[string]string
-	hasRun       map[string]bool
-	n            int
-	holdRule     map[string]string // agent -> rule an open is refused with
-	openErr      error
-	panicOn      map[string]bool
-	launchOK     bool // false: a launch is refused (launch-failed)
-	events       []map[string]any
-	outcomes     [][]map[string]any
-	onOpen       func(ctx context.Context)
-	abandoned    []string
-	closed       map[string]bool
-	lateHold     map[string]bool // a hold that only the launch sees
-	beforeLaunch func()
+	mu                      sync.Mutex
+	defs                    map[string]*definitions.Definition
+	opens                   []string // agent/task per open
+	launches                []string // session per launch
+	sessions                map[string]string
+	hasRun                  map[string]bool
+	n                       int
+	holdRule                map[string]string // agent -> rule an open is refused with
+	openErr                 error
+	panicOn                 map[string]bool
+	launchOK                bool // false: a launch is refused (launch-failed)
+	events                  []map[string]any
+	outcomes                [][]map[string]any
+	onOpen                  func(ctx context.Context)
+	abandoned               []string
+	closed                  map[string]bool
+	launched, frozen, ended map[string]bool
+	lateHold                map[string]bool // a hold that only the launch sees
+	beforeLaunch            func()
 }
 
 func newGW(defs ...*definitions.Definition) *fakeGW {
 	g := &fakeGW{defs: map[string]*definitions.Definition{}, sessions: map[string]string{}, hasRun: map[string]bool{}, holdRule: map[string]string{},
-		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, lateHold: map[string]bool{}}
+		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, launched: map[string]bool{}, frozen: map[string]bool{}, ended: map[string]bool{}, lateHold: map[string]bool{}}
 	for _, d := range defs {
 		g.defs[d.Name] = d
 	}
@@ -75,25 +76,13 @@ func (g *fakeGW) OpenTriggered(ctx context.Context, agent, trigger, task string)
 	if r := g.holdRule[agent]; r != "" {
 		return &dispatch.Result{Decision: map[string]any{"allow": false, "rule": r}}, nil
 	}
-	if sid, ok := g.sessions[agent+"/"+task]; ok {
+	if sid, ok := g.sessions[agent+"/"+task]; ok && !g.closed[sid] {
 		return &dispatch.Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"session": sid, "deduped": true}, Session: &sid}, nil
 	}
 	g.n++
 	sid := fmt.Sprintf("s-%06d", g.n)
 	g.sessions[agent+"/"+task] = sid
 	return &dispatch.Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"session": sid, "deduped": false}, Session: &sid}, nil
-}
-
-func (g *fakeGW) Launch(_ context.Context, sid string, _ map[string]any) (*dispatch.Result, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.launches = append(g.launches, sid)
-	if !g.launchOK {
-		msg := "no run backend"
-		return &dispatch.Result{Decision: map[string]any{"allow": false, "rule": "R001"}, Error: &msg}, nil
-	}
-	g.hasRun[sid] = true
-	return &dispatch.Result{OK: true, Data: map[string]any{"run": "r-" + sid[2:], "session": sid}}, nil
 }
 
 func (g *fakeGW) AbandonTriggered(_ context.Context, sid string, _ bool) {
@@ -103,40 +92,51 @@ func (g *fakeGW) AbandonTriggered(_ context.Context, sid string, _ bool) {
 	g.closed[sid] = true
 }
 
-// SessionState: a session is known when an open made it (or a test planted it), live until it is abandoned or closed.
-func (g *fakeGW) SessionState(sid string) (bool, bool, string) {
+// TriggerSessionState: a session is known when an open made it (or a test planted it), live until it is abandoned or closed.
+func (g *fakeGW) TriggerSessionState(sid string) dispatch.TriggerSession {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	known := false
 	for _, s := range g.sessions {
 		known = known || s == sid
 	}
-	run := ""
+	st := dispatch.TriggerSession{Known: known, Live: known && !g.closed[sid], Launched: g.launched[sid], Frozen: g.frozen[sid], Ended: g.ended[sid]}
 	if g.hasRun[sid] {
-		run = "r-" + sid[2:]
+		st.Run = "r-" + sid[2:]
 	}
-	return known, known && !g.closed[sid], run
+	return st
 }
 
-// LaunchTriggered is Launch, refused with R024 for an agent whose hold rule is R024 (the hold read right before the launch).
+// LaunchTriggered is Launch with the hold read again right before (R024 for an agent whose hold rule is R024), a frozen session
+// refused, and a session that already has its run answered with it.
 func (g *fakeGW) LaunchTriggered(ctx context.Context, agent, sid string, input map[string]any) (*dispatch.Result, error) {
 	if g.beforeLaunch != nil {
 		g.beforeLaunch()
 	}
 	g.mu.Lock()
 	rule := g.holdRule[agent]
-	late := g.lateHold[agent]
+	has := g.hasRun[sid]
+	frozen := g.frozen[sid]
 	g.mu.Unlock()
-	if rule == "R024" && !late {
+	if has {
+		return &dispatch.Result{OK: true, Data: map[string]any{"run": "r-" + sid[2:], "session": sid, dispatch.ExistingRunKey: true}}, nil
+	}
+	if rule == "R024" {
 		return &dispatch.Result{Decision: map[string]any{"allow": false, "rule": "R024"}}, nil
 	}
-	return g.Launch(ctx, sid, input)
-}
-
-func (g *fakeGW) SessionHasRun(sid string) bool {
+	if frozen {
+		return &dispatch.Result{Decision: map[string]any{"allow": false, "rule": "R004", "frozen": true}}, nil
+	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.hasRun[sid]
+	g.launches = append(g.launches, sid)
+	if !g.launchOK {
+		g.mu.Unlock()
+		msg := "no run backend"
+		return &dispatch.Result{Decision: map[string]any{"allow": false, "rule": "R001"}, Error: &msg}, nil
+	}
+	g.hasRun[sid], g.launched[sid] = true, true
+	g.mu.Unlock()
+	return &dispatch.Result{OK: true, Data: map[string]any{"run": "r-" + sid[2:], "session": sid}}, nil
 }
 
 func (g *fakeGW) RecordEvent(_ context.Context, summary map[string]any, outcomes []map[string]any) (bool, error) {
@@ -289,8 +289,16 @@ func TestAFailureForOneAgentDoesNotSkipTheOthers(t *testing.T) {
 	gw := newGW(a, b)
 	gw.panicOn["another-agent"] = true
 	r := newRig(t, gw, "")
+	// a panic leaves its trigger claimed and resumable (an error: not marked handled), and the other agent still runs; one that panics on
+	// every delivery is decided launch-failed at the third
 	got, err := r.b.Handle(context.Background(), finished("e1", "pr-1", "failure"), "stream")
-	if err != nil || len(got) != 2 || got[0].Agent != "another-agent" || got[0].Result != "launch-failed" || got[1].Agent != "triage-agent" || got[1].Result != "launched" {
+	if err == nil || len(got) != 1 || got[0].Agent != "triage-agent" || got[0].Result != "launched" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	for i := 0; i < 2; i++ {
+		got, err = r.b.Handle(context.Background(), finished("e1", "pr-1", "failure"), "stream")
+	}
+	if err != nil || len(got) != 2 || got[0].Agent != "another-agent" || got[0].Result != "launch-failed" {
 		t.Fatalf("%+v %v", got, err)
 	}
 	gw.panicOn["another-agent"] = false
@@ -342,7 +350,7 @@ func TestACrashAtEachPointLeavesATriggerThatFiresOnce(t *testing.T) {
 			claim(r)
 			r.gw.sessions["triage-agent/"+task] = "s-orphan"
 			r.gw.hasRun["s-orphan"] = true
-		}, "deduped", 1, 0}, // a live run of this task: one run, and the row says so
+		}, "launched", 1, 0}, // a live run of this key: one run, and the row says what happened
 		{"dies after the decision, before the cursor moves", func(r *rig) {
 			claim(r)
 			_ = r.ledger.Decide(ctx, "triage-agent", key, "launched", "s-1", "r-1")
@@ -372,21 +380,16 @@ func TestACrashAtEachPointLeavesATriggerThatFiresOnce(t *testing.T) {
 			t.Errorf("%s: a replay fired again: %+v %d", c.name, again, gw.nLaunch())
 		}
 	}
-	// a claim of this very process, not yet decided, is not an orphan: nobody else takes it
+	// a claim of this very process, not yet decided, is an orphan too: handling is serialized, so nothing is in flight; it is taken over
+	// at once, not answered as a duplicate (which would lose the trigger)
 	gw := newGW(triage(nil, 0))
 	r := newRig(t, gw, "")
-	if ok, _ := r.ledger.Claim(ctx, "triage-agent", key, "stream", "e1", t0.Add(time.Second), triggers.StaleBefore(t0, t0.Add(time.Second))); !ok {
+	if ok, _ := r.ledger.Claim(ctx, "triage-agent", key, "stream", "e1", t0.Add(time.Second), t0.Add(time.Second)); !ok {
 		t.Fatal("not claimed")
 	}
 	r.now = t0.Add(2 * time.Second)
 	got, _ := r.b.Handle(ctx, env, "stream")
-	if len(got) != 1 || got[0].New || got[0].Result != "deduped" || gw.nOpens() != 0 {
-		t.Fatalf("%+v", got)
-	}
-	// ... until it is older than the stale limit
-	r.now = t0.Add(triggers.Stale + 2*time.Second)
-	got, _ = r.b.Handle(ctx, finished("e1b", "pr-1", "failure"), "stream")
-	if len(got) != 1 || !got[0].New || got[0].Result != "launched" {
+	if len(got) != 1 || !got[0].New || got[0].Result != "launched" || gw.nOpens() != 1 {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -1024,7 +1027,7 @@ func TestTheSchedulerHoldsRefusesAndSurvivesAFailingAgent(t *testing.T) {
 	for _, d := range done {
 		res[d.Agent] = d.Result
 	}
-	if res["nightly-reviewer"] != "held" || res["b-agent"] != "launch-failed" || res["c-agent"] != "launched" {
+	if _, there := res["b-agent"]; res["nightly-reviewer"] != "held" || there || res["c-agent"] != "launched" {
 		t.Fatalf("%v", res)
 	}
 	// a ledger that fails is tried again on the next tick, within the grace window

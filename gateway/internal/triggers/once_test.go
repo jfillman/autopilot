@@ -33,10 +33,10 @@ func TestADecisionThatCannotBeWrittenIsCompletedByTheReplayAndNeverLaunchesTwice
 	r.ledger.DecideFails(nil, 0) // the database is back; the replay of the same event, whose claim now loses
 	r.now = t0.Add(2 * time.Second)
 	got, err := r.b.Handle(ctx, finished("e1", "pr-1", "failure"), "stream")
-	if err != nil || len(got) != 1 || got[0].Result != "deduped" || !got[0].New || got[0].Session != sid || got[0].Run == "" {
+	if err != nil || len(got) != 1 || got[0].Result != "launched" || !got[0].New || got[0].Session != sid || got[0].Run == "" {
 		t.Fatalf("the replay must complete the decision: %+v %v", got, err)
 	}
-	if row, _ = r.ledger.Get(ctx, "triage-agent", key1); row.State != "deduped" || *row.Session != sid {
+	if row, _ = r.ledger.Get(ctx, "triage-agent", key1); row.State != "launched" || *row.Session != sid {
 		t.Fatalf("not decided: %+v", row)
 	}
 	// the run finishes (its session closes), and five minutes later the sweep re-delivers the key
@@ -50,40 +50,127 @@ func TestADecisionThatCannotBeWrittenIsCompletedByTheReplayAndNeverLaunchesTwice
 	}
 }
 
-// The restart variants of the same: the row is `claimed` with its session and a new process takes the stale claim. Whatever became of
-// the session, no other is opened: a live one with a run is a dedupe, a live one with none is launched, a finished one decides.
-func TestAStaleClaimWithASessionRecordedOpensNoOtherSession(t *testing.T) {
+// The restart variants: the row is `claimed` with its session and a new process takes the claim. What the session is decides what
+// happens, and no other session is opened while the recorded one is usable.
+func TestAClaimWithASessionRecordedIsResumedAccordingToTheSession(t *testing.T) {
 	ctx := context.Background()
+	type sess struct{ hasRun, launched, closed, frozen, ended, unknown bool }
 	for name, c := range map[string]struct {
-		hasRun, closed bool
-		want           string
-		launches       int
+		s        sess
+		want     string
+		rule     string
+		opens    int
+		launches int
 	}{
-		"live with a run":    {true, false, "deduped", 0},
-		"live with no run":   {false, false, "launched", 1},
-		"finished (closed)":  {true, true, "deduped", 0},
-		"closed with no run": {false, true, "deduped", 0},
+		"live with a run":                        {sess{hasRun: true, launched: true}, "launched", "", 0, 0},
+		"live with no run":                       {sess{}, "launched", "", 0, 1},
+		"live, frozen before the launch":         {sess{frozen: true}, "refused", "CT-FROZEN", 0, 0},
+		"finished (closed after launching)":      {sess{hasRun: true, launched: true, closed: true}, "launched", "", 0, 0},
+		"closed by a person before launching":    {sess{closed: true, ended: true}, "refused", "CT-ENDED", 0, 0},
+		"closed and frozen before launching":     {sess{closed: true, frozen: true}, "refused", "CT-FROZEN", 0, 0},
+		"closed by its deadline, never launched": {sess{closed: true}, "launched", "", 1, 1}, // opened afresh, once
+		"unknown to this gateway":                {sess{unknown: true}, "deduped", "", 0, 0},
 	} {
 		gw := newGW(triage(nil, 0))
 		r := newRig(t, gw, "")
 		task := triggers.EventTaskID("triage-agent", key1)
-		gw.sessions["triage-agent/"+task] = "s-old"
-		gw.hasRun["s-old"] = c.hasRun
-		gw.closed["s-old"] = c.closed
+		if !c.s.unknown {
+			gw.sessions["triage-agent/"+task] = "s-old"
+		}
+		gw.hasRun["s-old"], gw.launched["s-old"], gw.closed["s-old"], gw.frozen["s-old"], gw.ended["s-old"] = c.s.hasRun, c.s.launched, c.s.closed, c.s.frozen, c.s.ended
 		if ok, _ := r.ledger.Claim(ctx, "triage-agent", key1, "stream", "e1", t0, t0); !ok {
 			t.Fatal("claim")
 		}
 		_ = r.ledger.Opened(ctx, "triage-agent", key1, "s-old")
 		r.now = t0.Add(10 * time.Minute) // a new process, later than the dead one's claim
 		got, err := r.bridge("").Handle(ctx, finished("e2", "pr-1", "failure"), "recent")
-		if err != nil || len(got) != 1 || got[0].Result != c.want || got[0].Session != "s-old" || !got[0].New {
+		if err != nil || len(got) != 1 || got[0].Result != c.want || got[0].Rule != c.rule || !got[0].New {
 			t.Errorf("%s: %+v %v", name, got, err)
 		}
-		if gw.nOpens() != 0 || gw.nLaunch() != c.launches {
+		if gw.nOpens() != c.opens || gw.nLaunch() != c.launches {
 			t.Errorf("%s: %d opens, %d launches", name, gw.nOpens(), gw.nLaunch())
 		}
-		if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row.State == "claimed" {
+		row, _ := r.ledger.Get(ctx, "triage-agent", key1)
+		if row.State == "claimed" {
 			t.Errorf("%s: not decided", name)
+		}
+	}
+	// a session that was closed by its deadline is opened afresh only while the trigger is still valid: an event from two days ago is `missed`
+	gw := newGW(triage(nil, 0))
+	r := newRig(t, gw, "")
+	gw.sessions["triage-agent/"+triggers.EventTaskID("triage-agent", key1)] = "s-old"
+	gw.closed["s-old"] = true
+	_, _ = r.ledger.Claim(ctx, "triage-agent", key1, "stream", "e1", t0, t0)
+	_ = r.ledger.Opened(ctx, "triage-agent", key1, "s-old")
+	r.now = t0.Add(72 * time.Hour)
+	got, _ := r.bridge("").Handle(ctx, finished("e2", "pr-1", "failure"), "recent")
+	if len(got) != 1 || got[0].Result != "missed" || gw.nOpens() != 0 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// The reviewer's other interleaving: the session cannot be written to the row (every retry fails), so it is closed and Handle errors;
+// the row stays `claimed` with no session; the replay, in the same process, must run the trigger from the start (not answer deduped,
+// which lost it): exactly one run. A restart variant of the same.
+func TestASessionThatCannotBeRecordedIsRetriedByTheReplayAndLaunchesOnce(t *testing.T) {
+	ctx := context.Background()
+	for _, restart := range []bool{false, true} {
+		gw := newGW(triage(nil, 0))
+		r := newRig(t, gw, "")
+		r.now = t0.Add(time.Second)
+		failing := &failingOpened{MemoryLedger: r.ledger}
+		b, _ := triggers.NewBridge(gw, failing, triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", AllowHTTP: true, TokenFile: r.tok, Now: func() time.Time { return r.now }}, nil, nil)
+		if _, err := b.Handle(ctx, finished("e1", "pr-1", "failure"), "stream"); err == nil || gw.nLaunch() != 0 {
+			t.Fatalf("%v %d", err, gw.nLaunch())
+		}
+		if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row == nil || row.State != "claimed" || row.Session != nil {
+			t.Fatalf("%+v", row)
+		}
+		r.now = t0.Add(2 * time.Second)
+		next := r.b
+		if restart {
+			r.now = t0.Add(10 * time.Minute)
+			next = r.bridge("")
+		}
+		got, err := next.Handle(ctx, finished("e1", "pr-1", "failure"), "stream")
+		if err != nil || len(got) != 1 || got[0].Result != "launched" || !got[0].New || gw.nLaunch() != 1 {
+			t.Fatalf("restart=%v: %+v %v launches %d: a trigger was dropped or fired twice", restart, got, err, gw.nLaunch())
+		}
+	}
+}
+
+// A decision that cannot be written after an outcome that was determined without a session (held, braked, refused): the replay writes
+// THAT outcome, even though the hold was released in between; a restart variant evaluates afresh (the outcome is only in memory).
+func TestADeterminedOutcomeIsWrittenAsItWasEvenIfTheHoldIsReleased(t *testing.T) {
+	ctx := context.Background()
+	for _, outcome := range []string{"held", "braked", "refused"} {
+		gw := newGW(triage(nil, 1))
+		r := newRig(t, gw, "")
+		r.now = t0.Add(time.Second)
+		switch outcome {
+		case "held":
+			gw.holdRule["triage-agent"] = "R024"
+		case "refused":
+			gw.holdRule["triage-agent"] = "R001"
+		case "braked":
+			if got, _ := r.b.Handle(ctx, finished("e0", "pr-0", "failure"), "stream"); len(got) != 1 {
+				t.Fatal(got)
+			}
+		}
+		r.ledger.DecideFails(errors.New("connection lost"), 100)
+		if _, err := r.b.Handle(ctx, finished("e1", "pr-1", "failure"), "stream"); err == nil {
+			t.Fatalf("%s: handled although the decision was not written", outcome)
+		}
+		delete(gw.holdRule, "triage-agent") // released meanwhile
+		r.ledger.DecideFails(nil, 0)
+		r.now = t0.Add(2 * time.Second)
+		before := gw.nLaunch()
+		got, err := r.b.Handle(ctx, finished("e1", "pr-1", "failure"), "stream")
+		if err != nil || len(got) != 1 || got[0].Result != outcome || gw.nLaunch() != before {
+			t.Fatalf("%s: %+v %v (launches %d, was %d)", outcome, got, err, gw.nLaunch(), before)
+		}
+		if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row.State != outcome {
+			t.Fatalf("%s: %+v", outcome, row)
 		}
 	}
 }
@@ -133,5 +220,53 @@ func TestAHoldBetweenTheOpenAndTheLaunchStopsTheLaunch(t *testing.T) {
 	}
 	if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row.State != "held" {
 		t.Fatalf("%+v", row)
+	}
+}
+
+// The scheduler has the same shape: a slot is not marked fired until its row is decided, so a slot whose session could not be recorded
+// (or whose decision could not be written) is carried out on the next tick, once, while its grace window lasts; a restart likewise.
+func TestASlotIsNotFiredUntilItsRowIsDecided(t *testing.T) {
+	ctx := context.Background()
+	for _, how := range []string{"opened", "decide-held", "decide-launched", "restart"} {
+		gw := newGW(nightly())
+		ledger := &triggers.MemoryLedger{}
+		now := time.Date(2026, 11, 14, 0, 1, 0, 0, time.UTC)
+		clock := func() time.Time { return now }
+		var l triggers.Ledger = ledger
+		if how == "opened" || how == "restart" {
+			l = &failingOpened{MemoryLedger: ledger}
+		}
+		if how == "decide-held" {
+			gw.holdRule["nightly-reviewer"] = "R024"
+		}
+		if how == "decide-held" || how == "decide-launched" {
+			ledger.DecideFails(errors.New("connection lost"), 100)
+		}
+		s := triggers.NewScheduler(gw, l, clock, nil, nil)
+		if done := s.Tick(ctx); len(done) != 0 || gw.nLaunch() > 1 {
+			t.Fatalf("%s: %+v", how, done)
+		}
+		ledger.DecideFails(nil, 0)
+		delete(gw.holdRule, "nightly-reviewer") // released meanwhile
+		now = now.Add(time.Minute)
+		next := s
+		if how == "restart" {
+			now = now.Add(2 * time.Minute)
+			next = triggers.NewScheduler(gw, ledger, clock, nil, nil)
+		} else if how == "opened" {
+			next = triggers.NewScheduler(gw, ledger, clock, nil, nil) // the failing wrapper is dropped: the database is back
+		}
+		done := next.Tick(ctx)
+		want := map[string]string{"opened": "launched", "restart": "launched", "decide-held": "held", "decide-launched": "launched"}[how]
+		if len(done) != 1 || done[0].Result != want {
+			t.Fatalf("%s: %+v, want %s", how, done, want)
+		}
+		wantLaunches := map[string]int{"opened": 1, "restart": 1, "decide-held": 0, "decide-launched": 1}[how]
+		if gw.nLaunch() != wantLaunches {
+			t.Fatalf("%s: %d launches, want %d", how, gw.nLaunch(), wantLaunches)
+		}
+		if again := triggers.NewScheduler(gw, ledger, clock, nil, nil).Tick(ctx); len(again) != 0 || gw.nLaunch() != wantLaunches {
+			t.Fatalf("%s: fired again: %+v", how, again)
+		}
 	}
 }

@@ -80,10 +80,12 @@ func people(g *dispatch.Gateway, op func(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		// The caller is checked before the body is read or parsed, or anything else is said: a bad token is a 401, never a 400 or a 413.
-		if _, aerr := g.Auth.Authenticate(r.Context(), token); aerr != nil {
+		principal, aerr := g.Auth.Authenticate(r.Context(), token)
+		if aerr != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "token not accepted"})
 			return
 		}
+		r = r.WithContext(dispatch.WithVerified(r.Context(), token, principal)) // authenticated once: the operation does not again
 		if len(r.Header.Values(OnBehalfOfHeader)) > 1 {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "on-behalf-of is named once", "rule": "HR-PERSON", "hint": ""})
 			return

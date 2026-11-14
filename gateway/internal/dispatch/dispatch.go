@@ -117,11 +117,15 @@ type Gateway struct {
 	PreflightLedger *PreflightLedger
 	// holdGate: a trigger's open and a person's run read a hold and open their session under the read lock; a hold or a release
 	// writes under the write lock.
-	holdGate  sync.RWMutex
-	answers   answerLocks
-	limiter   controlLimiter
-	houseMu   sync.Mutex
-	lastHouse time.Time
+	holdGate    sync.RWMutex
+	holdWriteMu sync.Mutex // one hold or release at a time
+	holdLoadMu  sync.Mutex
+	holdsLoaded bool
+	holdCache   map[string]*Hold // the holds, as the store has them; read and written under holdGate
+	answers     answerLocks
+	limiter     controlLimiter
+	houseMu     sync.Mutex
+	lastHouse   time.Time
 
 	// OnPersistError is called when the sessions cannot be saved. The in-memory sessions are then ahead of the
 	// database and only a restart puts them back in step, so the serve command exits (crash-only).

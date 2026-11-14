@@ -678,6 +678,9 @@ func (r *replayer) triggeredOpen(ctx context.Context, l line, want *client.Evalu
 		_ = holds.Put(ctx, &dispatch.Hold{Agent: want.Resource.ID, By: h.By, Reason: h.Reason, Since: now.Add(-time.Minute), Until: h.Until})
 	}
 	g.Holds = holds
+	if err := g.ReloadHolds(ctx); err != nil {
+		r.t.Fatal(err)
+	}
 	got, err := g.TriggeredRequest(ctx, want.Resource.ID, want.Action.Properties.Trigger, want.Action.Properties.TaskID, st.NewID(), now)
 	if err != nil {
 		r.t.Fatalf("line %d: %v", l.n, err)

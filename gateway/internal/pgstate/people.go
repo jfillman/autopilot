@@ -275,9 +275,15 @@ func (t *Triggers) Claim(ctx context.Context, agent, key, via, eventID string, n
 
 // Opened is Ledger.Opened: the session opened for a claimed key, written before its launch.
 func (t *Triggers) Opened(ctx context.Context, agent, key, session string) error {
-	_, err := t.st.Pool.Exec(ctx, "UPDATE gateway_trigger_launches SET session = $1, updated_at = now() WHERE agent = $2 AND key = $3 AND state = 'claimed'",
+	tag, err := t.st.Pool.Exec(ctx, "UPDATE gateway_trigger_launches SET session = $1, updated_at = now() WHERE agent = $2 AND key = $3 AND state = 'claimed'",
 		session, agent, key)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return triggers.ErrNotClaimed // not claimed any more: nothing was written, and nothing may launch
+	}
+	return nil
 }
 
 // Decide is Ledger.Decide.

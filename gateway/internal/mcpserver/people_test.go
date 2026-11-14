@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +26,16 @@ import (
 
 // The person-facing routes, over HTTP, as Python's create_http_app serves them: a bearer token, X-Hangar-On-Behalf-Of for a
 // delegate, {"error", "rule", "hint"} with the refusal's status, 201 for a run, 401 for a token nobody vouches for.
+// authCalls counts the authentications the people routes make (one per request).
+var authCalls atomic.Int64
+
+type countingAuth struct{ inner auth.Static }
+
+func (c countingAuth) Authenticate(ctx context.Context, token string) (*dispatch.Principal, error) {
+	authCalls.Add(1)
+	return c.inner.Authenticate(ctx, token)
+}
+
 func peopleSetup(t *testing.T) (*httptest.Server, *session.Store, *dispatch.MemoryInbox, *dispatch.MemoryHolds) {
 	fc := fakecore.New()
 	t.Cleanup(fc.Close)
@@ -58,7 +69,7 @@ func peopleSetup(t *testing.T) (*httptest.Server, *session.Store, *dispatch.Memo
 		"root":     {ID: "user:root", Kind: "user", TierCeiling: 1},
 		"delegate": {ID: "hangar-prod/tower/backend", Kind: "workload", TierCeiling: 1},
 	}
-	g, err := dispatch.New(defs, st, c, au, tools.Default(), nil)
+	g, err := dispatch.New(defs, st, c, countingAuth{au}, tools.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,5 +266,26 @@ func TestTheCallerIsCheckedBeforeTheBodyAndTheHeaderIsStrict(t *testing.T) {
 	// a non-delegate that sends the header is refused, not ignored
 	if code, m, _ := do(t, srv, "POST", "/v1/sessions/s-0000a1/freeze", "alice", "user:root", `{"reason":"x"}`); code != 403 || m["rule"] != "CT-DELEGATE" {
 		t.Fatalf("%d %v", code, m)
+	}
+}
+
+// Every /v1 route authenticates the caller once: the route checks the token before the body, and the operation is handed that
+// principal instead of asking again.
+func TestARouteAuthenticatesTheCallerOnce(t *testing.T) {
+	srv, _, _, _ := peopleSetup(t)
+	for _, c := range []struct{ method, path, body, token, on string }{
+		{"POST", "/v1/sessions/s-0000a1/freeze", `{"reason":"x"}`, "root", ""},
+		{"POST", "/v1/agents/triage-agent/hold", `{"reason":"x"}`, "delegate", "user:root"},
+		{"GET", "/v1/human/requests", ``, "alice", ""},
+		{"GET", "/v1/preflight/cases?agent=coding-agent", ``, "bob", ""},
+		{"POST", "/v1/agents/coding-agent/runs", `{"input":"x"}`, "root", ""},
+	} {
+		before := authCalls.Load()
+		if code, m, _ := do(t, srv, c.method, c.path, c.token, c.on, c.body); code >= 500 {
+			t.Fatalf("%s: %d %v", c.path, code, m)
+		}
+		if n := authCalls.Load() - before; n != 1 {
+			t.Errorf("%s %s authenticated %d times", c.method, c.path, n)
+		}
 	}
 }

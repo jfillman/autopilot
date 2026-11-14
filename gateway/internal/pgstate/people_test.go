@@ -2,6 +2,7 @@ package pgstate_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/pgstate"
+	"github.com/jfillman/autopilot/gateway/internal/triggers"
 )
 
 var t0 = time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
@@ -248,5 +250,22 @@ func TestTheEventTimeThatKeysRetentionIsClamped(t *testing.T) {
 	}
 	if got := pgstate.ClampEventTime(now.Add(-time.Hour), now); !got.Equal(now.Add(-time.Hour)) {
 		t.Fatal(got)
+	}
+}
+
+// Opened writes only to a claimed row: for a row that is decided, or not there, it says so (nothing may launch on it).
+func TestOpenedSaysWhenTheRowIsNotClaimed(t *testing.T) {
+	st, ctx := open(t)
+	l := pgstate.NewTriggers(st)
+	if err := l.Opened(ctx, "a", "none", "s-1"); !errors.Is(err, triggers.ErrNotClaimed) {
+		t.Fatalf("%v", err)
+	}
+	_, _ = l.Claim(ctx, "a", "k", "stream", "e1", t0, t0)
+	_ = l.Decide(ctx, "a", "k", "launched", "s-1", "r-1")
+	if err := l.Opened(ctx, "a", "k", "s-2"); !errors.Is(err, triggers.ErrNotClaimed) {
+		t.Fatalf("%v", err)
+	}
+	if row, _ := l.Get(ctx, "a", "k"); *row.Session != "s-1" {
+		t.Fatalf("%+v", row)
 	}
 }

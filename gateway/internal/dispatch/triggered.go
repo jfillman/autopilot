@@ -45,6 +45,14 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 		return nil, err
 	}
 	d := g.Defs[agent]
+	if d != nil && d.IdentityType == "workload" && (d.ServiceAccount == nil || *d.ServiceAccount == "") {
+		// The core grants a triggered session the definition's service account as its principal ("" when it names none), and the
+		// schema requires one of a workload definition: a definition without it has no identity a triggered run could have, so it is
+		// refused here, before the core is asked, with the reason.
+		g.Store.GiveBack(newID)
+		msg := agent + " is a workload agent with no service account: a triggered run would have no identity"
+		return &Result{Decision: map[string]any{"allow": false, "rule": "R008", "message": msg}, Error: str(msg)}, nil
+	}
 	v, err := g.Core.Evaluate(ctx, req)
 	var un *core.Unreachable
 	if errors.As(err, &un) {
@@ -137,20 +145,64 @@ func heldResult(agent string, h *Hold, v *core.Verdict) *Result {
 	return r
 }
 
-// LaunchTriggered launches the run of a session a trigger opened, with the hold read again right before the launch and after it:
-// a session opened before a hold was acknowledged must not run after it. A held agent's session is closed and the answer is R024;
-// a launch that raced a hold (the run was made, and the hold was saved meanwhile) is undone: the session is closed and its run
-// deleted.
-func (g *Gateway) LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*Result, error) {
-	if h, err := g.HoldFor(ctx, agent); err != nil {
-		return nil, err
-	} else if h != nil {
-		g.AbandonTriggered(ctx, sessionID, false)
-		return heldResult(agent, h, nil), nil
+// HoldReadError is a failure to read the hold (not a hold): the trigger is neither launched nor decided, and may be resumed.
+type HoldReadError struct{ Err error }
+
+func (e *HoldReadError) Error() string { return "the hold could not be read: " + e.Err.Error() }
+func (e *HoldReadError) Unwrap() error { return e.Err }
+
+// HoldReadWaits are the pauses between the attempts at reading the hold before a launch gives up with a HoldReadError.
+var HoldReadWaits = []time.Duration{50 * time.Millisecond, 250 * time.Millisecond, time.Second}
+
+func (g *Gateway) holdForRetry(ctx context.Context, agent string) (*Hold, error) {
+	h, err := g.HoldFor(ctx, agent)
+	for _, w := range HoldReadWaits {
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(w):
+		}
+		h, err = g.HoldFor(ctx, agent)
 	}
-	res, err := g.Launch(ctx, sessionID, input)
-	if err != nil || !res.OK {
-		return res, err
+	if err != nil {
+		return nil, &HoldReadError{err}
+	}
+	return h, nil
+}
+
+// LaunchTriggered launches the run of a session a trigger opened, with the hold read again right before the launch and after it: a
+// session opened before a hold was acknowledged must not run after it. A held agent's session is closed and the answer is R024; a
+// launch that raced a hold (the run was made, and the hold was saved meanwhile) is undone: the session is closed and its run deleted.
+// A session that already names a run is not refused (the launch is resumed): a run that exists is the answer (Data "existing"), one that
+// was only reserved is made. A hold that cannot be read is a *HoldReadError after bounded retries.
+func (g *Gateway) LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*Result, error) {
+	var res *Result
+	var err error
+	named := false
+	if s := g.Store.Get(sessionID); s != nil {
+		s.Lock()
+		named = s.Run != nil && *s.Run != "" && !s.Closed
+		s.Unlock()
+	}
+	if named {
+		// A run is named: the run that is there is the answer, whatever a hold now says; one that was only reserved is made.
+		if res, err = g.launch(ctx, sessionID, input, true); err != nil || !res.OK || res.Data.(map[string]any)[ExistingRunKey] == true {
+			return res, err
+		}
+	} else {
+		var h *Hold
+		if h, err = g.holdForRetry(ctx, agent); err != nil {
+			return nil, err
+		}
+		if h != nil {
+			g.AbandonTriggered(ctx, sessionID, false)
+			return heldResult(agent, h, nil), nil
+		}
+		if res, err = g.launch(ctx, sessionID, input, true); err != nil || !res.OK {
+			return res, err
+		}
 	}
 	h, herr := g.HoldFor(ctx, agent)
 	if herr != nil || h == nil {
@@ -160,6 +212,31 @@ func (g *Gateway) LaunchTriggered(ctx context.Context, agent, sessionID string, 
 		g.flush(ctx, g.deleteRuns(ctx, s, s, "closed", nil)...)
 	}
 	return heldResult(agent, h, nil), nil
+}
+
+// TriggerSession is what a trigger needs to know of a session an earlier holder of its claim opened.
+type TriggerSession struct {
+	Known, Live bool
+	Run         string // the run it names ("" none); a name may be only reserved
+	Launched    bool   // its run was created (LaunchedAt)
+	Frozen      bool   // tripped
+	Ended       bool   // closed by someone (a person's end, a parent's close), not by its deadline
+}
+
+// TriggerSessionState reads a session for a trigger that takes over a claim.
+func (g *Gateway) TriggerSessionState(sessionID string) TriggerSession {
+	s := g.Store.Get(sessionID)
+	if s == nil {
+		return TriggerSession{}
+	}
+	s.Lock()
+	defer s.Unlock()
+	t := TriggerSession{Known: true, Live: !s.Expired(g.Now()), Launched: s.LaunchedAt != nil, Frozen: s.Tripped}
+	if s.Run != nil {
+		t.Run = *s.Run
+	}
+	t.Ended = s.Closed && (s.Outcome == nil || s.Outcome["via"] != "deadline") && g.Now().Before(s.ExpiresAt)
+	return t
 }
 
 func refusedGrant(v *core.Verdict) *Result {

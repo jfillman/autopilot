@@ -195,9 +195,11 @@ func MayManage(person string, owner *string, groups map[string]bool, admins []st
 // caller that names nobody must be a user. So a workload that is not a delegate (every run) is refused both ways, and a
 // delegate's own identity is never the person.
 func (g *Gateway) Person(ctx context.Context, token, onBehalfOf string) (person, via string, err error) {
-	p, err := g.Auth.Authenticate(ctx, token)
-	if err != nil {
-		return "", "", err
+	p := verifiedFrom(ctx, token)
+	if p == nil {
+		if p, err = g.Auth.Authenticate(ctx, token); err != nil {
+			return "", "", err
+		}
 	}
 	if onBehalfOf != "" {
 		if !IsDelegate(p, g.Delegates) {
@@ -212,6 +214,26 @@ func (g *Gateway) Person(ctx context.Context, token, onBehalfOf string) (person,
 		return "", "", &InboxError{"HR-PERSON", p.ID + " is not a person", "", 403}
 	}
 	return p.ID, "", nil
+}
+
+type verifiedKey struct{}
+
+type verified struct {
+	token string
+	p     *Principal
+}
+
+// WithVerified returns a context that carries a principal the caller has already authenticated for this token, so a route that
+// checks the caller first (before it reads the body) does not authenticate again inside the operation.
+func WithVerified(ctx context.Context, token string, p *Principal) context.Context {
+	return context.WithValue(ctx, verifiedKey{}, verified{token, p})
+}
+
+func verifiedFrom(ctx context.Context, token string) *Principal {
+	if v, ok := ctx.Value(verifiedKey{}).(verified); ok && v.token == token {
+		return v.p
+	}
+	return nil
 }
 
 // runIdentity is a run pod's identity (agent-<run>/run, a run name of r- and 6 to 32 hex digits).
@@ -420,21 +442,59 @@ func (g *Gateway) EndSession(ctx context.Context, token, sessionID string, reaso
 	return map[string]any{"session": s.ID, "agent": agent, "closed": true, "audit_seq": nilSeq(rec)}, nil
 }
 
-// holdForLocked is the active hold on an agent's triggers, if any. The caller holds the hold gate (read or write). An expired
-// hold is not dropped here (the sweep drops it): a reader must not delete under a read lock.
-func (g *Gateway) holdForLocked(ctx context.Context, agent string) (*Hold, error) {
+// The holds are kept in memory as well as in the store. The store is the source of truth at start (and Python's rows are read the same
+// way); a hold or a release writes the store first and then, under the gate, the copy. So the gate (whose write side a hold takes, and
+// whose read side every open and launch takes) is never held across a database call: a stuck database stalls the person who is
+// holding, never the opens and launches behind a pending hold.
+
+// loadHolds reads the store into the copy, once, outside the gate (the first use; ReloadHolds again).
+func (g *Gateway) loadHolds(ctx context.Context) error {
+	g.holdLoadMu.Lock()
+	defer g.holdLoadMu.Unlock()
+	if g.holdsLoaded || g.Holds == nil {
+		return nil
+	}
+	all, err := g.Holds.All(ctx)
+	if err != nil {
+		return err
+	}
+	m := map[string]*Hold{}
+	for _, h := range all {
+		m[h.Agent] = h
+	}
+	g.holdGate.Lock()
+	g.holdCache, g.holdsLoaded = m, true
+	g.holdGate.Unlock()
+	return nil
+}
+
+// ReloadHolds reads the store again (start-up, and a test that wrote the store directly).
+func (g *Gateway) ReloadHolds(ctx context.Context) error {
+	g.holdLoadMu.Lock()
+	g.holdsLoaded = false
+	g.holdLoadMu.Unlock()
+	return g.loadHolds(ctx)
+}
+
+// holdForLocked is the active hold on an agent's triggers, if any, from the copy. The caller holds the hold gate (read or write). An
+// expired hold is not dropped here (the sweep drops it).
+func (g *Gateway) holdForLocked(_ context.Context, agent string) (*Hold, error) {
 	if g.Holds == nil {
 		return nil, nil
 	}
-	h, err := g.Holds.Get(ctx, agent)
-	if err != nil || h == nil || !h.Active(g.Now()) {
-		return nil, err
+	h := g.holdCache[agent]
+	if h == nil || !h.Active(g.Now()) {
+		return nil, nil
 	}
-	return h, nil
+	c := *h
+	return &c, nil
 }
 
 // HoldFor is the active hold on an agent's triggers, if any (Gateway.hold_for).
 func (g *Gateway) HoldFor(ctx context.Context, agent string) (*Hold, error) {
+	if err := g.loadHolds(ctx); err != nil {
+		return nil, err
+	}
 	g.holdGate.RLock()
 	defer g.holdGate.RUnlock()
 	return g.holdForLocked(ctx, agent)
@@ -476,9 +536,17 @@ func (g *Gateway) HoldTriggers(ctx context.Context, token, agent string, reason,
 	if via != "" {
 		h.Via = &via
 	}
-	g.holdGate.Lock()
+	if err := g.loadHolds(ctx); err != nil {
+		return nil, err
+	}
+	g.holdWriteMu.Lock() // one hold or release at a time: the store and the copy are written in the same order
 	err = g.Holds.Put(ctx, h)
-	g.holdGate.Unlock()
+	if err == nil {
+		g.holdGate.Lock()
+		g.holdCache[agent] = h
+		g.holdGate.Unlock()
+	}
+	g.holdWriteMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -499,12 +567,19 @@ func (g *Gateway) ReleaseTriggers(ctx context.Context, token, agent, onBehalfOf 
 	if err := g.mayManage(ctx, person, agent, nil); err != nil {
 		return nil, err
 	}
-	g.holdGate.Lock()
-	h, err := g.holdForLocked(ctx, agent)
-	if err == nil && h != nil {
-		err = g.Holds.Delete(ctx, agent)
+	if err := g.loadHolds(ctx); err != nil {
+		return nil, err
 	}
-	g.holdGate.Unlock()
+	g.holdWriteMu.Lock()
+	h, err := g.HoldFor(ctx, agent)
+	if err == nil && h != nil {
+		if err = g.Holds.Delete(ctx, agent); err == nil {
+			g.holdGate.Lock()
+			delete(g.holdCache, agent)
+			g.holdGate.Unlock()
+		}
+	}
+	g.holdWriteMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -518,18 +593,25 @@ func (g *Gateway) ReleaseTriggers(ctx context.Context, token, agent, onBehalfOf 
 
 // PruneHolds drops the holds that have expired (Python drops one when it reads it). The sweep calls it.
 func (g *Gateway) PruneHolds(ctx context.Context) int {
-	if g.Holds == nil {
+	if g.Holds == nil || g.loadHolds(ctx) != nil {
 		return 0
 	}
-	g.holdGate.Lock()
-	defer g.holdGate.Unlock()
-	all, err := g.Holds.All(ctx)
-	if err != nil {
-		return 0
+	g.holdWriteMu.Lock()
+	defer g.holdWriteMu.Unlock()
+	g.holdGate.RLock()
+	var expired []string
+	for name, h := range g.holdCache {
+		if !h.Active(g.Now()) {
+			expired = append(expired, name)
+		}
 	}
+	g.holdGate.RUnlock()
 	n := 0
-	for _, h := range all {
-		if !h.Active(g.Now()) && g.Holds.Delete(ctx, h.Agent) == nil {
+	for _, name := range expired {
+		if g.Holds.Delete(ctx, name) == nil {
+			g.holdGate.Lock()
+			delete(g.holdCache, name)
+			g.holdGate.Unlock()
 			n++
 		}
 	}
@@ -587,8 +669,10 @@ func (g *Gateway) RunAgent(ctx context.Context, token, agent string, runInput an
 // PreflightCaseList is the Preflight cases of an agent, for the PR check that launches their runs: id, title, the run's input and
 // how many runs the case reads. Any authenticated caller; the cases are in the repo (Gateway.preflight_case_list).
 func (g *Gateway) PreflightCaseList(ctx context.Context, token string, agent any) (map[string]any, error) {
-	if _, err := g.Auth.Authenticate(ctx, token); err != nil {
-		return nil, err
+	if verifiedFrom(ctx, token) == nil {
+		if _, err := g.Auth.Authenticate(ctx, token); err != nil {
+			return nil, err
+		}
 	}
 	name, ok := agent.(string)
 	if !ok || name == "" {
