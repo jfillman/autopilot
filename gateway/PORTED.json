@@ -1,0 +1,215 @@
+{
+ "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
+ "level_with": "38987b9672b01178932a3c5bc556a6f133b28d01",
+ "ported": {
+  "src/autopilot/conformance.py": {
+   "sha256": "3b2bb62ff595c982ea2d95468ab85b209f450b59edfb0936c3e03f89471b05bc",
+   "go": [
+    "gateway/internal/conformance",
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "the conformance control interface",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/auth.py": {
+   "sha256": "0b50f8a335acec30981f3c659024be844f766319e86275dfd85ac4c6691ebeb9",
+   "go": [
+    "gateway/internal/auth"
+   ],
+   "carries": "WorkloadAuthenticator (TokenReview, the audience set), CachingAuthenticator; S1: OIDCAuthenticator (Dex), ForeignWorkloadAuthenticator (Tower), GitHubActionsAuthenticator (ported and tested, not wired: serve.py does not wire it), RoutingAuthenticator, JWKS",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/backends.py": {
+   "sha256": "fc30b2e661953b26a930214c2c510d1d4fa3dc9db006cb3aaac58a1ff1e4dfc2",
+   "go": [
+    "gateway/internal/dispatch",
+    "gateway/internal/backends"
+   ],
+   "carries": "BackendError (evidence, agent message), Handler",
+   "left_for_later_slices": "S2/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"
+  },
+  "src/autopilot/engine/core.py": {
+   "sha256": "4d7003b6d8a8941c581bf0574b10742119baadc8294d5ce0efa8a2473eecefba",
+   "go": [
+    "gateway/internal/core"
+   ],
+   "carries": "the decision path: evaluation, outcome, records, outbox, outage policy, canonical JSON, the client's timeout (DECISION_TIMEOUT), retries and breaker",
+   "left_for_later_slices": "S4 publish_definitions (and the bundled definitions)"
+  },
+  "src/autopilot/engine/definitions.py": {
+   "sha256": "9e714bb19a537eca872af6b30447adf95118bd4ca565cc12173d8323b0bbccff",
+   "go": [
+    "gateway/internal/definitions"
+   ],
+   "carries": "reading the bundled set and the pinned set",
+   "left_for_later_slices": "S4 publishing the set, bundled_set, the Agent XR loader"
+  },
+  "src/autopilot/engine/dispatch.py": {
+   "sha256": "1a6142ae040243b132a19c298d4740aade1660a5213f3a861004ec470e6c10a0",
+   "go": [
+    "gateway/internal/dispatch"
+   ],
+   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for",
+   "left_for_later_slices": "S2 launch, run.spawn/close, run_finish, session_close, acting_as, run results, Preflight candidate runs; S3 person controls, inbox, holds, triggers; S4 publish_definitions"
+  },
+  "src/autopilot/engine/limits.py": {
+   "sha256": "6660af78e73681f447f80e2e9732c17d5fe0bbf6e18b8433ede4eb738d71bcea",
+   "go": [
+    "gateway/internal/session"
+   ],
+   "carries": "budget fields and limits",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/modelproxy.py": {
+   "sha256": "1c1b8391c29118f537d6433c0531ae85634eaed4a971800f67d074061ef43bb2",
+   "go": [
+    "gateway/internal/modelproxy"
+   ],
+   "carries": "the model proxy: decision, metering, charge",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/outbox.py": {
+   "sha256": "b5e2fb9bb79dd8025fc4e7ddf52b3f2f58afd673a3048d07c0534c78207108c1",
+   "go": [
+    "gateway/internal/core",
+    "gateway/internal/pgstate"
+   ],
+   "carries": "the outbox",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/pg.py": {
+   "sha256": "36c21733af2c2171d6be862e09fe38475a58d2870ab96c47886de4b8d9cc679a",
+   "go": [
+    "gateway/internal/pgstate"
+   ],
+   "carries": "the tables, the writer lock, sessions and the outbox (schema.sql is generated)",
+   "left_for_later_slices": "S2/S3 use of the results, holds and trigger-ledger tables"
+  },
+  "src/autopilot/engine/profile.py": {
+   "sha256": "c0b213a0f587f4866947d3c2e6205acdb4a0d60a24d33958d8a5b5d3307118d8",
+   "go": [
+    "gateway/internal/definitions"
+   ],
+   "carries": "parse: scope, agent, runs_in",
+   "left_for_later_slices": "S4 JSON-schema validation"
+  },
+  "src/autopilot/engine/scope.py": {
+   "sha256": "39910c51096008cd718595d04aedc40ba3e0b0a4a199420466646d40db37e522",
+   "go": [
+    "gateway/internal/dispatch"
+   ],
+   "carries": "normalize (repository-relative paths)",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/server.py": {
+   "sha256": "728c02206d150d19ec6176042fba3eeb7e5abc96e5fef50b78d7690329c06320",
+   "go": [
+    "gateway/internal/mcpserver"
+   ],
+   "carries": "the MCP server surface: tools_list, agents_list, session_open, call, healthz, protected-resource metadata",
+   "left_for_later_slices": "S2 run_finish/session_close; S3 the people routes (/v1/...)"
+  },
+  "src/autopilot/engine/session.py": {
+   "sha256": "c29446c9438637350a8df372c89ba44b94864cec432ab3f86f4397309f9fb941",
+   "go": [
+    "gateway/internal/session"
+   ],
+   "carries": "the session record (every field, signals included), budgets, breaker, expiry",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/tiers.py": {
+   "sha256": "f3326a1bfe22b95ae9d2f5b88ec3ae8be62d5431035acb2a2921d25a30e57fdd",
+   "go": [
+    "gateway/internal/tools",
+    "gateway/internal/dispatch"
+   ],
+   "carries": "ToolSpec, tiers, the target and effect of a call",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/gateway.py": {
+   "sha256": "07bf609d8384966c417a281074514488ebea8263940c9ea70248a25d8ecfc529",
+   "go": [
+    "gateway/internal/backends",
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "which tool has a handler in a deployment (metrics.query, logs.query)",
+   "left_for_later_slices": "S5 the other handlers"
+  },
+  "src/autopilot/hangar_tools.py": {
+   "sha256": "713ab697c5c9740a31950c096f30b5970222ae7f3698487f223ba305d4877a8f",
+   "go": [
+    "gateway/internal/tools"
+   ],
+   "carries": "the Hangar tool pack (registry.json is generated)",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/reads.py": {
+   "sha256": "c98d29d269289ce3134648fd9a88a5c11f44432ea194e8175175125256796902",
+   "go": [
+    "gateway/internal/backends"
+   ],
+   "carries": "PrometheusAPI and LokiAPI (metrics.query, logs.query)",
+   "left_for_later_slices": "S5a catalog.read, argo.app.get, app.api.get"
+  },
+  "src/autopilot/serve.py": {
+   "sha256": "f979bdff9a71dc7193440eef4417fcaf27e79efcac1e5017f27d6e3acb867c7d",
+   "go": [
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep, the outbox drain",
+   "left_for_later_slices": "S2/S3/S4/S6 the settings and loops of what is not ported"
+  },
+  "src/autopilot/settings.py": {
+   "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",
+   "go": [
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "the retired CLEARANCE_* names",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/version.py": {
+   "sha256": "f6110fb508c1fc189f17069fd9b235fece6479f49ca40ec0a49be23782341180",
+   "go": [
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "the gateway's version",
+   "left_for_later_slices": ""
+  }
+ },
+ "not_ported": {
+  "src/autopilot/agent_xrs.py": "S4",
+  "src/autopilot/airframe_api.py": "S5c",
+  "src/autopilot/airframe_apply.py": "S5c",
+  "src/autopilot/airframe_plan.py": "S5c",
+  "src/autopilot/airframe_tools.py": "S5c",
+  "src/autopilot/api_serve.py": "S6",
+  "src/autopilot/argo_sync.py": "S5b",
+  "src/autopilot/cicd_propose.py": "S5b",
+  "src/autopilot/engine/control.py": "S3",
+  "src/autopilot/engine/events.py": "S3",
+  "src/autopilot/engine/inbox.py": "S3",
+  "src/autopilot/engine/results.py": "S2",
+  "src/autopilot/engine/runtimes.py": "S2",
+  "src/autopilot/engine/trigger_ledger.py": "S3",
+  "src/autopilot/event_bridge.py": "S3",
+  "src/autopilot/github_pr.py": "S5b",
+  "src/autopilot/glidepath_api.py": "S5b",
+  "src/autopilot/glidepath_live.py": "S5b",
+  "src/autopilot/kube_runs.py": "S2",
+  "src/autopilot/manifests.py": "S2",
+  "src/autopilot/metrics.py": "S6",
+  "src/autopilot/otlp_logs.py": "S6",
+  "src/autopilot/preflight.py": "S2",
+  "src/autopilot/read_api.py": "S6",
+  "src/autopilot/reconcile.py": "S3",
+  "src/autopilot/scheduler.py": "S3",
+  "src/autopilot/triggers.py": "S3",
+  "src/autopilot/vendor/agentrun_compose.py": "S2",
+  "src/autopilot/vendor/airframe_sidecars.py": "S5c",
+  "src/autopilot/xr_request.py": "S5c"
+ },
+ "out_of_scope": {
+  "src/autopilot/backends.py": "the test fakes (FakeGlidepath, Recorder): the Go gateway registers no fake",
+  "src/autopilot/cli.py": "the Python command line (preflight, reads): not part of the gateway process"
+ }
+}

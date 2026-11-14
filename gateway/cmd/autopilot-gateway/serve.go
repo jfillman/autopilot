@@ -35,6 +35,8 @@ type config struct {
 	dsn                     string
 	agentsDir               string
 	audience, modelAudience string
+	runAudiences            []string
+	coreTimeout             time.Duration
 	resourceURL, issuerURL  string
 	allowReads              bool
 	expireEvery             time.Duration
@@ -124,7 +126,26 @@ func configFromEnv(env func(string) string) (*config, error) {
 	}
 	c.port, c.modelPort = int(port), int(mport)
 	c.agentsDir = getenv(env, "AUTOPILOT_AGENTS_DIR", "/app/agents")
+	// audience (AUTOPILOT_AUDIENCE) is the audience of Tower's foreign-cluster tokens and the core's, a wire contract
+	// the foreign verifier of a later slice uses; the workload tokens this slice accepts are the run pods', which carry
+	// runAudiences only (Python: build_auth). R-10b added `autopilot`; R-10e dropped the old `clearance` from the default.
 	c.audience = getenv(env, "AUTOPILOT_AUDIENCE", "clearance")
+	for _, a := range strings.Split(getenv(env, "AUTOPILOT_RUN_AUDIENCES", "autopilot"), ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			c.runAudiences = append(c.runAudiences, a)
+		}
+	}
+	if len(c.runAudiences) == 0 {
+		return nil, configError("AUTOPILOT_RUN_AUDIENCES names at least one audience")
+	}
+	ctmo, err := number(env, "CLEARANCE_CORE_TIMEOUT", core.DecisionTimeout.Seconds())
+	if err != nil {
+		return nil, err
+	}
+	if !(ctmo >= 0.05 && ctmo <= 30) {
+		return nil, configError("CLEARANCE_CORE_TIMEOUT is seconds per attempt, between 0.05 and 30")
+	}
+	c.coreTimeout = time.Duration(ctmo * float64(time.Second))
 	c.modelAudience = getenv(env, "MODEL_TOKEN_AUDIENCE", "model-proxy")
 	c.resourceURL = getenv(env, "AUTOPILOT_RESOURCE_URL", fmt.Sprintf("http://localhost:%d/mcp", c.port))
 	c.issuerURL = env("AUTOPILOT_ISSUER_URL")
@@ -205,7 +226,7 @@ func serve(_ []string) int {
 		log.Error("sessions: " + err.Error())
 		return 1
 	}
-	cl, err := client.New(client.Options{BaseURL: cfg.coreURL, Token: client.FileToken(cfg.coreTokenFile), Provider: core.Provider})
+	cl, err := client.New(core.ClientOptions(cfg.coreURL, client.FileToken(cfg.coreTokenFile), cfg.coreTimeout))
 	if err != nil {
 		log.Error("clearance client: " + err.Error())
 		return 2
@@ -227,7 +248,7 @@ func serve(_ []string) int {
 		}
 	}
 	handlers := backends.Handlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL})
-	authn, prefetch, err := cfg.auth.build(cfg.audience, auth.NewWorkload(cfg.audience))
+	authn, prefetch, err := cfg.auth.build(cfg.audience, auth.NewWorkload(cfg.runAudiences[0], cfg.runAudiences[1:]...))
 	if err != nil {
 		log.Error("configuration: " + err.Error())
 		return 2

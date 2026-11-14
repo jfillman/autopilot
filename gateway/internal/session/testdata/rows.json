@@ -1,0 +1,135 @@
+[
+ {
+  "agent": "coding-agent",
+  "children": [],
+  "closed": false,
+  "created_at": "2026-09-26T12:00:00+00:00",
+  "denials": 0,
+  "depth": 0,
+  "expires_at": "2026-09-26T12:30:00+00:00",
+  "id": "s-1a6aaf485880",
+  "input": null,
+  "limits": {
+   "children": 2,
+   "compute": "small",
+   "github_calls": 300,
+   "model_tokens": 500000,
+   "models": [
+    "claude-sonnet-5"
+   ],
+   "network": "clearance+model",
+   "open_prs": 3,
+   "tier_ceiling": "T1",
+   "tool_calls": 200,
+   "tools": [
+    "catalog.read",
+    "run.spawn"
+   ],
+   "ttl_minutes": 30
+  },
+  "outcome": null,
+  "parent_id": null,
+  "principal": "user:alice",
+  "reserved": {
+   "children": 0,
+   "github_calls": 0,
+   "model_tokens": 0,
+   "open_prs": 0,
+   "tool_calls": 0
+  },
+  "run": null,
+  "signals": {},
+  "task_id": "t-1a6aaf485880",
+  "trip_reason": null,
+  "tripped": false,
+  "usage": {
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "charged_tokens": 0,
+   "input_tokens": 0,
+   "model_calls": 0,
+   "output_tokens": 0
+  },
+  "used": {
+   "children": 0,
+   "github_calls": 0,
+   "model_tokens": 0,
+   "open_prs": 0,
+   "tool_calls": 0
+  }
+ },
+ {
+  "agent": "parachute",
+  "children": [
+   "s-c1"
+  ],
+  "closed": false,
+  "created_at": "2026-09-26T12:00:00.123456+00:00",
+  "denials": 5,
+  "depth": 1,
+  "expires_at": "2026-09-26T12:30:00.123456+00:00",
+  "id": "s-2b7bbf596991",
+  "input": {
+   "prompt": "hi"
+  },
+  "limits": {
+   "children": 2,
+   "compute": "small",
+   "github_calls": 300,
+   "model_tokens": 500000,
+   "models": [
+    "claude-sonnet-5"
+   ],
+   "network": "clearance+model",
+   "open_prs": 3,
+   "tier_ceiling": "T1",
+   "tool_calls": 200,
+   "tools": [
+    "catalog.read",
+    "run.spawn"
+   ],
+   "ttl_minutes": 30
+  },
+  "outcome": {
+   "status": "done",
+   "turns": 2,
+   "warnings": [
+    "airframe.plan was called 4 times"
+   ]
+  },
+  "parent_id": "s-1a6aaf485880",
+  "principal": "user:alice",
+  "reserved": {
+   "children": 0,
+   "github_calls": 0,
+   "model_tokens": 0,
+   "open_prs": 0,
+   "tool_calls": 0
+  },
+  "run": "agent-x",
+  "signals": {
+   "apply_ok": 1,
+   "apply_pr": 1,
+   "apply_state": "agent-steps-merged",
+   "plan_calls": 4
+  },
+  "task_id": "t-1a6aaf485880",
+  "trip_reason": "5 denied calls",
+  "tripped": true,
+  "usage": {
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "charged_tokens": 3,
+   "input_tokens": 1,
+   "model_calls": 1,
+   "output_tokens": 2
+  },
+  "used": {
+   "children": 0,
+   "github_calls": 4,
+   "model_tokens": 0,
+   "open_prs": 1,
+   "tool_calls": 3
+  }
+ }
+]

@@ -1,15 +1,21 @@
 package dispatch_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/auth"
+	"github.com/jfillman/autopilot/gateway/internal/backends"
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
@@ -284,3 +290,154 @@ func TestEnvTierOf(t *testing.T) {
 }
 
 func cut(s string) (string, string, bool) { return strings.Cut(s, ":") }
+
+// -- backend failures: what the agent is told, what the outcome records, what the log says (A-11 backend error detail) --
+
+// pyErr is a backend error built from what the Python gateway's exception offered (testdata/backend_errors.json).
+type pyErr struct{ class, text, evidence, agentMessage string }
+
+func (e *pyErr) Error() string        { return e.text }
+func (e *pyErr) Kind() string         { return e.class }
+func (e *pyErr) Evidence() string     { return e.evidence }
+func (e *pyErr) AgentMessage() string { return e.agentMessage }
+
+type backendErrorCase struct {
+	Class         string  `json:"class"`
+	Text          string  `json:"text"`
+	Evidence      *string `json:"evidence"`
+	AgentMessage  *string `json:"agent_message"`
+	AgentError    string  `json:"agent_error"`
+	OutcomeResult string  `json:"outcome_result"`
+}
+
+func backendErrorCases(t *testing.T) []backendErrorCase {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/backend_errors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []backendErrorCase
+	if err := json.Unmarshal(raw, &cases); err != nil || len(cases) < 7 {
+		t.Fatalf("%d cases: %v", len(cases), err)
+	}
+	return cases
+}
+
+func (c backendErrorCase) goError() error {
+	switch {
+	case c.Class == "ReadError":
+		return &backends.ReadError{Msg: c.Text}
+	case c.Evidence == nil && c.AgentMessage == nil:
+		return errors.New(c.Text) // an exception with no evidence: Go has no class name for it
+	}
+	e := &pyErr{class: c.Class, text: c.Text}
+	if c.Evidence != nil {
+		e.evidence = *c.Evidence
+	}
+	if c.AgentMessage != nil {
+		e.agentMessage = *c.AgentMessage
+	}
+	return e
+}
+
+// For each failure a Python backend raises, the Go dispatch tells the agent what the Python one tells it and writes the
+// outcome the Python one writes: tool calls and the outage-time reads alike.
+func TestABackendFailureIsToldAndRecordedAsThePythonGatewayDoes(t *testing.T) {
+	for _, c := range backendErrorCases(t) {
+		c := c
+		t.Run(c.Class+"/"+c.Text[:12], func(t *testing.T) {
+			want := c.OutcomeResult
+			if c.Class == "RuntimeError" {
+				// the one difference: Go has no name for a Python exception class, so an error with no kind of its own
+				// reads error:BackendError where Python writes error:RuntimeError. Nothing in the gateway raises one.
+				want = "error:BackendError"
+			}
+			h := map[string]dispatch.Handler{"catalog.read": func(context.Context, *session.Session, map[string]any) (any, error) { return nil, c.goError() }}
+			r := newRig(t, h, true)
+			res, _ := r.g.Call(context.Background(), "t", "s-1", "catalog.read", map[string]any{"query": "x"})
+			if res.OK || *res.Error != c.AgentError || r.fc.LastOutcome().Body.Result != want {
+				t.Fatalf("error %q (want %q), outcome %q (want %q)", *res.Error, c.AgentError, r.fc.LastOutcome().Body.Result, want)
+			}
+			// the same failure during an outage: the coverage-unavailable record carries the same result
+			r.fc.Down.Store(true)
+			res, _ = r.g.Call(context.Background(), "t", "s-1", "catalog.read", map[string]any{"query": "x"})
+			rows, _ := r.ob.Pending(context.Background(), 10)
+			if res.OK || *res.Error != c.AgentError || len(rows) == 0 || rows[len(rows)-1].Entry.Body["result"] != want {
+				t.Fatalf("outage: %+v %+v", res, rows)
+			}
+		})
+	}
+}
+
+func TestABackendFailureIsLoggedWithItsEvidenceAndTheAgentHearsNothingOfIt(t *testing.T) {
+	var buf bytes.Buffer
+	r := newRig(t, map[string]dispatch.Handler{"catalog.read": func(context.Context, *session.Session, map[string]any) (any, error) {
+		return nil, &backends.ReadError{Msg: "PromQL backend 502"}
+	}}, false)
+	r.g.Log = slog.New(slog.NewTextHandler(&buf, nil))
+	res, _ := r.g.Call(context.Background(), "t", "s-1", "catalog.read", map[string]any{"query": "x"})
+	line := buf.String()
+	for _, want := range []string{"backend failure", "tool=catalog.read", "session=s-1", "agent=coding-agent", "kind=ReadError", `evidence="PromQL backend 502"`} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the log line lacks %q: %s", want, line)
+		}
+	}
+	if *res.Error != "backend error" {
+		t.Fatalf("the agent heard %q", *res.Error)
+	}
+}
+
+func TestEvidenceIsClippedToTheLengthPythonKeeps(t *testing.T) {
+	long := strings.Repeat("é", 300)
+	if got := []rune(dispatch.ClipEvidence(long)); len(got) != dispatch.MaxEvidence || dispatch.MaxEvidence != 160 {
+		t.Fatalf("%d", len(got))
+	}
+}
+
+// The effect a write's outcome carries is what Python's dispatch._effect makes of the tool's result (testdata/effects.json,
+// generated by tools/gen_gateway_registry.py), including a pull request marked for a person to merge (merge,
+// needsPerson: A-11). An empty effect is no effect.
+func TestTheEffectOfAWriteIsThePythonGatewaysEffect(t *testing.T) {
+	raw, err := os.ReadFile("testdata/effects.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Tool   string         `json:"tool"`
+		Args   map[string]any `json:"args"`
+		Data   any            `json:"data"`
+		Effect map[string]any `json:"effect"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil || len(cases) < 8 {
+		t.Fatalf("%d cases: %v", len(cases), err)
+	}
+	sawPerson := false
+	for i, c := range cases {
+		c := c
+		r := newRig(t, map[string]dispatch.Handler{c.Tool: ok(c.Data)}, false)
+		res, _ := r.g.Call(context.Background(), "t", "s-1", c.Tool, c.Args)
+		if !res.OK {
+			t.Fatalf("case %d (%s): %+v", i, c.Tool, res)
+		}
+		got := r.fc.LastOutcome().Body.Effect
+		if len(c.Effect) == 0 && got == nil { // Python sends an empty effect as none
+			continue
+		}
+		gj, _ := json.Marshal(got)
+		wj, _ := json.Marshal(c.Effect)
+		var g2, w2 map[string]any
+		_ = json.Unmarshal(gj, &g2)
+		_ = json.Unmarshal(wj, &w2)
+		// The client leaves out an empty list of paths; Python sends []. To the core both are no paths.
+		if p, ok := w2["paths"].([]any); ok && len(p) == 0 {
+			delete(w2, "paths")
+		}
+		if !reflect.DeepEqual(g2, w2) {
+			t.Fatalf("case %d (%s)\n got %s\nwant %s", i, c.Tool, gj, wj)
+		}
+		sawPerson = sawPerson || c.Effect["merge"] == "person"
+	}
+	if !sawPerson {
+		t.Fatal("no case carries merge: person: the test would prove nothing about it")
+	}
+}

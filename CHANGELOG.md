@@ -5,6 +5,16 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Changed (A-9 S0: the Go gateway is level with the Python one, and a guard keeps it so)
+- The Go gateway (`gateway/`, still off by default and not deployed) now does what the Python gateway does on the part it
+  carries: the decision path asks the core for 1 s per attempt (`CLEARANCE_CORE_TIMEOUT`), workload tokens are checked for
+  `AUTOPILOT_RUN_AUDIENCES` (default `autopilot`), a backend failure is logged and its evidence is on the outcome record, a
+  write's effect carries `merge` and `needsPerson`, and a session's `signals` survive a load and a save. Its Clearance client
+  is v0.44.0 (it was v0.31.0). `docs/admin/go-gateway.md` says what changed and what each later slice still has to port.
+- Drift guard: `gateway/PORTED.json` (written by `tools/gen_gateway_ported.py`) holds the hash of each Python file the Go
+  gateway ports; `tests/test_gateway_go.py` fails when one changes until the change is ported or confirmed not to touch what
+  Go carries. Every Python file under `src/autopilot` must be classified, so a new module cannot be forgotten.
+
 ### Removed (R-10e: the `clearance` aliases retire)
 - The vendored `agentrun_compose.py` matches airframe's R-10e `compose.py` (airframe#147): run pods get `AUTOPILOT_URL` and
   the `autopilot`-audience token only, and the gateway Service is `autopilot-gateway`.

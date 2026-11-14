@@ -1,8 +1,10 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -56,5 +58,42 @@ func TestUnportedRefusedUnderBothNames(t *testing.T) {
 		if _, err := configFromEnv(envOf(base(map[string]string{k: "1"}))); err == nil || !strings.Contains(err.Error(), k) {
 			t.Fatalf("%s: %v", k, err)
 		}
+	}
+}
+
+func TestTheDecisionTimeoutIsConfigurableAndDefaultsToASecond(t *testing.T) {
+	c, err := configFromEnv(envOf(base(nil)))
+	if err != nil || c.coreTimeout != time.Second {
+		t.Fatalf("%v %v", c, err)
+	}
+	c, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_CORE_TIMEOUT": "2.5"})))
+	if err != nil || c.coreTimeout != 2500*time.Millisecond {
+		t.Fatalf("%v %v", c, err)
+	}
+	for _, bad := range []string{"0", "0.001", "99", "x", "NaN"} {
+		if _, err := configFromEnv(envOf(base(map[string]string{"CLEARANCE_CORE_TIMEOUT": bad}))); err == nil {
+			t.Fatalf("%q was accepted", bad)
+		}
+	}
+}
+
+// R-10b: a run pod's token carries `autopilot`; the old `clearance` audience is no longer in the default (R-10e) and a
+// cluster that still runs an older runtime image names it.
+func TestRunAudiences(t *testing.T) {
+	c, err := configFromEnv(envOf(base(nil)))
+	if err != nil || !slices.Equal(c.runAudiences, []string{"autopilot"}) {
+		t.Fatalf("%v %v", c, err)
+	}
+	c, err = configFromEnv(envOf(base(map[string]string{"AUTOPILOT_RUN_AUDIENCES": "autopilot, clearance,"})))
+	if err != nil || !slices.Equal(c.runAudiences, []string{"autopilot", "clearance"}) {
+		t.Fatalf("%v %v", c, err)
+	}
+	if _, err := configFromEnv(envOf(base(map[string]string{"AUTOPILOT_RUN_AUDIENCES": " , "}))); err == nil || !strings.Contains(err.Error(), "at least one audience") {
+		t.Fatalf("%v", err)
+	}
+	// AUTOPILOT_AUDIENCE is Tower's foreign-token audience: it does not change what a run pod's token is checked for
+	c, err = configFromEnv(envOf(base(map[string]string{"AUTOPILOT_AUDIENCE": "aud2"})))
+	if err != nil || c.audience != "aud2" || !slices.Equal(c.runAudiences, []string{"autopilot"}) {
+		t.Fatalf("%v %v", c, err)
 	}
 }

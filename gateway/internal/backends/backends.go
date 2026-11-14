@@ -9,6 +9,7 @@ package backends
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -52,10 +53,28 @@ func NewHTTP(base string, timeout time.Duration) *HTTP {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
-// ReadError is a read backend that failed or could not be reached. Never shown to the agent.
+// ReadError is a read backend that failed or could not be reached. Never shown to the agent. Its text is the Python
+// ReadError's ("PromQL backend unreachable: URLError", "LogQL backend 502"): the evidence on the call's outcome record
+// and in the gateway's log. It never carries the backend's address, an answer's body or the transport's own message.
 type ReadError struct{ Msg string }
 
 func (e *ReadError) Error() string { return e.Msg }
+
+// Kind is the Python class name, so the outcome's result reads error:ReadError: ... in either gateway.
+func (e *ReadError) Kind() string { return "ReadError" }
+
+// Evidence is the text, clipped as Python's BackendError.evidence clips it.
+func (e *ReadError) Evidence() string { return dispatch.ClipEvidence(e.Msg) }
+
+// reason is the class of a transport failure, in the names the Python gateway's record carries: urllib raises a
+// URLError for a refused or failed connection and a TimeoutError for a timeout.
+func reason(err error) string {
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		return "TimeoutError"
+	}
+	return "URLError"
+}
 
 func clip(s any, n int) any {
 	if str, ok := s.(string); ok && utf8.RuneCountInString(str) > n {
@@ -82,7 +101,7 @@ func (h *HTTP) query(ctx context.Context, path string, q url.Values, what string
 	req.Header.Set("Accept", "application/json")
 	resp, err := h.Client.Do(req)
 	if err != nil {
-		return false, nil, &ReadError{Msg: what + " backend unreachable: " + err.Error()}
+		return false, nil, &ReadError{Msg: what + " backend unreachable: " + reason(err)}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
