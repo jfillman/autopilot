@@ -23,6 +23,12 @@ const (
 	maxResources = 50
 )
 
+// userinfo is the credentials part of a URL: scheme://user:token@host becomes scheme://host. Python returns repoURL as it is, so
+// a repository registered with credentials in its URL would hand them to the agent.
+var userinfo = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#]*@`)
+
+func stripUserinfo(u string) string { return userinfo.ReplaceAllString(u, "$1") }
+
 var labelValue = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$`)
 
 // Argo is the argo.app.get backend.
@@ -73,7 +79,11 @@ func appSummary(o map[string]any) map[string]any {
 	}
 	srcs := []any{}
 	for _, s := range sources {
-		srcs = append(srcs, pick(obj(s), "repoURL", "path", "chart", "targetRevision"))
+		src := pick(obj(s), "repoURL", "path", "chart", "targetRevision")
+		if u, ok := src["repoURL"].(string); ok {
+			src["repoURL"] = stripUserinfo(u)
+		}
+		srcs = append(srcs, src)
 	}
 	op := obj(st["operationState"])
 	var operation any
@@ -124,7 +134,7 @@ func appSummary(o map[string]any) map[string]any {
 func (a *Argo) Get(ctx context.Context, app any) (any, error) {
 	name, ok := app.(string)
 	if !ok || !segPattern.MatchString(name) {
-		return nil, &core.Denied{Rule: "READ-ARGO-NAME", Message: pyRepr(app) + " is not an Application name",
+		return nil, &core.Denied{Rule: "READ-ARGO-NAME", Message: echo(app) + " is not an Application name",
 			Hint: "Pass the Argo CD Application's name (e.g. flight-api-dev) or an app's catalog component name (e.g. flight-api)."}
 	}
 	for _, ns := range a.Namespaces {

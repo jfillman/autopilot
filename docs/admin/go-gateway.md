@@ -222,9 +222,9 @@ calls. `argo.sync.lower` is S5b, `airframe.*` and `xr.request` are S5c; nothing 
 | Tool | Reads | Settings (Python's names and defaults) | Pinned by |
 |---|---|---|---|
 | `catalog.read` | Tower's Backstage catalog: `GET {BACKSTAGE_URL}/api/catalog/entities/by-query`, the gateway's own projected token for the `backstage` audience re-read on every call; a summary of at most 25 entities (kind, ref, title, description, type, owner, lifecycle, system), never annotations or the rest of `spec` | `BACKSTAGE_URL` (off when unset), `BACKSTAGE_TOKEN_FILE` (`/var/run/clearance/backstage-token`) | `TestReadBackendsEqualPython` (41 cases: text and filter queries, odd entities, 400, 401/403, 5xx, a redirect status, bad JSON, unreachable, timeout), `FuzzCatalogQuery` |
-| `argo.app.get` | an Argo CD Application through the Kubernetes API as the gateway's own identity: a summary (sources, destination, sync, health, last operation, conditions, the unhealthy resources), never `spec.source`'s Helm values or any field not named in the code; an app name (not an Application's) lists that app's Applications by the `hangar.io/app` label | `ARGO_ENABLED` (on), `ARGO_APP_NAMESPACES` (`argocd`) | `TestReadBackendsEqualPython` (50 cases: summary, namespaces in order, label resolution, 60 apps, paging, 401/403/5xx, bad JSON, 25 refused names), `TestKubeAnswersCarryNoSecretsFromTheApplication`, `TestKubeReaderReadsApplicationsOnly`, `FuzzApplicationsPath` |
-| `app.api.get` | a GET on an application's own API, by a service name the deployment maps to a base URL; the body cut at 256 KiB, answered as JSON when it is, else as text; a non-2xx answer is data | `APP_API_SERVICES` (a JSON object `{service: base URL}`; off when unset) | `TestReadBackendsEqualPython` (101 cases), `TestAppAPIPathAttacksAreRefusedBeforeAnyRequest`, `FuzzBuildAppURL` |
-| `artifact.put`, `artifact.get` | the gateway's own database (`gateway_artifacts`): text a task's sessions keep for each other | none (always on: the Go gateway always has its database) | `TestArtifactsEqualPythonInMemory`, `TestArtifactsEqualPythonInPostgres` (the same 133 operations as Python's `PgArtifacts`), `TestArtifactsAreKeptByTask`, `TestArtifactsThroughTheDispatchAreTheTasks` |
+| `argo.app.get` | an Argo CD Application through the Kubernetes API as the gateway's own identity: a summary (sources, destination, sync, health, last operation, conditions, the unhealthy resources), never `spec.source`'s Helm values or any field not named in the code; an app name (not an Application's) lists that app's Applications by the `hangar.io/app` label | `ARGO_ENABLED` (on), `ARGO_APP_NAMESPACES` (`argocd`) | `TestReadBackendsEqualPython` (51 cases: summary, namespaces in order, label resolution, 60 apps, paging, 401/403/5xx, bad JSON, 25 refused names), `TestKubeAnswersCarryNoSecretsFromTheApplication`, `TestKubeReaderReadsApplicationsOnly`, `FuzzApplicationsPath` |
+| `app.api.get` | a GET on an application's own API, by a service name the deployment maps to a base URL; the body cut at 256 KiB, answered as JSON when it is, else as text; a non-2xx answer is data | `APP_API_SERVICES` (a JSON object `{service: base URL}`; off when unset) | `TestReadBackendsEqualPython` (123 cases), `TestAppAPIPathAttacksAreRefusedBeforeAnyRequest`, `FuzzBuildAppURL` |
+| `artifact.put`, `artifact.get` | the gateway's own database (`gateway_artifacts`): text a task's sessions keep for each other | none (always on: the Go gateway always has its database) | `TestArtifactsEqualPythonInMemory`, `TestArtifactsEqualPythonInPostgres` (the same 135 operations as Python's `PgArtifacts`), `TestArtifactsAreKeptByTask`, `TestArtifactsThroughTheDispatchAreTheTasks` |
 
 The tests for the first four are fixtures the Python adapters write (`tools/gen_gateway_reads.py`, called by
 `tools/gen_gateway_registry.py`; `tests/test_gateway_go.py` fails when they are stale): for each case the request each sent
@@ -242,7 +242,19 @@ its scheme, host and base path are the configured ones.
 |---|---|---|
 | `catalog.read` | `{BACKSTAGE_URL}/api/catalog/entities/by-query?` and a query string Python's order: `limit`, nine `fields`, then `filter` (a query containing `=`) or `fullTextFilterTerm` and three `fullTextFilterFields` | only the value of `filter` or `fullTextFilterTerm`, percent-escaped (`FuzzCatalogQuery`: whatever the text, the host and path are the base and the fixed path, and only the five parameters exist). At most 500 characters |
 | `argo.app.get` | `https://kubernetes.default.svc/apis/argoproj.io/v1alpha1/namespaces/{ns}/applications[/{name}]` | the name, which must match the DNS pattern Python uses (lower case letters, digits, `.` and `-`, 1 to 253, starting and ending with a letter or digit) before any path exists; the namespaces are configuration, checked as DNS labels at start. A list adds `labelSelector`, `limit` and `continue`; the continue token is the API server's own and is escaped |
-| `app.api.get` | the service's configured base (no trailing slash) + the path | the path: it starts with `/`, is at most 512 characters of `A-Za-z0-9._~!$&'()*+,;=:@%/-` and one optional `?query` of the same characters and `?`, has no `//`, no segment `.` or `..` (also before a `;`), no `%2e`, `%2f`, `%5c`, `%00`, `%25` in any case, no `%` that does not start two hex digits and no percent-encoded control character (CR and LF among them), so it has no scheme, host, userinfo, `#`, space, backslash or newline and cannot leave the base path. The service must be one of the configured names, matched exactly |
+| `app.api.get` | the service's configured base (no trailing slash) + the path | the path: it starts with `/`, is at most 512 characters of `A-Za-z0-9._~!$&'()*+,;=:@%/-` and one optional `?query` of the same characters and `?`, has no `//`, no `%2e`, `%2f`, `%5c`, `%00`, `%25` in any case, no `%` that does not start two hex digits and no percent-encoded control character, and passes the decoded-segment rule below, so it has no scheme, host, userinfo, `#`, space, backslash or newline and cannot leave the base path. The service must be one of the configured names, matched exactly |
+
+The decoded-segment rule for `app.api.get` (it decides on what a server will read, not on how the path is written, because a
+server may decode before it strips path parameters or removes dot segments): the path before any `?` is split on `/`; each
+segment is percent-decoded once; the decoded segment must hold only printable ASCII (0x20 to 0x7e) and none of `/`, `\`, `?`
+or `#`; the part before its first `;` (a path parameter) must not be `.` or `..`. So `/..%3b/admin`, `/.%3b/` and `/a/..%3B/x`
+are refused, as are overlong encodings (`%c0%ae`, `%c0%af`), invalid UTF-8 and every Unicode look-alike of a dot or a slash
+(fullwidth U+FF0E and U+FF0F, U+2215, U+2044, U+2024, ...). Look-alike policy: refuse **every** non-ASCII byte in the decoded path
+rather than keep a list that could miss one; an application's own API paths are ASCII (a path with an accented letter must be
+written in the query, where only well-formed UTF-8 is required). The bytes sent are exactly the bytes validated.
+The fuzz oracle does not use this rule: it decodes the accepted path once and twice, reads it with backslashes as slashes or not,
+and strips parameters and removes RFC 3986 dot segments in several orders, and fails if any reading leaves the base path or the
+host.
 
 The Kubernetes reader allows one path shape, GET only: Applications of one namespace, listed or read by name, with the three
 query parameters above. Python's reader also allows Airframe XR kinds and Rollouts (for `airframe.*`, S5c); Go's does not
@@ -288,12 +300,22 @@ existing name replaces it (and frees its bytes in the count). An artifact comes 
 a document with a content type, so nothing sniffs it into something that runs. Concurrent puts for one task are serialized by a
 lock on the task in the database, so two cannot both take the last place (`TestConcurrentArtifactPutsRespectTheQuotaInPostgres`).
 
+Artifact storage is bounded per task (32 artifacts, 2 MiB, 7 days) but not globally, as in Python, so the table grows with the
+number of tasks until their artifacts expire.
+
+With `ARGO_ENABLED` on (the default) and no RBAC to read Applications, the gateway still starts and each `argo.app.get` call is
+refused cleanly (`AF-K8S-403`, one outcome); nothing is checked at start.
+
 ### Where Go is stricter than Python (each pinned in the fixtures, with `go` and `why`)
 
 | Input | Python | Go |
 |---|---|---|
 | an app API path ending in a newline (`"/a\n"`); an artifact name ending in one; an Application name ending in one | `$` matches before a trailing newline, so it passes the pattern (the path then fails in the HTTP client as a `ValueError`, the name is stored with its newline, the Application name reaches the path allowlist and is refused there) | refused up front: `READ-API-PATH`, `ART-NAME`, `READ-ARGO-NAME` |
 | an app API path with a percent-encoded control character (`%0d%0a`, `%0a`, `%7f`), a `%` without two hex digits, or a dot segment before a `;` (`/a/..;/b`) | sent as written | `READ-API-PATH` |
+| an app API path whose decoded segment is a dot segment before a `;` (`/..%3b/admin`, `/.%3b/`), holds an overlong or invalid UTF-8 escape (`/%c0%ae%c0%ae/`, `/%c0%af`, `/%ff`), any non-ASCII character (`/%ef%bc%8f`, `/%e2%88%95`, `/caf%c3%a9`), or a decoded `?` or `#` | sent as written | `READ-API-PATH` (decoded-segment rule above) |
+| a repository URL with credentials in an Application's `sources[].repoURL` (`https://user:token@host/...`) | returned as it is | `scheme://user:token@host` becomes `scheme://host`; a scp-style `git@host:path` has no scheme and is left |
+| an argument repeated in `READ-API-SERVICE`, `READ-ARGO-NAME` and `ART-NAME` refusals | repeated whole | cut to 100 characters then `...` (ordinary arguments are unchanged) |
+| expired artifacts | every put deletes every expired row of the table | a put deletes only its own task's expired rows; the table-wide cleanup is the sweep's (`Purge`, 500 rows a batch, 20 batches a sweep, rows other transactions hold are skipped); an expired artifact is never read either way. Both implementations read each other's rows (same table) |
 | artifact content with a NUL character | handed to the database driver, which fails the call (`DataError`, a backend error) | `ART-CONTENT` |
 | a redirect (catalog, API server) | followed, with the token | not followed (above) |
 | the catalog answer over 4 MiB | parsed up to 16 MiB | `JSONDecodeError` |
@@ -433,7 +455,7 @@ is accepted and none panics.
    `AUTOPILOT_LOADTEST=1 go test -run TestGatewayOverheadPerToolCall ./internal/loadtest` runs it and asserts the 5 ms
    bar; CI runs it in report mode (`AUTOPILOT_LOADTEST=report`) and prints the numbers in the job summary.
 
-4. **The S5a fixtures** (above): the Python adapters driven over 192 canned cases and 133 artifact operations, the Go
+4. **The S5a fixtures** (above): the Python adapters driven over 215 canned cases and 135 artifact operations, the Go
    backends required to agree, and the cases where they deliberately do not marked with a reason. The replay is unchanged: no
    corpus line was skipped for want of a read backend (these tools' decisions are the core's, which the replay already took),
    so none became takeable.

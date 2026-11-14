@@ -160,10 +160,19 @@
     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' is not an artifact name",
     "rule": "ART-NAME"
    },
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'... is not an artifact name",
+     "rule": "ART-NAME"
+    },
+    "requests": []
+   },
    "micro": 0,
    "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
    "op": "put",
-   "task": "t-1"
+   "task": "t-1",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
   },
   {
    "at": 0,
@@ -257,6 +266,50 @@
    "name": "it's",
    "op": "put",
    "task": "t-1"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn'... is not an artifact name",
+     "rule": "ART-NAME"
+    },
+    "requests": []
+   },
+   "micro": 0,
+   "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+   "op": "put",
+   "task": "t-1",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
+  },
+  {
+   "at": 0,
+   "content": "x",
+   "denied": {
+    "hint": "Use letters, digits, '.', '_' or '-'.",
+    "message": "'a ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba b' is not an artifact name",
+    "rule": "ART-NAME"
+   },
+   "go": {
+    "denied": {
+     "hint": "Use letters, digits, '.', '_' or '-'.",
+     "message": "'a ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba'... is not an artifact name",
+     "rule": "ART-NAME"
+    },
+    "requests": []
+   },
+   "micro": 0,
+   "name": "a ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba ba b",
+   "op": "put",
+   "task": "t-1",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
   },
   {
    "at": 0,

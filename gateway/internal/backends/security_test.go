@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,6 +54,8 @@ var appPathAttacks = []string{
 	"/a/../b", "/..", "/../../etc/passwd", "/.", "/a/./b", "/a/..", "/a/../../b", "/a/%2e%2e/b", "/a/%2E%2e/b", "/a/.%2e/b", "/a/%2e./b",
 	"/a%2fb", "/a%2Fb", "/a%5cb", "/a%5Cb", "/a%252e", "/a%25", "/a%00", "/a%0d%0aX-Evil: 1", "/a%0D%0A", "/a%0a", "/a%1f", "/a%7f", "/a%",
 	"/a%z", "/a%zz", "/a%2", "/a/..;/b", "/a/.;x/b", "/a/..;x=y", "/a//b", "/a?x=//evil.test", "/a?x=http://evil.test", "/" + strings.Repeat("a", 600),
+	"/..%3b/admin", "/.%3b/", "/a/..%3B/x", "/..%3B/", "/.%3B/x", "/%c0%ae%c0%ae/admin", "/%C0%AE%c0%Ae/admin", "/%c0%af", "/%C0%AF", "/%ef%bc%8f", "/%EF%BC%8F",
+	"/%ef%bc%8e%ef%bc%8e/x", "/%e2%88%95", "/%e2%81%84", "/%e2%80%a4", "/caf%c3%a9", "/%ff", "/%80", "/a%3fb", "/a%23b", "/a%3Fb",
 	"/é", "/a|b", "/a<b", "/a>b", "/a\"b", "/a{b}", "/a^b", "/a`b", "/a[b]",
 }
 
@@ -118,8 +121,83 @@ func TestAppAPIAnAcceptedPathStaysOnTheConfiguredHostAndBase(t *testing.T) {
 	}
 }
 
+// pctDecode is an independent percent-decoder for the oracle: valid %XX only, anything else kept as it is.
+func pctDecode(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
+			v, _ := strconv.ParseUint(s[i+1:i+3], 16, 8)
+			b.WriteByte(byte(v))
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool { return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' }
+
+// stripParams removes path parameters (;...) from every segment, as servlet-style servers do.
+func stripParams(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		if j := strings.IndexByte(s, ';'); j >= 0 {
+			segs[i] = s[:j]
+		}
+	}
+	return strings.Join(segs, "/")
+}
+
+// removeDots is RFC 3986 5.2.4 remove_dot_segments.
+func removeDots(p string) string {
+	var out []string
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		switch s {
+		case ".":
+			if i == len(segs)-1 {
+				out = append(out, "")
+			}
+		case "..":
+			if len(out) > 1 {
+				out = out[:len(out)-1]
+			}
+			if i == len(segs)-1 {
+				out = append(out, "")
+			}
+		default:
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, "/")
+}
+
+// escapesBase says whether some server's reading of a request path for a service at basePath can end outside it. The
+// readings: the path as sent, decoded once, decoded twice (a server that decodes again), each with backslashes read as
+// slashes or not, and parameters stripped and dot segments removed in either order and again.
+func escapesBase(basePath, sent string) (string, bool) {
+	prefix := basePath + "/"
+	for _, dec := range []string{sent, pctDecode(sent), pctDecode(pctDecode(sent))} {
+		for _, d := range []string{dec, strings.ReplaceAll(dec, "\\", "/")} {
+			for name, f := range map[string]func(string) string{
+				"as read":            func(p string) string { return p },
+				"params then dots":   func(p string) string { return removeDots(stripParams(p)) },
+				"dots then params":   func(p string) string { return stripParams(removeDots(p)) },
+				"dots params dots":   func(p string) string { return removeDots(stripParams(removeDots(p))) },
+				"params dots params": func(p string) string { return stripParams(removeDots(stripParams(p))) },
+			} {
+				if got := f(d); !strings.HasPrefix(got, prefix) && got != basePath {
+					return name + ": " + got, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
 func FuzzBuildAppURL(f *testing.F) {
-	for _, p := range append(append([]string{}, appPathAttacks...), "/x", "/a?b=c", "/a/b/c", "/~", "/a@b") {
+	for _, p := range append(append([]string{}, appPathAttacks...), "/x", "/a?b=c", "/a/b/c", "/~", "/a@b", "/a;b/c", "/a%3bb") {
 		f.Add(p)
 	}
 	bases := []string{"http://svc.ns.svc:8080", "https://svc.ns.svc/v2", "http://svc.ns.svc/a/b"}
@@ -132,28 +210,33 @@ func FuzzBuildAppURL(f *testing.F) {
 				}
 				continue
 			}
+			// The oracle is independent of checkAppPath: it models servers, not the rule.
 			bu, _ := url.Parse(base)
-			u, perr := url.Parse(full)
-			if perr != nil || u.Scheme != bu.Scheme || u.Host != bu.Host || u.User != nil || u.Fragment != "" || u.Opaque != "" {
-				t.Fatalf("%q on %s became %q: another scheme, host or userinfo", p, base, full)
+			rest := strings.TrimPrefix(full, base)
+			if !strings.HasPrefix(full, base) || !strings.HasPrefix(rest, "/") {
+				t.Fatalf("%q on %s became %q: not the base and the path", p, base, full)
 			}
-			ep := u.EscapedPath()
-			if !strings.HasPrefix(ep, bu.EscapedPath()+"/") {
-				t.Fatalf("%q on %s became %q: left the base path", p, base, full)
+			sentPath, _, _ := strings.Cut(rest, "?")
+			if why, bad := escapesBase(bu.Path, bu.Path+sentPath); bad {
+				t.Fatalf("%q on %s became %q, which a server can read as %s", p, base, full, why)
 			}
-			if strings.ContainsAny(full, " \t\r\n\x00\\") || strings.ContainsAny(full, "#") {
+			// The whole URL, decoded, still names the same host and has no userinfo or fragment.
+			// (up to the query: a decoded %23 in the query is query data to every server, never a fragment)
+			noQuery, _, _ := strings.Cut(full, "?")
+			for _, d := range []string{noQuery, pctDecode(noQuery), pctDecode(pctDecode(noQuery))} {
+				u, perr := url.Parse(d)
+				if perr == nil && (u.Host != bu.Host || u.Scheme != bu.Scheme || u.User != nil || u.Fragment != "") {
+					t.Fatalf("%q on %s became %q, which reads as %q: another host, userinfo or fragment", p, base, full, d)
+				}
+			}
+			// The policy: the decoded path is printable ASCII (no look-alikes, no overlong forms, no controls).
+			for i := 0; i < len(pctDecode(sentPath)); i++ {
+				if c := pctDecode(sentPath)[i]; c < 0x20 || c > 0x7e || c == '\\' {
+					t.Fatalf("%q became %q: decoded byte %#x in the path", p, full, c)
+				}
+			}
+			if strings.ContainsAny(full, " \t\r\n\x00\\#") {
 				t.Fatalf("%q became %q: a character a request line cannot hold", p, full)
-			}
-			for _, seg := range strings.Split(ep, "/") {
-				if name, _, _ := strings.Cut(seg, ";"); name == ".." || name == "." {
-					t.Fatalf("%q became %q: a dot segment", p, full)
-				}
-				if l := strings.ToLower(seg); strings.Contains(l, "%2e") || strings.Contains(l, "%2f") || strings.Contains(l, "%5c") {
-					t.Fatalf("%q became %q: an encoded dot, slash or backslash", p, full)
-				}
-			}
-			if !strings.HasPrefix(full, base+"/") {
-				t.Fatalf("%q became %q: not the base and the path", p, full)
 			}
 		}
 	})
@@ -646,4 +729,18 @@ func tlsServer(h http.Handler) *httptest.Server {
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
 	srv.StartTLS()
 	return srv
+}
+
+// The fuzz oracle must be able to fail: what the old rule let through is flagged by it.
+func TestTheFuzzOracleFlagsWhatTheOldRuleAccepted(t *testing.T) {
+	for _, sent := range []string{"/v2/..%3b/admin", "/v2/%2e%2e/x", "/v2/..;/x", "/v2/..%3B/x"} {
+		if _, bad := escapesBase("/v2", sent); !bad {
+			t.Errorf("%s is not flagged", sent)
+		}
+	}
+	for _, sent := range []string{"/v2/x", "/v2/a;b/c", "/v2/a%20b", "/v2/..a/x", "/v2/a/../b"} {
+		if why, bad := escapesBase("/v2", sent); bad {
+			t.Errorf("%s flagged: %s", sent, why)
+		}
+	}
 }

@@ -194,3 +194,22 @@ func pyTruthy(v any) bool {
 	}
 	return true
 }
+
+// maxEcho is how much of an argument a refusal message repeats back to the agent.
+const maxEcho = 100
+
+// echo is repr(v) for a refusal message, cut to maxEcho characters (Python repeats the argument whole). An ordinary
+// argument is unchanged.
+func echo(v any) string {
+	if s, ok := v.(string); ok {
+		if r := []rune(s); len(r) > maxEcho {
+			return pyStrRepr(string(r[:maxEcho])) + "..."
+		}
+		return pyStrRepr(s)
+	}
+	r := []rune(pyRepr(v))
+	if len(r) > maxEcho {
+		return string(r[:maxEcho]) + "..."
+	}
+	return string(r)
+}

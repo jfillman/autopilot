@@ -51,7 +51,7 @@ type ArtifactStore interface {
 func ValidatePut(name, content any) (string, string, error) {
 	n, ok := name.(string)
 	if !ok || !artifactName.MatchString(n) {
-		return "", "", &core.Denied{Rule: "ART-NAME", Message: pyRepr(name) + " is not an artifact name", Hint: "Use letters, digits, '.', '_' or '-'."}
+		return "", "", &core.Denied{Rule: "ART-NAME", Message: echo(name) + " is not an artifact name", Hint: "Use letters, digits, '.', '_' or '-'."}
 	}
 	c, ok := content.(string)
 	if !ok {

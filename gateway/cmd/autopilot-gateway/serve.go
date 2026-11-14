@@ -252,9 +252,10 @@ func serve(_ []string) int {
 			log.Warn("a pinned definition was not loaded", "why", s)
 		}
 	}
+	artifacts := pgstate.NewArtifacts(st)
 	handlers, err := backends.NewHandlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL,
 		BackstageURL: cfg.reads.backstageURL, BackstageTokenFile: cfg.reads.backstageTokenFile, AppAPIServices: cfg.reads.appAPIServices,
-		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: pgstate.NewArtifacts(st)})
+		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: artifacts})
 	if err != nil {
 		log.Error("configuration: " + err.Error())
 		return 2
@@ -299,7 +300,7 @@ func serve(_ []string) int {
 	log.Info("autopilot-gateway (Go) starting", "version", gatewayVersion(), "tools", reg.Len(), "agents", len(defs), "port", cfg.port,
 		"model_proxy", cfg.modelKeyFile != "")
 
-	go sweep(ctx, g, cfg.expireEvery)
+	go sweep(ctx, g, cfg.expireEvery, artifacts.Purge)
 	errc := make(chan error, len(servers))
 	for _, s := range servers {
 		go func() { errc <- s.ListenAndServe() }()
@@ -321,7 +322,7 @@ func serve(_ []string) int {
 
 // sweep closes sessions past their deadline, deletes their runs, and posts what the outbox holds once the core answers
 // again (dispatch.Gateway.Expire). A panic in one sweep is logged, not fatal: the next one retries.
-func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
+func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration, purge func(context.Context, time.Time, int, int) (int64, error)) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -339,6 +340,12 @@ func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
 				defer cancel()
 				if done := g.Expire(sctx); len(done) > 0 {
 					slog.Info("expired sessions and deleted their runs", "n", len(done))
+				}
+				// Expired artifacts of every task, 500 rows at a time and at most 20 batches a sweep (a put cleans only its own task's).
+				if n, err := purge(sctx, time.Now().UTC(), 500, 20); err != nil {
+					slog.Warn("the artifact purge failed", "err", err.Error())
+				} else if n > 0 {
+					slog.Info("deleted expired artifacts", "n", n)
 				}
 			}()
 		}

@@ -70,11 +70,29 @@ func checkAppPath(path any) (string, error) {
 	if badEscape.MatchString(p) || controlEscape.MatchString(p) {
 		return "", deniedPath(path)
 	}
-	pathPart, _, _ := strings.Cut(p, "?")
+	pathPart, query, hasQuery := strings.Cut(p, "?")
+	// Go adds, and decides on the DECODED form (a server may decode before it strips path parameters or removes dot segments,
+	// so what matters is what a segment means once decoded, not how it is written). Every segment is percent-decoded once.
+	// The decoded segment must be printable ASCII (0x20 to 0x7e): that refuses invalid UTF-8, overlong forms (%c0%ae, %c0%af),
+	// Unicode dot and slash look-alikes (fullwidth U+FF0E and U+FF0F, U+2215, U+2044, U+2024, ...) and every other non-ASCII
+	// character, without a list that could miss one; real application paths are ASCII. It must not hold / \ ? or #. The part
+	// before its first ; (path parameters) must not be . or .. . The query's escapes must decode to well-formed UTF-8.
 	for _, seg := range strings.Split(pathPart, "/") {
-		// Go adds: a segment that is a dot segment before a ; ("..;" is one to some servers).
-		name, _, _ := strings.Cut(seg, ";")
-		if seg == "." || seg == ".." || name == "." || name == ".." {
+		dec, err := url.PathUnescape(seg)
+		if err != nil {
+			return "", deniedPath(path)
+		}
+		for i := 0; i < len(dec); i++ {
+			if c := dec[i]; c < 0x20 || c > 0x7e || c == '/' || c == '\\' || c == '?' || c == '#' {
+				return "", deniedPath(path)
+			}
+		}
+		if name, _, _ := strings.Cut(dec, ";"); name == "." || name == ".." {
+			return "", deniedPath(path)
+		}
+	}
+	if hasQuery {
+		if dec, err := url.QueryUnescape(query); err != nil || !utf8.ValidString(dec) {
 			return "", deniedPath(path)
 		}
 	}
@@ -170,7 +188,7 @@ func (a *AppAPIs) Get(ctx context.Context, service, path any) (any, error) {
 	name, _ := service.(string)
 	svc := a.services[name]
 	if svc == nil || !apiService.MatchString(name) {
-		return nil, &core.Denied{Rule: "READ-API-SERVICE", Message: pyRepr(service) + " is not an application API this deployment knows",
+		return nil, &core.Denied{Rule: "READ-API-SERVICE", Message: echo(service) + " is not an application API this deployment knows",
 			Hint: "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: " + a.known() + "."}
 	}
 	p, isStr := path.(string)

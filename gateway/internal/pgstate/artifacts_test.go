@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -161,4 +162,109 @@ func TestConcurrentArtifactPutsRespectTheQuotaInPostgres(t *testing.T) {
 	if count != backends.MaxArtifactCount || stored != backends.MaxArtifactCount {
 		t.Fatalf("%d rows, %d stored: the limit is %d", count, stored, backends.MaxArtifactCount)
 	}
+}
+
+// Puts of different tasks no longer touch each other's rows: with 20,000 expired rows across 200 tasks and 32 tasks putting at
+// once, every put succeeds, each deletes only its own task's expired rows, the others are left for Purge, Purge deletes them in
+// bounded batches while puts run, and an expired row is never read.
+func TestPutsAcrossTasksAndThePurgeNeverBlockEachOther(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	a := pgstate.NewArtifacts(st)
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	if _, err := st.Pool.Exec(ctx, "INSERT INTO gateway_artifacts (task_id, name, content, bytes, expires_at) "+
+		"SELECT 't-old-' || (i % 200), 'n' || i, 'x', 1, $1 FROM generate_series(0, 19999) i", now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, _ := a.Get(ctx, "t-old-0", "n0", now); ok {
+		t.Fatalf("an expired row was read: %q", got)
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	failed := 0
+	start := time.Now()
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				if _, err := a.Put(ctx, fmt.Sprintf("t-old-%d", i), fmt.Sprintf("new%d", j), "y", now); err != nil {
+					mu.Lock()
+					failed++
+					t.Log(err)
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+	var purged int64
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for k := 0; k < 3; k++ {
+			n, err := a.Purge(ctx, now, 500, 5)
+			if err != nil {
+				mu.Lock()
+				failed++
+				t.Log(err)
+				mu.Unlock()
+			}
+			mu.Lock()
+			purged += n
+			mu.Unlock()
+		}
+	}()
+	wg.Wait()
+	if failed != 0 {
+		t.Fatalf("%d operations failed", failed)
+	}
+	t.Logf("32 tasks x 5 puts and 3 purges beside 20,000 expired rows: %s", time.Since(start))
+	// the batches are bounded: one purge of 2 batches of 100 deletes at most 200 rows
+	before := count(t, st)
+	n, err := a.Purge(ctx, now, 100, 2)
+	if err != nil || n != 200 || before-count(t, st) != 200 {
+		t.Fatalf("a bounded purge: %d %v", n, err)
+	}
+	for {
+		n, err := a.Purge(ctx, now, 1000, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			break
+		}
+	}
+	// only live rows are left: the 160 puts (each task's new0..new4), and none expired
+	var expired, live int64
+	_ = st.Pool.QueryRow(ctx, "SELECT count(*) FILTER (WHERE expires_at <= $1), count(*) FILTER (WHERE expires_at > $1) FROM gateway_artifacts", now).Scan(&expired, &live)
+	if expired != 0 || live != 160 {
+		t.Fatalf("expired %d live %d", expired, live)
+	}
+	// a Python-written row (the same table) is read, and a replaced name is Go's
+	if _, err := st.Pool.Exec(ctx, "INSERT INTO gateway_artifacts (task_id, name, content, bytes, expires_at) VALUES ('t-py', 'plan', 'from python', 11, $1)", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, err := a.Get(ctx, "t-py", "plan", now); err != nil || !ok || got != "from python" {
+		t.Fatalf("%q %v %v", got, ok, err)
+	}
+	if _, err := a.Put(ctx, "t-py", "plan", "from go", now); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := a.Get(ctx, "t-py", "plan", now); got != "from go" {
+		t.Fatal(got)
+	}
+}
+
+func count(t *testing.T, st *pgstate.State) int64 {
+	t.Helper()
+	var n int64
+	if err := st.Pool.QueryRow(context.Background(), "SELECT count(*) FROM gateway_artifacts").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

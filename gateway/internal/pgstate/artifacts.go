@@ -30,12 +30,16 @@ func (a *Artifacts) Put(ctx context.Context, task, name, content string, now tim
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", "gateway_artifacts/"+task); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM gateway_artifacts WHERE expires_at <= $1", now); err != nil {
+	// Only THIS task's expired rows go here, under the task's lock. Python deletes every expired row of the table in each put;
+	// two such deletes from puts of different tasks lock the same rows in different orders and can deadlock, so the table-wide
+	// cleanup is Purge's, in bounded batches that skip rows another transaction holds. The count below ignores expired rows, so
+	// it is the same number whether or not they have been deleted yet.
+	if _, err := tx.Exec(ctx, "DELETE FROM gateway_artifacts WHERE task_id = $1 AND expires_at <= $2", task, now); err != nil {
 		return nil, err
 	}
 	var count, total int64
-	if err := tx.QueryRow(ctx, "SELECT count(*), coalesce(sum(bytes), 0) FROM gateway_artifacts WHERE task_id = $1 AND name <> $2",
-		task, name).Scan(&count, &total); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT count(*), coalesce(sum(bytes), 0) FROM gateway_artifacts WHERE task_id = $1 AND name <> $2 AND expires_at > $3",
+		task, name, now).Scan(&count, &total); err != nil {
 		return nil, err
 	}
 	size := len(content)
@@ -52,6 +56,25 @@ func (a *Artifacts) Put(ctx context.Context, task, name, content string, now tim
 		return nil, err
 	}
 	return backends.PutResult(name, size, exp), nil
+}
+
+// Purge deletes expired artifacts of every task, at most batch rows at a time and at most maxBatches batches, and says how many
+// it deleted. A batch takes only rows no other transaction holds (FOR UPDATE SKIP LOCKED), so it never waits for a put and a put
+// never waits for it: neither can be part of a deadlock. Expiry is enforced on read (Get) whether or not this has run.
+func (a *Artifacts) Purge(ctx context.Context, now time.Time, batch, maxBatches int) (int64, error) {
+	var total int64
+	for i := 0; i < maxBatches; i++ {
+		tag, err := a.st.Pool.Exec(ctx, "DELETE FROM gateway_artifacts WHERE (task_id, name) IN "+
+			"(SELECT task_id, name FROM gateway_artifacts WHERE expires_at <= $1 LIMIT $2 FOR UPDATE SKIP LOCKED)", now, batch)
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
+		if tag.RowsAffected() < int64(batch) {
+			break
+		}
+	}
+	return total, nil
 }
 
 // Get is the artifact's content, or false when there is none or it has expired.

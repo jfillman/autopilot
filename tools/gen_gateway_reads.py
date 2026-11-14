@@ -10,6 +10,7 @@ A case may carry "go": a different expectation for Go, with "why": the places Go
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -85,6 +86,22 @@ def _outcome(fn) -> dict:
 
 def _case(name, kind, up, outcome, **extra) -> dict:
     return {"name": name, "kind": kind, "routes": up.routes, "default": up.default, "requests": up.seen, **outcome, **extra}
+
+
+def _go_echo(v) -> str:
+    """What Go repeats of an argument in a refusal: repr, cut to 100 characters (Python repeats it whole)."""
+    if isinstance(v, str):
+        return repr(v[:100]) + "..." if len(v) > 100 else repr(v)
+    r = repr(v)
+    return r[:100] + "..." if len(r) > 100 else r
+
+
+def _clipped(outc: dict, arg, extra: dict) -> None:
+    """When the refusal repeats an argument longer than Go repeats, Go's expectation is the same refusal with the cut text."""
+    d = outc.get("denied")
+    if d and _go_echo(arg) != repr(arg) and d["message"].startswith(repr(arg)):
+        extra["go"] = {"denied": {**d, "message": _go_echo(arg) + d["message"][len(repr(arg)):]}, "requests": []}
+        extra["why"] = "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
 
 
 # -- catalog.read -----------------------------------------------------------------------------------------------------
@@ -174,6 +191,24 @@ GO_STRICTER = {
     "/a%2": "a % without two hex digits: Python sends it; Go refuses it",
     "/a%zz": "a % without two hex digits: Python sends it; Go refuses it",
     "/a%": "a lone %: Python sends it; Go refuses it",
+    "/..%3b/admin": "an encoded ; after dots: a server that decodes first reads ..;/ and strips it to a dot segment; Go decides on the decoded segment",
+    "/.%3b/": "an encoded ; after a dot (decoded segment .;): refused on the decoded form",
+    "/a/..%3B/x": "an encoded ; after dots, upper case: refused on the decoded form",
+    "/%c0%ae%c0%ae/admin": "an overlong encoding of dots: Go refuses any decoded byte outside printable ASCII",
+    "/%C0%AE%c0%Ae/admin": "an overlong encoding of dots, mixed case: refused",
+    "/%c0%af": "an overlong encoding of a slash: refused",
+    "/%C0%AF": "an overlong encoding of a slash, upper case: refused",
+    "/%ef%bc%8f": "a fullwidth slash (U+FF0F): refused",
+    "/%EF%BC%8F": "a fullwidth slash, upper case: refused",
+    "/%ef%bc%8e%ef%bc%8e/x": "fullwidth dots (U+FF0E): refused",
+    "/%e2%88%95": "a division slash (U+2215): refused",
+    "/%e2%81%84": "a fraction slash (U+2044): refused",
+    "/%e2%80%a4": "a one-dot leader (U+2024): refused",
+    "/caf%c3%a9": "well-formed UTF-8 is still non-ASCII: Go refuses any decoded byte outside printable ASCII in the path (real application paths are ASCII)",
+    "/%ff": "invalid UTF-8: refused",
+    "/%80": "a lone continuation byte: refused",
+    "/a%3fb": "an encoded ? in the path: refused",
+    "/a%23b": "an encoded # in the path: refused",
     "/a/..;/b": "a dot segment before a ;: Python sends it; Go refuses it",
     "/a/.;/b": "a dot segment before a ;: Python sends it; Go refuses it",
 }
@@ -201,10 +236,12 @@ def appapi_cases() -> list:
         up = Upstream({}, default={"status": 200, "body": {}})
         out.append(_case("refused path " + repr(path)[:60], "appapi", up, _outcome(lambda: _apis(up).get("flight-api", path)),
                          args={"service": "flight-api", "path": path}))
-    for svc in ("baggage-api", "baggage-api\n", "Flight-API", "../x", "", None, 5, ["flight-api"], "x" * 70, "it's", 'say "hi"\'', "é\t"):
+    for svc in ("baggage-api", "baggage-api\n", "Flight-API", "../x", "", None, 5, ["flight-api"], "x" * 70, "it's", 'say "hi"\'', "é\t", "y" * 100, "y" * 101, "z" * 300, [1] * 60):
         up = Upstream({}, default={"status": 200, "body": {}})
-        out.append(_case("service " + repr(svc)[:40], "appapi", up, _outcome(lambda: _apis(up).get(svc, "/x")),
-                         args={"service": svc, "path": "/x"}))
+        oc = _outcome(lambda: _apis(up).get(svc, "/x"))
+        extra = {}
+        _clipped(oc, svc, extra)
+        out.append(_case("service " + repr(svc)[:40], "appapi", up, oc, args={"service": svc, "path": "/x"}, **extra))
     answers = [("json", 200, {"flights": [1, 2.5, None, True, "é"], "n": 10 ** 20}), ("a json list", 200, [1, 2]), ("a json null", 200, {"raw": "null"}),
                ("a json false", 200, {"raw": "false"}), ("a json zero", 200, {"raw": "0"}), ("a json string", 200, {"raw": '"x"'}),
                ("text", 503, {"raw": "upstream down"}), ("empty", 204, {"raw": ""}), ("not found json", 404, {"error": "no"}),
@@ -269,7 +306,18 @@ def argo_cases() -> list:
     def run(name, app, routes, namespaces=("argocd", "argocd-apps"), default=None, **extra):
         up = Upstream(routes, default=default, strip="https://api")
         a = reads.KubeArgo(KubeReader("https://api", tok, None, opener=up), namespaces)
-        out.append(_case(name, "argo", up, _outcome(lambda: a.get_app(app)), args={"app": app}, namespaces=list(namespaces), token=TOKEN, **extra))
+        oc = _outcome(lambda: a.get_app(app))
+        if "go" not in extra:
+            _clipped(oc, app, extra)
+        res = oc.get("result")
+        if isinstance(res, dict) and any(re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*@", x.get("repoURL") or "") for x in res.get("sources") or []):
+            go = json.loads(json.dumps(res))
+            for x in go["sources"]:
+                if isinstance(x.get("repoURL"), str):
+                    x["repoURL"] = re.sub(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#]*@", r"\1", x["repoURL"])
+            extra["go"] = {"result": go}
+            extra["why"] = "Go removes credentials (user:token@) from every repoURL; Python returns it as it is"
+        out.append(_case(name, "argo", up, oc, args={"app": app}, namespaces=list(namespaces), token=TOKEN, **extra))
 
     def r(status, body):
         return {"status": status, "body": body}
@@ -278,6 +326,10 @@ def argo_cases() -> list:
     run("a second namespace", "boarding-api", {P.format(ns="argocd-apps") + "/boarding-api": r(200, {**APP, "metadata": {"name": "boarding-api", "namespace": "argocd-apps"}})})
     run("an app with sources", "multi", {P.format(ns="argocd") + "/multi": r(200, {"metadata": {"name": "multi"}, "spec": {"sources": [
         {"repoURL": "r1", "chart": "c", "helm": {"x": 1}}, {"path": "p", "ref": "vals"}, {}], "source": {"repoURL": "ignored"}}})})
+    run("repo URLs with credentials", "creds", {P.format(ns="argocd") + "/creds": r(200, {"metadata": {"name": "creds"}, "spec": {"sources": [
+        {"repoURL": "https://user:ghp_SECRET@github.com/o/r.git", "path": "a"}, {"repoURL": "https://tok@host:8443/o/r", "chart": "c"},
+        {"repoURL": "ssh://git:pw@host/o/r"}, {"repoURL": "git@github.com:o/r.git"}, {"repoURL": "https://github.com/o/r?x=a@b"},
+        {"repoURL": "https://u:p@a@host/r"}, {"repoURL": None}, {"repoURL": 5}, {"path": "p"}]}})})
     run("an empty app", "empty", {P.format(ns="argocd") + "/empty": r(200, {})})
     run("an app with nulls", "nulls", {P.format(ns="argocd") + "/nulls": r(200, {"metadata": None, "spec": None, "status": {
         "sync": None, "health": None, "operationState": {}, "conditions": None, "resources": None}})})
@@ -386,6 +438,8 @@ def artifact_cases() -> str:
         else:
             out = _outcome(lambda: {"content": store.get(task, name)})
         shown = _compact(content)
+        if kind == "put" and "go" not in extra:
+            _clipped(out, name, extra)
         ops.append({"op": kind, "task": task, "name": name, "content": shown, "at": at, "micro": micro, **out, **extra})
 
     # names and contents
@@ -395,7 +449,7 @@ def artifact_cases() -> str:
     op("get", "t-1", "plan.md", at=6)
     op("put", "t-1", "micro", "x", at=1, micro=123456)
     op("put", "t-1", "micro-zero", "x", at=2)
-    for bad in ("", "a b", "a/b", "../x", ".", "..", "x" * 101, "é", None, 5, ["a"], "a\x00b", "a,b", "it's"):
+    for bad in ("", "a b", "a/b", "../x", ".", "..", "x" * 101, "é", None, 5, ["a"], "a\x00b", "a,b", "it's", "n" * 400, "a b" * 50):
         op("put", "t-1", bad, "x")
     op("put", "t-1", "x" * 100, "ok")
     op("put", "t-1", "trailing-newline\n", "x", go={"denied": {"rule": "ART-NAME", "message": "'trailing-newline\\n' is not an artifact name",

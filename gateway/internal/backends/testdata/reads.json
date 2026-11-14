@@ -2248,6 +2248,744 @@
   },
   {
    "args": {
+    "path": "/..%3b/admin",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/..%3b/admin' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/..%3b/admin'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/..%3b/admin"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/..%3b/admin",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an encoded ; after dots: a server that decodes first reads ..;/ and strips it to a dot segment; Go decides on the decoded segment"
+  },
+  {
+   "args": {
+    "path": "/.%3b/",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/.%3b/' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/.%3b/'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/.%3b/"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/.%3b/",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an encoded ; after a dot (decoded segment .;): refused on the decoded form"
+  },
+  {
+   "args": {
+    "path": "/a/..%3B/x",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/a/..%3B/x' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/a/..%3B/x'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/a/..%3B/x"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/a/..%3B/x",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an encoded ; after dots, upper case: refused on the decoded form"
+  },
+  {
+   "args": {
+    "path": "/%c0%ae%c0%ae/admin",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%c0%ae%c0%ae/admin' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%c0%ae%c0%ae/admin'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%c0%ae%c0%ae/admin"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%c0%ae%c0%ae/admin",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an overlong encoding of dots: Go refuses any decoded byte outside printable ASCII"
+  },
+  {
+   "args": {
+    "path": "/%C0%AE%c0%Ae/admin",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%C0%AE%c0%Ae/admin' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%C0%AE%c0%Ae/admin'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%C0%AE%c0%Ae/admin"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%C0%AE%c0%Ae/admin",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an overlong encoding of dots, mixed case: refused"
+  },
+  {
+   "args": {
+    "path": "/%c0%af",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%c0%af' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%c0%af'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%c0%af"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%c0%af",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an overlong encoding of a slash: refused"
+  },
+  {
+   "args": {
+    "path": "/%C0%AF",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%C0%AF' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%C0%AF'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%C0%AF"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%C0%AF",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an overlong encoding of a slash, upper case: refused"
+  },
+  {
+   "args": {
+    "path": "/%ef%bc%8f",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%ef%bc%8f' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%ef%bc%8f'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%ef%bc%8f"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%ef%bc%8f",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "a fullwidth slash (U+FF0F): refused"
+  },
+  {
+   "args": {
+    "path": "/%EF%BC%8F",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%EF%BC%8F' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%EF%BC%8F'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%EF%BC%8F"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%EF%BC%8F",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "a fullwidth slash, upper case: refused"
+  },
+  {
+   "args": {
+    "path": "/%ef%bc%8e%ef%bc%8e/x",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%ef%bc%8e%ef%bc%8e/x' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%ef%bc%8e%ef%bc%8e/x'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%ef%bc%8e%ef%bc%8e/x"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%ef%bc%8e%ef%bc%8e/x",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "fullwidth dots (U+FF0E): refused"
+  },
+  {
+   "args": {
+    "path": "/%e2%88%95",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%e2%88%95' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%e2%88%95'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%e2%88%95"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%e2%88%95",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "a division slash (U+2215): refused"
+  },
+  {
+   "args": {
+    "path": "/%e2%81%84",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%e2%81%84' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%e2%81%84'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%e2%81%84"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%e2%81%84",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "a fraction slash (U+2044): refused"
+  },
+  {
+   "args": {
+    "path": "/%e2%80%a4",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%e2%80%a4' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%e2%80%a4'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%e2%80%a4"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%e2%80%a4",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "a one-dot leader (U+2024): refused"
+  },
+  {
+   "args": {
+    "path": "/caf%c3%a9",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/caf%c3%a9' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/caf%c3%a9'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/caf%c3%a9"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/caf%c3%a9",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "well-formed UTF-8 is still non-ASCII: Go refuses any decoded byte outside printable ASCII in the path (real application paths are ASCII)"
+  },
+  {
+   "args": {
+    "path": "/%ff",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%ff' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%ff'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%ff"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%ff",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "invalid UTF-8: refused"
+  },
+  {
+   "args": {
+    "path": "/%80",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/%80' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/%80'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/%80"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/%80",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "a lone continuation byte: refused"
+  },
+  {
+   "args": {
+    "path": "/a%3fb",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/a%3fb' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/a%3fb'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/a%3fb"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/a%3fb",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an encoded ? in the path: refused"
+  },
+  {
+   "args": {
+    "path": "/a%23b",
+    "service": "flight-api"
+   },
+   "default": {
+    "body": {
+     "flights": []
+    },
+    "status": 200
+   },
+   "go": {
+    "denied": {
+     "hint": "Pass an absolute path such as /api/flights?date=2026-11-03 (no host, no '..').",
+     "message": "'/a%23b' is not a path on the service",
+     "rule": "READ-API-PATH"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "path '/a%23b'",
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": null,
+     "method": "GET",
+     "target": "/a%23b"
+    }
+   ],
+   "result": {
+    "json": {
+     "flights": []
+    },
+    "path": "/a%23b",
+    "service": "flight-api",
+    "status": 200,
+    "truncated": false
+   },
+   "routes": {},
+   "why": "an encoded # in the path: refused"
+  },
+  {
+   "args": {
     "path": "/a/..;/b",
     "service": "flight-api"
    },
@@ -3444,6 +4182,170 @@
    "name": "service '\u00e9\\t'",
    "requests": [],
    "routes": {}
+  },
+  {
+   "args": {
+    "path": "/x",
+    "service": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+   },
+   "default": {
+    "body": {},
+    "status": 200
+   },
+   "denied": {
+    "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+    "message": "'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy' is not an application API this deployment knows",
+    "rule": "READ-API-SERVICE"
+   },
+   "kind": "appapi",
+   "name": "service 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+   "requests": [],
+   "routes": {}
+  },
+  {
+   "args": {
+    "path": "/x",
+    "service": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+   },
+   "default": {
+    "body": {},
+    "status": 200
+   },
+   "denied": {
+    "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+    "message": "'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy' is not an application API this deployment knows",
+    "rule": "READ-API-SERVICE"
+   },
+   "go": {
+    "denied": {
+     "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+     "message": "'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy'... is not an application API this deployment knows",
+     "rule": "READ-API-SERVICE"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "service 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+   "requests": [],
+   "routes": {},
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
+  },
+  {
+   "args": {
+    "path": "/x",
+    "service": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+   },
+   "default": {
+    "body": {},
+    "status": 200
+   },
+   "denied": {
+    "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+    "message": "'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz' is not an application API this deployment knows",
+    "rule": "READ-API-SERVICE"
+   },
+   "go": {
+    "denied": {
+     "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+     "message": "'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'... is not an application API this deployment knows",
+     "rule": "READ-API-SERVICE"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "service 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "requests": [],
+   "routes": {},
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
+  },
+  {
+   "args": {
+    "path": "/x",
+    "service": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "default": {
+    "body": {},
+    "status": 200
+   },
+   "denied": {
+    "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+    "message": "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] is not an application API this deployment knows",
+    "rule": "READ-API-SERVICE"
+   },
+   "go": {
+    "denied": {
+     "hint": "Name one of the services your definition lists under profile.apis.allow; a person adds new ones to the gateway's APP_API_SERVICES. Known: baggage-api, flight-api.",
+     "message": "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ... is not an application API this deployment knows",
+     "rule": "READ-API-SERVICE"
+    },
+    "requests": []
+   },
+   "kind": "appapi",
+   "name": "service [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ",
+   "requests": [],
+   "routes": {},
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
   },
   {
    "args": {
@@ -5373,6 +6275,178 @@
     }
    },
    "token": "fixture-token"
+  },
+  {
+   "args": {
+    "app": "creds"
+   },
+   "default": {
+    "body": {},
+    "status": 404
+   },
+   "go": {
+    "result": {
+     "app": "creds",
+     "conditions": [],
+     "destination": {},
+     "health": {
+      "message": null,
+      "status": null
+     },
+     "namespace": null,
+     "operation": null,
+     "project": null,
+     "reconciledAt": null,
+     "sources": [
+      {
+       "path": "a",
+       "repoURL": "https://github.com/o/r.git"
+      },
+      {
+       "chart": "c",
+       "repoURL": "https://host:8443/o/r"
+      },
+      {
+       "repoURL": "ssh://host/o/r"
+      },
+      {
+       "repoURL": "git@github.com:o/r.git"
+      },
+      {
+       "repoURL": "https://github.com/o/r?x=a@b"
+      },
+      {
+       "repoURL": "https://host/r"
+      },
+      {
+       "repoURL": null
+      },
+      {
+       "repoURL": 5
+      },
+      {
+       "path": "p"
+      }
+     ],
+     "sync": {
+      "revision": null,
+      "revisions": null,
+      "status": null
+     },
+     "unhealthyResources": [],
+     "unhealthyResourcesTruncated": false
+    }
+   },
+   "kind": "argo",
+   "name": "repo URLs with credentials",
+   "namespaces": [
+    "argocd",
+    "argocd-apps"
+   ],
+   "requests": [
+    {
+     "accept": "application/json",
+     "authorization": "Bearer fixture-token",
+     "method": "GET",
+     "target": "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/creds"
+    }
+   ],
+   "result": {
+    "app": "creds",
+    "conditions": [],
+    "destination": {},
+    "health": {
+     "message": null,
+     "status": null
+    },
+    "namespace": null,
+    "operation": null,
+    "project": null,
+    "reconciledAt": null,
+    "sources": [
+     {
+      "path": "a",
+      "repoURL": "https://user:ghp_SECRET@github.com/o/r.git"
+     },
+     {
+      "chart": "c",
+      "repoURL": "https://tok@host:8443/o/r"
+     },
+     {
+      "repoURL": "ssh://git:pw@host/o/r"
+     },
+     {
+      "repoURL": "git@github.com:o/r.git"
+     },
+     {
+      "repoURL": "https://github.com/o/r?x=a@b"
+     },
+     {
+      "repoURL": "https://u:p@a@host/r"
+     },
+     {
+      "repoURL": null
+     },
+     {
+      "repoURL": 5
+     },
+     {
+      "path": "p"
+     }
+    ],
+    "sync": {
+     "revision": null,
+     "revisions": null,
+     "status": null
+    },
+    "unhealthyResources": [],
+    "unhealthyResourcesTruncated": false
+   },
+   "routes": {
+    "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/creds": {
+     "body": {
+      "metadata": {
+       "name": "creds"
+      },
+      "spec": {
+       "sources": [
+        {
+         "path": "a",
+         "repoURL": "https://user:ghp_SECRET@github.com/o/r.git"
+        },
+        {
+         "chart": "c",
+         "repoURL": "https://tok@host:8443/o/r"
+        },
+        {
+         "repoURL": "ssh://git:pw@host/o/r"
+        },
+        {
+         "repoURL": "git@github.com:o/r.git"
+        },
+        {
+         "repoURL": "https://github.com/o/r?x=a@b"
+        },
+        {
+         "repoURL": "https://u:p@a@host/r"
+        },
+        {
+         "repoURL": null
+        },
+        {
+         "repoURL": 5
+        },
+        {
+         "path": "p"
+        }
+       ]
+      }
+     },
+     "status": 200
+    }
+   },
+   "token": "fixture-token",
+   "why": "Go removes credentials (user:token@) from every repoURL; Python returns it as it is"
   },
   {
    "args": {
@@ -9235,6 +10309,14 @@
     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' is not an Application name",
     "rule": "READ-ARGO-NAME"
    },
+   "go": {
+    "denied": {
+     "hint": "Pass the Argo CD Application's name (e.g. flight-api-dev) or an app's catalog component name (e.g. flight-api).",
+     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'... is not an Application name",
+     "rule": "READ-ARGO-NAME"
+    },
+    "requests": []
+   },
    "kind": "argo",
    "name": "name 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
    "namespaces": [
@@ -9243,7 +10325,8 @@
    ],
    "requests": [],
    "routes": {},
-   "token": "fixture-token"
+   "token": "fixture-token",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
   },
   {
    "args": {
@@ -9258,6 +10341,14 @@
     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' is not an Application name",
     "rule": "READ-ARGO-NAME"
    },
+   "go": {
+    "denied": {
+     "hint": "Pass the Argo CD Application's name (e.g. flight-api-dev) or an app's catalog component name (e.g. flight-api).",
+     "message": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'... is not an Application name",
+     "rule": "READ-ARGO-NAME"
+    },
+    "requests": []
+   },
    "kind": "argo",
    "name": "name 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
    "namespaces": [
@@ -9266,7 +10357,8 @@
    ],
    "requests": [],
    "routes": {},
-   "token": "fixture-token"
+   "token": "fixture-token",
+   "why": "Go repeats at most 100 characters of the argument in a refusal; Python repeats it whole"
   },
   {
    "args": {

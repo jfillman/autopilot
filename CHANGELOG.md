@@ -14,7 +14,7 @@ says what each gateway tag adds. The manager cuts the tags.
 - Stricter than Python, on purpose, each pinned in tests and listed in `docs/admin/go-gateway.md`: a redirect is never followed
   (Python follows one for the catalog and the API server and sends the bearer token to the new host), an application API path is
   refused for an encoded control character, a malformed `%` escape, a dot segment before a `;` or a trailing newline, artifact content
-  with a NUL is refused, a session with no task has no artifacts, and the catalog answer is capped at 4 MiB. Every URL is a
+  with a NUL is refused, a session with no task has no artifacts, and the catalog answer is capped at 4 MiB. `app.api.get` paths are checked on the decoded form (`/..%3b/`, overlong and look-alike encodings are refused), `argo.app.get` strips credentials from `repoURL`, refusals repeat at most 100 characters of an argument, and a put deletes only its own task's expired artifacts (the sweep purges the rest in batches). Every URL is a
   configured base plus a validated path, with a fuzz test for each builder.
 - `tools/gen_gateway_reads.py` (called by `tools/gen_gateway_registry.py`) writes the equivalence fixtures by driving the Python
   adapters over canned upstream answers; the drift guard now also watches `airframe_api.py`, which `argo.app.get` reads through.
