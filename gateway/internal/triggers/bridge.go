@@ -208,7 +208,7 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 	return b, nil
 }
 
-// Now is the bridge's clock.
+// loopbackIP says whether host is a loopback IP address (127.0.0.0/8, ::1); a host name never is.
 func loopbackIP(host string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
@@ -217,6 +217,7 @@ func loopbackIP(host string) bool {
 // Plain reports whether the bridge talks plain http, and to which host, for the warning at start.
 func (b *Bridge) Plain() (bool, string) { return b.base.Scheme == "http", b.base.Hostname() }
 
+// Now is the bridge's clock.
 func (b *Bridge) Now() time.Time { return b.cfg.Now() }
 
 func (b *Bridge) dbCtx(ctx context.Context) (context.Context, context.CancelFunc) {
