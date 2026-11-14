@@ -71,12 +71,24 @@ func LimitOf(l *client.Limits, f string) int64 {
 	return 0
 }
 
+// DeleteFail is a closed session's run whose delete keeps failing: how many attempts, when it first failed, when the gateway
+// last wrote a record of it and when the sweep may try again. It is kept with the session so a restart continues the backoff
+// and the hourly record limit. The Python gateway does not know it: it reads a session row by the keys it has, so the extra
+// key is ignored, and its next save of that session leaves it out (the backoff then starts again).
+type DeleteFail struct {
+	Fails        int       `json:"fails"`
+	FirstFailed  time.Time `json:"first_failed"`
+	LastRecorded time.Time `json:"last_recorded"`
+	Next         time.Time `json:"next"`
+}
+
 // Session is one agent run's authority. Call Lock around any read or write of its fields; Serial serializes whole
 // operations on one session (a call's decision, spend and outcome), so a session never overspends by racing itself,
 // while different sessions run in parallel.
 type Session struct {
-	mu     sync.Mutex
-	serial sync.Mutex
+	mu       sync.Mutex
+	serial   sync.Mutex
+	runEpoch uint64
 
 	ID         string
 	Principal  string
@@ -102,6 +114,8 @@ type Session struct {
 	// results.warnings, which the run slice ports). This slice keeps it whole across a load and a save, so a session the
 	// Python gateway wrote keeps what it counted.
 	Signals map[string]any
+	// DeleteFail is the state of a delete that keeps failing, or nil.
+	DeleteFail *DeleteFail
 }
 
 // Lock guards the session's fields.
@@ -112,6 +126,25 @@ func (s *Session) Unlock() { s.mu.Unlock() }
 
 // Serial takes the per-session operation lock; the returned func releases it.
 func (s *Session) Serial() func() { s.serial.Lock(); return s.serial.Unlock }
+
+// TrySerial takes the per-session operation lock if it is free, and says whether it did. The sweep uses it so it never waits
+// behind (or stalls) a call on the session: a session that is busy is looked at again on the next sweep.
+func (s *Session) TrySerial() (release func(), ok bool) {
+	if !s.serial.TryLock() {
+		return nil, false
+	}
+	return s.serial.Unlock, true
+}
+
+// RunEpoch counts the times the session's run was made, replaced or settled (BumpRunEpoch). The sweep reads a run's state
+// without holding the session, then acts only if the epoch is still the one it read under.
+func (s *Session) RunEpoch() uint64 { s.mu.Lock(); defer s.mu.Unlock(); return s.runEpoch }
+
+// RunEpochLocked is RunEpoch for a caller that holds the session's lock.
+func (s *Session) RunEpochLocked() uint64 { return s.runEpoch }
+
+// BumpRunEpoch records that the run changed (set, created, abandoned).
+func (s *Session) BumpRunEpoch() { s.mu.Lock(); s.runEpoch++; s.mu.Unlock() }
 
 // Remaining is what is left of a budget (limit less used less reserved). Caller holds the lock.
 func (s *Session) Remaining(f string) int64 {
@@ -206,6 +239,8 @@ type Record struct {
 	Outcome    map[string]any   `json:"outcome"`
 	Usage      map[string]int64 `json:"usage"`
 	Signals    map[string]any   `json:"signals"`
+	// DeleteFail is the Go gateway's own key (see DeleteFail); absent for a row the Python gateway wrote.
+	DeleteFail *DeleteFail `json:"delete_failure,omitempty"`
 }
 
 // IsoFormat is Python's datetime.isoformat for an aware UTC time.
@@ -243,7 +278,7 @@ func (s *Session) ToRecord() Record {
 		CreatedAt: s.CreatedAt.UTC().Format(IsoFormat), ExpiresAt: s.ExpiresAt.UTC().Format(IsoFormat),
 		ParentID: s.ParentID, Depth: s.Depth, TaskID: s.TaskID, Used: budgetsMap(&s.Used), Reserved: budgetsMap(&s.Reserved),
 		Children: nonNil(s.Children), Tripped: s.Tripped, TripReason: s.TripReason, Denials: s.Denials, Closed: s.Closed,
-		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals}
+		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail)}
 }
 
 // FromRecord is the inverse of ToRecord, for a row either gateway wrote.
@@ -267,7 +302,7 @@ func FromRecord(r Record) (*Session, error) {
 	return &Session{ID: r.ID, Principal: r.Principal, Agent: r.Agent, Limits: r.Limits, CreatedAt: created, ExpiresAt: expires,
 		ParentID: r.ParentID, Depth: r.Depth, TaskID: r.TaskID, Used: budgetsFrom(r.Used), Reserved: budgetsFrom(r.Reserved),
 		Children: r.Children, Tripped: r.Tripped, TripReason: r.TripReason, Denials: r.Denials, Closed: r.Closed, Run: r.Run,
-		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals}, nil
+		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail)}, nil
 }
 
 func parseTime(v string) (time.Time, error) {
@@ -277,4 +312,12 @@ func parseTime(v string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, &time.ParseError{Value: v, Message: ": not an ISO 8601 time"}
+}
+
+func copyDF(d *DeleteFail) *DeleteFail {
+	if d == nil {
+		return nil
+	}
+	c := *d
+	return &c
 }

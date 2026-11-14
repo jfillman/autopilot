@@ -15,6 +15,7 @@ import (
 
 	"github.com/jfillman/autopilot/gateway/internal/auth"
 	"github.com/jfillman/autopilot/gateway/internal/core"
+	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/fakecore"
 	"github.com/jfillman/autopilot/gateway/internal/modelproxy"
@@ -247,4 +248,49 @@ func TestChargedTokensAndAnOverrunTripsTheBreakerWithoutOverdrawing(t *testing.T
 	if r.s.Used.ModelTokens != 1000 || !r.s.Tripped || *r.s.TripReason != "model-token overrun" || r.s.Usage["charged_tokens"] != 5000 {
 		t.Fatalf("%+v tripped=%v %+v", r.s.Used, r.s.Tripped, r.s.Usage)
 	}
+}
+
+// A run's model calls are made as its session: the gateway names the session's principal as the one the run acts as, but only
+// for the run the session names, and nothing else (the corpus lines for it are replayed in internal/replay).
+func TestAModelCallActsAsTheSessionOnlyForItsOwnRun(t *testing.T) {
+	r := newRig(t, func(w http.ResponseWriter, q *http.Request) {})
+	run := "r-0000a1"
+	r.s.Lock()
+	r.s.Run = &run
+	r.s.Unlock()
+	var seen []*client.EvaluationRequest
+	r.fc.Decide = func(req *client.EvaluationRequest) client.EvaluationResult {
+		seen = append(seen, req)
+		id := "d-model"
+		return client.EvaluationResult{Decision: true, DecisionID: &id, Record: &client.RecordRef{Seq: 1}, Context: client.DecisionContext{Message: "allowed"}}
+	}
+	au := auth.Static{"mine": {ID: "agent-r-0000a1/run", Kind: "workload"}, "sibling": {ID: "agent-r-0000b2/run", Kind: "workload"},
+		"user": {ID: "agent-r-0000a1/run", Kind: "user"}}
+	g, _ := dispatch.New(nil, r.store, core.New(r.fc.Client(time.Second), core.NewMemoryOutbox(), false), au, tools.Default(), nil)
+	g.SetRuns(&fakeRuns{})
+	m := &modelproxy.Models{Routes: map[string]*modelproxy.Route{"claude": {Alias: "claude", Backend: "anthropic", Upstream: "https://example.invalid", UpstreamModel: "claude"}}, G: g, Auth: au}
+	for tok, want := range map[string]string{"mine": "autopilot-runs/x", "sibling": "", "user": ""} {
+		seen = nil
+		if _, err := m.Authorize(context.Background(), tok, "s-1", "claude", 10); err != nil {
+			t.Fatal(err)
+		}
+		if len(seen) != 1 || seen[0].Subject.Properties.ActingAs != want {
+			t.Errorf("%s: acting_as %q, want %q", tok, seen[0].Subject.Properties.ActingAs, want)
+		}
+	}
+}
+
+type fakeRuns struct{}
+
+func (fakeRuns) Name(*session.Session) string { return "" }
+func (fakeRuns) Create(context.Context, *session.Session, *definitions.Definition, map[string]any) (string, error) {
+	return "", nil
+}
+func (fakeRuns) Delete(context.Context, *session.Session) error          { return nil }
+func (fakeRuns) Ended(context.Context, *session.Session) (string, error) { return "", nil }
+func (fakeRuns) Principal(run string) string {
+	if run == "r-0000a1" {
+		return "agent-r-0000a1/run"
+	}
+	return ""
 }

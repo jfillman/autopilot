@@ -1,0 +1,5719 @@
+{
+ "close_session/a child's run": {
+  "caller": "agent-r-0000c1/run",
+  "deleted": [],
+  "error": {
+   "message": "no such session of yours",
+   "rule": "CT-FORBIDDEN",
+   "status": 403
+  },
+  "fail": [],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-0000c1": {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000d1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "reason": null,
+  "records": [],
+  "result": null,
+  "sessions": [
+   {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "close_session/another": {
+  "caller": "user:bob",
+  "deleted": [],
+  "error": {
+   "message": "no such session of yours",
+   "rule": "CT-FORBIDDEN",
+   "status": 403
+  },
+  "fail": [],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-0000c1": {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000d1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "reason": null,
+  "records": [],
+  "result": null,
+  "sessions": [
+   {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "close_session/bad reason": {
+  "caller": "user:alice",
+  "deleted": [],
+  "error": {
+   "message": "the reason is longer than 500 characters",
+   "rule": "CT-REASON",
+   "status": 400
+  },
+  "fail": [],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-0000c1": {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000d1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "records": [],
+  "result": null,
+  "sessions": [
+   {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "close_session/by its person": {
+  "caller": "user:alice",
+  "deleted": [
+   "r-0000a1",
+   "r-0000c1",
+   "r-0000d1"
+  ],
+  "error": null,
+  "fail": [],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": -50,
+     "model_tokens": 0,
+     "open_prs": -3,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000c1": {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": -50,
+     "model_tokens": -400000,
+     "open_prs": -3,
+     "tool_calls": -100
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000d1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "reason": "done here",
+  "records": [
+   {
+    "agent": "orchestrator",
+    "args_sha256": "f309feb0a28a3664b3c4bc5d376d26d13464c1e911234dd540de0552de35176c",
+    "decision": "allow",
+    "kind": "session.end",
+    "parent": null,
+    "principal": "user:alice",
+    "result": "ended: done here",
+    "session": "s-0000a1",
+    "target": "s-0000a1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "orchestrator",
+    "args_sha256": "115d87f73d006607c2e602593da52f120443da54073b41eba15cb2850462f28e",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "orchestrator",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000a1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "dff9e32f210f084e28d054aec98ee2c9f78b4e90acb6407abf328bae43914a2e",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": "s-0000a1",
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000c1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "96549607f743bd360b644713d2dbd09f5af95ab2b384e20614cd642ca1b44a1c",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": "s-0000c1",
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000d1",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "result": {
+   "agent": "orchestrator",
+   "audit_seq": 1,
+   "closed": true,
+   "runs_deleted": [
+    "s-0000a1",
+    "s-0000c1",
+    "s-0000d1"
+   ],
+   "session": "s-0000a1"
+  },
+  "sessions": [
+   {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "close_session/by its run": {
+  "caller": "agent-r-0000a1/run",
+  "deleted": [
+   "r-0000a1",
+   "r-0000c1",
+   "r-0000d1"
+  ],
+  "error": null,
+  "fail": [],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": -50,
+     "model_tokens": 0,
+     "open_prs": -3,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000c1": {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": -50,
+     "model_tokens": -400000,
+     "open_prs": -3,
+     "tool_calls": -100
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000d1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "reason": null,
+  "records": [
+   {
+    "agent": "orchestrator",
+    "args_sha256": "81439efeeddea14a05257224496395ff8415224a23e3a193b3fd7f485ae8f597",
+    "decision": "allow",
+    "kind": "session.end",
+    "parent": null,
+    "principal": "agent-r-0000a1/run",
+    "result": "ended: closed by its owner (session_close)",
+    "session": "s-0000a1",
+    "target": "s-0000a1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "orchestrator",
+    "args_sha256": "115d87f73d006607c2e602593da52f120443da54073b41eba15cb2850462f28e",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "orchestrator",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000a1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "dff9e32f210f084e28d054aec98ee2c9f78b4e90acb6407abf328bae43914a2e",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": "s-0000a1",
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000c1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "96549607f743bd360b644713d2dbd09f5af95ab2b384e20614cd642ca1b44a1c",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": "s-0000c1",
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000d1",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "result": {
+   "agent": "orchestrator",
+   "audit_seq": 1,
+   "closed": true,
+   "runs_deleted": [
+    "s-0000a1",
+    "s-0000c1",
+    "s-0000d1"
+   ],
+   "session": "s-0000a1"
+  },
+  "sessions": [
+   {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "close_session/failed delete": {
+  "caller": "user:alice",
+  "deleted": [
+   "r-0000a1",
+   "r-0000d1"
+  ],
+  "error": null,
+  "fail": [
+   "r-0000c1"
+  ],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": -50,
+     "model_tokens": 0,
+     "open_prs": -3,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000c1": {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": -50,
+     "model_tokens": -400000,
+     "open_prs": -3,
+     "tool_calls": -100
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   "s-0000d1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "reason": null,
+  "records": [
+   {
+    "agent": "orchestrator",
+    "args_sha256": "81439efeeddea14a05257224496395ff8415224a23e3a193b3fd7f485ae8f597",
+    "decision": "allow",
+    "kind": "session.end",
+    "parent": null,
+    "principal": "user:alice",
+    "result": "ended: closed by its owner (session_close)",
+    "session": "s-0000a1",
+    "target": "s-0000a1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "orchestrator",
+    "args_sha256": "115d87f73d006607c2e602593da52f120443da54073b41eba15cb2850462f28e",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "orchestrator",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000a1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "dff9e32f210f084e28d054aec98ee2c9f78b4e90acb6407abf328bae43914a2e",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": "s-0000a1",
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "error:KubeRunError",
+    "session": "s-0000c1",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "96549607f743bd360b644713d2dbd09f5af95ab2b384e20614cd642ca1b44a1c",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": "s-0000c1",
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-0000d1",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "result": {
+   "agent": "orchestrator",
+   "audit_seq": 1,
+   "closed": true,
+   "runs_deleted": [
+    "s-0000a1",
+    "s-0000d1"
+   ],
+   "session": "s-0000a1"
+  },
+  "sessions": [
+   {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000c1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 1000,
+     "open_prs": 0,
+     "tool_calls": 10
+    },
+    "run": "r-0000a1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [
+     "s-0000d1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000c1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 1000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000c1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 3
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 2,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000d1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": "s-0000c1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000d1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "close_session/twice": {
+  "again": {
+   "message": "no such session of yours",
+   "rule": "CT-FORBIDDEN",
+   "status": 403
+  }
+ },
+ "expire": {
+  "deleted": [
+   "r-000e02",
+   "r-000e03",
+   "r-000e04",
+   "r-000e05",
+   "r-000e06"
+  ],
+  "fail": [
+   "r-000e06"
+  ],
+  "final": {
+   "s-000e01": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e01",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e01",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-000e02": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e02",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:10:00Z",
+     "result": null,
+     "run_phase": "Failed",
+     "status": "no-result",
+     "via": "run"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-000e03": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e03",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:10:00Z",
+     "result": null,
+     "run_phase": "Gone",
+     "status": "no-result",
+     "via": "run"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-000e04": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T12:05:00+00:00",
+    "id": "s-000e04",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:05:00Z",
+     "result": null,
+     "status": "expired",
+     "via": "deadline"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-000e05": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e05",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "status": "done",
+     "via": "runtime"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-000e06": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e06",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "status": "done",
+     "via": "runtime"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   "s-000e07": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T12:05:00+00:00",
+    "id": "s-000e07",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:05:00Z",
+     "result": null,
+     "status": "expired",
+     "via": "deadline"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "first": [
+   "s-000e02",
+   "s-000e03",
+   "s-000e04",
+   "s-000e05",
+   "s-000e06"
+  ],
+  "now": "2026-09-26T12:10:00+00:00",
+  "phases": {
+   "r-000e02": "Failed",
+   "r-000e03": "Gone",
+   "r-000e04": "Running"
+  },
+  "records": [
+   {
+    "agent": "researcher",
+    "args_sha256": "0ea051bd43f2dc299e77ba666b3965a0be64757a7b41093c52bf93c02edbca1e",
+    "cost": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "compute": "medium",
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0,
+     "tool_calls": 0,
+     "wall_seconds": 0
+    },
+    "decision": "allow",
+    "kind": "run.finish",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "no-result",
+    "session": "s-000e02",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "a05766dc99e5152fbb1a2fe111b920bb2c548563307e146d609e8c8ed887150f",
+    "cost": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "compute": "medium",
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0,
+     "tool_calls": 0,
+     "wall_seconds": 0
+    },
+    "decision": "allow",
+    "kind": "run.finish",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "no-result",
+    "session": "s-000e03",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "8d17c9bd39c1aad5251c55a16f3dfdeba3d2f74671a623ffa7c9ceaed95127df",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-000e02",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "18534ee6e97cfe8c7073eebd83f3ff07966cf659f7f213f93753ad1ddd5177f6",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-000e03",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "42415f7788d1fa360eec75d4d2161a7943aa84e98ad2b98edf416469b5bd6e52",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-000e04",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "bcf938bc93fe73be0463abb6f28e7a331fd129cb963a0cf65b548bbe11e1620b",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-000e05",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "1a6da11af1d997c2e8e0a955a6cd19be07abdf034552f824de6605b57b6fa2a5",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "error:KubeRunError",
+    "session": "s-000e06",
+    "task_id": "t-0000a1"
+   },
+   {
+    "agent": "researcher",
+    "args_sha256": "1a6da11af1d997c2e8e0a955a6cd19be07abdf034552f824de6605b57b6fa2a5",
+    "decision": "allow",
+    "kind": "run.delete",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "user:alice",
+    "result": "deleted",
+    "session": "s-000e06",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "second": [
+   "s-000e06"
+  ],
+  "sessions": [
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e01",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e01",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e02",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e02",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e03",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e03",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T12:05:00+00:00",
+    "id": "s-000e04",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e04",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e05",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "status": "done",
+     "via": "runtime"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e05",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-000e06",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "status": "done",
+     "via": "runtime"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-000e06",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   },
+   {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T12:05:00+00:00",
+    "id": "s-000e07",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  ]
+ },
+ "finish/bad-status": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [],
+  "results": {},
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "status is one of done, budget, expired, error",
+     "rule": "R008",
+     "status": 400
+    }
+   }
+  ]
+ },
+ "finish/bad-text": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [],
+  "results": {},
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "final_text and reason are strings, turns an integer",
+     "rule": "R008",
+     "status": 400
+    }
+   }
+  ]
+ },
+ "finish/bad-turns": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [],
+  "results": {},
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "final_text and reason are strings, turns an integer",
+     "rule": "R008",
+     "status": 400
+    }
+   }
+  ]
+ },
+ "finish/bool-turns": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [],
+  "results": {},
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "final_text and reason are strings, turns an integer",
+     "rule": "R008",
+     "status": 400
+    }
+   }
+  ]
+ },
+ "finish/done": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:00:00Z",
+     "not_ok": 1,
+     "reason": "",
+     "result": {
+      "bytes": 14,
+      "expires_at": "2026-10-26T12:00:00Z",
+      "sha256": "1119093f79660fcea0423c064ffad4dbd1687c63ff9b2ab1e1a1a0014a7f373b",
+      "truncated": false
+     },
+     "status": "done",
+     "tool_calls": 2,
+     "turns": 2,
+     "via": "runtime",
+     "warnings": [
+      "airframe.plan was called 5 times (more than 3): the run was guessing the AppSpec",
+      "airframe.apply answered ok 1 time(s) but opened no PR (last state: x)"
+     ]
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [
+   {
+    "agent": "researcher",
+    "args_sha256": "0ea72c2edb72f4e7378c3d90c9baeda54d85bd6ec0fa79e81d34ca4671274be4",
+    "cost": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "compute": "medium",
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0,
+     "tool_calls": 0,
+     "wall_seconds": 0
+    },
+    "decision": "allow",
+    "kind": "run.finish",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "agent-r-0000a1/run",
+    "result": "done",
+    "session": "s-0000a1",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "results": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "expires_at": "2026-10-26T12:00:00Z",
+    "final_text": "Python and Go.",
+    "principal": "user:alice",
+    "reason": "",
+    "session": "s-0000a1",
+    "status": "done",
+    "task_id": "t-0000a1",
+    "tool_calls": [
+     {
+      "ok": true,
+      "rule": null,
+      "tool": "catalog.read"
+     },
+     {
+      "ok": false,
+      "rule": "R001",
+      "tool": "x"
+     }
+    ],
+    "truncated": false,
+    "turns": 2,
+    "warnings": [
+     "airframe.plan was called 5 times (more than 3): the run was guessing the AppSpec",
+     "airframe.apply answered ok 1 time(s) but opened no PR (last state: x)"
+    ],
+    "written_at": "2026-09-26T12:00:00Z"
+   }
+  },
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "result": {
+     "audit_seq": 1,
+     "closed": true,
+     "kept": {
+      "bytes": 14,
+      "expires_at": "2026-10-26T12:00:00Z",
+      "sha256": "1119093f79660fcea0423c064ffad4dbd1687c63ff9b2ab1e1a1a0014a7f373b",
+      "truncated": false
+     },
+     "session": "s-0000a1",
+     "status": "done"
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "no live session",
+     "rule": "R004",
+     "status": 409
+    }
+   }
+  ]
+ },
+ "finish/empty": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:00:00Z",
+     "not_ok": 0,
+     "reason": "",
+     "result": {
+      "bytes": 0,
+      "expires_at": "2026-10-26T12:00:00Z",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "truncated": false
+     },
+     "status": "error",
+     "tool_calls": 0,
+     "turns": 0,
+     "via": "runtime",
+     "warnings": [
+      "airframe.plan was called 5 times (more than 3): the run was guessing the AppSpec",
+      "airframe.apply answered ok 1 time(s) but opened no PR (last state: x)"
+     ]
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [
+   {
+    "agent": "researcher",
+    "args_sha256": "b6dd44f82ed1da561ed8385c72d8f816ce1918dcb5cf1ffd4be1f7597b73f4ca",
+    "cost": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "compute": "medium",
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0,
+     "tool_calls": 0,
+     "wall_seconds": 0
+    },
+    "decision": "allow",
+    "kind": "run.finish",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "agent-r-0000a1/run",
+    "result": "error",
+    "session": "s-0000a1",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "results": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "expires_at": "2026-10-26T12:00:00Z",
+    "final_text": "",
+    "principal": "user:alice",
+    "reason": "",
+    "session": "s-0000a1",
+    "status": "error",
+    "task_id": "t-0000a1",
+    "tool_calls": [],
+    "truncated": false,
+    "turns": 0,
+    "warnings": [
+     "airframe.plan was called 5 times (more than 3): the run was guessing the AppSpec",
+     "airframe.apply answered ok 1 time(s) but opened no PR (last state: x)"
+    ],
+    "written_at": "2026-09-26T12:00:00Z"
+   }
+  },
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "result": {
+     "audit_seq": 1,
+     "closed": true,
+     "kept": {
+      "bytes": 0,
+      "expires_at": "2026-10-26T12:00:00Z",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "truncated": false
+     },
+     "session": "s-0000a1",
+     "status": "error"
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "no live session",
+     "rule": "R004",
+     "status": 409
+    }
+   }
+  ]
+ },
+ "finish/long": {
+  "final": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:00:00Z",
+     "not_ok": 0,
+     "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+     "result": {
+      "bytes": 16384,
+      "expires_at": "2026-10-26T12:00:00Z",
+      "sha256": "293a06e65c1d5b64ec2ea315d9089eb59e8b749f5f3d3dc13367b2eb54c69edb",
+      "truncated": true
+     },
+     "status": "budget",
+     "tool_calls": 0,
+     "turns": 9,
+     "via": "runtime",
+     "warnings": [
+      "airframe.plan was called 5 times (more than 3): the run was guessing the AppSpec",
+      "airframe.apply answered ok 1 time(s) but opened no PR (last state: x)"
+     ]
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a1",
+    "signals": {
+     "apply_ok": 1,
+     "apply_state": "x",
+     "plan_calls": 5
+    },
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [
+   {
+    "agent": "researcher",
+    "args_sha256": "fb62e4524bc348150108e77dd1c153341598a74f4070149f053baa17646aa050",
+    "cost": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "compute": "medium",
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0,
+     "tool_calls": 0,
+     "wall_seconds": 0
+    },
+    "decision": "allow",
+    "kind": "run.finish",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "researcher",
+     "result": "not-run"
+    },
+    "principal": "agent-r-0000a1/run",
+    "result": "budget",
+    "session": "s-0000a1",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "results": {
+   "s-0000a1": {
+    "agent": "researcher",
+    "expires_at": "2026-10-26T12:00:00Z",
+    "final_text": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+    "principal": "user:alice",
+    "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "session": "s-0000a1",
+    "status": "budget",
+    "task_id": "t-0000a1",
+    "tool_calls": [],
+    "truncated": true,
+    "turns": 9,
+    "warnings": [
+     "airframe.plan was called 5 times (more than 3): the run was guessing the AppSpec",
+     "airframe.apply answered ok 1 time(s) but opened no PR (last state: x)"
+    ],
+    "written_at": "2026-09-26T12:00:00Z"
+   }
+  },
+  "session": {
+   "agent": "researcher",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a1",
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "x",
+    "plan_calls": 5
+   },
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:bob",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000b2/run",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "result": {
+     "audit_seq": 1,
+     "closed": true,
+     "kept": {
+      "bytes": 16384,
+      "expires_at": "2026-10-26T12:00:00Z",
+      "sha256": "293a06e65c1d5b64ec2ea315d9089eb59e8b749f5f3d3dc13367b2eb54c69edb",
+      "truncated": true
+     },
+     "session": "s-0000a1",
+     "status": "budget"
+    }
+   },
+   {
+    "caller": "agent-r-0000a1/run",
+    "error": {
+     "message": "no live session",
+     "rule": "R004",
+     "status": 409
+    }
+   }
+  ]
+ },
+ "finish/no-result-store": {
+  "final": {
+   "s-0000a2": {
+    "agent": "orchestrator",
+    "children": [],
+    "closed": true,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a2",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": {
+     "finished_at": "2026-09-26T12:00:00Z",
+     "not_ok": 0,
+     "reason": "",
+     "result": null,
+     "status": "done",
+     "tool_calls": 0,
+     "turns": 0,
+     "via": "runtime"
+    },
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000a2",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [
+   {
+    "agent": "orchestrator",
+    "args_sha256": "ab5dd9342adc6c8efb95a6a3d3e8cc9706e9ca81edac07a90f5227c16cfa3e69",
+    "cost": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "compute": "medium",
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0,
+     "tool_calls": 0,
+     "wall_seconds": 0
+    },
+    "decision": "allow",
+    "kind": "run.finish",
+    "model_version": "claude-sonnet-5-5",
+    "parent": null,
+    "preflight": {
+     "definition": "orchestrator",
+     "result": "not-run"
+    },
+    "principal": "agent-r-0000a2/run",
+    "result": "done",
+    "session": "s-0000a2",
+    "task_id": "t-0000a1"
+   }
+  ],
+  "results": null,
+  "session": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a2",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": "r-0000a2",
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "agent-r-0000a2/run",
+    "result": {
+     "audit_seq": 1,
+     "closed": true,
+     "kept": null,
+     "session": "s-0000a2",
+     "status": "done"
+    }
+   }
+  ]
+ },
+ "finish/no-run": {
+  "final": {
+   "s-0000a3": {
+    "agent": "orchestrator",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a3",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-haiku-5",
+      "claude-sonnet-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "records": [],
+  "results": {},
+  "session": {
+   "agent": "orchestrator",
+   "children": [],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a3",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-haiku-5",
+     "claude-sonnet-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 0
+   }
+  },
+  "steps": [
+   {
+    "caller": "user:alice",
+    "error": {
+     "message": "only this session's own run may finish it",
+     "rule": "R001",
+     "status": 403
+    }
+   }
+  ]
+ },
+ "spawn": {
+  "created": [
+   "r-0000b1"
+  ],
+  "final": {
+   "s-0000a1": {
+    "agent": "orchestrator",
+    "children": [
+     "s-0000b9",
+     "s-0000b1"
+    ],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 0,
+    "expires_at": "2026-09-26T13:00:00+00:00",
+    "id": "s-0000a1",
+    "input": null,
+    "limits": {
+     "children": 4,
+     "compute": "medium",
+     "github_calls": 50,
+     "model_tokens": 400000,
+     "models": [
+      "claude-sonnet-5-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 3,
+     "tier_ceiling": "T2",
+     "tool_calls": 100,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "logs.query",
+      "metrics.query",
+      "run.close",
+      "run.spawn"
+     ],
+     "ttl_minutes": 60
+    },
+    "outcome": null,
+    "parent_id": null,
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 20000,
+     "open_prs": 0,
+     "tool_calls": 13
+    },
+    "run": null,
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 2,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 5
+    }
+   },
+   "s-0000b1": {
+    "agent": "researcher",
+    "children": [],
+    "closed": false,
+    "created_at": "2026-09-26T12:00:00+00:00",
+    "denials": 0,
+    "depth": 1,
+    "expires_at": "2026-09-26T12:20:00+00:00",
+    "id": "s-0000b1",
+    "input": null,
+    "limits": {
+     "children": 0,
+     "compute": "small",
+     "github_calls": 0,
+     "model_tokens": 20000,
+     "models": [
+      "claude-sonnet-5-5"
+     ],
+     "network": "clearance+model",
+     "open_prs": 0,
+     "tier_ceiling": "T0",
+     "tool_calls": 10,
+     "tools": [
+      "argo.app.get",
+      "catalog.read",
+      "logs.query",
+      "metrics.query"
+     ],
+     "ttl_minutes": 20
+    },
+    "outcome": null,
+    "parent_id": "s-0000a1",
+    "principal": "user:alice",
+    "reserved": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    },
+    "run": "r-0000b1",
+    "signals": {},
+    "task_id": "t-0000a1",
+    "trip_reason": null,
+    "tripped": false,
+    "usage": {
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "charged_tokens": 0,
+     "input_tokens": 0,
+     "model_calls": 0,
+     "output_tokens": 0
+    },
+    "used": {
+     "children": 0,
+     "github_calls": 0,
+     "model_tokens": 0,
+     "open_prs": 0,
+     "tool_calls": 0
+    }
+   }
+  },
+  "grant": {
+   "agent": "researcher",
+   "depth": 1,
+   "expires_at": "2026-09-26T12:20:00+00:00",
+   "limits": {
+    "children": 0,
+    "compute": "small",
+    "github_calls": 0,
+    "model_tokens": 20000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 0,
+    "tier_ceiling": "T0",
+    "tool_calls": 10,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "logs.query",
+     "metrics.query"
+    ],
+    "ttl_minutes": 20
+   },
+   "parent": "s-0000a1",
+   "principal": "user:alice",
+   "session": "s-0000b1",
+   "task_id": "t-0000a1"
+  },
+  "parent": {
+   "agent": "orchestrator",
+   "children": [
+    "s-0000b9"
+   ],
+   "closed": false,
+   "created_at": "2026-09-26T12:00:00+00:00",
+   "denials": 0,
+   "depth": 0,
+   "expires_at": "2026-09-26T13:00:00+00:00",
+   "id": "s-0000a1",
+   "input": null,
+   "limits": {
+    "children": 4,
+    "compute": "medium",
+    "github_calls": 50,
+    "model_tokens": 400000,
+    "models": [
+     "claude-sonnet-5-5"
+    ],
+    "network": "clearance+model",
+    "open_prs": 3,
+    "tier_ceiling": "T2",
+    "tool_calls": 100,
+    "tools": [
+     "argo.app.get",
+     "catalog.read",
+     "logs.query",
+     "metrics.query",
+     "run.close",
+     "run.spawn"
+    ],
+    "ttl_minutes": 60
+   },
+   "outcome": null,
+   "parent_id": null,
+   "principal": "user:alice",
+   "reserved": {
+    "children": 0,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 3
+   },
+   "run": null,
+   "signals": {},
+   "task_id": "t-0000a1",
+   "trip_reason": null,
+   "tripped": false,
+   "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "charged_tokens": 0,
+    "input_tokens": 0,
+    "model_calls": 0,
+    "output_tokens": 0
+   },
+   "used": {
+    "children": 1,
+    "github_calls": 0,
+    "model_tokens": 0,
+    "open_prs": 0,
+    "tool_calls": 5
+   }
+  },
+  "result": {
+   "expires_at": "2026-09-26T12:20:00Z",
+   "run": "r-0000b1",
+   "session": "s-0000b1"
+  },
+  "spend": {
+   "children": 1,
+   "reserve": {
+    "github_calls": 0,
+    "model_tokens": 20000,
+    "open_prs": 0,
+    "tool_calls": 10
+   },
+   "tool_calls": 1
+  }
+ }
+}

@@ -168,6 +168,15 @@ func ArgsDigest(args any) string {
 	return hex.EncodeToString(h[:])
 }
 
+// ValidModelVersion says whether s is a model version a record may carry (evidence's MODEL_VERSION).
+func ValidModelVersion(s string) bool { return modelVersion.MatchString(s) }
+
+// ArgsDigestBytes is the sha256 of raw bytes, hex (Python: sha256_hex).
+func ArgsDigestBytes(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
 // Iso is the one timestamp format records use.
 func Iso(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05Z") }
 

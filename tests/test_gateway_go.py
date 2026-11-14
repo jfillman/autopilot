@@ -30,8 +30,8 @@ needs_go = pytest.mark.skipif(GO is None, reason="no Go toolchain")
 
 def test_what_the_go_gateway_takes_from_the_python_one_is_current():
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "gen_gateway_registry.py"), "--check"], capture_output=True, text=True)
-    assert r.returncode == 0, ("gateway/internal/{tools,pgstate,definitions} are generated from the Python gateway: run "
-                               "`python tools/gen_gateway_registry.py` and commit the result")
+    assert r.returncode == 0, ("gateway/internal/{tools,pgstate,definitions,session,runs,dispatch}'s fixtures are generated from the "
+                               "Python gateway: run `python tools/gen_gateway_registry.py` and commit the result")
 
 
 def test_the_registry_is_the_python_registry_in_the_python_order():
@@ -52,6 +52,9 @@ MUST_BE_WATCHED = {
     "src/autopilot/engine/auth.py", "src/autopilot/engine/server.py", "src/autopilot/engine/backends.py",
     "src/autopilot/engine/pg.py", "src/autopilot/engine/tiers.py", "src/autopilot/hangar_tools.py",
     "src/autopilot/reads.py", "src/autopilot/serve.py", "src/autopilot/settings.py",
+    # S2: the run tree
+    "src/autopilot/engine/limits.py", "src/autopilot/engine/results.py", "src/autopilot/kube_runs.py",
+    "src/autopilot/manifests.py", "src/autopilot/gateway.py",
 }
 
 

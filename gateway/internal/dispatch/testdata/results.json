@@ -1,0 +1,270 @@
+{
+ "clips": [
+  {
+   "clipped_len_bytes": 0,
+   "clipped_sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "len": 0,
+   "text_sha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "truncated": false
+  },
+  {
+   "clipped_len_bytes": 5,
+   "clipped_sha": "f9b0078b5df596d2ea19010c001bbd009e651de2c57e8fb7e355f31eb9d3f739",
+   "len": 5,
+   "text_sha": "f9b0078b5df596d2ea19010c001bbd009e651de2c57e8fb7e355f31eb9d3f739",
+   "truncated": false
+  },
+  {
+   "clipped_len_bytes": 16384,
+   "clipped_sha": "293a06e65c1d5b64ec2ea315d9089eb59e8b749f5f3d3dc13367b2eb54c69edb",
+   "len": 20000,
+   "text_sha": "0d2b714f0bbfd34d4c5672cd0220630d3796f36b5a962798b81aa6ca8bf9b040",
+   "truncated": true
+  },
+  {
+   "clipped_len_bytes": 16384,
+   "clipped_sha": "f3336bea752b5a28743033dd2c844a4a63fba08871aaee2586a2bf2d69be83a2",
+   "len": 16384,
+   "text_sha": "f3336bea752b5a28743033dd2c844a4a63fba08871aaee2586a2bf2d69be83a2",
+   "truncated": false
+  },
+  {
+   "clipped_len_bytes": 16384,
+   "clipped_sha": "f3336bea752b5a28743033dd2c844a4a63fba08871aaee2586a2bf2d69be83a2",
+   "len": 16385,
+   "text_sha": "608b801060d579a7b659a01755259a13dec8853b97d3d8062763c97ffac6ddae",
+   "truncated": true
+  },
+  {
+   "clipped_len_bytes": 16384,
+   "clipped_sha": "293a06e65c1d5b64ec2ea315d9089eb59e8b749f5f3d3dc13367b2eb54c69edb",
+   "len": 8192,
+   "text_sha": "293a06e65c1d5b64ec2ea315d9089eb59e8b749f5f3d3dc13367b2eb54c69edb",
+   "truncated": false
+  },
+  {
+   "clipped_len_bytes": 16384,
+   "clipped_sha": "293a06e65c1d5b64ec2ea315d9089eb59e8b749f5f3d3dc13367b2eb54c69edb",
+   "len": 8193,
+   "text_sha": "7e1a349d77b52073485f4dd4811449246516bafc26363fa53d76d3fd04d65cb8",
+   "truncated": true
+  },
+  {
+   "clipped_len_bytes": 16384,
+   "clipped_sha": "da7e32ccfee509a2e7a52c605cdaf0e6046d0464cb5b8615dc5c66ff80db3abf",
+   "len": 5000,
+   "text_sha": "c54ae9b09b4f239968e7f09d773cd339415c945253e21adba733aa2aa40919a9",
+   "truncated": true
+  }
+ ],
+ "observe": [
+  {
+   "data": null,
+   "signals": {
+    "plan_calls": 1
+   },
+   "tool": "airframe.plan",
+   "warnings": []
+  },
+  {
+   "data": null,
+   "signals": {
+    "plan_calls": 2
+   },
+   "tool": "airframe.plan",
+   "warnings": []
+  },
+  {
+   "data": {
+    "pr": 7,
+    "state": "awaiting-merge"
+   },
+   "signals": {
+    "apply_ok": 1,
+    "apply_pr": 1,
+    "apply_state": "awaiting-merge",
+    "plan_calls": 2
+   },
+   "tool": "airframe.apply",
+   "warnings": []
+  },
+  {
+   "data": {
+    "state": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "signals": {
+    "apply_ok": 2,
+    "apply_pr": 1,
+    "apply_state": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "plan_calls": 2
+   },
+   "tool": "airframe.apply",
+   "warnings": []
+  },
+  {
+   "data": {
+    "pr": 0
+   },
+   "signals": {
+    "apply_ok": 3,
+    "apply_pr": 1,
+    "apply_state": "",
+    "plan_calls": 2
+   },
+   "tool": "airframe.apply",
+   "warnings": []
+  },
+  {
+   "data": "not a dict",
+   "signals": {
+    "apply_ok": 3,
+    "apply_pr": 1,
+    "apply_state": "",
+    "plan_calls": 2
+   },
+   "tool": "airframe.apply",
+   "warnings": []
+  },
+  {
+   "data": {
+    "pr": 1
+   },
+   "signals": {
+    "apply_ok": 3,
+    "apply_pr": 1,
+    "apply_state": "",
+    "plan_calls": 2
+   },
+   "tool": "catalog.read",
+   "warnings": []
+  },
+  {
+   "data": null,
+   "signals": {
+    "apply_ok": 3,
+    "apply_pr": 1,
+    "apply_state": "",
+    "plan_calls": 3
+   },
+   "tool": "airframe.plan",
+   "warnings": []
+  },
+  {
+   "data": null,
+   "signals": {
+    "apply_ok": 3,
+    "apply_pr": 1,
+    "apply_state": "",
+    "plan_calls": 4
+   },
+   "tool": "airframe.plan",
+   "warnings": [
+    "airframe.plan was called 4 times (more than 3): the run was guessing the AppSpec"
+   ]
+  }
+ ],
+ "summary": {
+  "in": [
+   {
+    "ok": true,
+    "rule": null,
+    "tool": "catalog.read"
+   },
+   {
+    "ok": 0,
+    "rule": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR",
+    "tool": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "ok": true,
+    "tool": 5
+   },
+   "junk",
+   {
+    "rule": 7,
+    "tool": "t"
+   },
+   {
+    "ok": "yes",
+    "rule": "R001",
+    "tool": "u"
+   }
+  ],
+  "many": 200,
+  "out": [
+   {
+    "ok": true,
+    "rule": null,
+    "tool": "catalog.read"
+   },
+   {
+    "ok": false,
+    "rule": "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR",
+    "tool": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "ok": false,
+    "rule": null,
+    "tool": "t"
+   },
+   {
+    "ok": true,
+    "rule": "R001",
+    "tool": "u"
+   }
+  ]
+ },
+ "warnings": [
+  {
+   "signals": {},
+   "warnings": []
+  },
+  {
+   "signals": {
+    "plan_calls": 3
+   },
+   "warnings": []
+  },
+  {
+   "signals": {
+    "plan_calls": 4
+   },
+   "warnings": [
+    "airframe.plan was called 4 times (more than 3): the run was guessing the AppSpec"
+   ]
+  },
+  {
+   "signals": {
+    "apply_ok": 1
+   },
+   "warnings": [
+    "airframe.apply answered ok 1 time(s) but opened no PR (last state: none)"
+   ]
+  },
+  {
+   "signals": {
+    "apply_ok": 2,
+    "apply_state": "agent-steps-merged"
+   },
+   "warnings": []
+  },
+  {
+   "signals": {
+    "apply_ok": 1,
+    "apply_pr": 1
+   },
+   "warnings": []
+  },
+  {
+   "signals": {
+    "apply_ok": 1,
+    "apply_state": "failed",
+    "plan_calls": 9
+   },
+   "warnings": [
+    "airframe.plan was called 9 times (more than 3): the run was guessing the AppSpec",
+    "airframe.apply answered ok 1 time(s) but opened no PR (last state: failed)"
+   ]
+  }
+ ]
+}

@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +77,7 @@ func (st *Store) All() []*Session {
 	for _, s := range st.s {
 		out = append(out, s)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID }) // a sweep visits sessions in a stable order
 	return out
 }
 
@@ -133,6 +136,84 @@ func (st *Store) Adopt(g *client.Grant, now time.Time, reserve *client.Budgets, 
 	return s
 }
 
+// GrantError is a spawn grant the gateway refused to adopt.
+type GrantError struct{ Why string }
+
+func (e *GrantError) Error() string { return e.Why }
+
+// AdoptChild creates the child session the core granted a session.spawn, after checking the grant itself against the
+// parent, and reserves its budget on the parent, in one step under the parent's lock. The core cuts the grant; this is
+// the gateway's own check, so a grant that is wider than the parent has left, names another principal, task or agent,
+// reuses a session id, goes deeper than MaxDepth, outlives the parent or reserves other than the child's limits is refused
+// and nothing is created. wantID is the id the gateway named in the evaluation; def is the child definition's limits.
+// Because the check and the reservation share the parent's lock, concurrent spawns cannot reserve more than the parent
+// has, whatever else is charging it (the model proxy's usage does not take the session's operation lock).
+//
+// callerID is the session that made the spawn call: the grant's parent must BE that session, not merely another live session
+// of the same principal and task. The child is returned with its operation lock (Serial) already held, and release gives it
+// up: the sweep cannot act on a child while its run is being made.
+func (st *Store) AdoptChild(g *client.Grant, sp client.Spend, callerID, wantID, wantAgent string, def client.Limits, now time.Time) (*Session, func(), error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if g.Parent == nil {
+		return nil, nil, &GrantError{"the grant names no parent"}
+	}
+	if *g.Parent != callerID {
+		return nil, nil, &GrantError{"the grant's parent is not the session that asked"}
+	}
+	p := st.s[*g.Parent]
+	if p == nil {
+		return nil, nil, &GrantError{"the grant's parent is not a session of this gateway"}
+	}
+	if g.Session == "" || g.Session != wantID {
+		return nil, nil, &GrantError{"the grant's session id is not the one the gateway named"}
+	}
+	if st.s[g.Session] != nil {
+		return nil, nil, &GrantError{"the grant's session id is already a session"}
+	}
+	if g.Agent != wantAgent {
+		return nil, nil, &GrantError{"the grant is for another agent than the one asked for"}
+	}
+	p.Lock()
+	defer p.Unlock()
+	if g.Principal != p.Principal || g.TaskID != p.TaskID {
+		return nil, nil, &GrantError{"the grant names another principal or task than the parent's"}
+	}
+	if g.Depth != p.Depth+1 || g.Depth > MaxDepth {
+		return nil, nil, &GrantError{"the grant's depth is not the parent's plus one, within the run tree's depth limit"}
+	}
+	if p.Expired(now) || p.Tripped {
+		return nil, nil, &GrantError{"the parent is expired, closed or tripped"}
+	}
+	if !p.CanSpend("children", 1) {
+		return nil, nil, &GrantError{"the parent has no children budget left"}
+	}
+	if over := Within(p, def, g.Limits, now); len(over) > 0 {
+		return nil, nil, &GrantError{"the grant widens what the parent has left: " + strings.Join(over, ", ")}
+	}
+	if g.ExpiresAt.After(p.ExpiresAt) || g.ExpiresAt.After(now.Add(time.Duration(g.Limits.TTLMinutes)*time.Minute)) {
+		return nil, nil, &GrantError{"the grant outlives the parent or its own ttl"}
+	}
+	if sp.Children != 1 || sp.Reserve == nil || sp.Reserve.Children != 0 {
+		return nil, nil, &GrantError{"the spend does not count one child and reserve its budgets"}
+	}
+	for _, f := range BudgetFields {
+		if f != "children" && Budget(sp.Reserve, f) != LimitOf(&g.Limits, f) {
+			return nil, nil, &GrantError{"the spend reserves other than the child's " + f}
+		}
+	}
+	s := &Session{ID: g.Session, Principal: g.Principal, Agent: g.Agent, Limits: g.Limits, CreatedAt: now.UTC(),
+		ExpiresAt: g.ExpiresAt.UTC(), ParentID: g.Parent, Depth: g.Depth, TaskID: g.TaskID, Usage: NoUsage()}
+	for _, f := range BudgetFields {
+		AddBudget(&p.Reserved, f, Budget(sp.Reserve, f))
+	}
+	p.Used.Children += sp.Children
+	p.Children = append(p.Children, s.ID)
+	s.serial.Lock() // held until the caller has made the child's run
+	st.s[s.ID] = s
+	return s, s.serial.Unlock, nil
+}
+
 // Charge applies the spend the core's decision names to the session the request named (internal/decide doc.go): add
 // the counters to used, count a denial, trip the breaker with Trip, and trip the session and every descendant with
 // TripTree. A spawn's Children and Reserve are the parent's, applied by Adopt. Caller holds s's lock.
@@ -168,25 +249,36 @@ func (st *Store) TripTree(id, reason string) {
 }
 
 // Close ends a session and its children, returning the reserved budget to the parent with what was used.
-func (st *Store) Close(id string) {
+func (st *Store) Close(id string) { st.CloseTouched(id) }
+
+// CloseTouched is Close, and returns every session it changed (the ones it closed and the parents that took their
+// budget back), so the caller can save them together: a parent whose budget came back must not be left saved with it
+// still reserved against a child that is saved closed.
+func (st *Store) CloseTouched(id string) []*Session {
 	s := st.Get(id)
 	if s == nil {
-		return
+		return nil
 	}
 	s.Lock()
 	if s.Closed {
 		s.Unlock()
-		return
+		return nil
 	}
 	kids := append([]string(nil), s.Children...)
 	s.Unlock()
+	var touched []*Session
 	for _, c := range kids {
-		st.Close(c)
+		touched = append(touched, st.CloseTouched(c)...)
 	}
 	s.Lock()
+	if s.Closed { // closed by another caller while its children were
+		s.Unlock()
+		return touched
+	}
 	s.Closed = true
 	parent, limits, used := s.ParentID, s.Limits, s.Used
 	s.Unlock()
+	touched = append(touched, s)
 	if parent != nil {
 		if p := st.Get(*parent); p != nil {
 			p.Lock()
@@ -197,8 +289,10 @@ func (st *Store) Close(id string) {
 				}
 			}
 			p.Unlock()
+			touched = append(touched, p)
 		}
 	}
+	return touched
 }
 
 // Flush saves the given sessions (the ones an operation touched) if they changed since their last save, and returns
@@ -239,6 +333,11 @@ func (st *Store) Flush(ctx context.Context, sessions ...*Session) error {
 	}
 	st.mu.Unlock()
 	return nil
+}
+
+// FlushAll saves every session that changed since its last save (Python: SessionStore.flush).
+func (st *Store) FlushAll(ctx context.Context) error {
+	return st.Flush(ctx, st.All()...)
 }
 
 // Sweep closes everything past its deadline and returns the ids. The AgentRun composition enforces expiry on its own;

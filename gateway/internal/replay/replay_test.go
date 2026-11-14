@@ -35,6 +35,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/modelproxy"
+	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"github.com/jfillman/clearance/client"
@@ -294,6 +295,17 @@ func adopt(st *session.Store, state *client.SessionState, now time.Time, a *afte
 	return s
 }
 
+// withRun gives the session of a line recorded with a run acting as it the run the Python gateway had then: the run named
+// after the session, which is what the caller's identity (agent-<run>/run) is checked against.
+func withRun(s *session.Session, want *client.EvaluationRequest) {
+	if s != nil && want.Subject.Properties.ActingAs != "" {
+		name := runs.RunName(s.ID)
+		s.Lock()
+		s.Run = &name
+		s.Unlock()
+	}
+}
+
 func principalOf(sub client.Subject) *dispatch.Principal {
 	return &dispatch.Principal{ID: sub.ID, Kind: sub.Properties.Kind, TierCeiling: sub.Properties.TierCeiling}
 }
@@ -308,6 +320,15 @@ func (r *replayer) newGateway(core *core.Core, st *session.Store, defs map[strin
 	g, err := dispatch.New(defs, st, core, auth.Static{"t": p}, r.reg, handlers)
 	if err != nil {
 		r.t.Fatal(err)
+	}
+	// The run backend the run tree needs: a fake that starts nothing and names a run's identity as the real one does.
+	g.SetRuns(runs.NewFake())
+	if tool == "run.close" {
+		// The corpus decided the call; the session it names its children in is not in this replay, so the handler's own
+		// check (tests in dispatch) would refuse it. The decision and the spend are what is compared.
+		g.Handlers[tool] = func(context.Context, *session.Session, map[string]any) (any, error) {
+			return map[string]any{"ok": true}, nil
+		}
 	}
 	g.Now = func() time.Time { return now }
 	g.OnPersistError = func(err error) { r.t.Error(err) }
@@ -349,10 +370,6 @@ func (r *replayer) run(ctx context.Context, l line) {
 	}
 	switch l.Kind {
 	case "tool.call":
-		if want.Subject.Properties.ActingAs != "" {
-			r.skips["tool.call: a run acting as its session (run backend, not in this slice)"]++
-			return
-		}
 		r.toolCall(ctx, l, &want)
 	case "session.open":
 		p := want.Action.Properties
@@ -362,13 +379,9 @@ func (r *replayer) run(ctx context.Context, l line) {
 		}
 		r.open(ctx, l, &want)
 	case "model.call":
-		if want.Subject.Properties.ActingAs != "" {
-			r.skips["model.call: a run acting as its session (run backend, not in this slice)"]++
-			return
-		}
 		r.modelCall(ctx, l, &want)
 	case "session.spawn":
-		r.skips["session.spawn: needs the run backend (not in this slice)"]++
+		r.spawn(ctx, l, &want)
 	default:
 		r.skips[l.Kind+": the core's own decision engine, not the gateway's"]++
 	}
@@ -461,6 +474,7 @@ func (r *replayer) toolCall(ctx context.Context, l line, want *client.Evaluation
 	if want.Context.Session != nil {
 		before = want.Context.Session
 		s = adopt(st, want.Context.Session, now, nil)
+		withRun(s, want)
 		sc := want.Context.Scope
 		defs[s.Agent] = &definitions.Definition{Name: s.Agent, Kind: sc.AgentKind, DenyPaths: sc.DenyPaths, ReposAllow: sc.ReposAllow,
 			APIAllow: sc.APIAllow, FieldDeny: sc.FieldDeny, FieldAllow: sc.FieldAllow, RawProfile: sc.Profile}
@@ -499,6 +513,87 @@ func (r *replayer) toolCall(ctx context.Context, l line, want *client.Evaluation
 	r.counts["tool.call decision"]++
 	r.decision(l, res.Decision)
 	r.spend(l, s, before)
+	r.record(l, cp, head)
+}
+
+// spawn replays a session.spawn: the evaluation the Go gateway builds for run.spawn equals the Python one, and sent to the
+// real core the decision, the parent's spend and reservation, the grant the child is created from and the record equal
+// the Python gateway's. The grant is the real core's, so the gateway's own check of it (session.Store.AdoptChild) must
+// accept every grant the core makes and the Python gateway accepted.
+func (r *replayer) spawn(ctx context.Context, l line, want *client.EvaluationRequest) {
+	st, _ := session.NewStore(ctx, nil)
+	st.SetIDs(func() string { return want.Context.NewSessionID })
+	now := want.Context.Now
+	p := principalOf(want.Subject)
+	defs := map[string]*definitions.Definition{}
+	var s *session.Session
+	var before *client.SessionState
+	if want.Context.Session != nil {
+		before = want.Context.Session
+		s = adopt(st, want.Context.Session, now, nil)
+		sc := want.Context.Scope
+		defs[s.Agent] = &definitions.Definition{Name: s.Agent, Kind: sc.AgentKind, DenyPaths: sc.DenyPaths, ReposAllow: sc.ReposAllow,
+			APIAllow: sc.APIAllow, FieldDeny: sc.FieldDeny, FieldAllow: sc.FieldAllow, RawProfile: sc.Profile}
+	}
+	if a := want.Context.Agent; a != nil {
+		d := defs[a.Name] // an agent that spawns itself is both the parent (its scope) and the child (its limits)
+		if d == nil {
+			d = &definitions.Definition{Name: a.Name}
+			defs[a.Name] = d
+		}
+		d.Kind, d.IdentityType, d.ServiceAccount, d.Limits = a.Kind, a.IdentityType, a.ServiceAccount, a.Limits
+		image := "ghcr.io/example/agent@sha256:" + strings.Repeat("a", 64)
+		d.Image, d.Framework, d.Sandbox = &image, "generic", "standard"
+	}
+	cp := r.coreFor(l)
+	c := core.New(nil, nil, false)
+	if cp != nil {
+		c = goCore(r.t, cp.URL)
+	}
+	g := r.newGateway(c, st, defs, p, "run.spawn", now)
+	args := decodeArgs(want.Action.Properties.Args)
+	got, err := g.ToolRequest(p, want.Context.SessionID, s, "run.spawn", args, now)
+	if err != nil {
+		r.t.Fatalf("line %d: %v", l.n, err)
+	}
+	g.ApplySpawn(got, args, st.NewID())
+	st.GiveBack(want.Context.NewSessionID)
+	if r.drift != nil {
+		r.drift(got)
+	}
+	r.counts["session.spawn request"]++
+	if !r.eq(l, "evaluation request", norm(r.t, got), norm(r.t, l.Request)) || cp == nil {
+		return
+	}
+	g.BuildRequest = func(*dispatch.Principal, string, *session.Session, string, map[string]any, time.Time) (*client.EvaluationRequest, error) {
+		return got, nil
+	}
+	head := cp.head(r.t)
+	res, err := g.Call(ctx, "t", want.Context.SessionID, "run.spawn", args)
+	if err != nil {
+		r.fail(l, "call", err.Error(), "a decision")
+		return
+	}
+	r.counts["session.spawn decision"]++
+	r.decision(l, res.Decision)
+	r.spend(l, s, before)
+	if len(l.Grant) > 0 && string(l.Grant) != "null" {
+		child := st.Get(want.Context.NewSessionID)
+		if child == nil {
+			r.fail(l, "grant", "no child session", norm(r.t, l.Grant))
+		} else {
+			child.Lock()
+			g := map[string]any{"session": child.ID, "principal": child.Principal, "agent": child.Agent, "task_id": child.TaskID,
+				"parent": child.ParentID, "depth": child.Depth, "limits": child.Limits, "expires_at": child.ExpiresAt}
+			child.Unlock()
+			wantG := norm(r.t, l.Grant).(map[string]any)
+			delete(wantG, "deduped")
+			r.counts["grant compared"]++
+			r.eq(l, "grant", norm(r.t, g), wantG)
+		}
+	} else if res.OK {
+		r.fail(l, "grant", "a child was created", "no grant")
+	}
 	r.record(l, cp, head)
 }
 
@@ -567,6 +662,7 @@ func (r *replayer) modelCall(ctx context.Context, l line, want *client.Evaluatio
 	if want.Context.Session != nil {
 		before = want.Context.Session
 		s = adopt(st, want.Context.Session, now, nil)
+		withRun(s, want)
 	}
 	cp := r.coreFor(l)
 	c := core.New(nil, nil, false)
@@ -585,7 +681,11 @@ func (r *replayer) modelCall(ctx context.Context, l line, want *client.Evaluatio
 	if want.Action.Properties.EstTokens != nil {
 		est = *want.Action.Properties.EstTokens
 	}
-	got := m.Request(p.ID, s, want.Context.SessionID, want.Resource.ID, est, "")
+	acting := p.ID
+	if s != nil {
+		acting = g.Acting(s, p)
+	}
+	got := m.Request(p.ID, s, want.Context.SessionID, want.Resource.ID, est, acting)
 	if r.drift != nil {
 		r.drift(got)
 	}
@@ -642,7 +742,7 @@ func TestCorpusRequestsIdentical(t *testing.T) {
 		r.run(ctx, l)
 	}
 	r.report()
-	for _, k := range []string{"tool.call request", "session.open request", "model.call request"} {
+	for _, k := range []string{"tool.call request", "session.open request", "model.call request", "session.spawn request"} {
 		if r.counts[k] == 0 {
 			t.Errorf("no corpus line compares %s", k)
 		}
@@ -677,7 +777,7 @@ func TestCorpusReplaysThroughGateway(t *testing.T) {
 		r.run(ctx, l)
 	}
 	r.report()
-	for _, k := range []string{"tool.call decision", "session.open decision", "model.call decision", "spend compared", "record compared", "grant compared"} {
+	for _, k := range []string{"tool.call decision", "session.open decision", "model.call decision", "session.spawn decision", "spend compared", "record compared", "grant compared"} {
 		if r.counts[k] == 0 {
 			t.Errorf("no corpus line compares %s: a replay that compares nothing proves nothing", k)
 		}

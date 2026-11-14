@@ -33,9 +33,11 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "src/autopilot/engine/dispatch.py": (
         ("gateway/internal/dispatch",),
         "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage "
-        "path, tools_list, agents_for",
-        "S2 launch, run.spawn/close, run_finish, session_close, acting_as, run results, Preflight candidate runs; "
-        "S3 person controls, inbox, holds, triggers; S4 publish_definitions"),
+        "path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, "
+        "finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record "
+        "and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on",
+        "S3 person controls, the person-facing run_agent and Preflight routes, inbox, holds, open_triggered, triggers; "
+        "S4 publish_definitions and the schema validation a candidate document needs"),
     "src/autopilot/engine/core.py": (
         ("gateway/internal/core",),
         "the decision path: evaluation, outcome, records, outbox, outage policy, canonical JSON, the client's timeout "
@@ -43,11 +45,26 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "S4 publish_definitions (and the bundled definitions)"),
     "src/autopilot/engine/outbox.py": (("gateway/internal/core", "gateway/internal/pgstate"), "the outbox", ""),
     "src/autopilot/engine/session.py": (
-        ("gateway/internal/session",), "the session record (every field, signals included), budgets, breaker, expiry", ""),
-    "src/autopilot/engine/limits.py": (("gateway/internal/session",), "budget fields and limits", ""),
+        ("gateway/internal/session",), "the session record (every field, signals included), budgets, breaker, expiry, the run "
+        "tree (MAX_DEPTH, close, the cut of a child, the reservation a spawn makes on its parent)", ""),
+    "src/autopilot/engine/limits.py": (("gateway/internal/session",), "budget fields, limits, LimitRequest and narrow (a request "
+                                       "can only narrow)", ""),
+    "src/autopilot/engine/results.py": (
+        ("gateway/internal/dispatch", "gateway/internal/pgstate"), "observe, warnings, clip_text, tool_call_summary, the result "
+        "store (memory, and gateway_results) and its retention", ""),
+    "src/autopilot/kube_runs.py": (("gateway/internal/runs",), "the AgentRun store over the Kubernetes API: the three requests, "
+                                   "the allowlist, KubeRunError, RunRefused", ""),
+    "src/autopilot/manifests.py": (("gateway/internal/runs",), "the AgentRun manifest and the run name", ""),
+    "src/autopilot/vendor/agentrun_compose.py": (
+        ("gateway/internal/runs",), "what the gateway reads of the composition: RUN_NAME, the run namespace's name "
+        "(agent-<run>) and its service account `run` (the run's identity), the input's size limit. The rendering itself runs in "
+        "the cluster, not in the gateway", ""),
+    "src/autopilot/engine/control.py": (
+        ("gateway/internal/dispatch",), "ControlError and check_reason (what session_close and run_finish answer with)",
+        "S3 holds, may_manage, check_hours and the person controls built on them"),
     "src/autopilot/engine/pg.py": (
-        ("gateway/internal/pgstate",), "the tables, the writer lock, sessions and the outbox (schema.sql is generated)",
-        "S2/S3 use of the results, holds and trigger-ledger tables"),
+        ("gateway/internal/pgstate",), "the tables, the writer lock, sessions, run results and the outbox (schema.sql is generated)",
+        "S3 use of the inbox, holds and trigger-ledger tables"),
     "src/autopilot/engine/definitions.py": (
         ("gateway/internal/definitions",), "reading the bundled set and the pinned set",
         "S4 publishing the set, bundled_set, the Agent XR loader"),
@@ -64,18 +81,20 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "wire it), RoutingAuthenticator, JWKS",
         ""),
     "src/autopilot/engine/server.py": (
-        ("gateway/internal/mcpserver",), "the MCP server surface: tools_list, agents_list, session_open, call, healthz, "
-        "protected-resource metadata", "S2 run_finish/session_close; S3 the people routes (/v1/...)"),
+        ("gateway/internal/mcpserver",), "the MCP server surface: tools_list, agents_list, session_open, call, run_finish, "
+        "session_close, healthz, protected-resource metadata", "S3 the people routes (/v1/...)"),
     "src/autopilot/engine/backends.py": (
-        ("gateway/internal/dispatch", "gateway/internal/backends"), "BackendError (evidence, agent message), Handler",
-        "S2/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"),
+        ("gateway/internal/dispatch", "gateway/internal/backends"), "BackendError (evidence, agent message), Handler, RunBackend "
+        "(and a fake)", "S3/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"),
     "src/autopilot/reads.py": (("gateway/internal/backends",), "PrometheusAPI and LokiAPI (metrics.query, logs.query)",
                                "S5a catalog.read, argo.app.get, app.api.get"),
-    "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/cmd/autopilot-gateway"),
-                                 "which tool has a handler in a deployment (metrics.query, logs.query)", "S5 the other handlers"),
+    "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/internal/runs", "gateway/cmd/autopilot-gateway"),
+                                 "which tool has a handler in a deployment (metrics.query, logs.query, run.spawn, run.close), "
+                                 "AgentRunBackend (the run's name, its identity, how it ended)", "S5 the other handlers"),
     "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the "
-                               "authenticator chain), start-up, the expiry sweep, the outbox drain",
-                               "S2/S3/S4/S6 the settings and loops of what is not ported"),
+                               "authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), "
+                               "the outbox drain, the run backend and result store",
+                               "S3/S4/S6 the settings and loops of what is not ported"),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     "src/autopilot/conformance.py": (("gateway/internal/conformance", "gateway/cmd/autopilot-gateway"),
                                      "the conformance control interface", ""),
@@ -86,10 +105,9 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
 # S4 definitions publish, S5a/b/c backends, S6 api/metrics/logs). A change to one of these is not watched until its slice
 # moves it to PORTED.
 NOT_PORTED: dict[str, str] = {
-    "src/autopilot/engine/results.py": "S2", "src/autopilot/engine/runtimes.py": "S2", "src/autopilot/kube_runs.py": "S2",
-    "src/autopilot/manifests.py": "S2", "src/autopilot/vendor/agentrun_compose.py": "S2",
-    "src/autopilot/preflight.py": "S2",
-    "src/autopilot/engine/control.py": "S3", "src/autopilot/engine/events.py": "S3", "src/autopilot/engine/inbox.py": "S3",
+    "src/autopilot/engine/runtimes.py": "S6",      # the catalog file and GET /v1/runtimes; a candidate's image globs are Gateway.RuntimeImages
+    "src/autopilot/preflight.py": "S3",            # the cases, the scoring and the ledger of the person-facing Preflight routes
+    "src/autopilot/engine/events.py": "S3", "src/autopilot/engine/inbox.py": "S3",
     "src/autopilot/engine/trigger_ledger.py": "S3", "src/autopilot/event_bridge.py": "S3", "src/autopilot/reconcile.py": "S3",
     "src/autopilot/scheduler.py": "S3", "src/autopilot/triggers.py": "S3",
     "src/autopilot/agent_xrs.py": "S4",

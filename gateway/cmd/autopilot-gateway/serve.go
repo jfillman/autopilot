@@ -21,6 +21,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/mcpserver"
 	"github.com/jfillman/autopilot/gateway/internal/modelproxy"
 	"github.com/jfillman/autopilot/gateway/internal/pgstate"
+	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"github.com/jfillman/clearance/client"
@@ -260,6 +261,12 @@ func serve(_ []string) int {
 		return 2
 	}
 	g.CallTimeout = cfg.callTimeout
+	// Runs are AgentRun XRs in the run namespace, as the gateway's own in-cluster identity (Python: KubeAgentRuns(), always);
+	// a finished run's answer is kept in the gateway database; the pinned model version a run's records carry is the
+	// alias's upstream model.
+	g.SetRuns(&runs.Backend{Store: runs.NewKube()})
+	g.Results = pgstate.NewResults(st)
+	g.ModelVersions = cfg.modelRoutes
 	// Crash-only: after a failed save the in-memory sessions are ahead of the database, and only a restart, which
 	// reloads them, puts the two back in step.
 	g.OnPersistError = func(err error) {
@@ -302,7 +309,8 @@ func serve(_ []string) int {
 	return 0
 }
 
-// sweep closes sessions past their deadline and posts what the outbox holds once the core answers again.
+// sweep closes sessions past their deadline, deletes their runs, and posts what the outbox holds once the core answers
+// again (dispatch.Gateway.Expire). A panic in one sweep is logged, not fatal: the next one retries.
 func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -311,23 +319,18 @@ func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if gone := g.Store.Sweep(g.Now()); len(gone) > 0 {
-				slog.Info("expired sessions", "n", len(gone))
-				var ss []*session.Session
-				for _, id := range gone {
-					ss = append(ss, g.Store.Get(id))
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("the expiry sweep panicked", "panic", fmt.Sprint(r))
+					}
+				}()
+				sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				defer cancel()
+				if done := g.Expire(sctx); len(done) > 0 {
+					slog.Info("expired sessions and deleted their runs", "n", len(done))
 				}
-				fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				if err := g.Store.Flush(fctx, ss...); err != nil {
-					g.OnPersistError(err)
-				}
-				cancel()
-			}
-			dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if n := g.Core.Drain(dctx, 500); n > 0 {
-				slog.Info("outbox drained", "posted", n)
-			}
-			cancel()
+			}()
 		}
 	}
 }
