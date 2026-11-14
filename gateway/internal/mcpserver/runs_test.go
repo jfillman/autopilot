@@ -33,7 +33,7 @@ func runsSetup(t *testing.T) (*httptest.Server, *session.Store, *runs.FakeStore)
 	c := core.New(fc.Client(time.Second), core.NewMemoryOutbox(), false)
 	image := "ghcr.io/x/y@sha256:" + "a"
 	defs := map[string]*definitions.Definition{"coding-agent": {Name: "coding-agent", Kind: "task", IdentityType: "delegated", Limits: l, Image: &image}}
-	au := auth.Static{"run": {ID: "agent-r-0000a1/run", Kind: "workload", TierCeiling: 1}, "alice": {ID: "user:alice", Kind: "user", TierCeiling: 1},
+	au := auth.Static{"run": {ID: "agent-r-0000a1/run", Kind: "workload", TierCeiling: 1, Pod: "agent"}, "alice": {ID: "user:alice", Kind: "user", TierCeiling: 1},
 		"bob": {ID: "user:bob", Kind: "user", TierCeiling: 1}}
 	g, err := dispatch.New(defs, st, c, au, tools.Default(), nil)
 	if err != nil {

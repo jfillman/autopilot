@@ -1,7 +1,7 @@
 # The Go AI gateway (A-9)
 
-**Status: people and Tower sign-in (A-9 S1) and runs and the run tree (A-9 S2, 2026-11-14) are in, on top of the first slice and
-the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
+**Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2) and the human inbox, person controls and triggers
+(A-9 S3, 2026-11-14) are in, on top of the first slice and the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
 the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
 Python one, how it is kept equal ([the drift guard](#the-drift-guard)), and exactly what is left.
@@ -13,7 +13,7 @@ Clearance's image, `gateway/Dockerfile`):
 
 | Subcommand | Does |
 |---|---|
-| `serve` | the MCP server (`PORT`, default 8080), the model proxy (`MODEL_PORT`, default 8081, only with `MODEL_KEY_FILE`), the expiry sweep (close, delete runs, backstop outcomes) and the outbox drain |
+| `serve` | the MCP server (`PORT`, default 8080) with the person-facing routes beside it (`/v1/...`, S3), the model proxy (`MODEL_PORT`, default 8081, only with `MODEL_KEY_FILE`), the expiry sweep (close, delete runs, backstop outcomes) and the outbox drain, and, when asked, the interval scheduler (`SCHEDULES_ENABLED`), the event bridge (`EVENTS_ENABLED`) and the reconciliation sweep |
 | `conformance-control` | the test-only conformance control interface; off unless `GATEWAY_CONFORMANCE_CONTROL=1`, loopback only |
 | `api` | **not ported**: exits 2 and says so. The read API is still the Python `autopilot-gateway api` |
 | `version` | the image's version (`AUTOPILOT_GATEWAY_VERSION`, else the build's) |
@@ -99,10 +99,11 @@ and the run parts of `server.py` and `serve.py`.
 
 ### The run's identity, in plain words
 
-A caller acts as a session only when it IS that session's run. The gateway decides that from three things, all of which it
+A caller acts as a session only when it IS that session's run. The gateway decides that from four things, all of which it
 holds itself: the session has a run (a name the gateway wrote when it created the run, never taken from a caller), the caller
-is a workload token that the Kubernetes token review verified, and the caller's verified identity (`namespace/serviceaccount`)
-is exactly `agent-<run>/run` for that run, a name of `r-` and 6 to 32 hex digits. Then the gateway tells the core "this caller
+is a workload token that the Kubernetes token review verified, the caller's verified identity (`namespace/serviceaccount`)
+is exactly `agent-<run>/run` for that run, a name of `r-` and 6 to 32 hex digits, and (S3, [the pod binding](#the-pod-binding-a-9-s3))
+the token is bound to the run's pod. Then the gateway tells the core "this caller
 acts as the session's principal", and the core decides as it would for the person. Nothing the caller sends is read: not an
 argument, a header, a label or a name.
 
@@ -112,8 +113,8 @@ own namespace with another service account, a person whose id looks like a run's
 deleted), and a replayed token after `run.close`. Each is a test (`TestARunActsOnlyAsItsOwnSession`,
 `TestAReplayedRunTokenActsAsNothingAfterItsRunIsGone`, `TestAClosedSessionWhoseRunWasNotDeletedStillAllowsNothing`).
 
-Stricter than Python, deliberately: the caller must be a `workload` (Python only compares ids), and the run's name must be a
-real run name. `acting.json` records Python's answer and Go's for each case; the two differ only for a user whose id is a run's
+Stricter than Python, deliberately: the caller must be a `workload` (Python only compares ids), the run's name must be a
+real run name, and the token must be bound to the run's pod. `acting.json` records Python's answer and Go's for each case; the two differ only for a user whose id is a run's
 and for a run name no run has.
 
 ### What is deliberately not the same as Python
@@ -202,16 +203,184 @@ gateway's RBAC, the chart and the cluster's admission policy must keep namespace
 composition's identity, and nobody else may hold `create` on namespaces. The gateway does not read Kubernetes on the hot path to
 check it.
 
-Nothing the token review already returns binds a token to a run more tightly at no cost, that the gateway can know at create
-time: the pod name and uid in the response's `user.extra`, and the service account's uid, belong to a pod and an account that
-do not exist yet when the AgentRun is created, and the create response does not carry them. Proposed, not built: the sandbox's
-pod name is fixed by the composition (`agent`), so `auth.Workload` could pass `authentication.kubernetes.io/pod-name` on the
-principal and the acting rule could require it to be that name, which rules out a token minted for a bare service account
-(not a pod); and the sweep's read of the AgentRun (`status`) could one day carry the pod uid to compare.
+### The pod binding (A-9 S3)
+
+The identity above is a namespace and a service account, and a token for the bare service account is that identity. Anyone who may
+create tokens for `agent-<run>/run` (the TokenRequest API) can mint one, bound to no object or to any other. So a caller acts as a run
+only if its token is also **bound to the run's pod**: the token review's `status.user.extra` carries the bound pod's name under
+`authentication.kubernetes.io/pod-name` (and its uid, and the node's name and uid, and a credential id), and `auth.Workload` puts that
+name on the principal (`Principal.Pod`). `Gateway.Acting` then requires it to be `agent`, the name the composition gives a run's pod.
+
+What this relies on, stated plainly:
+
+- **Kubernetes** ("Bound service account tokens", service accounts admin guide, read through the documentation tool on 2026-11-14): a token
+  bound to a Pod carries the pod's `metadata.name` and `metadata.uid` as private claims; the API server's service-account authenticator
+  verifies them (and that the pod still exists) and returns them as the `authentication.kubernetes.io/pod-name` and `/pod-uid` extras of a
+  token review. The node name and uid in the JWT are not verified by the API server and are not read here. A token bound to a Secret or a
+  Node, or to nothing, has no pod-name extra.
+- **The pod's name** is not set by the composition directly. The composition (`vendor/agentrun_compose.py`, `SANDBOX_NAME`) creates one
+  Sandbox named `agent` per run, with no warm pool and no claim, and the agent-sandbox controller names the pod after its Sandbox (its
+  documentation: "the backing pod name matches the sandbox name", with a Sandbox `agent` and a pod `agent` in its network-policy example). So
+  the rule holds as long as the composition and the controller keep that naming. `TestPodNameIsTheCompositionsSandbox` fails if the vendored
+  composition renames the Sandbox; a controller that changed its naming would show as every run being refused (fail closed), which a live
+  check on a deployed cluster would catch (owed, as everything that needs a cluster is).
+- A missing key is **not** a failure of ordinary authentication: a workload token without a pod binding still authenticates (the run's
+  own gateway-side checks, Tower's backend and every other workload do not need one); it simply cannot act as a run. Several values, an empty
+  one or a name that is not a DNS name count as no binding.
+
+Tests (`TestARunActsOnlyWithATokenBoundToItsPod`, `TestTheBoundPodIsCarriedOnTheWorkloadPrincipal`): the right pod; the right identity with
+another pod name, with a suffixed one, and with none; a foreign-cluster principal that carries the run's identity and a pod name; a person
+(with and without a pod); another run's pod; and the same rule for `run_finish`, `session_close` and `session_tools`.
+
+## What S3 carries: the human inbox, person controls and triggers (2026-11-14)
+
+The sources are `engine/inbox.py`, `control.py`, `events.py`, `trigger_ledger.py`, `preflight.py`, `scheduler.py`, `triggers.py`,
+`event_bridge.py`, `reconcile.py`, the person-facing parts of `engine/dispatch.py` and `engine/server.py` and the trigger parts of
+`serve.py` and `settings.py`. The Go code is `dispatch/` (`inbox.go`, `people.go`, `triggered.go`, `events.go`, `preflightcases.go`,
+`grant.go`), `triggers/` (`ledger.go`, `match.go`, `bridge.go`, `scheduler.go`, `reconcile.go`, `metrics.go`), `mcpserver/people.go`
+and `pgstate/people.go`. Each part has the test that pins it, and where the Python gateway can be driven the same way the test
+compares answers, sessions, rows and records with Python's (`testdata/people.json` and `triggers.json`, generated by
+`tools/gen_gateway_registry.py`).
+
+| Operation | Go | Pinned by |
+|---|---|---|
+| `human.request` and `human.request.get` from an agent, the pending list, answering, expiry with the session | `Gateway.SetInbox`, `HumanRequests`, `HumanAnswer`; the rows are `gateway_human_requests`, read and written either way | `TestInboxChecksEqualPython`, `TestInboxHandlersEqualPython`, `TestRowsEqualPython`, `TestHumanRequestAndAnswer`, `TestHumanRequestLimitsAndExpiry`, `pgstate` `TestTheInboxRoundTripsAndKeepsItsLimits` |
+| Person controls: freeze, end, hold, release | `FreezeSession`, `EndSession`, `HoldTriggers`, `ReleaseTriggers`; routes `POST /v1/sessions/{id}/freeze`, `/end`, `POST` and `DELETE /v1/agents/{agent}/hold` | `TestPersonOperationsEqualPython` (70 operations: answers, sessions, records and holds equal Python's), `TestControlSequencesEqualPython`, `TestThePeopleRoutes` |
+| A person's run: `POST /v1/agents/{agent}/runs`, with `document` and `budget` for a Preflight candidate | `Gateway.RunAgent`, then `RunAgentAs` (S2) | `TestRunAgentByThePersonRouteChecksWhoAndWhat`, `TestRunAgentRefusesAGrantForSomeoneElseOrWider`, `TestACandidateIsRefusedUntilTheSchemaIsCarriedThenRunsClamped` |
+| Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger | `TestPreflightCasesAndScore` |
+| `open_triggered`: a triggered run's session, with the agent's hold and any live session of the task in the evaluation | `Gateway.OpenTriggered`, `TriggeredRequest` | the replay's 31 triggered `session.open` lines against the real core, `TestOpenTriggeredOpensDedupesAndChecksTheGrant`, `TestOpenTriggeredRefusesWhatTheCoreShouldNotHaveGranted` |
+| The trigger ledger and the event cursor; a trigger fires once | `triggers.Ledger` on `gateway_trigger_launches` and `gateway_event_cursors` | `TestTheBridgeEqualsPython`, `TestACrashAtEachPointLeavesATriggerThatFiresOnce`, `TestTriggersThroughTheRealGateway`, `pgstate` `TestTheLedgerClaimIsWonOnce` |
+| The event bridge: the stream, the catch-up from the cursor with `Last-Event-ID`, the storm brake, the history | `triggers.Bridge` | `TestTheStreamResumesFromTheCursorAndHandlesWhatItCarries`, `TestTheCursorOnlyFollowsIDsItCanTrust`, `TestMalformedAndOversizedEventsAreDroppedAndCounted`, `TestTheBridgeNeverFollowsARedirect`, `TestTheReconnectBackoffIsBounded` |
+| The interval scheduler, with its missed-slot record | `triggers.Scheduler` | `TestTheSchedulerEqualsPython`, `TestTheSchedulerFiresASlotOnceAcrossRestartsAndRecordsWhatWasMissed` |
+| The reconciliation sweep | `triggers.Reconciler` | `TestTheSweepLaunchesWhatNoEventDeliveredOnceAndOnlyWithinItsBounds` |
+| Metric hooks as far as Python has them | `triggers.Metrics` (an interface; `Nop` in `serve`, `Recorder` in tests). The Prometheus endpoint is S6 | the counters `TestTheBridgeEqualsPython` and `TestTheSchedulerEqualsPython` compare |
+
+### Who may do what
+
+Person controls are for people. The rule is Python's (`control.py`, `Gateway._person`, `_manager`), with nothing looser:
+
+- **Who is a person.** A caller whose kind is `user` (their own sign-in), or a *delegate* naming one: a caller whose id matches a glob of
+  `AUTOPILOT_DELEGATES` and who sends `X-Hangar-On-Behalf-Of: user:<name>`. Nothing else is: a run, a service account that is not
+  a listed delegate, Tower's backend with no name or a bad one, and every other cluster's workload are refused (`HR-PERSON` 403, or
+  `HR-DELEGATE` 403 when they name someone). A run is a workload that is not in the delegates list (the list is the deployment's), so
+  **a run can never answer its own `human.request`, release its own hold, freeze, end or run anything, and has no way to raise its
+  own budget** (a run's budget is cut by the core at open; nothing in this slice changes one).
+- **Who may act on what.** The agent's owner group (the definition's `owner`, resolved by a Directory), a platform admin
+  (`AUTOPILOT_ADMINS`, globs), and, for a session only, the person whose session it is. Holds, releases, a run and a Preflight score are
+  the agent's, so the session's person alone is not enough for them. Answering an inbox request is its owner's (the session's person)
+  and the agent's owner group: an admin is not an answerer.
+- **Without a Directory** only the session's own person and the admins act. The Go gateway has no Directory yet (the Backstage client
+  comes with `catalog.read`, S5a), so an owner group is not resolved until then.
+- Each control is an evidence record naming the person and the delegate. A refused call writes nothing and changes nothing.
+
+Each of these is a test (`TestPersonControlsAreForPeopleOnly`: 6 controls against 19 callers, each either allowed by the rule or
+refused with no record and no change; `TestWhoIsAPerson`; `TestThePeopleRoutes`, which sends a run's token to every route with
+and without an on-behalf-of header; `TestAnUnauthenticatedCallerLearnsNothing`): another person, a workload, a run bound to its
+pod, a service account bound to no pod, a foreign-cluster principal that is not a delegate, a delegate naming nobody, a delegate
+naming a person who may not, an unlisted workload naming an admin, a person whose id looks like a run's, and a person naming
+someone on behalf.
+
+### The trigger rule
+
+No trigger source is trusted to choose the principal, the agent, the budget or the tools. The agent is the one whose definition's
+trigger matched. The core decides the open as `trigger:<name>` (a workload at tier 1) and cuts the limits from the definition. The
+gateway then checks the grant itself (`checkOpenGrant`): for the agent asked, no parent, depth 0, the definition's own service
+account as the principal when it names one, no limit, tool, model, tier, network or compute above the definition's, a deadline no
+later than the definition's ttl, the session id the gateway named, the task it sent. Anything else is refused (`CORE-REFUSED`) and
+nothing is created. A dedupe is accepted only for the live session the gateway itself showed the core. A person's run gets the same
+check against the person. An event is untrusted input: its id, routing key, app, received time and subject id have the forms and
+lengths glidepath-api gives them (an id is `[A-Za-z0-9:._/@+=-]` and at most 200 characters; the others at most 256), its `event` is
+an object, and it is dropped and counted (`oversize`, `malformed`, `bad-id`, `bad-key`) otherwise. What reaches a run is a summary
+of it, never the event.
+
+### The event bridge as a network client
+
+It has an HTTP client of its own (10 s to connect, 10 s for TLS, 30 s for the answer's headers, 60 s for a JSON read), follows no
+redirect (the gateway's token travels in two headers, and a redirect is the one way it could reach another host), reads at most 8 MiB
+of a JSON answer, at most 64 KiB of a stream line and 256 KiB of one event (a larger one is dropped, the stream goes on), drops a stream
+that is silent for 90 s (pings count), reconnects after 5 s doubling to 60 s with jitter (a stream that delivered or stayed up 30 s starts
+it over), and names no token or URL in an error or a log line. It runs on goroutines of its own, handles one event at a time, gives each
+event 2 minutes at most, and every call into the gateway has its context, so it cannot stall a tool call. The cursor follows only ids of
+the form glidepath-api's are (16 digits of receive time in microseconds, a dash, a hash) that are not in the future, and never moves
+backward; a ledger failure ends the stream and leaves the cursor at the last event that was fully handled, so the resume sees the failed
+one again.
+
+### Crash points of the triggers
+
+What the database holds if the process dies at each point, and what the next gateway does. A trigger is one row, `(agent, key)`, claimed
+before anything opens and decided after.
+
+| Dies | Database holds | Next gateway |
+|---|---|---|
+| after the claim, before the session is opened | the row `claimed` | the claim is an orphan (older than this process started, or older than 5 minutes); the event (from the stream's resume, the catch-up or the sweep) claims it again and fires. Python the same |
+| after the session is opened and saved, before it is launched | the row `claimed`; a live session of the trigger's task with no run | the orphan is claimed again, the core answers a dedupe for the live session, and **Go launches it** (Python records `deduped` and the run never starts). The launch refuses a session that already has a run, so a repair cannot make a second one |
+| after the run is launched, before the decision is written | the row `claimed`; the session with its run | claimed again, answered as a dedupe of a live run, decided `deduped`; one run |
+| after the decision, before the cursor moves | the row decided | the resume replays the event; its claim loses; nothing opens |
+| the ledger cannot be written (claim or decision) | nothing, or a `claimed` row | the event is not marked seen and the stream ends, so the cursor stays; when the database is back the event is handled; a decision that was not written is repaired as above |
+| a duplicate or replayed event (the stream after a restart, the catch-up, the sweep with another id for the same run) | the decided row | the key is the same (`<app>.pipelinerun.<predicate>/<run name>`, or `event:<id>`), the claim loses, the outcome is `deduped` |
+| the launch fails, or the core is down for its record | the row decided `launch-failed` | decided and never retried; **Go closes the session the trigger opened** (Python leaves it live until its ttl), and the sweep deletes a run the failed launch may have made |
+| an inbox request is added, then the process dies before the call's session is saved | the request, and the session without that call's charge | the request stays pending (it counts toward the 5 a session may have); the run's retry adds another; both expire with the session |
+| a human answer: the record is written, then the process dies before the answer is saved | the evidence record, the request still pending | the person answers again; a second `human.answer` record is written (Python the same) |
+
+A person's run (`RunAgent`): a crash after the core's open and before the session is saved leaves nothing (the core has the allow
+record); after the save and before the launch, a live session with no run which the sweep closes at its deadline; a run that cannot be
+launched is closed at once (Python leaves its session live). A freeze that crashes before its save leaves the session unfrozen and the
+person freezes again; an End likewise (the sweep closes at the deadline in any case).
+
+### What is deliberately not the same as Python (S3)
+
+All of these leave the answer for ordinary inputs unchanged.
+
+- **Authenticate first.** Python answers `404` for an unknown session or agent, and "not held" to a release, before it looks at the
+  token or at who asks; an unauthenticated caller could learn which sessions exist and which agents are held. Go authenticates before
+  anything, and tells a person who may not manage an agent nothing about it (a release is `CT-FORBIDDEN`, not `CT-NOHOLD`).
+  An authenticated person still learns from `404` against `403` whether a session id exists (Python the same; the ids are random and
+  the person is on the allow-list).
+- **A delegate naming `user:`** (no name) is refused (400); Python goes on to ask whether a person with no name may manage the agent,
+  which an admin glob such as `user:*` answers yes to. `hours` as a string of non-ASCII digits is refused; Python's `int()` reads it.
+- **Freeze does not wait for a call in flight** on the session; the check that the session is live and not yet frozen and the trip are one
+  step under the session's lock, so two freezes give one freeze and one `CT-TRIPPED`. Two Ends give one End and one `CT-CLOSED`, and one
+  record. Two answers to one request give one answer, one record and `HR-ANSWERED`.
+- **A hold and a trigger's open are ordered.** The hold is saved under a write lock and every trigger open (and a person's run) reads the hold
+  and opens its session under the read lock, so when a hold call returns no open that read "no hold" is still in flight. Python gets this from
+  its one lock. An expired hold is dropped by the sweep, not by the read that finds it.
+- **The repeatable writes are rate limited**: a person (or a delegate naming one) may make 30 holds and 30 runs a minute (`CT-RATE`, 429),
+  checked after the person has been, so nobody's allowance is spent by a caller who was refused. Python has no limit.
+- **Old human requests are pruned** (30 days after they expired; Python keeps them for ever), and the event history is also bounded by
+  size (the newest 200,000 rows; Python bounds it by age alone).
+- **A person's run that cannot be launched leaves no live session**; a trigger whose launch failed closes its session; and a candidate
+  that was refused leaves nothing in the candidate table (Python keeps what it was asked to run until later runs age it out).
+- **A candidate's runtime image** must end in `@sha256:` and exactly 64 lowercase hex digits (never all zeros), an empty
+  `RuntimeImages` allow-list refuses every candidate (Python allows any registry), and a glob must match the whole image: the bare-prefix
+  fallback Python adds is gone, so `ghcr.io/team` no longer admits `ghcr.io/team-evil/x` (`TestCandidateImageCheck`). `RUNTIME_IMAGES_EXTRA` fills
+  the list.
+- **`score` takes at most 50 sessions a case** (Python: only the body's 64 KiB).
+- **The grants are checked** (see the trigger rule); Python adopts the core's.
+- **The bridge** reconnects with a bounded, jittered backoff (Python: a fixed 5 s), has the limits above, does not move its cursor past an
+  event whose ledger write failed, ignores an id the cursor must not follow, remembers the last 5,000 event ids as Python does, and keeps a
+  brake per agent that follows a change of `maxPerHour` (Python keeps the first it saw). The topic matcher is a table, not Python's
+  recursion, which is exponential in the number of `#` words and whose input is an event's routing key. An event whose id is not in the form
+  ids have is dropped (Python accepts any string). A stream that ends in the middle of an event does not deliver it (as Python's parser).
+- **The Preflight fingerprint** is Go's own digest of the parsed definition (Python hashes its dataclass); the two gateways keep separate
+  ledgers, so nothing compares them.
+- **The summary's overflow** drops the largest value first (Python: the last inserted); the bound is the same.
+- **A run's identity needs its pod** (the pod-binding rule, below), which Python does not check.
+
+### What still refuses at the boundaries S3 leaves
+
+- **A candidate `document`** on `POST /v1/agents/{agent}/runs` answers `CT-NOTCARRIED` (501), after the person has been checked and before
+  anything is opened. S3 supplies the fingerprint, the image rule, the clamp, the person's rule, the grant check and the candidate table;
+  the validated parse of a definition document is S4's (the JSON schema), and `Gateway.CandidateParse` stays nil in `serve` until S4 sets it.
+- **The Backstage directory** (`BACKSTAGE_URL`, still refused at start) is S5a's client. Until it is wired an agent's owner group resolves to
+  nobody (see above).
+- **The Prometheus endpoint and the trigger counters' names on it** (`METRICS_PORT`) are S6; the counters are counted behind `triggers.Metrics`
+  and dropped. `serve` warns when `METRICS_PORT` is set.
+- **Alert and RabbitMQ event triggers** are in the schema and have no reader in the Python gateway either (`EVENTS_RABBITMQ_ENABLED` refuses to
+  start there and here); `GLIDEPATH_API_URL` is accepted only with `EVENTS_ENABLED`, because the glidepath tools (S5b) are not carried.
 
 ## The drift guard
 
-`gateway/PORTED.json` lists every Python file the Go gateway ports (26 of them), the Go paths that carry it, what of it
+`gateway/PORTED.json` lists every Python file the Go gateway ports (34 of them, as of S3), the Go paths that carry it, what of it
 the Go gateway carries, what is left in it for a later slice, and the SHA-256 the file had when the Go code was last
 brought level with it. `tests/test_gateway_go.py` fails when a listed file's hash differs. A hash cannot tell whether a
 change matters to the port, so the failure asks the author to read it and do one of two things: port the change to Go in
@@ -314,11 +483,15 @@ is accepted and none panics.
    line it can take, the evaluation the Go gateway builds equals the Python one field for field, the decision (allow,
    rule, name, message, hint, tier, problems) is identical, the spend leaves the session as the Python one did, the
    grant a `session.open` makes is identical, and the decision record the core writes has the corpus line's fields.
-   Against clearance v0.44.0 (the CI pin): 342 tool calls, 261 session opens, 35 session spawns, 49 model calls; 372
-   spends, 648 records and 265 grants compared; zero differences. (Before S2: 341 tool calls, 261 opens, 42 model calls,
-   329 spends, 605 records, 247 grants; the spawns and the runs acting as their sessions were skipped. The first slice ran
-   it against v0.31.0 and v0.35.0.) The 35 spawns go through the real `Gateway.Call` with the real core's grant, so the
-   gateway's own check of the grant (`session.AdoptChild`) is shown to accept everything the core makes. Five tool calls are listed as decided differently on purpose since the corpus was recorded: Glidepath's
+   Against clearance v0.44.0 (the CI pin): 342 tool calls, 292 session opens (261 a person's or a client's, 31 triggered), 35
+   session spawns, 49 model calls; 372 spends, 679 records and 290 grants compared; zero differences. (Before S3: 261 opens,
+   648 records, 265 grants; the 31 triggered opens were skipped. Before S2: 341 tool calls, 261 opens, 42 model calls, 329
+   spends, 605 records, 247 grants; the spawns and the runs acting as their sessions were skipped. The first slice ran it
+   against v0.31.0 and v0.35.0.) The 35 spawns go through the real `Gateway.Call` with the real core's grant, so the
+   gateway's own check of the grant (`session.AdoptChild`) is shown to accept everything the core makes; the 31 triggered opens go
+   through the real `Gateway.OpenTriggered` (the evaluation with the agent's hold and the live session of the task in it, the core's
+   decision, the session the grant makes or the live one a dedupe names, and the record), so the gateway's check of a triggered
+   grant (`checkOpenGrant`) is shown to accept everything the core makes too. Five tool calls are listed as decided differently on purpose since the corpus was recorded: Glidepath's
    contract v2 `propose` class changed the text of the Flight-environment refusals (`decidedDifferentlySince` in
    `replay_test.go`; the corpus is not edited). `TestReplayDetectsDrift` shows a changed field is noticed.
    The corpus is not edited; the lines the replay cannot take are listed below.
@@ -340,43 +513,41 @@ is accepted and none panics.
 | Corpus lines | Why |
 |---|---|
 | nothing now: the 35 `session.spawn` lines and the 8 `tool.call` (1) and `model.call` (7) lines of a run acting as its session, skipped before S2 for want of the run backend, are compared like the others (request, decision, spend, the grant the child is created from, the record) | |
-| triggered `session.open` (31) | `open_triggered`, holds and the trigger ledger are not ported |
+| nothing more for S3: the 31 triggered `session.open` lines (holds, a live session of the task, dedupes) are compared like the others | |
 | `activation` and probe lines (the rest) | the core's own decision engine; they carry no gateway request |
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
 
-## What is not carried (after S2)
+## What is not carried (after S3)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `BACKSTAGE_URL`,
-`APP_API_SERVICES`, `ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes a feature is live when it is not.
+does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_RABBITMQ_ENABLED`, `BACKSTAGE_URL`, `APP_API_SERVICES`,
+`ARGO_SYNC_ENABLED`, `AUTOPILOT_EPHEMERAL`, and `GLIDEPATH_API_URL` without `EVENTS_ENABLED`), so nobody believes a feature is
+live when it is not. S3 removed `EVENTS_ENABLED` from the list (and with it `GLIDEPATH_API_URL`, which only the event bridge reads in
+the Go gateway); `SCHEDULES_ENABLED`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`,
+`RUNTIME_IMAGES_EXTRA` and `PREFLIGHT_CASES_DIR` are read, with Python's checks.
 
 Not ported, and still the Python gateway's:
 
-- **The person-facing side of runs (S3)**: `run_agent` as a route (who may run what, holds) and the Preflight routes
-  `/v1/preflight/cases` and `/v1/preflight/score`, with the cases, the scoring and the ledger (`preflight.py`). What a person's
-  run does once checked is here (`RunAgentAs`, `Candidate`). `Candidate` refuses (`ErrNotCarried`) until a validated parse and
-  a fingerprint are supplied: a candidate document is untrusted and the definition schema is S4's, so S3 must not call it
-  before S4 or supply both.
-- **The human inbox** (`human.request`), person controls (freeze, end, hold, release), the trigger scheduler, `open_triggered`,
-  the event bridge, the reconciliation sweep and the trigger ledger (S3). `session_close` here is the owner's tool; Tower's End
-  is S3's.
+- **A candidate's definition document** (S4): `POST /v1/agents/{agent}/runs` with `document` answers `CT-NOTCARRIED` (501) until the
+  definition schema is carried and `Gateway.CandidateParse` is set. Everything around it is in (see [S3](#what-s3-carries-the-human-inbox-person-controls-and-triggers-2026-11-14)).
+- **The Backstage directory** (S5a's client): an agent's owner group is not resolved, so only a session's person and the admins act
+  until it is wired. `BACKSTAGE_URL` is still refused at start.
 - **Artifacts** (`artifact.put`, `artifact.get`): no handler (S5a); a run's answer is kept as the run path needs it.
-- **A candidate's image check is Python's, and too loose to put behind a route** (`Candidate`, TODO in the code): an empty
-  `RuntimeImages` allows any registry, and the digest is matched as a substring of the image. S3 must tighten it (the digest
-  is `@sha256:` and 64 hex digits at the end of the image; an empty allow-list refuses) before any route calls it.
-- **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`): a candidate's image globs are
-  `Gateway.RuntimeImages`, which nothing sets yet (S6).
-- **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader: the Go gateway reads the
+- **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`, S6): a candidate's image globs are
+  `Gateway.RuntimeImages`, filled from `RUNTIME_IMAGES_EXTRA` alone.
+- **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader (S4): the Go gateway reads the
   bundled `agents/` and the pinned set the Python loader keeps in `gateway_definitions`, and publishes nothing. It does
-  not validate definitions against the JSON schema (the loader that wrote the set did).
+  not validate definitions against the JSON schema (the loader that wrote the set did). Triggers are read from the definition as it
+  is and an entry that does not have the schema's shape fires nothing.
 - **Backends**: `metrics.query` and `logs.query` (Prometheus, Loki) are ported with per-backend timeouts and pools. The
   rest (`catalog.read`, `argo.app.get`, `argo.sync.lower`, `app.api.get`, `repo.*`, `xr.request`, `glidepath.*`,
   `airframe.*`, `artifact.*`) have no handler, so a call to them is refused as having no backend, as in a Python
-  gateway that does not configure them.
-- **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), Prometheus metrics on `METRICS_PORT`,
-  OTLP logs, and a `held` outbox reason (since clearance v0.28.0 the core takes every kind the gateway writes).
-- **Release plumbing**: no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
+  gateway that does not configure them. (`human.request` and `human.request.get` now have one.)
+- **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), the Prometheus endpoint on `METRICS_PORT` (the
+  trigger counters are counted behind `triggers.Metrics` and not served), OTLP logs, and a `held` outbox reason (since clearance
+  v0.28.0 the core takes every kind the gateway writes) (S6).
+- **Release plumbing** (S7): no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
   `gateway-image.yaml` builds.
 
 The 7-day canary, moving every definition to it, and removing the Python gateway are the managing agent's later steps,
@@ -394,7 +565,9 @@ It reads the variables the Python gateway reads, for the part it carries: `PORT`
 `CLEARANCE_CORE_URL`, `CLEARANCE_CORE_TOKEN_FILE`, `AUTOPILOT_AGENTS_DIR`, `AUTOPILOT_AUDIENCE`, `MODEL_TOKEN_AUDIENCE`,
 `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL`, `AUTOPILOT_OIDC_USER_CLAIM`, `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL`, `AUTOPILOT_JWKS_ALLOW_HTTP` (Go only),
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
-`AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
+`AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `LOG_LEVEL`, and (S3) `AUTOPILOT_DELEGATES`,
+`AUTOPILOT_ADMINS`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `GLIDEPATH_TOKEN_FILE`, `SCHEDULES_ENABLED`, `RECONCILE_SECONDS`,
+`RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA`, `PREFLIGHT_CASES_DIR`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.
 

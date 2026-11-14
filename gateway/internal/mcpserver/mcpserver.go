@@ -267,6 +267,7 @@ func Handler(g *dispatch.Gateway, path, resourceURL, issuerURL string) http.Hand
 		ResourceMetadataURL:    resourceURL + "/.well-known/oauth-protected-resource"})(h))
 	mux.Handle("GET /.well-known/oauth-protected-resource", sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
 		Resource: resourceURL, AuthorizationServers: []string{issuerURL}, BearerMethodsSupported: []string{"header"}}))
+	addPeopleRoutes(mux, g)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "tools": g.Tools.Len(), "core": g.Core.BreakerState()})

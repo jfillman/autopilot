@@ -12,7 +12,11 @@ a tool's result, which the Go dispatch must send the core on the outcome) and th
 the run identity (gateway/internal/runs/testdata/manifests.json: manifests.agentrun_manifest, AgentRunBackend.principal),
 who a caller acts as (gateway/internal/dispatch/testdata/acting.json: Gateway._acting), the run results helpers and the
 operations that end a run (gateway/internal/dispatch/testdata/results.json and runs.json: results.observe/warnings/clip_text, Gateway.finish_run,
-close_session, expire, _spawn) and the Preflight candidate clamp (gateway/internal/dispatch/testdata/candidates.json).
+close_session, expire, _spawn) and the Preflight candidate clamp (gateway/internal/dispatch/testdata/candidates.json) and the
+S3 slice's: the human inbox, the person controls and the rows they write (gateway/internal/dispatch/testdata/people.json:
+engine/inbox.py, control.py, events.py, Gateway.freeze_session, end_session, hold_triggers, release_triggers, human_answer) and
+the triggers (gateway/internal/triggers/testdata/triggers.json: triggers.py, trigger_ledger.py, event_bridge.py, reconcile.py,
+scheduler.py driven over a fake gateway and the in-memory ledger).
 
 tests/test_gateway_go.py fails when the committed file differs from what this prints, so the two
 implementations cannot drift while both exist.   python tools/gen_gateway_registry.py [--check]
@@ -48,6 +52,8 @@ ACTING_OUT = ROOT / "gateway" / "internal" / "dispatch" / "testdata" / "acting.j
 RUNS_OUT = ROOT / "gateway" / "internal" / "dispatch" / "testdata" / "results.json"
 RUN_OPS_OUT = ROOT / "gateway" / "internal" / "dispatch" / "testdata" / "runs.json"
 CANDIDATES_OUT = ROOT / "gateway" / "internal" / "dispatch" / "testdata" / "candidates.json"
+PEOPLE_OUT = ROOT / "gateway" / "internal" / "dispatch" / "testdata" / "people.json"
+TRIGGERS_OUT = ROOT / "gateway" / "internal" / "triggers" / "testdata" / "triggers.json"
 
 
 def spec(t) -> dict:
@@ -484,9 +490,323 @@ def candidates_cases() -> str:
     return json.dumps(out, indent=1, sort_keys=True, default=str) + "\n"
 
 
+# -- A-9 S3: the people's side and the triggers ---------------------------------------------------------------------------------
+
+
+class _PeopleAuth:
+    """Tokens are principal ids; kind by id: user:... is a person, the rest a workload (a run, a delegate)."""
+    def authenticate(self, token):
+        from autopilot.engine.dispatch import AuthError, Principal
+        if token == "nobody":
+            raise AuthError("token not accepted")
+        return Principal(token, "user" if token.startswith("user:") else "workload", Tier.T1)
+
+
+class _Dir:
+    def __init__(self, groups):
+        self.g = groups
+
+    def groups(self, principal):
+        return set(self.g.get(principal, ()))
+
+
+def _err(e):
+    return {"rule": e.rule, "message": e.message, "status": e.status}
+
+
+def people_cases() -> str:
+    from autopilot.engine import control as ctl
+    from autopilot.engine import events as evh
+    from autopilot.engine import inbox as hr
+    from autopilot.engine.session import Session
+    out: dict = {}
+    now = T0
+
+    # -- the pure checks
+    def attempt(fn, *a):
+        try:
+            return {"ok": fn(*a)}
+        except (hr.InboxError, ctl.ControlError) as e:
+            return {"error": _err(e)}
+
+    qs = [("Which?", None), ("  Which?  ", ["a", " b "]), ("", None), ("   ", None), (5, None), ("x" * 2001, None), ("x" * 2000, None),
+          ("q", "a"), ("q", ["a", "a"]), ("q", ["a", " "]), ("q", ["a" * 201]), ("q", [str(i) for i in range(11)]), ("q", [str(i) for i in range(10)]),
+          ("q", [1]), ("q", []), ("q", {"a": 1})]
+    out["check_question"] = [{"question": q, "options": o, **attempt(hr.check_question, q, o)} for q, o in qs]
+    req = hr.HumanRequest("h-000000000001", "t-1", "s-1", "a", "user:alice", "group:default/team", "q?", ["a", "b"], now, now + timedelta(hours=1))
+    free = hr.HumanRequest("h-000000000002", "t-1", "s-1", "a", "user:alice", None, "q?", [], now, now + timedelta(hours=1))
+    answered = hr.HumanRequest("h-000000000003", "t-1", "s-1", "a", "user:alice", None, "q?", [], now, now + timedelta(hours=1), status="answered",
+                               answered_by="user:bob")
+    cases = []
+    for r, label in ((req, "options"), (free, "free"), (answered, "answered")):
+        for at in (now, now + timedelta(hours=1), now + timedelta(hours=2)):
+            for ans in ("a", " b ", "c", "", "  ", None, 5, "x" * 4001, "x" * 4000):
+                cases.append({"request": label, "at": at.isoformat(), "answer": ans, **attempt(hr.check_answer, r, ans, at)})
+    out["check_answer"] = cases
+    out["may_answer"] = [{"person": p, "groups": g, "owner": hr.may_answer(req, p, g), "free": hr.may_answer(free, p, g)}
+                         for p in ("user:alice", "user:bob") for g in ([], ["group:default/team"], ["group:default/other"])]
+    out["check_hours"] = [{"hours": h, **attempt(ctl.check_hours, h)} for h in (None, "", 1, 336, 337, 0, -1, "7", " 7 ", "x", 2.5, 2.9, True, False, [], {}, "1e2", "٣")]
+    out["check_reason"] = [{"reason": r, **attempt(ctl.check_reason, r)} for r in ("x", "  x  ", "", "  ", None, 5, "x" * 500, "x" * 501)]
+    out["may_manage"] = [{"person": p, "owner": o, "groups": g, "admins": a, "ok": ctl.may_manage(p, o, g, a)}
+                         for p in ("user:alice", "user:root") for o in (None, "group:default/team") for g in ([], ["group:default/team"])
+                         for a in ([], ["user:root"], ["user:*"], ["user:[a-b]*"])]
+    # -- the rows the Python gateway writes
+    from dataclasses import asdict
+    rec = asdict(answered)
+    for k in ("created_at", "expires_at", "answered_at"):
+        rec[k] = rec[k].isoformat() if rec[k] else None
+    full = hr.HumanRequest("h-000000000004", "t-1", "s-1", "a", "user:alice", "group:default/team", "q?", ["a"], now + timedelta(microseconds=5),
+                           now + timedelta(hours=1), status="answered", answer="a", answered_by="user:alice", answered_via="hangar/tower/backend",
+                           answered_at=now + timedelta(minutes=1, microseconds=120))
+    rec2 = asdict(full)
+    for k in ("created_at", "expires_at", "answered_at"):
+        rec2[k] = rec2[k].isoformat() if rec2[k] else None
+    out["inbox_rows"] = [rec, rec2, asdict(req) | {"created_at": now.isoformat(), "expires_at": (now + timedelta(hours=1)).isoformat(), "answered_at": None}]
+    out["inbox_views"] = [{"view": r.view(now + timedelta(hours=1)), "at": (now + timedelta(hours=1)).isoformat()} for r in (req, answered, full)]
+    out["holds"] = [ctl.Hold("a", "user:root", "tower", "storm", now, now + timedelta(hours=24)).view(),
+                    ctl.Hold("a", "user:root", None, "storm", now + timedelta(microseconds=7), now + timedelta(hours=1)).view()]
+    ev = evh.from_summary({"id": "e1", "app": "Gate-API", "routingKey": "gate-api.pipelinerun.finished", "receivedAt": "2026-09-26T11:59:00Z", "type": "t",
+                           "subject": {"id": "pr-1", "content": {"outcome": "failure", "n": 3}}},
+                          [{"agent": "triage-agent", "result": "launched", "session": "s-1", "run": "r-1", "via": "stream", "extra": 1},
+                           {"agent": "", "result": "x"}, {"result": "no agent"}], now)
+    out["events"] = [ev.view()]
+    # -- the operations, on a Python gateway
+    from autopilot.engine.dispatch import Gateway
+    from autopilot.engine.session import SessionStore
+    from autopilot.engine.inbox import MemoryInbox
+    from autopilot.engine.control import MemoryHolds
+
+    def gw(*sessions):
+        core = _Core()
+        defs = profile.load_dir(ROOT / "agents")
+        g = Gateway(defs, SessionStore(), core, _PeopleAuth(), lambda: T0, packs=(HANGAR_PACK,), inbox=MemoryInbox(),
+                    directory=_Dir({"user:grace": ["group:default/team-platform"]}), delegates=["hangar-prod/tower/*"], holds=MemoryHolds(),
+                    admins=["user:root"])
+        for x in sessions:
+            g.store._s[x.id] = Session.from_record(x.to_record())
+        return g, core
+
+    def step(g, fn, *a, **k):
+        try:
+            return {"result": fn(*a, **k)}
+        except (hr.InboxError, ctl.ControlError) as e:
+            return {"error": _err(e)}
+
+    parent = _session("s-0000a1", agent="orchestrator", children=["s-0000c1"], reserved={"tool_calls": 10},
+                      limits={"tools": ["catalog.read", "human.request", "human.request.get"]})
+    child = _session("s-0000c1", parent="s-0000a1", depth=1, agent="researcher", limits={"tool_calls": 10}, used={"tool_calls": 4})
+    callers = [("user:alice", None), ("user:bob", None), ("user:root", None), ("user:grace", None), ("agent-r-0000a1/run", None),
+               ("agent-r-0000a1/run", "user:alice"), ("hangar-prod/tower/backend", None), ("hangar-prod/tower/backend", "user:alice"),
+               ("hangar-prod/tower/backend", "user:bob"), ("hangar-prod/tower/backend", "user:grace"), ("hangar-prod/tower/backend", "alice"),
+               ("hangar-prod/tower/backend", "user:"), ("hangar-prod/other", "user:root"), ("user:bob", "user:root")]
+    out["initial_sessions"] = [parent.to_record(), child.to_record()]
+    ops = []
+    for who, on in callers:
+        for name, fn in (("freeze", lambda g, w, o: g.freeze_session(w, "s-0000a1", "it opens bad PRs", on_behalf_of=o)),
+                         ("end", lambda g, w, o: g.end_session(w, "s-0000a1", "enough", on_behalf_of=o)),
+                         ("hold", lambda g, w, o: g.hold_triggers(w, "triage-agent", "storm", 2, on_behalf_of=o)),
+                         ("release", lambda g, w, o: (g.holds.put(ctl.Hold("triage-agent", "user:x", None, "r", T0, T0 + timedelta(hours=1))),
+                                                       g.release_triggers(w, "triage-agent", on_behalf_of=o))[1]),
+                         ("answer", lambda g, w, o: (g.inbox.add(hr.HumanRequest("h-000000000001", "t-0000a1", "s-0000a1", "orchestrator", "user:alice",
+                                                                                 "group:default/team-platform", "q?", [], T0, T0 + timedelta(hours=1))),
+                                                      g.human_answer(w, "h-000000000001", "yes", on_behalf_of=o))[1])):
+            g, core = gw(parent, child)
+            r = step(g, fn, g, who, on)
+            ops.append({"op": name, "caller": who, "on_behalf_of": on, **r,
+                        "sessions": {x: g.store.get(x).to_record() for x in ("s-0000a1", "s-0000c1")}, "records": core.records,
+                        "holds": [h.view() for h in g.holds.all()], "inbox": [x.view(T0) for x in g.inbox._by_id.values()]})
+    out["operations"] = ops
+    # the control checks that come after who: reasons, hours, unknown things, state
+    g, core = gw(parent, child)
+    seq = [("freeze", "user:alice", "s-0000a1", "  "), ("freeze", "user:alice", "s-nope", "x"), ("freeze", "user:alice", "s-0000a1", "go"),
+           ("freeze", "user:alice", "s-0000a1", "again"), ("end", "user:alice", "s-0000c1", "bye"), ("end", "user:alice", "s-0000c1", "again"),
+           ("freeze", "user:alice", "s-0000c1", "closed"), ("end", "user:alice", "s-0000a1", "x" * 501)]
+    steps = []
+    for op, who, sid, reason in seq:
+        fn = g.freeze_session if op == "freeze" else g.end_session
+        steps.append({"op": op, "caller": who, "session": sid, "reason": reason, **step(g, fn, who, sid, reason)})
+    out["control_sequence"] = {"steps": steps, "sessions": {x: g.store.get(x).to_record() for x in ("s-0000a1", "s-0000c1")}, "records": core.records}
+    g, core = gw(parent, child)
+    hs = []
+    for hours in (None, "", 0, 337, "x", 2.5, True, "7", 336):
+        hs.append({"hours": hours, **step(g, g.hold_triggers, "user:root", "triage-agent", "storm", hours)})
+    hs.append(step(g, g.hold_triggers, "user:root", "no-such-agent", "storm", 1))
+    hs.append(step(g, g.hold_triggers, "user:root", "triage-agent", "", 1))
+    hs.append(step(g, g.release_triggers, "user:root", "triage-agent"))
+    hs.append(step(g, g.release_triggers, "user:root", "triage-agent"))
+    out["hold_sequence"] = {"steps": hs, "records": core.records}
+    # the inbox through a session's own handler, then a person's answer (the ids are a counter here: the real ones are random)
+    counter = iter(range(1, 1000))
+    real_new_id = hr.new_id
+    hr.new_id = lambda: f"h-{next(counter):012x}"
+    g, core = gw(parent, child)
+    sess = g.store.get("s-0000a1")
+    inb = []
+    for a in ({"question": "Which?", "options": ["a", "b"]}, {"question": ""}, {"question": "q", "options": ["a", "a"]}):
+        try:
+            inb.append({"args": a, "result": g._human_request(sess, a)})
+        except Exception as e:  # noqa: BLE001 - a Denied
+            inb.append({"args": a, "denied": {"rule": e.rule, "message": e.message, "hint": e.hint}})
+    ids = [r.id for r in g.inbox._by_id.values()]
+    for rid in ("h-nope", ids[0], 5):
+        try:
+            inb.append({"get": "id" if rid == ids[0] else rid, "result": {k: v for k, v in g._human_get(sess, {"request": rid}).items() if k not in ("id",)}})
+        except Exception as e:  # noqa: BLE001
+            inb.append({"get": rid if rid != ids[0] else "id", "denied": {"rule": e.rule, "message": e.message, "hint": e.hint}})
+    for _ in range(6):
+        try:
+            g._human_request(sess, {"question": "flood"})
+        except Exception as e:  # noqa: BLE001
+            inb.append({"flood": {"rule": e.rule, "message": e.message, "hint": e.hint}})
+    out["inbox_handlers"] = inb
+    hr.new_id = real_new_id
+    return json.dumps(out, indent=1, sort_keys=True, default=str) + "\n"
+
+
+class _TrigGW:
+    """What the bridge and the scheduler need of a gateway: a fake whose session half is a map from (agent, task) to a session."""
+    def __init__(self, defs, hold=None):
+        from autopilot.engine.dispatch import Result
+        self.Result, self.defs, self.hold, self.n, self.sessions, self.run = Result, defs, dict(hold or {}), 0, {}, {}
+        self.opens, self.launches, self.events, self.fail = [], [], [], set()
+
+    def open_triggered(self, agent, trigger, task_id=None):
+        self.opens.append([agent, trigger, task_id])
+        if agent in self.fail:
+            raise RuntimeError("boom")
+        if self.hold.get(agent):
+            return self.Result(False, {"allow": False, "rule": self.hold[agent]}, error="held")
+        if (agent, task_id) in self.sessions:
+            sid = self.sessions[(agent, task_id)]
+            return self.Result(True, {"allow": True}, {"session": sid, "deduped": True}, session=sid)
+        self.n += 1
+        sid = f"s-{self.n:06d}"
+        self.sessions[(agent, task_id)] = sid
+        return self.Result(True, {"allow": True}, {"session": sid, "deduped": False}, session=sid)
+
+    def launch(self, sid, run_input=None):
+        self.launches.append(sid)
+        self.run[sid] = True
+        return self.Result(True, {"allow": True}, {"run": "r-" + sid[2:], "session": sid}, session=sid)
+
+    def record_event(self, summary, outcomes):
+        from autopilot.engine import events as evh
+        self.events.append(evh.from_summary(summary, outcomes, T0).view())
+        return True
+
+
+def triggers_cases() -> str:
+    import re as _re
+    from autopilot import event_bridge as eb
+    from autopilot import reconcile as rc
+    from autopilot import scheduler as sch
+    from autopilot import triggers as trg
+    from autopilot.engine import trigger_ledger as tl
+    from autopilot.metrics import TriggerMetrics
+    out: dict = {}
+    pats = ["gate-api.pipelinerun.finished", "*.pipelinerun.finished", "#.finished", "#", "a.#", "a.#.b", "a.*", "*", "", "a.b", "a.*.c", "#.#.#", "#.a.#", "a.#.#.b", "*.*", "a.b.#"]
+    keys = ["gate-api.pipelinerun.finished", "", "a", "a.b", "a.x.y.b", "a.b.c", "x.finished", "a.c.c", "a.b.b.b", "a..b"]
+    out["amqp"] = [{"pattern": p, "key": k, "match": trg.amqp_topic_match(p, k)} for p in pats for k in keys]
+    envs = [{"id": "e1", "app": "gate-api", "routingKey": "gate-api.pipelinerun.finished", "event": {"subject": {"id": "pr-1"}}},
+            {"id": "e2", "app": "other", "routingKey": "gate-api.pipelinerun.finished", "event": {"subject": {"id": "pr-1"}}},
+            {"id": "e3", "app": "gate-api", "routingKey": "gate-api.pipelinerun.started", "event": {"subject": {"id": "pr-1"}}},
+            {"id": "e4", "app": "gate-api", "routingKey": "gate-api.pipelinerun.finished", "event": {"subject": {}}},
+            {"id": "e5", "app": "", "routingKey": "gate-api.pipelinerun.finished"}, {"app": "gate-api", "routingKey": "gate-api.pipelinerun.finished", "event": {"subject": {"id": "p"}}},
+            {"id": "", "routingKey": "x"}, {"id": 5}, {"id": "e6", "app": "gate-api", "routingKey": "gate-api.pipelinerun.finished", "event": "x"}]
+    out["keys"] = [{"envelope": e, "key": tl.trigger_key(e)} for e in envs]
+    out["task_ids"] = [{"agent": a, "key": k, "id": trg.event_task_id(a, k)} for a in ("triage-agent", "x") for k in ("gate-api.pipelinerun.finished/pr-1", "event:e1")] + \
+                      [{"agent": a, "slot": n, "id": sch.slot_task_id(a, n)} for a in ("nightly-reviewer", "x") for n in (0, 1, 20406, 99999)]
+    out["slots"] = [{"now": t.isoformat(), "every": e, "slot": sch.slot_of(t, trg.parse_interval(e))[0], "start": sch.slot_of(t, trg.parse_interval(e))[1].isoformat()}
+                    for t in (T0, T0 + timedelta(hours=5, minutes=3), datetime(2026, 11, 14, 0, 0, tzinfo=timezone.utc), datetime(2026, 11, 14, 23, 59, 59, tzinfo=timezone.utc))
+                    for e in ("30m", "1h", "6h", "24h")]
+    # summaries
+    sums = []
+    big = {f"k{i}": "v" * 290 for i in range(40)}
+    for subject in ({"id": "pr-1", "content": {"outcome": "failure", "pipelineName": "build", "n": 3, "f": 1.5, "b": True, "nested": {"a": 1}, "long": "z" * 301}},
+                    {"id": "pr-2", "content": {}}, {"id": "pr-3"}, {}):
+        env = {"id": "e1", "app": "gate-api", "routingKey": "gate-api.pipelinerun.finished", "receivedAt": "2026-09-26T11:59:00Z",
+               "event": {"context": {"type": "dev.cdevents.pipelinerun.finished.0.3.0"}, "subject": subject}}
+        sums.append({"envelope": env, "summary": eb.summarize(env)})
+    out["summaries"] = sums
+    out["id_times"] = [{"id": i, "time": (eb.id_time(i).isoformat() if eb.id_time(i) else None)} for i in
+                       ("1794000000000000-ab", "17940000000000-ab", "1794000000000000", "x-y", "", None, "179400000000000a-bb")]
+    rows = [{"name": "pr-1", "app": "gate-api", "namespace": "ns", "status": "failed", "pipeline": "build", "endTime": "2026-09-26T11:50:00.123456789Z"},
+            {"name": "pr-2", "app": "gate-api", "status": "succeeded"}, {"name": "pr-3", "app": "gate-api", "status": "cancelled", "pipeline": ""},
+            {"name": "pr-4", "app": "gate-api", "status": "weird"}, {"app": "gate-api"}, {"name": "pr-5"}]
+    out["run_envelopes"] = [{"row": r, "envelope": rc.envelope_from_run(r)} for r in rows]
+    out["times"] = [{"s": s, "time": (rc._time(s).isoformat() if rc._time(s) else None)} for s in
+                    ("2026-09-26T11:50:00.123456789Z", "2026-09-26T11:50:00Z", "2026-09-26T11:50:00+02:00", "x", "", None, "2026-09-26T11:50:00.5Z")]
+    # the bridge, over a fake gateway and the in-memory ledger
+    def tdef(name, trigs, kind="event", ident="workload", instr="do it"):
+        return profile.AgentDefinition.__new__(profile.AgentDefinition) if False else None
+    defs = {k: v for k, v in profile.load_dir(ROOT / "agents").items() if k in ("triage-agent", "nightly-reviewer")}
+    d2 = dataclasses.replace(defs["triage-agent"], name="strict-agent", triggers=({"type": "event", "source": "glidepath", "bindingKey": "gate-api.pipelinerun.finished", "match": {"subject.content.outcome": "failure"}, "maxPerHour": 2},))
+    d3 = dataclasses.replace(defs["triage-agent"], name="any-agent", triggers=({"type": "event", "source": "glidepath", "bindingKey": "#.finished"},))
+    defs = {"triage-agent": defs["triage-agent"], "strict-agent": d2, "any-agent": d3, "nightly-reviewer": defs["nightly-reviewer"]}
+
+    def fin(eid, pr, outcome, app="gate-api"):
+        return {"id": eid, "app": app, "routingKey": f"{app}.pipelinerun.finished", "receivedAt": "2026-09-26T11:59:00Z",
+                "event": {"context": {"type": "t"}, "subject": {"id": pr, "content": {"outcome": outcome}}}}
+
+    clock = [T0]
+    gwb = _TrigGW(defs, hold={"any-agent": ""})
+    ledger = tl.MemoryTriggers()
+    m = TriggerMetrics()
+    bridge = eb.EventBridge(gwb, "http://glidepath.invalid", "/dev/null", clock=lambda: clock[0], ledger=ledger, metrics=m)
+    steps = []
+
+    def handle(env, via="stream", at=0):
+        clock[0] = T0 + timedelta(seconds=at)
+        done = bridge.handle(env, via)
+        steps.append({"envelope": env, "via": via, "at": at, "done": done})
+
+    handle(fin("e1", "pr-1", "failure"))
+    handle(fin("e1", "pr-1", "failure"))
+    handle(fin("e2", "pr-2", "success"), at=1)
+    handle(fin("e3", "pr-3", "failure"), at=2)
+    handle(fin("e4", "pr-4", "failure"), at=3)
+    handle(fin("reconcile:gate-api/pr-1", "pr-1", "failure"), "reconcile", at=4)
+    handle(fin("e5", "pr-5", "failure", app="other"), at=5)
+    gwb.hold["any-agent"] = "R024"
+    handle(fin("e6", "pr-6", "failure"), at=6)
+    gwb.hold["any-agent"] = "R001"
+    handle(fin("e7", "pr-7", "failure"), at=7)
+    gwb.hold["any-agent"] = ""
+    handle(fin("e8", "pr-8", "failure"), "recent", at=3700)
+    handle({"id": "e9", "routingKey": "x.y.z"}, at=3701)
+    out["bridge"] = {"steps": steps, "rows": sorted(({k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in r.items()} for r in ledger.rows.values()),
+                                                    key=lambda r: (r["agent"], r["key"])),
+                     "opens": gwb.opens, "launches": gwb.launches, "events": gwb.events,
+                     "counters": {"outcomes": {f"{k[0]}/{k[1]}/{k[2]}": v for k, v in m.outcomes._values.items()},
+                                  "missed": {f"{k[0]}/{k[1]}": v for k, v in m.missed._values.items()}}}
+    # the sweep's pure parts
+    out["watched"] = []
+    for label, ds in (("triage", {"t": defs["triage-agent"]}), ("strict", {"s": d2}), ("wild", {"w": d3}), ("none", {"n": defs["nightly-reviewer"]})):
+        found, apps = rc.watched_apps(ds)
+        out["watched"].append({"set": label, "found": found, "apps": sorted(apps)})
+    # the scheduler: a clock sequence over the in-memory ledger
+    clock = [datetime(2026, 11, 14, 0, 2, tzinfo=timezone.utc)]
+    gws = _TrigGW({"nightly-reviewer": defs["nightly-reviewer"]})
+    ledger = tl.MemoryTriggers()
+    ledger.cursor("schedule:nightly-reviewer", datetime(2026, 11, 10, 6, 0, tzinfo=timezone.utc))
+    ms = TriggerMetrics()
+    s = sch.Scheduler(gws, clock=lambda: clock[0], ledger=ledger, metrics=ms)
+    ticks = []
+    for label, t in (("first", datetime(2026, 11, 14, 0, 2, tzinfo=timezone.utc)), ("again", datetime(2026, 11, 14, 0, 2, 30, tzinfo=timezone.utc)),
+                     ("after grace", datetime(2026, 11, 14, 0, 11, tzinfo=timezone.utc)), ("next day", datetime(2026, 11, 15, 0, 1, tzinfo=timezone.utc)),
+                     ("two days later", datetime(2026, 11, 17, 3, 0, tzinfo=timezone.utc)), ("the day after", datetime(2026, 11, 18, 0, 5, tzinfo=timezone.utc))):
+        clock[0] = t
+        ticks.append({"label": label, "at": t.isoformat(), "done": s.tick()})
+    out["scheduler"] = {"ticks": ticks, "rows": sorted(({k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in r.items()} for r in ledger.rows.values()),
+                                                        key=lambda r: (r["agent"], r["key"])), "opens": gws.opens,
+                        "counters": {"launches": {f"{k[0]}/{k[1]}": v for k, v in ms.slot_launches._values.items()},
+                                     "missed": {k[0]: v for k, v in ms.slot_missed._values.items()}}}
+    return json.dumps(out, indent=1, sort_keys=True, default=str) + "\n"
+
+
 if __name__ == "__main__":
     text, ag, rw, be, ef = build(), agents(), rows(), backend_errors(), effects()
-    runs = {LIMITS_OUT: limits_cases(), MANIFESTS_OUT: manifests_cases(), ACTING_OUT: acting_cases(), RUNS_OUT: results_cases() + "",
+    runs = {PEOPLE_OUT: people_cases(), TRIGGERS_OUT: triggers_cases(), LIMITS_OUT: limits_cases(), MANIFESTS_OUT: manifests_cases(), ACTING_OUT: acting_cases(), RUNS_OUT: results_cases() + "",
             CANDIDATES_OUT: candidates_cases()}
     runs_ops = run_ops_cases()
     if "--check" in sys.argv:

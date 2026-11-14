@@ -307,7 +307,11 @@ func withRun(s *session.Session, want *client.EvaluationRequest) {
 }
 
 func principalOf(sub client.Subject) *dispatch.Principal {
-	return &dispatch.Principal{ID: sub.ID, Kind: sub.Properties.Kind, TierCeiling: sub.Properties.TierCeiling}
+	p := &dispatch.Principal{ID: sub.ID, Kind: sub.Properties.Kind, TierCeiling: sub.Properties.TierCeiling}
+	if sub.Properties.ActingAs != "" {
+		p.Pod = runs.PodName // a run's token is bound to its pod (a corpus line of a run acting as its session)
+	}
+	return p
 }
 
 func (r *replayer) newGateway(core *core.Core, st *session.Store, defs map[string]*definitions.Definition, p *dispatch.Principal, tool string, now time.Time) *dispatch.Gateway {
@@ -374,7 +378,7 @@ func (r *replayer) run(ctx context.Context, l line) {
 	case "session.open":
 		p := want.Action.Properties
 		if p.Trigger != "" || want.Context.Hold != nil || want.Context.Live != nil {
-			r.skips["session.open: a triggered open (open_triggered, not in this slice)"]++
+			r.triggeredOpen(ctx, l, &want)
 			return
 		}
 		r.open(ctx, l, &want)
@@ -649,6 +653,77 @@ func (r *replayer) open(ctx context.Context, l line, want *client.EvaluationRequ
 	r.record(l, cp, head)
 }
 
+// triggeredOpen replays a session.open of a trigger: the evaluation open_triggered builds (the agent's hold and the live session of
+// the task in its context), the core's decision, and the session it grants (a new one, or the live one when the core answers a
+// dedupe).
+func (r *replayer) triggeredOpen(ctx context.Context, l line, want *client.EvaluationRequest) {
+	st, _ := session.NewStore(ctx, nil)
+	st.SetIDs(func() string { return want.Context.NewSessionID })
+	now := want.Context.Now
+	defs := map[string]*definitions.Definition{}
+	if a := want.Context.Agent; a != nil {
+		defs[a.Name] = &definitions.Definition{Name: a.Name, Kind: a.Kind, IdentityType: a.IdentityType, ServiceAccount: a.ServiceAccount, Limits: a.Limits}
+	}
+	if want.Context.Live != nil {
+		adopt(st, want.Context.Live, now, nil)
+	}
+	cp := r.coreFor(l)
+	c := core.New(nil, nil, false)
+	if cp != nil {
+		c = goCore(r.t, cp.URL)
+	}
+	g := r.newGateway(c, st, defs, &dispatch.Principal{}, "", now)
+	holds := &dispatch.MemoryHolds{}
+	if h := want.Context.Hold; h != nil {
+		_ = holds.Put(ctx, &dispatch.Hold{Agent: want.Resource.ID, By: h.By, Reason: h.Reason, Since: now.Add(-time.Minute), Until: h.Until})
+	}
+	g.Holds = holds
+	got, err := g.TriggeredRequest(ctx, want.Resource.ID, want.Action.Properties.Trigger, want.Action.Properties.TaskID, st.NewID(), now)
+	if err != nil {
+		r.t.Fatalf("line %d: %v", l.n, err)
+	}
+	st.GiveBack(want.Context.NewSessionID)
+	if r.drift != nil {
+		r.drift(got)
+	}
+	r.counts["session.open request"]++
+	r.counts["triggered session.open request"]++
+	if !r.eq(l, "evaluation request", norm(r.t, got), norm(r.t, l.Request)) || cp == nil {
+		return
+	}
+	head := cp.head(r.t)
+	res, err := g.OpenTriggered(ctx, want.Resource.ID, want.Action.Properties.Trigger, want.Action.Properties.TaskID)
+	if err != nil {
+		r.fail(l, "open", err.Error(), "a decision")
+		return
+	}
+	r.counts["session.open decision"]++
+	r.counts["triggered session.open decision"]++
+	r.decision(l, res.Decision)
+	if len(l.Grant) > 0 && string(l.Grant) != "null" {
+		var wantGrant struct {
+			Session string `json:"session"`
+		}
+		_ = json.Unmarshal(l.Grant, &wantGrant)
+		s := st.Get(wantGrant.Session)
+		if s == nil {
+			r.fail(l, "grant", "no session", norm(r.t, l.Grant))
+		} else {
+			s.Lock()
+			g := map[string]any{"session": s.ID, "principal": s.Principal, "agent": s.Agent, "task_id": s.TaskID, "parent": s.ParentID,
+				"depth": s.Depth, "limits": s.Limits, "expires_at": s.ExpiresAt}
+			s.Unlock()
+			wantG := norm(r.t, l.Grant).(map[string]any)
+			delete(wantG, "deduped")
+			r.counts["grant compared"]++
+			r.eq(l, "grant", norm(r.t, g), wantG)
+		}
+	} else if res.OK {
+		r.fail(l, "grant", "a session was opened", "no grant")
+	}
+	r.record(l, cp, head)
+}
+
 func (r *replayer) modelCall(ctx context.Context, l line, want *client.EvaluationRequest) {
 	if want.Context.Models == nil {
 		r.skips["model.call: a gateway with no model routes answers M006 without asking the core"]++
@@ -742,7 +817,7 @@ func TestCorpusRequestsIdentical(t *testing.T) {
 		r.run(ctx, l)
 	}
 	r.report()
-	for _, k := range []string{"tool.call request", "session.open request", "model.call request", "session.spawn request"} {
+	for _, k := range []string{"tool.call request", "session.open request", "model.call request", "session.spawn request", "triggered session.open request"} {
 		if r.counts[k] == 0 {
 			t.Errorf("no corpus line compares %s", k)
 		}
@@ -777,7 +852,7 @@ func TestCorpusReplaysThroughGateway(t *testing.T) {
 		r.run(ctx, l)
 	}
 	r.report()
-	for _, k := range []string{"tool.call decision", "session.open decision", "model.call decision", "session.spawn decision", "spend compared", "record compared", "grant compared"} {
+	for _, k := range []string{"tool.call decision", "session.open decision", "model.call decision", "session.spawn decision", "triggered session.open decision", "spend compared", "record compared", "grant compared"} {
 		if r.counts[k] == 0 {
 			t.Errorf("no corpus line compares %s: a replay that compares nothing proves nothing", k)
 		}

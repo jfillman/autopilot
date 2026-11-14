@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "aad6da6d9dc18844b2170f009239f851f6a408d0",
+ "level_with": "501e7763774f95c0964921621ac57ea7f33d3c95",
  "ported": {
   "src/autopilot/conformance.py": {
    "sha256": "3b2bb62ff595c982ea2d95468ab85b209f450b59edfb0936c3e03f89471b05bc",
@@ -25,16 +25,16 @@
     "gateway/internal/dispatch",
     "gateway/internal/backends"
    ],
-   "carries": "BackendError (evidence, agent message), Handler, RunBackend (and a fake)",
-   "left_for_later_slices": "S3/S5 the core tools' handlers (repo.*, human.request, artifacts, chat)"
+   "carries": "BackendError (evidence, agent message), Handler, RunBackend (and a fake), the human inbox's handlers (human.request, human.request.get)",
+   "left_for_later_slices": "S5 the other core tools' handlers (repo.*, artifacts, chat)"
   },
   "src/autopilot/engine/control.py": {
    "sha256": "32cd12bba4e646d49131ea2384783c0084f074c73e0a40b0a4ea8f92cdfbc55c",
    "go": [
     "gateway/internal/dispatch"
    ],
-   "carries": "ControlError and check_reason (what session_close and run_finish answer with)",
-   "left_for_later_slices": "S3 holds, may_manage, check_hours and the person controls built on them"
+   "carries": "ControlError, check_reason, check_hours, Hold and its store, may_manage: the person controls",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/core.py": {
    "sha256": "4d7003b6d8a8941c581bf0574b10742119baadc8294d5ce0efa8a2473eecefba",
@@ -57,8 +57,24 @@
    "go": [
     "gateway/internal/dispatch"
    ],
-   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on",
-   "left_for_later_slices": "S3 person controls, the person-facing run_agent and Preflight routes, inbox, holds, open_triggered, triggers; S4 publish_definitions and the schema validation a candidate document needs"
+   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on; S3: _person, _manager, freeze_session, end_session, hold_triggers, release_triggers, hold_for, human_requests, human_answer and the inbox's handlers, open_triggered, record_event, run_agent (the route's checks, holds, Preflight candidates as far as Candidate goes), preflight_case_list and preflight_score",
+   "left_for_later_slices": "S4 publish_definitions, apply_cluster_definitions and the schema validation a candidate document needs (a `document` is refused until then)"
+  },
+  "src/autopilot/engine/events.py": {
+   "sha256": "1d6b17b44cb2b1485091f844920587711a2ed456b62f7b3124845b80b701e0ae",
+   "go": [
+    "gateway/internal/dispatch"
+   ],
+   "carries": "the event history: from_summary and the record",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/inbox.py": {
+   "sha256": "5526e9e708438335c4b5a98c2cc48445b73ea3f5e5ad9de7d83eac0b495127a4",
+   "go": [
+    "gateway/internal/dispatch"
+   ],
+   "carries": "the human inbox: the request, its checks, who may answer, the store",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/limits.py": {
    "sha256": "6660af78e73681f447f80e2e9732c17d5fe0bbf6e18b8433ede4eb738d71bcea",
@@ -90,15 +106,15 @@
    "go": [
     "gateway/internal/pgstate"
    ],
-   "carries": "the tables, the writer lock, sessions, run results and the outbox (schema.sql is generated)",
-   "left_for_later_slices": "S3 use of the inbox, holds and trigger-ledger tables"
+   "carries": "the tables, the writer lock, sessions, run results, the outbox, the inbox, holds, the event history and the trigger ledger and cursors (schema.sql is generated)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/profile.py": {
    "sha256": "c0b213a0f587f4866947d3c2e6205acdb4a0d60a24d33958d8a5b5d3307118d8",
    "go": [
     "gateway/internal/definitions"
    ],
-   "carries": "parse: scope, agent, runs_in",
+   "carries": "parse: scope, agent, runs_in, the interval and Glidepath event triggers",
    "left_for_later_slices": "S4 JSON-schema validation"
   },
   "src/autopilot/engine/results.py": {
@@ -123,8 +139,8 @@
    "go": [
     "gateway/internal/mcpserver"
    ],
-   "carries": "the MCP server surface: tools_list, agents_list, session_open, call, run_finish, session_close, healthz, protected-resource metadata",
-   "left_for_later_slices": "S3 the people routes (/v1/...)"
+   "carries": "the MCP server surface: tools_list, agents_list, session_open, call, run_finish, session_close, healthz, protected-resource metadata, the people routes (/v1/...: the inbox, freeze, end, hold, release, run, Preflight)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/session.py": {
    "sha256": "c29446c9438637350a8df372c89ba44b94864cec432ab3f86f4397309f9fb941",
@@ -141,6 +157,23 @@
     "gateway/internal/dispatch"
    ],
    "carries": "ToolSpec, tiers, the target and effect of a call",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/trigger_ledger.py": {
+   "sha256": "4b5b3f98ab1861ad8816c3a041b2788f5f63c76bcae125eba73c4308c47de075",
+   "go": [
+    "gateway/internal/triggers",
+    "gateway/internal/pgstate"
+   ],
+   "carries": "the trigger ledger and the cursors: claim, decide, advance, prune, the keys",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/event_bridge.py": {
+   "sha256": "fa6146b2071aed4196dcc76fa4cfab9bae0173219e4d9203a42402798de0e36a",
+   "go": [
+    "gateway/internal/triggers"
+   ],
+   "carries": "the event bridge: the stream, the catch-up, the cursor, the brake, the summary, the history (on a client of its own, with limits)",
    "left_for_later_slices": ""
   },
   "src/autopilot/gateway.py": {
@@ -177,6 +210,14 @@
    "carries": "the AgentRun manifest and the run name",
    "left_for_later_slices": ""
   },
+  "src/autopilot/preflight.py": {
+   "sha256": "4272861e30fbb4cd5b0d4c29de8f2866fb09629c0ac3ec0b2a9e292eeb17619d",
+   "go": [
+    "gateway/internal/dispatch"
+   ],
+   "carries": "the cases, the checks, the score, the ledger and the fingerprint (Go's own digest) behind the Preflight routes; the scripted-run harness is Python's local tooling",
+   "left_for_later_slices": ""
+  },
   "src/autopilot/reads.py": {
    "sha256": "c98d29d269289ce3134648fd9a88a5c11f44432ea194e8175175125256796902",
    "go": [
@@ -185,13 +226,29 @@
    "carries": "PrometheusAPI and LokiAPI (metrics.query, logs.query)",
    "left_for_later_slices": "S5a catalog.read, argo.app.get, app.api.get"
   },
+  "src/autopilot/reconcile.py": {
+   "sha256": "f6891eab21a001a459d260ca74de37795c138c5899d240e69d0d888e21415bd2",
+   "go": [
+    "gateway/internal/triggers"
+   ],
+   "carries": "the reconciliation sweep",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/scheduler.py": {
+   "sha256": "7019b6b0a00415ad48f661c827230f92b02b8aa473c5bb16e842dc834538fe40",
+   "go": [
+    "gateway/internal/triggers"
+   ],
+   "carries": "interval triggers: slots, grace, missed slots, once per slot",
+   "left_for_later_slices": ""
+  },
   "src/autopilot/serve.py": {
    "sha256": "f979bdff9a71dc7193440eef4417fcaf27e79efcac1e5017f27d6e3acb867c7d",
    "go": [
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store",
-   "left_for_later_slices": "S3/S4/S6 the settings and loops of what is not ported"
+   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S3: EVENTS_ENABLED and GLIDEPATH_API_URL (with it), SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler",
+   "left_for_later_slices": "S4/S5/S6 the settings and loops of what is not ported (the Backstage directory, the metrics port)"
   },
   "src/autopilot/settings.py": {
    "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",
@@ -199,6 +256,15 @@
     "gateway/cmd/autopilot-gateway"
    ],
    "carries": "the retired CLEARANCE_* names",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/triggers.py": {
+   "sha256": "1d0e787190916b2805d81dee246b86ead2635339a8a8f076c291d139c7a2386f",
+   "go": [
+    "gateway/internal/triggers",
+    "gateway/internal/definitions"
+   ],
+   "carries": "the topic matcher (as a table, not a recursion), the Glidepath event matcher, interval parsing, the task ids, the storm brake; alert and RabbitMQ matchers have no caller in Python and are not carried",
    "left_for_later_slices": ""
   },
   "src/autopilot/vendor/agentrun_compose.py": {
@@ -227,21 +293,13 @@
   "src/autopilot/api_serve.py": "S6",
   "src/autopilot/argo_sync.py": "S5b",
   "src/autopilot/cicd_propose.py": "S5b",
-  "src/autopilot/engine/events.py": "S3",
-  "src/autopilot/engine/inbox.py": "S3",
   "src/autopilot/engine/runtimes.py": "S6",
-  "src/autopilot/engine/trigger_ledger.py": "S3",
-  "src/autopilot/event_bridge.py": "S3",
   "src/autopilot/github_pr.py": "S5b",
   "src/autopilot/glidepath_api.py": "S5b",
   "src/autopilot/glidepath_live.py": "S5b",
   "src/autopilot/metrics.py": "S6",
   "src/autopilot/otlp_logs.py": "S6",
-  "src/autopilot/preflight.py": "S3",
   "src/autopilot/read_api.py": "S6",
-  "src/autopilot/reconcile.py": "S3",
-  "src/autopilot/scheduler.py": "S3",
-  "src/autopilot/triggers.py": "S3",
   "src/autopilot/vendor/airframe_sidecars.py": "S5c",
   "src/autopilot/xr_request.py": "S5c"
  },

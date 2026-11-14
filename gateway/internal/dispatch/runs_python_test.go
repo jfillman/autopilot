@@ -13,6 +13,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
+	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"github.com/jfillman/clearance/client"
@@ -381,7 +382,7 @@ func TestActingEqualsPython(t *testing.T) {
 	acts, stricter := 0, 0
 	for _, c := range cases {
 		s, _ := session.FromRecord(sessionRow("s-0000a1", c.SessionPrincipal, "orchestrator", "", func(rec *session.Record) { rec.Run = c.Run }))
-		got := r.g.Acting(s, &dispatch.Principal{ID: c.Caller, Kind: c.Kind})
+		got := r.g.Acting(s, &dispatch.Principal{ID: c.Caller, Kind: c.Kind, Pod: runs.PodName})
 		if got != c.Go {
 			t.Errorf("run %v caller %q (%s): go %q want %q (python %q)", c.Run, c.Caller, c.Kind, got, c.Go, c.Python)
 		}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,50 @@ func TestASingleAudienceWorkloadStillAsksForOne(t *testing.T) {
 	lit := &Workload{Audience: "x"}
 	if !slices.Equal(lit.audiences(), []string{"x"}) {
 		t.Fatal(lit.audiences())
+	}
+}
+
+// The pod binding: the token review's user.extra carries the bound pod's name under authentication.kubernetes.io/pod-name.
+// Its absence is no failure of authentication (a token for the bare service account is still that service account); it is
+// only "bound to no pod", which the acting rule (dispatch.Gateway.Acting) refuses. Several values, an empty one and a
+// malformed one are no binding either.
+func TestTheBoundPodIsCarriedOnTheWorkloadPrincipal(t *testing.T) {
+	podName := "authentication.kubernetes.io/pod-name"
+	cases := []struct {
+		name  string
+		extra map[string]any
+		want  string
+	}{
+		{"a token bound to a pod", map[string]any{podName: []string{"agent"}, "authentication.kubernetes.io/pod-uid": []string{"u-1"}}, "agent"},
+		{"no extra at all (not bound to a pod)", nil, ""},
+		{"a node-bound token carries no pod", map[string]any{"authentication.kubernetes.io/node-name": []string{"n1"}}, ""},
+		{"an empty list", map[string]any{podName: []string{}}, ""},
+		{"an empty name", map[string]any{podName: []string{""}}, ""},
+		{"two values", map[string]any{podName: []string{"agent", "other"}}, ""},
+		{"not a pod name", map[string]any{podName: []string{"Agent_1"}}, ""},
+		{"a name that is far too long", map[string]any{podName: []string{strings.Repeat("a", 300)}}, ""},
+		{"another key with the pod's name", map[string]any{"pod-name": []string{"agent"}}, ""},
+	}
+	for _, c := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := map[string]any{"username": "system:serviceaccount:agent-r-0000a1:run"}
+			if c.extra != nil {
+				user["extra"] = c.extra
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": map[string]any{"authenticated": true, "audiences": []string{"autopilot"}, "user": user}})
+		}))
+		tok := filepath.Join(t.TempDir(), "token")
+		_ = os.WriteFile(tok, []byte("own"), 0o600)
+		w := NewWorkload("autopilot")
+		w.API, w.TokenFile, w.HTTP = srv.URL, tok, srv.Client()
+		p, err := w.Authenticate(context.Background(), "tok")
+		srv.Close()
+		if err != nil {
+			t.Errorf("%s: authentication must not depend on the pod binding: %v", c.name, err)
+			continue
+		}
+		if p.ID != "agent-r-0000a1/run" || p.Kind != "workload" || p.Pod != c.want {
+			t.Errorf("%s: %+v, want pod %q", c.name, p, c.want)
+		}
 	}
 }

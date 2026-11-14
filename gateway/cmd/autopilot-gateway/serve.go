@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
+	"github.com/jfillman/autopilot/gateway/internal/triggers"
 	"github.com/jfillman/clearance/client"
 )
 
@@ -48,6 +51,17 @@ type config struct {
 	modelTimeout            time.Duration
 	pgConns                 int32
 	auth                    authConfig
+	// The people's side (A-9 S3): who may act for a person (delegates) and who may manage every agent (admins), as globs; the
+	// triggers (the event bridge on glidepath-api, the interval scheduler, the reconciliation sweep).
+	delegates, admins    []string
+	eventsEnabled        bool
+	glidepathURL         string
+	glidepathTokenFile   string
+	schedulesEnabled     bool
+	reconcileEvery       time.Duration // 0: the sweep is off
+	reconcileWindowHours int
+	runtimeImages        []string
+	preflightCasesDir    string
 }
 
 type configError string
@@ -88,8 +102,37 @@ func number(env func(string) string, k string, d float64) (float64, error) {
 
 // unported are variables of the Python gateway whose features this slice does not carry. Starting with one set would
 // mean running without something the operator asked for, so the gateway refuses (docs/admin/go-gateway.md).
-var unported = []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
-	"GLIDEPATH_API_URL", "BACKSTAGE_URL", "APP_API_SERVICES", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
+//
+// A-9 S3 carries EVENTS_ENABLED (the event bridge) and with it GLIDEPATH_API_URL, which the bridge reads and nothing else of the Go
+// gateway does yet: it is accepted only together with EVENTS_ENABLED (see configFromEnv). EVENTS_RABBITMQ_ENABLED is refused, as the
+// Python gateway refuses it: the RabbitMQ source is designed and not built.
+var unported = []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_RABBITMQ_ENABLED",
+	"BACKSTAGE_URL", "APP_API_SERVICES", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
+
+// strictFlag is Python's _flag: 1/true/yes/on, 0/false/no/off, nothing is the default, anything else is an error.
+func strictFlag(env func(string) string, k string, d bool) (bool, error) {
+	switch v := strings.ToLower(strings.TrimSpace(env(k))); v {
+	case "":
+		return d, nil
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, configError(fmt.Sprintf("%s must be 0 or 1, not %q", k, env(k)))
+	}
+}
+
+// list is Python's _list: comma separated, trimmed, empties dropped.
+func list(v string) []string {
+	var out []string
+	for _, x := range strings.Split(v, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, x)
+		}
+	}
+	return out
+}
 
 func configFromEnv(env func(string) string) (*config, error) {
 	var stale []string
@@ -98,6 +141,14 @@ func configFromEnv(env func(string) string) (*config, error) {
 			stale = append(stale, k)
 		}
 	}
+	events, err := strictFlag(env, "EVENTS_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	if env("GLIDEPATH_API_URL") != "" && !events {
+		// glidepath-api's tools are a later slice (S5b): the only thing the Go gateway does with the URL is read the event stream.
+		stale = append(stale, "GLIDEPATH_API_URL (without EVENTS_ENABLED)")
+	}
 	if len(stale) > 0 {
 		return nil, configError(strings.Join(stale, ", ") + ": not carried by the Go gateway yet (docs/admin/go-gateway.md); unset them, or keep running the Python gateway")
 	}
@@ -105,6 +156,47 @@ func configFromEnv(env func(string) string) (*config, error) {
 		return nil, configError(m)
 	}
 	c := &config{}
+	c.eventsEnabled = events
+	if events {
+		if c.glidepathURL = env("GLIDEPATH_API_URL"); c.glidepathURL == "" {
+			return nil, configError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
+		}
+		if !strings.HasPrefix(c.glidepathURL, "http://") && !strings.HasPrefix(c.glidepathURL, "https://") {
+			return nil, configError("GLIDEPATH_API_URL is an http(s) URL")
+		}
+		c.glidepathTokenFile = getenv(env, "GLIDEPATH_TOKEN_FILE", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	}
+	if c.schedulesEnabled, err = strictFlag(env, "SCHEDULES_ENABLED", false); err != nil {
+		return nil, err
+	}
+	// The reconciliation sweep: 0 turns it off, else at least 30 s; its window reaches back at most as far as glidepath-api's
+	// sinceHours (744).
+	rec := 300.0
+	if strings.TrimSpace(env("RECONCILE_SECONDS")) == "0" {
+		rec = 0
+	} else if rec, err = number(env, "RECONCILE_SECONDS", 300); err != nil {
+		return nil, err
+	} else if rec <= 0 {
+		return nil, configError("RECONCILE_SECONDS must be positive")
+	}
+	if rec != 0 && rec < 30 {
+		return nil, configError("RECONCILE_SECONDS is at least 30 (or 0 to turn the sweep off)")
+	}
+	c.reconcileEvery = time.Duration(rec * float64(time.Second))
+	win, err := number(env, "RECONCILE_WINDOW_HOURS", 24)
+	if err != nil {
+		return nil, err
+	}
+	if win <= 0 || win != float64(int(win)) {
+		return nil, configError("RECONCILE_WINDOW_HOURS must be a positive whole number")
+	}
+	if win > 744 {
+		return nil, configError("RECONCILE_WINDOW_HOURS is at most 744 (glidepath-api's sinceHours limit)")
+	}
+	c.reconcileWindowHours = int(win)
+	c.delegates, c.admins = list(env("AUTOPILOT_DELEGATES")), list(env("AUTOPILOT_ADMINS"))
+	c.runtimeImages = list(env("RUNTIME_IMAGES_EXTRA"))
+	c.preflightCasesDir = env("PREFLIGHT_CASES_DIR")
 	c.dsn = env("GATEWAY_DSN")
 	if c.dsn == "" {
 		return nil, configError("GATEWAY_DSN is required")
@@ -267,6 +359,27 @@ func serve(_ []string) int {
 	g.SetRuns(&runs.Backend{Store: runs.NewKube()})
 	g.Results = pgstate.NewResults(st)
 	g.ModelVersions = cfg.modelRoutes
+	// The people's side: the human inbox, the holds, the event history and Preflight. There is no Directory yet (the Backstage
+	// client is a later slice), so a session's owner and the platform admins are who may act; a candidate definition is refused
+	// until the definition schema is carried (CandidateParse stays nil).
+	g.SetInbox(pgstate.NewInbox(st), nil, cfg.delegates)
+	g.Admins = cfg.admins
+	g.Holds = pgstate.NewHolds(st)
+	g.Events = pgstate.NewEvents(st)
+	g.RuntimeImages = cfg.runtimeImages
+	g.Fingerprint = dispatch.Fingerprint
+	g.PreflightLedger = &dispatch.PreflightLedger{}
+	g.Preflight = g.PreflightLedger.Of
+	casesDir := cfg.preflightCasesDir
+	if casesDir == "" {
+		casesDir = filepath.Join(filepath.Dir(filepath.Clean(cfg.agentsDir)), "preflight", "cases")
+	}
+	if fi, err := os.Stat(casesDir); err == nil && fi.IsDir() {
+		if g.PreflightCases, err = dispatch.LoadCases(casesDir); err != nil {
+			log.Error("preflight cases: " + err.Error())
+			return 2
+		}
+	}
 	// Crash-only: after a failed save the in-memory sessions are ahead of the database, and only a restart, which
 	// reloads them, puts the two back in step.
 	g.OnPersistError = func(err error) {
@@ -290,6 +403,11 @@ func serve(_ []string) int {
 		"model_proxy", cfg.modelKeyFile != "")
 
 	go sweep(ctx, g, cfg.expireEvery)
+	loops, err := startTriggers(ctx, cfg, g, pgstate.NewTriggers(st), log)
+	if err != nil {
+		log.Error("triggers: " + err.Error())
+		return 2
+	}
 	errc := make(chan error, len(servers))
 	for _, s := range servers {
 		go func() { errc <- s.ListenAndServe() }()
@@ -301,11 +419,13 @@ func serve(_ []string) int {
 			log.Error("server: " + err.Error())
 		}
 	}
+	stop() // the triggers end with the context; they are waited for below, bounded
 	sctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	for _, s := range servers {
 		_ = s.Shutdown(sctx)
 	}
+	waitFor(loops, 20*time.Second)
 	return 0
 }
 
@@ -332,6 +452,47 @@ func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration) {
 				}
 			}()
 		}
+	}
+}
+
+// startTriggers starts what the environment turns on: the interval scheduler (SCHEDULES_ENABLED), the event bridge (EVENTS_ENABLED) and
+// the reconciliation sweep beside it. Each runs on goroutines of its own and ends with ctx. The trigger counters are not served yet
+// (the Prometheus endpoint is a later slice): they are counted behind triggers.Metrics and dropped.
+func startTriggers(ctx context.Context, cfg *config, g *dispatch.Gateway, ledger triggers.Ledger, log *slog.Logger) (*sync.WaitGroup, error) {
+	wg := &sync.WaitGroup{}
+	var m triggers.Metrics = triggers.Nop{}
+	if cfg.schedulesEnabled {
+		sc := triggers.NewScheduler(g, ledger, nil, m, log)
+		wg.Add(1)
+		go func() { defer wg.Done(); sc.Run(ctx) }()
+	}
+	if cfg.eventsEnabled {
+		b, err := triggers.NewBridge(g, ledger, triggers.BridgeConfig{BaseURL: cfg.glidepathURL, TokenFile: cfg.glidepathTokenFile}, m, log)
+		if err != nil {
+			return wg, err
+		}
+		wg.Add(1)
+		go func() { defer wg.Done(); b.Run(ctx) }()
+		if cfg.reconcileEvery > 0 {
+			rc := triggers.NewReconciler(b, cfg.reconcileEvery, cfg.reconcileWindowHours)
+			wg.Add(1)
+			go func() { defer wg.Done(); rc.Run(ctx) }()
+		}
+	}
+	if os.Getenv("METRICS_PORT") != "" {
+		log.Warn("METRICS_PORT is set: the Go gateway does not serve the trigger metrics yet (a later slice); they are counted and not exposed")
+	}
+	return wg, nil
+}
+
+// waitFor waits for the goroutines to end, for at most d.
+func waitFor(wg *sync.WaitGroup, d time.Duration) {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(d):
+		slog.Warn("a trigger loop did not end in time")
 	}
 }
 

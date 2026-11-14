@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -217,6 +219,75 @@ func TestARunActsOnlyAsItsOwnSession(t *testing.T) {
 	}
 }
 
+// The pod binding (A-9 S3): the right identity is not enough. A token minted for the bare service account (bound to no pod, or
+// to a pod of another name) is that identity and nothing more.
+func TestARunActsOnlyWithATokenBoundToItsPod(t *testing.T) {
+	r, oc := treeRig(t, nil)
+	mk := func(id, kind, pod string) string {
+		tok := "tok:" + id + ":" + pod + ":" + kind
+		r.tokens[tok] = &dispatch.Principal{ID: id, Kind: kind, TierCeiling: 1, Pod: pod}
+		return tok
+	}
+	cases := []struct {
+		name, tok string
+		ok        bool
+		acting    string
+	}{
+		{"the right pod", mk("agent-r-0000a1/run", "workload", "agent"), true, "user:alice"},
+		{"the right identity, another pod name", mk("agent-r-0000a1/run", "workload", "agent-2"), false, ""},
+		{"the right identity, a pod named like the sandbox with a suffix", mk("agent-r-0000a1/run", "workload", "agent-abc12"), false, ""},
+		{"the right identity, no pod binding (a token for the bare service account)", mk("agent-r-0000a1/run", "workload", ""), false, ""},
+		{"a foreign-cluster principal with the run's identity and a pod name", mk("hangar-prod/agent-r-0000a1/run", "workload", "agent"), false, ""},
+		{"a person", mk("user:alice", "user", ""), true, ""},
+		{"a person whose id is a run's, with a pod", mk("agent-r-0000a1/run", "user", "agent"), false, ""},
+		{"another run's pod", mk("agent-r-0000b2/run", "workload", "agent"), false, ""},
+	}
+	for _, c := range cases {
+		before := len(oc.evals)
+		res := r.call(c.tok, "s-0000a1", "argo.app.get", map[string]any{"app": "x"})
+		if res.OK != c.ok {
+			t.Errorf("%s: ok=%v decision=%v", c.name, res.OK, res.Decision)
+		}
+		if len(oc.evals) == before {
+			t.Errorf("%s: the core was not asked", c.name)
+			continue
+		}
+		if got := oc.last().Subject.Properties.ActingAs; got != c.acting {
+			t.Errorf("%s: acting_as %q, want %q", c.name, got, c.acting)
+		}
+		if !c.ok && res.Decision["rule"] != "R001" {
+			t.Errorf("%s: refused as %v, want R001", c.name, res.Decision["rule"])
+		}
+	}
+	// the same rule for the other places a caller acts as a session: run_finish and session_close
+	bare := mk("agent-r-0000a1/run", "workload", "")
+	if _, err := r.g.FinishRun(context.Background(), bare, "s-0000a1", map[string]any{"status": "done"}); asCtl(err) == nil || asCtl(err).Rule != "R001" {
+		t.Errorf("run_finish with a bare service-account token: %v", err)
+	}
+	if _, err := r.g.CloseSession(context.Background(), bare, "s-0000a1", nil); asCtl(err) == nil || asCtl(err).Rule != "CT-FORBIDDEN" {
+		t.Errorf("session_close with a bare service account token: %v", err)
+	}
+	if names, ok, err := r.g.SessionTools(context.Background(), bare, "s-0000a1"); err != nil || ok || names != nil {
+		t.Errorf("session_tools with a bare token: %v %v %v", names, ok, err)
+	}
+}
+
+// The pod name the gateway requires is the Sandbox the composition creates: if the vendored composition renames it, this
+// fails and the pod binding must be reconsidered (the agent-sandbox controller names the pod after its Sandbox).
+func TestPodNameIsTheCompositionsSandbox(t *testing.T) {
+	raw, err := os.ReadFile("../../../src/autopilot/vendor/agentrun_compose.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^SANDBOX_NAME = "([^"]+)"$`).FindSubmatch(raw)
+	if m == nil || string(m[1]) != runs.PodName {
+		t.Fatalf("the composition's SANDBOX_NAME is %q, the gateway requires the pod %q", m, runs.PodName)
+	}
+	if (&runs.Backend{}).PodName("r-0000a1") != runs.PodName || (&runs.Backend{}).PodName("not-a-run") != "" {
+		t.Fatal("PodName")
+	}
+}
+
 // After a run is finished or closed the pod's token (still valid for a while) acts as nothing: its session has no run, or
 // is closed, and the core refuses a closed session whatever the caller.
 func TestAReplayedRunTokenActsAsNothingAfterItsRunIsGone(t *testing.T) {
@@ -299,6 +370,7 @@ func TestSessionToolsAndRunEndsAreForTheSessionsOwnRunOnly(t *testing.T) {
 type noIdentity struct{ dispatch.RunBackend }
 
 func (noIdentity) Principal(string) string { return "" }
+func (noIdentity) PodName(string) string   { return "" }
 
 // ---- spawn --------------------------------------------------------------------------------------------------------
 
@@ -894,6 +966,7 @@ func TestCandidateRefusesUntilTheDefinitionSchemaIsCarried(t *testing.T) {
 		return &d, nil
 	}
 	r.g.Fingerprint = func(*definitions.Definition) string { return "abcdef0123456789" }
+	r.g.RuntimeImages = []string{"ghcr.io/jfillman/*"}
 	cand, fp, err := r.g.Candidate("researcher", map[string]any{"name": "researcher"}, map[string]any{"tool_calls": json.Number("5")})
 	if err != nil || fp != "abcdef0123456789" || cand.Name != "pf-researcher-abcdef01" || cand.Limits.ToolCalls != 5 || cand.Limits.GithubCalls != 0 || r.g.Defs[cand.Name] != nil {
 		t.Fatalf("%+v %v", cand, err)
@@ -909,7 +982,7 @@ func TestCandidateRefusesUntilTheDefinitionSchemaIsCarried(t *testing.T) {
 	}
 	// a name that is a live definition is never shadowed
 	r.g.Defs["pf-researcher-abcdef01"] = r.g.Defs["researcher"]
-	r.g.RuntimeImages = nil
+	r.g.RuntimeImages = []string{"ghcr.io/jfillman/*"}
 	if _, _, err := r.g.Candidate("researcher", map[string]any{"name": "researcher"}, nil); asCtl(err) == nil || asCtl(err).Rule != "R001" {
 		t.Errorf("%v", err)
 	}
@@ -926,7 +999,7 @@ func TestRunAgentAsOpensTheSessionAsThePersonAndLaunchesIt(t *testing.T) {
 		open = req
 		id := "d-open"
 		d := req.Context.Agent
-		g := &client.Grant{Session: req.Context.NewSessionID, TaskID: "t-" + req.Context.NewSessionID[2:], Principal: req.Subject.ID, Agent: d.Name, Limits: d.Limits, ExpiresAt: req.Context.Now.Add(30 * time.Minute)}
+		g := &client.Grant{Session: req.Context.NewSessionID, TaskID: "t-" + req.Context.NewSessionID[2:], Principal: req.Subject.ID, Agent: d.Name, Limits: d.Limits, ExpiresAt: req.Context.Now.Add(time.Duration(d.Limits.TTLMinutes) * time.Minute)}
 		return client.EvaluationResult{Decision: true, DecisionID: &id, Record: &client.RecordRef{Seq: 1, Hash: "h"}, Context: client.DecisionContext{Message: "allowed", Grant: g}}
 	}
 	// researcher is a task agent with a runtime image
@@ -976,6 +1049,74 @@ func TestRunAgentAsOpensTheSessionAsThePersonAndLaunchesIt(t *testing.T) {
 }
 
 var _ = definitions.Parse
+
+// The image check is stricter than Python's on purpose (docs/admin/go-gateway.md, differences): a candidate document is
+// untrusted input behind a route. Python, for the same inputs, in the comments.
+func TestCandidateImageCheck(t *testing.T) {
+	r := newRunRig(t)
+	good := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("ab", 32)
+	r.g.CandidateParse = func(doc any) (*definitions.Definition, error) {
+		d := *r.g.Defs["researcher"]
+		img := doc.(map[string]any)["image"].(string)
+		d.Image = &img
+		return &d, nil
+	}
+	r.g.Fingerprint = func(*definitions.Definition) string { return "abcdef0123456789" }
+	try := func(allow []string, image string) *dispatch.ControlError {
+		r.g.RuntimeImages = allow
+		_, _, err := r.g.Candidate("researcher", map[string]any{"name": "researcher", "image": image}, nil)
+		if err == nil {
+			return nil
+		}
+		var ce *dispatch.ControlError
+		if !errors.As(err, &ce) {
+			t.Fatalf("%v", err)
+		}
+		return ce
+	}
+	glob := []string{"ghcr.io/jfillman/*"}
+	if ce := try(glob, good); ce != nil {
+		t.Fatalf("a good image was refused: %v", ce)
+	}
+	refused := map[string]string{
+		"empty allow-list (Python: allows any registry)": "nil",
+		"a tag":                         "ghcr.io/jfillman/x:latest",
+		"a digest in the middle":        "ghcr.io/jfillman/x@sha256:" + strings.Repeat("ab", 32) + "/y",
+		"a digest in the name only":     "ghcr.io/jfillman/x@sha256:abc:@sha256:abc",
+		"63 hex digits":                 "ghcr.io/jfillman/x@sha256:" + strings.Repeat("a", 63),
+		"65 hex digits":                 "ghcr.io/jfillman/x@sha256:" + strings.Repeat("a", 65),
+		"upper-case hex":                "ghcr.io/jfillman/x@sha256:" + strings.Repeat("AB", 32),
+		"text after the digest":         "ghcr.io/jfillman/x@sha256:" + strings.Repeat("a", 64) + "\n",
+		"a space":                       "ghcr.io/jfillman/x y@sha256:" + strings.Repeat("a", 64),
+		"a second @":                    "ghcr.io/jfillman/x@y@sha256:" + strings.Repeat("a", 64),
+		"all zeros":                     "ghcr.io/jfillman/x@sha256:" + strings.Repeat("0", 64),
+		"no name":                       "@sha256:" + strings.Repeat("a", 64),
+		"another registry":              "ghcr.io/other/x@sha256:" + strings.Repeat("a", 64),
+		"a path boundary (bare prefix)": "ghcr.io/jfillman-evil/x@sha256:" + strings.Repeat("a", 64),
+	}
+	for name, image := range refused {
+		allow := glob
+		if image == "nil" {
+			allow, image = nil, good
+		}
+		if try(allow, image) == nil {
+			t.Errorf("%s: %q was accepted", name, image)
+		}
+	}
+	// a glob is the whole image: with no wildcard it is one exact image; a bare prefix never admits a longer name
+	if try([]string{"ghcr.io/jfillman"}, good) == nil || try([]string{"ghcr.io/jfillman/"}, good) == nil {
+		t.Error("a bare prefix matched across a path boundary")
+	}
+	if try([]string{good}, good) != nil {
+		t.Error("the exact image was refused")
+	}
+	if try([]string{"ghcr.io/jfillman/*@sha256:*"}, good) != nil {
+		t.Error("the documented glob form was refused")
+	}
+	if try([]string{"", "ghcr.io/jfillman/[a-z]*"}, good) == nil {
+		t.Error("an empty glob or a bracket glob admitted an image")
+	}
+}
 
 // An input's size is counted the way Python's json.dumps counts it (ensure_ascii): everything outside " " to "~" is six
 // characters, DEL included, an astral character twelve. The limit is the AgentRun's 4096.
