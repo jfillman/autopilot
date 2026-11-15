@@ -659,3 +659,56 @@ func afTemp(t *testing.T, v string) string {
 	}
 	return p
 }
+
+// -- names the cloud holds for everyone; a second session's request for the same file ----------------------------------------------
+
+func TestAnAppCannotTakeAnotherAppsCloudNameThroughTheTenantsListing(t *testing.T) {
+	gh := fakes.NewGitHub(tenantsRepo)
+	defer gh.Close()
+	gh.SeedFiles(tenantsRepo, map[string]string{"tenants/gate/xr-requests/keep.yaml": "x\n", "tenants/gate-api/xr-requests/keep.yaml": "x\n"})
+	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, `{"airframe":{"apps":["gate","gate-api"]}}`), allTools(), "T2", "s-1", true)
+	for _, a := range []map[string]any{
+		{"kind": "ObjectStorage", "name": "gate-b1", "spec": map[string]any{"bucketName": "gate-api-prod-assets"}},
+		{"kind": "MessageQueue", "name": "gate-q1", "spec": map[string]any{"queueName": "gate-api-jobs"}},
+		{"kind": "ObjectStorage", "name": "gate-b2", "spec": map[string]any{"storageAccountName": "gateapistore1"}},
+	} {
+		_, err := e.call(xrTool, merge1(merge1(a, "app", "gate"), "env", "dev"))
+		refusedWith(t, err, "XR-FIELD")
+	}
+	if len(gh.PullRequests(tenantsRepo)) != 0 {
+		t.Fatal("a pull request was opened for another app's name")
+	}
+	ok := map[string]any{"app": "gate", "env": "dev", "kind": "ObjectStorage", "name": "gate-b3", "spec": map[string]any{"bucketName": "gate-assets"}}
+	if _, err := e.call(xrTool, ok); err != nil {
+		t.Fatal(err)
+	}
+	// a listing that fails decides nothing
+	gh2 := fakes.NewGitHub(tenantsRepo)
+	defer gh2.Close()
+	e2 := newAFEnv(t, gh2, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
+	_, err := e2.call(xrTool, xrArgs())
+	refusedWith(t, err, "XR-APP-UNKNOWN")
+}
+
+func TestASecondSessionsRequestForTheSameFileIsRefusedNotRepeated(t *testing.T) {
+	gh := afGitHub()
+	defer gh.Close()
+	d := afDef([]string{"o/*"}, afProfile)
+	e1 := newAFEnv(t, gh, nil, d, allTools(), "T2", "s-1", true)
+	e2 := newAFEnv(t, gh, nil, d, allTools(), "T2", "s-2", true)
+	if _, err := e1.call(xrTool, xrArgs()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e2.call(xrTool, xrArgs())
+	den := refusedWith(t, err, "XR-PENDING")
+	if !strings.Contains(den.Message, "#1") {
+		t.Fatalf("%s", den.Message)
+	}
+	if len(gh.PullRequests(tenantsRepo)) != 1 {
+		t.Fatal("a second pull request")
+	}
+	// the first session's own retry is still its own to resume
+	if out, err := e1.call(xrTool, xrArgs()); err != nil || asMap(t, out)["resumed"] != true {
+		t.Fatalf("%v %v", out, err)
+	}
+}

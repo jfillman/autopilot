@@ -33,6 +33,7 @@ type hangarSettings struct {
 	airframeTenantsRepo string
 	airframeOwner       string
 	xrRequest           bool
+	xrPolicy            airframe.XRPolicy
 	airframeNote        string // why the Airframe tools are off when the default would have turned them on
 }
 
@@ -152,7 +153,7 @@ func hangarConfig(h hangarSettings, argoNamespaces []string, reg *tools.Registry
 	}
 	if h.airframeEnabled || h.xrRequest {
 		ac := &backends.AirframeConfig{Enabled: h.airframeEnabled, XRRequests: h.xrRequest,
-			Registry: airframe.Registry{DevCluster: h.airframeCluster, UpperClusters: h.airframeUpper, TenantsRepo: h.airframeTenantsRepo, Owner: h.airframeOwner}}
+			Registry: airframe.Registry{DevCluster: h.airframeCluster, UpperClusters: h.airframeUpper, TenantsRepo: h.airframeTenantsRepo, Owner: h.airframeOwner, XR: h.xrPolicy}}
 		if h.airframeEnabled {
 			kr := backends.NewKubeReader()
 			if err := kr.Validate(); err != nil {
@@ -215,6 +216,9 @@ func airframeFromEnv(env func(string) string, h *hangarSettings) error {
 	if !h.airframeEnabled && !h.xrRequest {
 		return nil
 	}
+	if err = xrPolicyFromEnv(env, &h.xrPolicy); err != nil {
+		return err
+	}
 	for k, v := range map[string]string{"AIRFRAME_CLUSTER": h.airframeCluster} {
 		if !clusterName.MatchString(v) {
 			return configError(k + " is a cluster name (letters, digits, `.`, `_`, `-`), not " + strconv.Quote(v))
@@ -256,6 +260,74 @@ func airframeFromEnv(env func(string) string, h *hangarSettings) error {
 		if !found {
 			return configError("AIRFRAME_OWNER " + strconv.Quote(h.airframeOwner) + " is not one of GITHUB_OWNERS")
 		}
+	}
+	return nil
+}
+
+var (
+	regionName   = regexp.MustCompile(`\A[a-z]{2}(-[a-z]+)+-[0-9]\z`)
+	vpcCIDR      = regexp.MustCompile(`\A10\.([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.0\.0/16\z`)
+	slackChannel = regexp.MustCompile(`\A[#A-Za-z0-9._-]{1,80}\z`)
+)
+
+// xrPolicyFromEnv reads the bounds the platform puts on what xr.request may ask for (Go only; Python bounds nothing). Each has a safe
+// default, and a value above the XRD's own maximum stops the start:
+//
+//	XR_REGIONS (us-east-1), XR_VPC_CIDRS (none: the platform's own network), XR_SLACK_CHANNELS (none), XR_DB_SIZES (small,medium),
+//	XR_MAX_DB_STORAGE_GIB (64, at most 256), XR_MAX_CONSUMERS (3, at most 10), XR_ALLOW_UNPROTECTED_DB (0: protect: false is refused)
+//	and XR_ALLOW_EMPTY_ON_DELETE (0: emptyOnDelete: true is refused).
+func xrPolicyFromEnv(env func(string) string, p *airframe.XRPolicy) error {
+	listOf := func(k string, ok *regexp.Regexp) ([]string, error) {
+		var out []string
+		for _, v := range strings.Split(env(k), ",") {
+			if v = strings.TrimSpace(v); v != "" {
+				if ok != nil && !ok.MatchString(v) {
+					return nil, configError(k + " names " + strconv.Quote(v) + ", which is not an accepted value")
+				}
+				out = append(out, v)
+			}
+		}
+		return out, nil
+	}
+	var err error
+	if p.Regions, err = listOf("XR_REGIONS", regionName); err != nil {
+		return err
+	}
+	if p.VPCCidrs, err = listOf("XR_VPC_CIDRS", vpcCIDR); err != nil {
+		return err
+	}
+	if p.SlackChannels, err = listOf("XR_SLACK_CHANNELS", slackChannel); err != nil {
+		return err
+	}
+	if p.DBSizes, err = listOf("XR_DB_SIZES", nil); err != nil {
+		return err
+	}
+	for _, sz := range p.DBSizes {
+		if sz != "small" && sz != "medium" && sz != "large" {
+			return configError("XR_DB_SIZES names " + strconv.Quote(sz) + ": small, medium or large")
+		}
+	}
+	for k, dst := range map[string]*int64{"XR_MAX_DB_STORAGE_GIB": &p.MaxStorageGiB} {
+		if v := env(k); v != "" {
+			n, perr := strconv.ParseInt(v, 10, 64)
+			if perr != nil || n < 32 || n > 256 {
+				return configError(k + " is a whole number from 32 to 256 (the XRD's own largest), not " + strconv.Quote(v))
+			}
+			*dst = n
+		}
+	}
+	if v := env("XR_MAX_CONSUMERS"); v != "" {
+		n, perr := strconv.Atoi(v)
+		if perr != nil || n < 1 || n > 10 {
+			return configError("XR_MAX_CONSUMERS is a whole number from 1 to 10, not " + strconv.Quote(v))
+		}
+		p.MaxConsumers = n
+	}
+	if p.AllowUnprotectedDB, err = flagEnv(env, "XR_ALLOW_UNPROTECTED_DB", false); err != nil {
+		return err
+	}
+	if p.AllowEmptyOnDelete, err = flagEnv(env, "XR_ALLOW_EMPTY_ON_DELETE", false); err != nil {
+		return err
 	}
 	return nil
 }

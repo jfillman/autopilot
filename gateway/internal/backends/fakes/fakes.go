@@ -336,9 +336,13 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 	case rePulls.MatchString(p) && r.Method == "GET":
 		m := reRepoPulls(p)
 		head := strings.TrimPrefix(r.URL.Query().Get("head"), strings.SplitN(m, "/", 2)[0]+":")
+		all := r.URL.Query().Get("head") == ""
 		out := []any{}
 		for _, pr := range g.PRs[m] {
-			if pr.Head == head {
+			if all && pr.State != "open" {
+				continue
+			}
+			if all || pr.Head == head {
 				out = append(out, map[string]any{"number": pr.Number, "html_url": fmt.Sprintf("https://github.example/%s/pull/%d", m, pr.Number),
 					"state": pr.State, "merged_at": pr.MergedAt, "head": map[string]any{"ref": pr.Head, "sha": pr.CommitSHA}})
 			}
@@ -373,9 +377,20 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 			c = ref
 		}
 		var entries []any
+		seenEntry := map[string]bool{}
+		dir := strings.TrimRight(m[2], "/")
 		for p := range g.files[m[1]][c] {
-			if strings.HasPrefix(p, strings.TrimRight(m[2], "/")+"/") {
-				entries = append(entries, map[string]any{"name": p, "type": "file"})
+			if dir == "" || strings.HasPrefix(p, dir+"/") {
+				rest := strings.TrimPrefix(strings.TrimPrefix(p, dir), "/")
+				name, deeper, _ := strings.Cut(rest, "/")
+				typ := "file"
+				if deeper != "" {
+					typ = "dir"
+				}
+				if !seenEntry[name] {
+					seenEntry[name] = true
+					entries = append(entries, map[string]any{"name": name, "type": typ})
+				}
 			}
 		}
 		if typ, ok := g.special[m[1]+"/"+strings.TrimRight(m[2], "/")]; ok {

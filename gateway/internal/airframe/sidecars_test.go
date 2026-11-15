@@ -90,21 +90,21 @@ func TestAResourceStepReadsOnlyInsideTheAppsOwnNamespaces(t *testing.T) {
 	xr := xrOf(t, `{"metadata":{"name":"x","namespace":"app-shop-cicd"},"spec":{"ns":"app-other-dev"}}`)
 	got := xrOf(t, `{"status":{"ok":true,"conditions":[{"type":"Ready","status":"True"}]}}`)
 	s := &State{Kube: mapReader{"/apis/catalog.hangar.io/v1alpha1/namespaces/app-shop-cicd/slos/x-slo": got}}
-	r, err := s.resourceStep(context.Background(), "shop", run("{namespace}"), xr)
+	r, err := s.resourceStep(context.Background(), map[string]bool{"app-shop-cicd": true}, run("{namespace}"), xr)
 	if err != nil || r["status"] != "pass" || r["detail"] != "slos.catalog.hangar.io x-slo exists, Ready=True, status.ok=True" {
 		t.Fatalf("%v %v", r, err)
 	}
 	// the namespace a tenant's XR spec names, another app's: skipped, no request
-	for _, ns := range []string{"{spec.ns}", "kube-system", "app-shopx-dev", "infra-other-dev"} {
+	for _, ns := range []string{"{spec.ns}", "kube-system", "app-shopx-dev", "infra-other-dev", "app-shop-api-dev", "app-shop-cicd-x"} {
 		reads := 0
 		cs := &State{Kube: countReader{&reads}}
-		r, err = cs.resourceStep(context.Background(), "shop", run(ns), xr)
+		r, err = cs.resourceStep(context.Background(), map[string]bool{"app-shop-cicd": true}, run(ns), xr)
 		if err != nil || r["status"] != "skipped" || reads != 0 {
 			t.Errorf("%s: %v %v after %d reads", ns, r, err, reads)
 		}
 	}
 	// a template the XR does not publish is a failed step, as in Python
-	r, _ = s.resourceStep(context.Background(), "shop", run("{spec.nope}"), xr)
+	r, _ = s.resourceStep(context.Background(), map[string]bool{"app-shop-cicd": true}, run("{spec.nope}"), xr)
 	if r["status"] != "fail" || r["detail"] != "cannot resolve {spec.nope}: the XR has not published it" {
 		t.Fatalf("%v", r)
 	}

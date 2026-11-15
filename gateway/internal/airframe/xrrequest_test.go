@@ -32,6 +32,15 @@ func build(t *testing.T, app, env, kind any, name any, js string) (*BuiltXR, err
 	return BuildXR(XRRequest{App: app, Env: env, Kind: kind, Name: name, Spec: spec(t, js)}, xrReg)
 }
 
+// xrRegOpen is the registry of a platform that lets agents choose a network and a channel.
+var xrRegOpen = Registry{DevCluster: "dev-cluster", UpperClusters: []string{"up-cluster"}, TenantsRepo: "gitops-tenants", Owner: "acme",
+	XR: XRPolicy{VPCCidrs: []string{"10.43.0.0/16"}, SlackChannels: []string{"#deploys"}}}
+
+func buildOpen(t *testing.T, app, kind any, name any, js string) (*BuiltXR, error) {
+	t.Helper()
+	return BuildXR(XRRequest{App: app, Env: "dev", Kind: kind, Name: name, Spec: spec(t, js)}, xrRegOpen)
+}
+
 func ruleOf(err error) string {
 	var d *core.Denied
 	if errors.As(err, &d) {
@@ -114,14 +123,14 @@ func TestEveryPlatformOwnedOrWiderFieldIsRefused(t *testing.T) {
 		{"a database open to a wide private range", "ManagedPostgreSQL", `{"allowedCidrs": ["10.0.0.0/8"]}`},
 		{"a database range that is not a network address", "ManagedPostgreSQL", `{"allowedCidrs": ["10.1.2.3/16"]}`},
 		{"an ipv6 range", "ManagedPostgreSQL", `{"allowedCidrs": ["fd00::/16"]}`},
-		{"a slo for another app's environment", "SLO", `{"environmentRef": {"name": "payments-dev-cluster-dev"}, "service": "flight-api-x", "objective": 99, "indicator": {"type": "availability", "metric": "m", "totalFilter": "a", "errorFilter": "b"}}`},
+		{"a slo for another app's environment", "SLO", `{"environmentRef": {"name": "payments-dev-cluster-dev"}, "service": "flight-api-x", "objective": 99, "indicator": {"type": "availability", "metric": "m", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`},
 		{"a rollout watch for another app", "RolloutWatch", `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "appName": "payments"}`},
 		{"a rollout watch on another cluster", "RolloutWatch", `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "cluster": "up-cluster"}`},
 		{"a number as a string", "MessageQueue", `{"lockSeconds": "60"}`},
 		{"a float for an integer", "MessageQueue", `{"lockSeconds": 60.5}`},
 		{"out of range", "MessageQueue", `{"lockSeconds": 999999}`},
 		{"an enum that is not one", "ManagedPostgreSQL", `{"size": "huge"}`},
-		{"a string with a control character", "SLO", `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": "m\nx", "totalFilter": "a", "errorFilter": "b"}}`},
+		{"a string with a control character", "SLO", `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": "m\nx", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`},
 		{"a spec that is a list", "MessageQueue", `[]`},
 	}
 	for _, c := range tenants {
@@ -197,7 +206,7 @@ func TestAnAgentsStringsCannotInjectStructureIntoTheFile(t *testing.T) {
 	hostile := []string{"a: b\n---\nkind: Agent", "&x *x", "!!python/object x", "{{x}}", "#comment", "x\ny", "- a", "\"quoted\"", "'single'", " ", "<<: *a"}
 	for _, h := range hostile {
 		js, _ := json.Marshal(map[string]any{"environmentRef": map[string]any{"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99,
-			"indicator": map[string]any{"type": "availability", "metric": h, "totalFilter": "a", "errorFilter": "b"}})
+			"indicator": map[string]any{"type": "availability", "metric": "m", "totalFilter": map[string]any{"job": h}, "errorFilter": map[string]any{"code": "5"}}})
 		b, err := build(t, "flight-api", "dev", "SLO", nil, string(js))
 		if err == nil {
 			if e := ReadBackXR(b.Text, b.XR); e != nil {
@@ -231,10 +240,10 @@ func TestEveryDefaultTheCommonRequestsUseStillWorks(t *testing.T) {
 		"MessageQueue":           `{"queueName": "flight-api-orders", "fifo": false, "lockSeconds": 30, "retentionSeconds": 345600, "deadLetter": {"enabled": true, "maxReceiveCount": 5}, "consumers": [{"awsLambdaTarget": "flight-api-fn", "access": "sendReceive", "trigger": true, "batchSize": 10}]}`,
 		"ObjectStorage":          `{"bucketName": "flight-api-files", "versioning": true, "storageAccountName": "flightapifiles", "consumers": [{"awsLambdaTarget": "flight-api-fn", "access": "read"}]}`,
 		"RolloutWatch":           `{"notifications": {"slack": {"enabled": true, "channel": "#deploys"}}}`,
-		"SLO":                    `{"service": "flight-api-svc", "objective": 99.9, "indicator": {"type": "latency", "metric": "http_request_duration_seconds", "totalFilter": "{job=\"flight-api\"}", "errorFilter": "{code=~\"5..\"}", "latencyThreshold": "0.5"}}`,
+		"SLO":                    `{"service": "flight-api-svc", "objective": 99.9, "indicator": {"type": "latency", "metric": "http_request_duration_seconds", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "500"}, "latencyThreshold": "0.5"}}`,
 		"ApplicationEnvironment": `{"appType": "app"}`,
 	} {
-		b, err := build(t, "flight-api", "dev", kind, nil, js)
+		b, err := buildOpen(t, "flight-api", kind, nil, js)
 		if err != nil {
 			t.Errorf("%s: %v", kind, err)
 			continue
@@ -285,4 +294,119 @@ func FuzzBuildXR(f *testing.F) {
 			}
 		}
 	})
+}
+
+// An agent supplies no selector syntax: the composition writes `metric{totalFilter,errorFilter}`, so a filter that closes the brace
+// reads the series of every tenant. The composition adds no tenant matcher itself (compositions/slo, Airframe 4131191): a defect to
+// raise there; here the matcher is written by the gateway from label=value pairs, one of which must name the app.
+func TestAnSLOCannotSuppliesSelectorSyntax(t *testing.T) {
+	slo := func(metric, total, errf string) string {
+		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": ` + metric + `, "totalFilter": ` + total + `, "errorFilter": ` + errf + `}}`
+	}
+	good := `{"job": "flight-api"}`
+	bad := []string{
+		slo(`"{__name__=~\".+\"}"`, good, `{"code": "5"}`),
+		slo(`"m"`, `"namespace=\"app-other-cicd\"} or {__name__=~\".+\""`, `{"code": "5"}`),
+		slo(`"m"`, good, `"code=~\"5..\""`),
+		slo(`"m"`, `{"__name__": "x", "job": "flight-api"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"namespace": "app-other-cicd", "job": "flight-api"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"job": "flight-api\"} or {x=\"y"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"job": "flight-api}"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"job": "a\\b"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"job": "flight-api\nx"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"jo b": "flight-api"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"job": "other-app"}`, `{"code": "5"}`), // names another app's, not this app's
+		slo(`"m{x=\"y\"}"`, good, `{"code": "5"}`),
+		slo(`"m"`, `{}`, `{"code": "5"}`),
+	}
+	for i, js := range bad {
+		if b, err := build(t, "flight-api", "dev", "SLO", nil, js); err == nil {
+			t.Errorf("case %d accepted:\n%s", i, b.Text)
+		}
+	}
+	b, err := build(t, "flight-api", "dev", "SLO", nil, slo(`"http_requests_total"`, `{"service": "flight-api", "code": "200"}`, `{"code": "500"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ind := b.XR.M["spec"].(*definitions.OMap).M["indicator"].(*definitions.OMap)
+	if ind.M["totalFilter"] != `code="200",service="flight-api"` || ind.M["errorFilter"] != `code="500"` || ind.M["metric"] != "http_requests_total" {
+		t.Fatalf("%v", definitions.Plain(ind))
+	}
+}
+
+// What deletes or empties data, picks a network, a channel, a region or a size is the platform's setting, not an agent's.
+func TestWhatDeletesDataOrPicksANetworkIsThePlatformsSetting(t *testing.T) {
+	db := func(js string) (*BuiltXR, error) {
+		return build(t, "flight-api", "dev", "ManagedPostgreSQL", "flight-api-db", js)
+	}
+	for _, js := range []string{`{"protect": false}`, `{"size": "large"}`, `{"storageGiB": 128}`, `{"storageGiB": 256}`, `{"region": "eu-west-1"}`, `{"vpcCidr": "10.43.0.0/16"}`} {
+		if b, err := db(js); err == nil {
+			t.Errorf("%s accepted:\n%s", js, b.Text)
+		}
+	}
+	if _, err := build(t, "flight-api", "dev", "ObjectStorage", "flight-api-b", `{"emptyOnDelete": true}`); err == nil {
+		t.Error("emptyOnDelete accepted")
+	}
+	if _, err := build(t, "flight-api", "dev", "RolloutWatch", nil, `{"notifications": {"slack": {"channel": "#anywhere"}}}`); err == nil {
+		t.Error("an arbitrary channel accepted")
+	}
+	if _, err := build(t, "flight-api", "dev", "MessageQueue", "flight-api-q", `{"consumers": [{"awsLambdaTarget": "flight-api-a"}, {"awsLambdaTarget": "flight-api-b"}, {"awsLambdaTarget": "flight-api-c"}, {"awsLambdaTarget": "flight-api-d"}]}`); err == nil {
+		t.Error("four consumers accepted under a default of three")
+	}
+	// a database is deletion-protected unless the platform says otherwise, and the file says so
+	b, err := db(`{"size": "small", "storageGiB": 64}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.XR.M["spec"].(*definitions.OMap).M["protect"] != true {
+		t.Fatalf("%s", b.Text)
+	}
+	// the platform can allow each, up to the XRD's own maximum
+	reg := xrReg
+	reg.XR = XRPolicy{Regions: []string{"eu-west-1"}, DBSizes: []string{"large"}, MaxStorageGiB: 9999, AllowUnprotectedDB: true, AllowEmptyOnDelete: true}
+	for _, c := range []struct{ kind, js string }{{"ManagedPostgreSQL", `{"protect": false, "size": "large", "storageGiB": 256, "region": "eu-west-1"}`}, {"ObjectStorage", `{"emptyOnDelete": true}`}} {
+		if _, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: c.kind, Name: "flight-api-x", Spec: spec(t, c.js)}, reg); err != nil {
+			t.Errorf("%s: %v", c.kind, err)
+		}
+	}
+	if _, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "ManagedPostgreSQL", Name: "flight-api-x", Spec: spec(t, `{"storageGiB": 512}`)}, reg); err == nil {
+		t.Error("512 GiB is above the XRD's own largest")
+	}
+}
+
+// A name the cloud holds for everyone belongs to the onboarded app with the longest name that is its prefix.
+func TestAGlobalNameBelongsToTheAppWithTheLongestNameThatStartsIt(t *testing.T) {
+	check := func(app, kind, js string, onboarded ...string) error {
+		b, err := BuildXR(XRRequest{App: app, Env: "dev", Kind: kind, Name: app + "-x", Spec: spec(t, js)}, xrReg)
+		if err != nil {
+			t.Fatalf("%s %s: %v", app, js, err)
+		}
+		return b.CheckOwners(onboarded)
+	}
+	apps := []string{"gate", "gate-api", "a-b", "ab", "flight-api"}
+	for _, c := range []struct {
+		app, kind, js string
+		ok            bool
+	}{
+		{"gate", "ObjectStorage", `{"bucketName": "gate-api-prod-assets"}`, false},
+		{"gate", "ObjectStorage", `{"bucketName": "gate-assets"}`, true},
+		{"gate-api", "ObjectStorage", `{"bucketName": "gate-api-prod-assets", "emptyOnDelete": false}`, true},
+		{"gate", "MessageQueue", `{"queueName": "gate-api-jobs"}`, false},
+		{"gate", "ManagedPostgreSQL", `{"serverName": "gate-api-db"}`, false},
+		{"gate", "MessageQueue", `{"resourceGroup": "gate-api-rg"}`, false},
+		{"gate", "MessageQueue", `{"namespaceName": "gate-api-bus"}`, false},
+		{"gate", "ObjectStorage", `{"storageAccountName": "gateapistore1"}`, false},
+		{"gate", "ObjectStorage", `{"storageAccountName": "gatestore1"}`, false}, // gate's and gate-api's flat names are related: neither may
+		{"flight-api", "ObjectStorage", `{"storageAccountName": "flightapistore"}`, true},
+		{"a-b", "ObjectStorage", `{"storageAccountName": "abstore"}`, false}, // a-b and ab flatten to the same
+		{"ab", "ObjectStorage", `{"storageAccountName": "abstore"}`, false},
+	} {
+		if err := check(c.app, c.kind, c.js, apps...); (err == nil) != c.ok {
+			t.Errorf("%s %s: %v", c.app, c.js, err)
+		}
+	}
+	// an app that is the only one of its name tree owns what it starts
+	if err := check("solo", "ObjectStorage", `{"bucketName": "solo-data"}`, "solo", "gate"); err != nil {
+		t.Error(err)
+	}
 }

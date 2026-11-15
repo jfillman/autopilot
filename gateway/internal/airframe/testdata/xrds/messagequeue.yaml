@@ -1,0 +1,232 @@
+# Cloud-dependency XRD (2026-10-24): a managed message queue - Amazon SQS or an Azure Service Bus queue -
+# with a dead-letter queue, stood up and torn down on request like the cloud targets
+# (docs/user/cloud-dependencies.md). One kind for both clouds: `spec.cloud` picks the implementation and
+# can't change afterwards; every other field means the same thing on both.
+#
+# Requested as a stand-alone XR in the app's xr-requests (tenants/<app>/xr-requests/), in the app's
+# app-<app>-cicd namespace on the dev cluster, where the cloud providers run. NOT a `components:` entry: the
+# chart renders components on every environment's own cluster, and only the dev cluster has cloud
+# providers and credentials.
+#
+# Access, AWS: `consumers[]` names AwsLambdaTargets in the same namespace. Each one gets an inline policy on
+# its execution role (<functionName>-exec) for exactly this queue - no access key anywhere - and, with
+# `trigger: true`, a Lambda event source mapping, so the queue invokes the function. ECS is not a consumer
+# yet: AwsEcsTarget composes no task role for the app's own code.
+# Access, Azure: a queue-scoped Shared Access policy (listen + send) whose connection string the provider
+# writes into the Secret <name>-credentials. Azure consumers are not modelled.
+#
+# What an app reads: the ConfigMap <name>-connection (queue URL/ARN or Service Bus namespace and queue name),
+# and on Azure the Secret <name>-credentials. Both are in this XR's namespace.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: messagequeues.catalog.hangar.io
+  annotations:
+    terasky.backstage.io/add-to-catalog: "true"
+    terasky.backstage.io/target-path: "tenants/${{ parameters.xrName }}/xr-requests"
+    terasky.backstage.io/description: "A managed message queue with a dead-letter queue - Amazon SQS or Azure Service Bus - that can trigger an AWS Lambda target. Disposable: delete it to remove the queue and its messages."
+    hangar.io/agent-summary: "A managed message queue with a dead-letter queue - Amazon SQS or Azure Service Bus - that can trigger an AWS Lambda target. Disposable: delete it to remove the queue and its messages."
+spec:
+  group: catalog.hangar.io
+  names:
+    kind: MessageQueue
+    plural: messagequeues
+    singular: messagequeue
+  scope: Namespaced
+  # Review C13: deterministic Composition choice for an XR that names none (there is one per kind).
+  defaultCompositionRef:
+    name: messagequeues.catalog.hangar.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: CLOUD
+          type: string
+          jsonPath: ".spec.cloud"
+        - name: DEPENDENCY
+          type: string
+          jsonPath: ".status.conditions[?(@.type=='DependencyReady')].reason"
+          description: "DependencyReady reason (closed set in xrds/<kind>.meta.yaml)"
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "MessageQueue: A managed message queue with a dead-letter queue - Amazon SQS or Azure Service Bus - that can trigger an AWS Lambda target. Disposable: delete it to remove the queue and its messages."
+          properties:
+            metadata:
+              type: object
+              description: "Standard object metadata. Only name is constrained here (its length)."
+              properties:
+                name:
+                  type: string
+                  maxLength: 40
+                  description: >-
+                    At most 40 characters: composed objects are named <name>-<suffix>, and grants
+                    <name>-grant-<consumer>.
+            spec:
+              type: object
+              description: "Desired state of the MessageQueue. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply)."
+              x-kubernetes-validations:
+                - rule: "self.cloud == 'aws' || !has(self.consumers) || size(self.consumers) == 0"
+                  message: "consumers grant IAM access to AWS Lambda targets; an Azure queue's consumers use the connection string in the Secret <name>-credentials"
+                - rule: "self.cloud == 'aws' || !self.fifo"
+                  message: "fifo is AWS only (an SQS FIFO queue); Azure Service Bus Basic has no ordered queues"
+                - rule: "self.cloud == 'aws' || self.lockSeconds <= 300"
+                  message: "Azure Service Bus locks a message for at most 300 seconds"
+              properties:
+                cloud:
+                  type: string
+                  description: >-
+                    aws (Amazon SQS) or azure (Azure Service Bus, Basic tier). Fixed at creation;
+                    delete and re-create the XR to move the queue.
+                  enum: [aws, azure]
+                  default: aws
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "cloud can't change after creation; delete and re-create the MessageQueue"
+                queueName:
+                  type: string
+                  description: >-
+                    The queue's name in the cloud. Defaults to this XR's own name. Unique per account
+                    and region (AWS) or per Service Bus namespace (Azure). A FIFO queue gets the
+                    .fifo suffix SQS requires; the dead-letter queue is <queueName>-dlq on AWS and the
+                    queue's built-in dead-letter sub-queue on Azure.
+                  pattern: '^[a-z0-9][a-z0-9-]{0,59}$'
+                fifo:
+                  type: boolean
+                  description: AWS only. An SQS FIFO queue (ordered, exactly-once within a message group) instead of a standard one.
+                  default: false
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "fifo can't change after creation (SQS can't convert a queue)"
+                lockSeconds:
+                  type: integer
+                  description: >-
+                    How long a received message stays hidden from other consumers before it is
+                    delivered again unless deleted - SQS's visibility timeout, Service Bus's lock
+                    duration (at most 300 there). For a Lambda trigger, AWS requires at least the
+                    function's timeout.
+                  minimum: 1
+                  maximum: 43200
+                  default: 30
+                retentionSeconds:
+                  type: integer
+                  description: How long an unconsumed message is kept, 60 seconds to 14 days.
+                  minimum: 60
+                  maximum: 1209600
+                  default: 345600
+                deadLetter:
+                  type: object
+                  description: >-
+                    Where a message goes after maxReceiveCount failed deliveries. AWS: a second queue,
+                    <queueName>-dlq, kept 14 days. Azure: the queue's own dead-letter sub-queue, which
+                    always exists; enabled: false only stops expired messages from moving there.
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                      description: Compose the dead-letter queue and the redrive policy.
+                    maxReceiveCount:
+                      type: integer
+                      minimum: 1
+                      maximum: 1000
+                      default: 5
+                      description: Deliveries before a message is dead-lettered.
+                  default: {}
+                region:
+                  type: string
+                  description: AWS only. The region of the queue. A consumer's Lambda target must be in the same region.
+                  pattern: '^[a-z]{2}(-[a-z]+)+-[0-9]$'
+                  default: us-east-1
+                location:
+                  type: string
+                  description: Azure only. The Azure region of the Service Bus namespace.
+                  pattern: '^[a-z0-9]+$'
+                  default: eastus
+                resourceGroup:
+                  type: string
+                  description: >-
+                    Azure only. The resource group this XR CREATES and owns (deleting the XR deletes the
+                    group and everything in it). Defaults to <queueName>-rg.
+                  pattern: '^[a-zA-Z0-9._()-]{1,90}$'
+                namespaceName:
+                  type: string
+                  description: >-
+                    Azure only. The Service Bus namespace, created for this queue alone. Names are
+                    global across Azure, so a taken name fails at create; defaults to hangar-<queueName>.
+                  pattern: '^[a-zA-Z][a-zA-Z0-9-]{4,48}[a-zA-Z0-9]$'
+                consumers:
+                  type: array
+                  maxItems: 10
+                  description: >-
+                    AWS only. The Lambda targets (AwsLambdaTarget XRs in this namespace) that use the
+                    queue. Each gets an inline IAM policy on its execution role scoped to this queue;
+                    removing an entry removes the grant.
+                  items:
+                    type: object
+                    required: [awsLambdaTarget]
+                    x-kubernetes-validations:
+                      - rule: "!self.trigger || self.access != 'send'"
+                        message: "a trigger consumes messages, so its access must be receive or sendReceive"
+                    properties:
+                      awsLambdaTarget:
+                        type: string
+                        description: The AwsLambdaTarget XR's name, in this namespace.
+                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                        maxLength: 40
+                      access:
+                        type: string
+                        description: >-
+                          send (SendMessage), receive (ReceiveMessage, DeleteMessage,
+                          ChangeMessageVisibility) or sendReceive (both). All three include
+                          GetQueueAttributes and GetQueueUrl.
+                        enum: [send, receive, sendReceive]
+                        default: sendReceive
+                      trigger:
+                        type: boolean
+                        description: >-
+                          Compose a Lambda event source mapping: the queue invokes the function with
+                          batches of messages and deletes the ones the handler returns without error.
+                        default: false
+                      batchSize:
+                        type: integer
+                        description: Messages per invocation when trigger is true.
+                        minimum: 1
+                        maximum: 10
+                        default: 10
+            status:
+              type: object
+              description: >-
+                Published by the Composition once the queue exists - what an app or an agent needs to
+                use it without reading the cloud.
+              properties:
+                cloud:
+                  type: string
+                  description: The cloud the queue lives in.
+                queueName:
+                  type: string
+                  description: The queue's name in the cloud (with .fifo for an SQS FIFO queue).
+                url:
+                  type: string
+                  description: AWS. The queue URL SendMessage and ReceiveMessage take.
+                arn:
+                  type: string
+                  description: AWS. The queue's ARN.
+                deadLetterArn:
+                  type: string
+                  description: AWS. The dead-letter queue's ARN.
+                namespace:
+                  type: string
+                  description: Azure. The Service Bus namespace's host (<namespace>.servicebus.windows.net).
+                connectionConfigMap:
+                  type: string
+                  description: The ConfigMap in this namespace with the queue's non-secret connection details.
+                credentialsSecret:
+                  type: string
+                  description: Azure. The Secret in this namespace with the queue's connection string.
+                consumers:
+                  type: array
+                  description: The consumers whose grant (and trigger) is composed, by AwsLambdaTarget name.
+                  items:
+                    type: string
+          required: ["spec"]

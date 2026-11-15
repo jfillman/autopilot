@@ -162,7 +162,9 @@ def shop_world():
 def other_worlds():
     return {
         "infra": [xr("InfraService", "infra-tool-cicd", "tool", 1, [c("Ready", "True")]),
-                  xr("ManagedPostgreSQL", "infra-tool-dev", "tool-db", 1, [c("Ready", "True")])],
+                  xr("ManagedPostgreSQL", "infra-tool-dev", "tool-db", 1, [c("Ready", "True")]),
+                  app_obj("tool-dev", "argocd-apps", "tool", "dev", [], spec={"project": "tool-lower", "destination": {"namespace": "infra-tool-dev"},
+                                                                           "sources": [{"repoURL": "https://x", "path": "dev", "targetRevision": "main"}]})],
         "weird": [{"apiVersion": "catalog.hangar.io/v1alpha1", "kind": "PythonApplication",
                    "metadata": {"name": "w", "namespace": "app-weird-cicd"},
                    "status": {"conditions": ["junk", None, {"type": "Ready", "status": "True"}, {"type": "Odd", "status": "False", "reason": "R"}]}},
@@ -194,7 +196,99 @@ def case(name, objects, tool, args, status=None, pages=None, go=None, why=None):
         d["status"] = {k: v for k, v in status.items()}
     if go:
         d["go"], d["why"] = go, why
+    else:
+        go_env(d, w, objects)
     return d
+
+
+import re as _re
+
+_LABEL = _re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _peek(world, target):
+    """What the fake API server answers a GET of `target`, as a recorded request, without recording it."""
+    import urllib.request
+    n = len(world.seen)
+    world.opener(urllib.request.Request(SERVER + target), 0, None)
+    return world.seen.pop(n)
+
+
+def go_env(cs, world, objects):
+    """Go decides which namespace is an environment's from the platform's own labels: an environment is one the app has (an
+    ApplicationEnvironment of its own, or an Application labelled for it), and its namespace the one such an Application is
+    destined for, not a name joined from the argument. Fills the case's `go` where that differs from Python: the extra reads
+    (the app's Applications), the namespace reads dropped, and an unknown environment answered."""
+    tool, args = cs["tool"], cs["args"]
+    if tool not in ("status", "describe", "verify") or cs.get("go"):
+        return
+    app = args[0]
+    env = (args[1] if len(args) > 1 else None) if tool != "verify" else (args[3] if len(args) > 3 else None)
+    if not env or not isinstance(app, str):
+        return
+    reqs = list(cs["requests"])
+    if not any("-cicd/" in r["target"] for r in reqs) and tool != "verify":
+        return
+    t = next((t for t in ("app", "infra") if any(o["metadata"]["namespace"] == f"{t}-{app}-cicd" for o in objects if o["kind"] not in ("Application", "Rollout"))), None)
+    if tool != "verify" and t is None:
+        return
+    def place(t):
+        if not (_LABEL.match(env) and _LABEL.match(app)):
+            return False, None, []
+        apps = [o for o in objects if o["kind"] == "Application" and o["metadata"].get("labels", {}).get("hangar.io/app") == app
+                and o["metadata"].get("labels", {}).get("hangar.io/env") == env and o["metadata"]["namespace"] in ("argocd-apps", f"{t}-{app}-cicd")]
+        flight = tool != "verify" and any(o["kind"] == "ApplicationEnvironment" and o["metadata"]["namespace"] == f"{t}-{app}-cicd"
+                                          and o["spec"].get("env") == env and o["spec"].get("appName") == app for o in objects)
+        ns = f"{t}-{app}-{env}" if any(((o["spec"].get("destination") or {}).get("namespace") == f"{t}-{app}-{env}") for o in apps) else None
+        return bool(apps) or flight, ns, apps
+
+    def app_lists(t):
+        if not (_LABEL.match(env) and _LABEL.match(app)):
+            return []
+        sel = urllib.parse.quote(f"hangar.io/app={app},hangar.io/env={env}", safe="")
+        return [_peek(world, f"/apis/argoproj.io/v1alpha1/namespaces/{ns}/applications?labelSelector={sel}&limit=500")
+                for ns in dict.fromkeys(["argocd-apps", f"{t}-{app}-cicd"])]
+    why = ("Go takes an environment's namespace from the platform's own labels (an ApplicationEnvironment of the app, or an Application "
+           "labelled for it whose destination is the namespace the platform assigns to the app and the environment), never from a name "
+           "joined from the argument: gate + api-prod is the namespace of gate-api's prod. An environment the app does not have is answered, "
+           "and nothing is read for it")
+    unknown = {"result": {"error": {"rule": "AF-ENV-404", "message": f"{app} has no environment {env!r} on this cluster",
+                                    "hint": "airframe.status {app} lists the app's environments; an environment is one the platform registered for the app."}}}
+    srt = lambda l: sorted(l, key=lambda r: (r["target"], r["status"]))
+    if tool == "verify":
+        out, known = [], False
+        for t2 in ("app", "infra"):
+            out += app_lists(t2)
+            k, ns, _ = place(t2)
+            if k and ns:
+                known = True
+                got = [r for r in reqs if f"/namespaces/{ns}/" in r["target"]]
+                out += got
+                if cs.get("result") is not None and not (cs["result"] or {}).get("error"):
+                    break
+                if got and got[0]["status"] == 200:
+                    break
+        if not known:
+            cs["go"] = {"requests": srt(out), **unknown}
+        else:
+            cs["go"] = {"requests": srt(out), **({"result": cs["result"]} if "result" in cs else {"error": cs["error"]})}
+        cs["why"] = why
+        return
+    known, ns, apps = place(t)
+    envns = f"{t}-{app}-{env}"
+    keep = [r for r in reqs if f"/namespaces/{envns}/" not in r["target"]]
+    # the environment's own namespace is read after its Applications were listed: an error there ends the call before it
+    out = keep + ([r for r in reqs if f"/namespaces/{envns}/" in r["target"]] if known and ns and "error" not in cs else [])
+    if tool == "status":
+        out += app_lists(t)
+    if not known:
+        out = [r for r in out if "/rollouts" not in r["target"] and not (tool == "describe" and "/applications" in r["target"])]
+        if tool == "describe":
+            out += [r for r in reqs if "/applications" in r["target"] and _LABEL.match(env)]
+        cs["go"] = {"requests": srt(out), **unknown}
+    else:
+        cs["go"] = {"requests": srt(out), **({"result": cs["result"]} if "result" in cs else {"error": cs["error"]})}
+    cs["why"] = why
 
 
 def verify_cases():

@@ -184,7 +184,12 @@ def go_xr(py, app, path, name, branch_py, branch_go, repo=T_REPO):
         return out
     out.append(GET(f"/repos/{repo}"))
     for r in py[1:]:
+        if r["method"] == "GET" and r["target"].endswith(f"/contents/tenants/{app}?ref=main"):
+            # Go reads the one listing of tenants/: the app is a directory of it, and every global name is decided against its siblings
+            out.append(GET(f"/repos/{repo}/contents/tenants?ref=main"))
+            continue
         if r["method"] == "GET" and r["target"].endswith("/git/ref/heads/main") and not any(x["target"].endswith("/git/ref/heads/" + branch_go.replace("/", "%2F")) for x in out):
+            out.append(GET(f"/repos/{repo}/pulls?state=open&per_page=100"))
             out.append(GET(f"/repos/{repo}/pulls?head=o%3A{branch_go.replace('/', '%2F')}&state=all&per_page=5"))
             out.append(GET(f"/repos/{repo}/git/ref/heads/{branch_go}"))
         if r["method"] == "POST" and r["target"].endswith("/git/trees"):
@@ -248,17 +253,19 @@ def _git(world):
                   registry=REG, contract=CONTRACT, world=world)
 
 
-def record(name, tool, args, routes, *, sess=SESSION, kind=None, branch_names=None, go=None, why=None, xr=None, **extra):
+def record(name, tool, args, routes, *, sess=SESSION, kind=None, branch_names=None, go=None, why=None, xr=None, py_args=None, **extra):
     world = W.World(routes or {})
     git = _git(world)
     gp = GlidepathAPI("http://gp.test/gp", W.TMP / "gp", opener=world, stream_opener=world.stream)
     b = Backends(git, None, None, None, None, None, gp, fake_airframe(registry=REG))
     h = hangar_handlers(b)
-    out = W._outcome(lambda: h[tool](sess, args))
+    out = W._outcome(lambda: h[tool](sess, py_args or args))
     if "result" in out and tool in TOOL_REGISTRY:
         out["effect"] = dispatch._effect(TOOL_REGISTRY[tool], args, out["result"])
     case = {"name": name, "tool": tool, "args": args, "session": sess.as_dict(), "routes": routes, "default": world.default, "obo": False,
             "git": True, "glidepath": True, "clock": False, "requests": world.seen, **W._norm(out), **extra}
+    if py_args:
+        case["py_args"] = py_args   # what Python was given: the same request, where Go writes a part of it itself (a matcher, protect)
     names = branch_names or {}
     if xr:
         py = world.seen
@@ -315,6 +322,9 @@ XR_DIR = f"tenants/{XR_APP}"
 def xr_routes(name, app_status=200, file_status=404, **over):
     r = repo_routes(T_REPO, 3)
     r.update(pulls_route(T_REPO, xr_branch(name)[1], []))
+    listing = [{"name": "flight-api", "type": "dir"}, {"name": "payments", "type": "dir"}] if app_status == 200 else [{"name": "payments", "type": "dir"}]
+    r.update({f"GET /repos/{T_REPO}/contents/tenants?ref=main": jsr(200 if app_status in (200, 404) else app_status, listing if app_status in (200, 404) else {}),
+              f"GET /repos/{T_REPO}/pulls?state=open&per_page=100": jsr(200, [])})
     r.update({f"GET /repos/{T_REPO}/contents/{XR_DIR}?ref=main": jsr(app_status, [] if app_status == 200 else {}),
               f"GET /repos/{T_REPO}/contents/{XR_DIR}/xr-requests/{name}.yaml?ref=main": jsr(file_status, {} if file_status == 404 else {"type": "file"})})
     r.update(over)
@@ -325,13 +335,13 @@ def xr_branch(name):
     return f"agent/t-abc123-xr-{name}", f"agent/t-abc123-xr-{name}-{HASH}"
 
 
-def xr(name_, args, *, name=None, go_denied=None, why=None, routes=None, branch_name=None, **extra):
+def xr(name_, args, *, name=None, go_denied=None, why=None, routes=None, branch_name=None, py_args=None, **extra):
     """One xr.request case. `name` is the XR's file name when it has one; `go_denied` the refusal Go gives where Python opens the PR."""
     nm = branch_name or name or f"{XR_APP}-{args.get('env', 'dev')}-{str(args.get('kind', '')).lower()}"
     rts = routes if routes is not None else xr_routes(nm)
     bp, bg = xr_branch(nm)
     path = f"{XR_DIR}/xr-requests/{nm}.yaml"
-    case, _ = record(name_, "xr.request", args, rts, xr={"app": XR_APP, "path": path, "name": nm, "branch_py": bp, "branch_go": bg}, **extra)
+    case, _ = record(name_, "xr.request", args, rts, py_args=py_args, xr={"app": XR_APP, "path": path, "name": nm, "branch_py": bp, "branch_go": bg}, **extra)
     if go_denied:
         case["go"] = {"denied": go_denied, "requests": []}
         case["why"] = why
@@ -347,11 +357,16 @@ def xr_cases():
     xr("a message queue", {**base, "kind": "MessageQueue", "name": f"{app}-orders", "spec": {"lockSeconds": 60, "fifo": True}}, name=f"{app}-orders")
     xr("a message queue with a dead letter queue", {**base, "kind": "MessageQueue", "name": f"{app}-dlq", "spec": {"deadLetter": {"enabled": True, "maxReceiveCount": 3}, "queueName": f"{app}-dlq"}}, name=f"{app}-dlq")
     xr("an object store", {**base, "kind": "ObjectStorage", "name": f"{app}-files", "spec": {"bucketName": f"{app}-files", "versioning": True}}, name=f"{app}-files")
-    xr("a database", {**base, "kind": "ManagedPostgreSQL", "name": f"{app}-db", "spec": {"size": "small", "storageGiB": 32, "allowedCidrs": ["10.43.0.0/16"]}}, name=f"{app}-db")
-    xr("a service level objective", {**base, "kind": "SLO", "name": f"{app}-slo", "spec": {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "service": f"{app}-svc", "objective": 99.5,
-        "indicator": {"type": "availability", "metric": "http_requests_total", "totalFilter": "{job=\"x\"}", "errorFilter": "{code=~\"5..\"}"}}}, name=f"{app}-slo")
+    xr("a database (Go makes it deletion-protected)", {**base, "kind": "ManagedPostgreSQL", "name": f"{app}-db", "spec": {"size": "small", "storageGiB": 32, "allowedCidrs": ["10.43.0.0/16"]}},
+       name=f"{app}-db", py_args={**base, "kind": "ManagedPostgreSQL", "name": f"{app}-db", "spec": {"size": "small", "storageGiB": 32, "allowedCidrs": ["10.43.0.0/16"], "protect": True}})
+    slo_spec = {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "service": f"{app}-svc", "objective": 99.5,
+                "indicator": {"type": "availability", "metric": "http_requests_total"}}
+    xr("a service level objective (Go writes the matchers)", {**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
+        "totalFilter": {"job": f"{app}", "code": "200"}, "errorFilter": {"code": "500"}}}}, name=f"{app}-slo",
+       py_args={**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
+        "totalFilter": f'code="200",job="{app}"', "errorFilter": 'code="500"'}}})
     xr("a rollout watch", {**base, "kind": "RolloutWatch", "name": f"{app}-watch", "spec": {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "appName": app, "cluster": "dev-cluster", "env": "dev",
-        "notifications": {"slack": {"enabled": True, "channel": "#deploys"}}}}, name=f"{app}-watch")
+        "notifications": {"slack": {"enabled": True}}}}, name=f"{app}-watch")
     xr("a lower application environment (named for it)", {**base, "kind": "ApplicationEnvironment", "spec": {"configMapGenerator": True}}, name=f"{app}-dev-cluster-dev")
     xr("an application environment with its fixed fields stated", {**base, "kind": "ApplicationEnvironment", "spec": {"appName": app, "cluster": "dev-cluster", "env": "dev"}}, name=f"{app}-dev-cluster-dev")
     xr("the default name", {**base, "kind": "ObjectStorage", "spec": {"versioning": False}})
@@ -409,6 +424,21 @@ def xr_cases():
          {"rule": "XR-SPEC", "message": "spec.environmentRef must be {name: flight-api-dev-cluster-dev} for this request",
           "hint": "The environment reference of a request is the app's own ApplicationEnvironment for this env on this cluster; leave it out."}),
         ("a made-up field", "MessageQueue", {"surprise": 1}, f"{app}-q5", field("MessageQueue", "surprise")),
+        ("a database that is not deletion-protected", "ManagedPostgreSQL", {"protect": False}, f"{app}-db3",
+         {"rule": "XR-FIELD", "message": "spec.protect may not be false: deleting a database is a person's change (XR_ALLOW_UNPROTECTED_DB)", "hint": CAP}),
+        ("a large database", "ManagedPostgreSQL", {"size": "large"}, f"{app}-db4",
+         {"rule": "XR-FIELD", "message": "spec.size is not a database size this platform lets an agent request (XR_DB_SIZES: small, medium)", "hint": CAP}),
+        ("a bucket that is emptied on delete", "ObjectStorage", {"emptyOnDelete": True}, f"{app}-o3",
+         {"rule": "XR-FIELD", "message": "spec.emptyOnDelete may not be true: emptying a bucket is a person's change (XR_ALLOW_EMPTY_ON_DELETE)", "hint": CAP}),
+        ("a region the platform does not name", "ObjectStorage", {"region": "eu-west-1"}, f"{app}-o4",
+         {"rule": "XR-FIELD", "message": "spec.region is not a region this platform lets an agent choose (XR_REGIONS: us-east-1)", "hint": CAP}),
+        ("a network of the agent's choosing", "ManagedPostgreSQL", {"vpcCidr": "10.43.0.0/16"}, f"{app}-db5",
+         {"rule": "XR-FIELD", "message": "spec.vpcCidr is not a network this platform lets an agent choose: leave it out for the platform's own (XR_VPC_CIDRS)", "hint": CAP}),
+        ("a chat channel of the agent's choosing", "RolloutWatch", {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "notifications": {"slack": {"channel": "#anywhere"}}}, f"{app}-w2",
+         {"rule": "XR-FIELD", "message": "spec.notifications.slack.channel is not a channel this platform lets an agent notify (XR_SLACK_CHANNELS)", "hint": CAP}),
+        ("a selector that closes the matcher", "SLO", {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "service": f"{app}-s", "objective": 99,
+          "indicator": {"type": "availability", "metric": "m", "totalFilter": "namespace=\"app-other-cicd\"} or {__name__=~\".+\"", "errorFilter": {"code": "5"}}}, f"{app}-slo3",
+         {"rule": "XR-FIELD", "message": "spec.indicator.totalFilter must be a mapping of one to eight labels to the values they equal (the gateway writes the matcher)", "hint": CAP}),
     ]:
         a = {**base, "kind": kind, "spec": spec}
         if nm_:

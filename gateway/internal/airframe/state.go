@@ -227,15 +227,15 @@ func stNoApp(app string) any {
 
 // envXRs is _env_xrs: the cicd XRs (with only this environment's ApplicationEnvironments when env is named), the environment's
 // own XRs, and the ApplicationEnvironments that are this environment (a Flight environment).
-func (s *State) envXRs(ctx context.Context, app string, env *string) (t, cicdNS string, cicd, envXRs, flight []map[string]any, found bool, err error) {
+func (s *State) envXRs(ctx context.Context, app string, env *string) (t, cicdNS string, cicd, envXRs, flight []map[string]any, pl *envPlace, found bool, err error) {
 	t, cicdNS, all, err := s.cicd(ctx, app)
 	if err != nil || all == nil {
-		return "", "", nil, nil, nil, false, err
+		return "", "", nil, nil, nil, nil, false, err
 	}
 	named := env != nil && *env != ""
 	for _, x := range all {
 		isAppEnv := x["kind"] == "ApplicationEnvironment"
-		isEnv := isAppEnv && env != nil && stPyEq(stAsMap(x["spec"])["env"], *env)
+		isEnv := isAppEnv && env != nil && stPyEq(stAsMap(x["spec"])["env"], *env) && stPyEq(stAsMap(x["spec"])["appName"], app)
 		if isEnv {
 			flight = append(flight, x)
 		}
@@ -244,11 +244,58 @@ func (s *State) envXRs(ctx context.Context, app string, env *string) (t, cicdNS 
 		}
 	}
 	if named {
-		if envXRs, err = s.xrsIn(ctx, t+"-"+app+"-"+*env); err != nil {
-			return "", "", nil, nil, nil, false, err
+		// The environment is one the app has: an ApplicationEnvironment of its own, or an Application the platform labelled for it.
+		// The namespace read is the one that Application's destination names, which must be the one the platform assigns to
+		// (app, env): never a name joined from the argument, which another app's namespace can equal (gate + api-prod is gate-api + prod).
+		if pl, err = s.place(ctx, app, *env, t, len(flight) > 0); err != nil {
+			return "", "", nil, nil, nil, nil, false, err
+		}
+		if pl.known && pl.ns != "" {
+			if envXRs, err = s.xrsIn(ctx, pl.ns); err != nil {
+				return "", "", nil, nil, nil, nil, false, err
+			}
 		}
 	}
-	return t, cicdNS, cicd, envXRs, flight, true, nil
+	return t, cicdNS, cicd, envXRs, flight, pl, true, nil
+}
+
+var stEnvLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// envPlace is where the platform put one of an app's environments on this cluster.
+type envPlace struct {
+	known bool             // the app has this environment (a flight ApplicationEnvironment, or a labelled Application)
+	ns    string           // its namespace, when an Application of it says so and it is the one the platform assigns; else ""
+	apps  []map[string]any // the Applications that carry both the app's and the environment's label
+}
+
+// place decides whether env is one of the app's environments and which namespace is its own. Every Application it keeps carries
+// hangar.io/app == app and hangar.io/env == env (the platform's labels, which a tenant's manifests do not set on an Application).
+func (s *State) place(ctx context.Context, app, env, t string, flight bool) (*envPlace, error) {
+	p := &envPlace{}
+	if !stEnvLabel.MatchString(env) || !stEnvLabel.MatchString(app) {
+		return p, nil
+	}
+	apps, err := s.applications(ctx, app, env, t)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range apps {
+		labels := stAsMap(stAsMap(a["metadata"])["labels"])
+		if labels["hangar.io/app"] != app || labels["hangar.io/env"] != env {
+			continue
+		}
+		p.apps = append(p.apps, a)
+		if dest, _ := stAsMap(stAsMap(a["spec"])["destination"])["namespace"].(string); dest == t+"-"+app+"-"+env {
+			p.ns = dest
+		}
+	}
+	p.known = flight || len(p.apps) > 0
+	return p, nil
+}
+
+func stUnknownEnv(app, env string) any {
+	return stAnswer("AF-ENV-404", fmt.Sprintf("%s has no environment %s on this cluster", app, stPyRepr(env)),
+		"airframe.status {app} lists the app's environments; an environment is one the platform registered for the app.")
 }
 
 // -- normalising XR state -----------------------------------------------------------------------------------------------
@@ -458,12 +505,15 @@ func stNameOf(v any) string {
 
 // Status is airframe.status: an app's (or one environment's) XR conditions.
 func (s *State) Status(ctx context.Context, app string, env *string) (any, error) {
-	t, cicdNS, cicd, envXRs, flight, found, err := s.envXRs(ctx, app, env)
+	t, cicdNS, cicd, envXRs, flight, pl, found, err := s.envXRs(ctx, app, env)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
 		return stNoApp(app), nil
+	}
+	if pl != nil && !pl.known {
+		return stUnknownEnv(app, *env), nil
 	}
 	all := append(append([]map[string]any{}, cicd...), envXRs...)
 	xrs := xrRows(all)
@@ -604,14 +654,20 @@ func rolloutSummary(r map[string]any) map[string]any {
 // Describe is airframe.describe: one environment, its XRs, the Argo CD Application syncing it and its Rollout.
 func (s *State) Describe(ctx context.Context, app, env string) (any, error) {
 	e := env
-	t, cicdNS, cicd, envXRs, flight, found, err := s.envXRs(ctx, app, &e)
+	t, cicdNS, cicd, envXRs, flight, pl, found, err := s.envXRs(ctx, app, &e)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
 		return stNoApp(app), nil
 	}
-	envNS := t + "-" + app + "-" + env
+	if pl == nil || !pl.known {
+		return stUnknownEnv(app, env), nil
+	}
+	envNS := pl.ns
+	if envNS == "" {
+		envNS = t + "-" + app + "-" + env // named in the answer only: nothing is read from it
+	}
 	xrs := []any{}
 	for _, x := range append(append([]map[string]any{}, cicd...), envXRs...) {
 		n := Normalise(x)
@@ -625,10 +681,7 @@ func (s *State) Describe(ctx context.Context, app, env string) (any, error) {
 		xrs = append(xrs, row)
 	}
 	notes := []any{}
-	apps, err := s.applications(ctx, app, env, t)
-	if err != nil {
-		return nil, err
-	}
+	apps := pl.apps
 	tier := "ground"
 	if len(flight) > 0 {
 		tier = "flight"
@@ -650,7 +703,7 @@ func (s *State) Describe(ctx context.Context, app, env string) (any, error) {
 			name, _ := rm["name"].(string)
 			// An Application's resource list is written from a tenant's manifests: a Rollout is read only where this environment's
 			// own workload runs.
-			if name == "" || ns != envNS {
+			if name == "" || pl.ns == "" || ns != pl.ns {
 				continue
 			}
 			r, err := s.get(ctx, stArgoPath("rollouts", ns, name))
@@ -672,7 +725,7 @@ func (s *State) Describe(ctx context.Context, app, env string) (any, error) {
 				notes = append(notes, fmt.Sprintf("%s is a Flight environment on %s: its Application and Rollout run there, and this adapter reads %s only", env, stPyStr(cl), c))
 			}
 		}
-		if len(flight) == 0 {
+		if len(flight) == 0 && pl.ns != "" {
 			rs, err := s.list(ctx, stArgoPath("rollouts", envNS, ""), "")
 			if err != nil {
 				return nil, err

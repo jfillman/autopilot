@@ -1,0 +1,164 @@
+# First XRD in the catalog - see idp/docs/service-catalog-design.md Item 4.
+#
+# apiextensions.crossplane.io/v2 (not v1) for real namespaced-XR support, same as
+# ai-rollout/crossplane/xrd/application.yaml's own note on why v1 is wrong here.
+#
+# Fields sit FLAT under spec.* (not nested under spec.parameters like the
+# ai-rollout prototype's Application XRD) because airframe-application's own
+# templates/attached/slos.yaml already toYaml's each `slos:` values entry
+# straight under spec:, alongside spec.environmentRef. kind/plural/group match
+# what _helpers.tpl already hardcodes (type: slo -> kind: SLO) and what
+# values.yaml already sets (attachedResourceApiVersion: catalog.hangar.io/v1alpha1).
+#
+# Wraps Sloth (sloth.dev) rather than hand-rolling multi-window-multi-burn-rate
+# PromQL - see service-catalog-design.md Item 4's revision history. This is
+# WHY the schema is this small: no `window` field (Sloth's compliance/error-
+# budget period is a controller-wide default, not per-SLO - confirmed against
+# Sloth's own PrometheusServiceLevel CRD, which has no such field under
+# spec.slos[]) and no `alerting.burnRates` list (Sloth computes the full
+# canonical 4-window pattern - page + ticket tiers - automatically from just
+# `objective`, verified live). The prior hand-rolled revision of this XRD had
+# both; both are gone now, not because the concepts don't exist, but because
+# Sloth owns them.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: slos.catalog.hangar.io
+  annotations:
+    terasky.backstage.io/add-to-catalog: "false"
+    hangar.io/catalog-exclusion: "Requested through the slos[] list in an app's values file (the chart renders the XR); not a standalone self-service request."
+    hangar.io/agent-summary: "Declares a service-level objective, rendered into Sloth for multi-window burn-rate alerting."
+spec:
+  group: catalog.hangar.io
+  names:
+    kind: SLO
+    plural: slos
+    singular: slo
+    # No shortNames - `slo`/`slos` collide with Sloth's own CRD, which claims
+    # both as `categories` (not shortNames) on `prometheusservicelevels`.
+    # Confirmed live: `kubectl get slo` resolved to Sloth's category grouping
+    # instead of this resource's shortname and 404'd looking for a
+    # PrometheusServiceLevel that didn't exist yet - use `kubectl get
+    # slos.catalog.hangar.io` (or plain `slos`, which is this resource's actual
+    # plural, not a category, and wins unambiguously) instead.
+  scope: Namespaced
+  # Review C13: deterministic Composition choice for an XR that names none (there is one per kind).
+  defaultCompositionRef:
+    name: slos.catalog.hangar.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "SLO: Declares a service-level objective, rendered into Sloth for multi-window burn-rate alerting."
+          properties:
+            metadata:
+              type: object
+              description: "Standard object metadata. Only name is constrained here (its length)."
+              properties:
+                name:
+                  type: string
+                  maxLength: 59
+                  description: >-
+                    At most 59 characters (review C13). The PrometheusServiceLevel and its PrometheusRule are named <name>-slo.
+            spec:
+              type: object
+              description: "Desired state of the SLO. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply)."
+              required:
+                - environmentRef
+                - service
+                - objective
+                - indicator
+              properties:
+                environmentRef:
+                  type: object
+                  description: >-
+                    Names the owning ApplicationEnvironment XR (app+cluster+env
+                    identity) this SLO belongs to. Labeling/audit only - not a
+                    live lookup, same convention as every other Attached-tier
+                    XRD in this catalog.
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      description: The ApplicationEnvironment XR's own name.
+
+                service:
+                  type: string
+                  description: >-
+                    Value every generated PromQL query matches against the
+                    `service` label, and Sloth's own `spec.service` grouping
+                    field. Required (not derived from the XR name) so a query
+                    is never accidentally left unscoped. Also used literally
+                    in the generated PrometheusServiceLevel/dashboard, so it's
+                    pattern-constrained to a safe PromQL/JSON charset.
+                  minLength: 1
+                  pattern: '^[a-zA-Z0-9_.-]+$'
+
+                objective:
+                  type: number
+                  description: Target SLO percentage, e.g. 99.9 for 99.9%.
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 100
+
+                indicator:
+                  type: object
+                  description: >-
+                    Flat schema (K8s structural schemas don't support a real
+                    oneOf with different properties per branch) with CEL rules
+                    enforcing the per-type required field, same pattern as
+                    cert-manager's Issuer/ExternalDNS-style discriminated
+                    configs. errorFilter is required when type=availability;
+                    latencyThreshold is required when type=latency. The
+                    Composition's template also `fail`s on a missing
+                    type-required field as a backstop, in case CEL validation
+                    isn't enforced on the installed Crossplane version.
+                  required:
+                    - type
+                    - metric
+                    - totalFilter
+                  properties:
+                    type:
+                      type: string
+                      enum: [availability, latency]
+                      description: Which SLI shape this is - picks which sibling field below is required (errorFilter for availability, latencyThreshold for latency) and how the Composition computes the burn-rate query.
+                    metric:
+                      type: string
+                      description: >-
+                        Base metric name. For availability, a counter (e.g.
+                        http_requests_total). For latency, the histogram's
+                        base name without the _bucket/_count/_sum suffix.
+                      minLength: 1
+                    totalFilter:
+                      type: string
+                      description: PromQL label-matcher fragment selecting all eligible events.
+                      minLength: 1
+                    errorFilter:
+                      type: string
+                      description: >-
+                        PromQL label-matcher fragment selecting bad/error
+                        events. Required when type == availability.
+                      minLength: 1
+                    latencyThreshold:
+                      type: string
+                      description: >-
+                        Latency threshold in seconds, as a string, e.g. "0.3".
+                        Must exactly match one of the target histogram's
+                        configured `le` bucket boundaries as Prometheus renders
+                        it - a mismatch produces a query matching zero series
+                        (empty result, not zero/NaN), which then never alerts
+                        and never errors. Can't be validated at the XRD level
+                        since bucket boundaries are an external fact about the
+                        instrumented service. Required when type == latency.
+                      minLength: 1
+                  x-kubernetes-validations:
+                    - rule: "self.type != 'availability' || has(self.errorFilter)"
+                      message: "errorFilter is required when indicator.type == availability"
+                    - rule: "self.type != 'latency' || has(self.latencyThreshold)"
+                      message: "latencyThreshold is required when indicator.type == latency"
+          required: ["spec"]

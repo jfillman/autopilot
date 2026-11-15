@@ -64,6 +64,9 @@ func FuzzKubeAllowlist(f *testing.F) {
 		f.Add(s, s, s)
 	}
 	f.Fuzz(func(t *testing.T, plural, ns, name string) {
+		if len(plural)+len(ns)+len(name) > 2048 {
+			return // a path longer than the list allows is refused by its first test; the oracle's regexes need not read a megabyte
+		}
 		for _, p := range []string{XRPath(plural, ns, name), XRPath(plural, ns, ""), RolloutsPath(ns, name), RolloutsPath(ns, ""), ApplicationsPath(ns, name),
 			"/apis/catalog.hangar.io/v1alpha1/namespaces/" + ns + "/" + plural + "/" + name, "/apis/argoproj.io/v1alpha1/namespaces/" + ns + "/" + plural} {
 			if !pathAllowed(p) {

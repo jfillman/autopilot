@@ -147,7 +147,7 @@ func TestAirframeToolsEqualPython(t *testing.T) {
 		}
 		t.Run(c.Name, func(t *testing.T) {
 			e := newAirframeEnv(t, f.Tokens, &c)
-			args := expand(c.Args).(map[string]any)
+			args := expand(c.Args).(map[string]any) // what Go is given (Python may have been given a part written out: py_args)
 			var got any
 			var err error
 			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

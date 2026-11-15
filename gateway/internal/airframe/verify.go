@@ -161,7 +161,7 @@ func where(run *definitions.OMap, xr map[string]any) (string, map[string]any) {
 
 // resourceStep makes a `resource` step only when the resource is one that may be read at all (an XR, an Application or a
 // Rollout) and lies in this app's own namespaces; otherwise it is skipped, never attempted.
-func (s *State) resourceStep(ctx context.Context, app string, run *definitions.OMap, xr map[string]any) (map[string]any, error) {
+func (s *State) resourceStep(ctx context.Context, allowed map[string]bool, run *definitions.OMap, xr map[string]any) (map[string]any, error) {
 	resource, _ := run.M["resource"].(string)
 	plural, group, _ := strings.Cut(resource, ".")
 	name, nerr := Render(run.M["name"], xr)
@@ -189,7 +189,7 @@ func (s *State) resourceStep(ctx context.Context, app string, run *definitions.O
 			"reason": fmt.Sprintf("reads %s %s, which is outside Clearance's read allowlist (Airframe XRs, Argo CD Applications and Rollouts)", resource, stPyStr(name))}, nil
 	}
 	// The namespace and name come from the XR's spec, which a tenant writes: a step reads only inside this app's own namespaces.
-	if !nameOK || !nsOK || !(strings.HasPrefix(nsS, "app-"+app+"-") || strings.HasPrefix(nsS, "infra-"+app+"-")) {
+	if !nameOK || !nsOK || !allowed[nsS] {
 		return map[string]any{"status": "skipped", "names": map[string]any{"resource": resource, "name": name},
 			"reason": fmt.Sprintf("reads %s %s outside the app's own namespaces", resource, stPyStr(name))}, nil
 	}
@@ -236,18 +236,32 @@ func (s *State) Verify(ctx context.Context, app, kind, name string, env *string)
 	plural, _ := xrd.M["plural"].(string)
 	named := env != nil && *env != ""
 	var xr map[string]any
+	var allowed map[string]bool // the namespaces a `resource` step may read: the XR's own and its app's cicd namespace
+	knownEnv := !named
 	for _, t := range stTypes {
 		ns := t + "-" + app + "-cicd"
 		if named {
-			ns = t + "-" + app + "-" + *env
+			// the environment is one the platform registered for the app, and its namespace the one it assigned (see place)
+			pl, err := s.place(ctx, app, *env, t, false)
+			if err != nil {
+				return nil, err
+			}
+			if !pl.known || pl.ns == "" {
+				continue
+			}
+			knownEnv, ns = true, pl.ns
 		}
 		var err error
 		if xr, err = s.get(ctx, stXrPath(plural, ns, name)); err != nil {
 			return nil, err
 		}
 		if xr != nil {
+			allowed = map[string]bool{ns: true, t + "-" + app + "-cicd": true}
 			break
 		}
+	}
+	if !knownEnv {
+		return stUnknownEnv(app, *env), nil
 	}
 	if xr == nil {
 		var ws []string
@@ -291,7 +305,7 @@ func (s *State) Verify(ctx context.Context, app, kind, name string, env *string)
 				put(map[string]any{"status": "pass", "detail": detail})
 			}
 		case rk == "resource":
-			r, err := s.resourceStep(ctx, app, run, xr)
+			r, err := s.resourceStep(ctx, allowed, run, xr)
 			if err != nil {
 				return nil, err
 			}

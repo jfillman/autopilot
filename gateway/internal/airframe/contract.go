@@ -45,4 +45,6 @@ type Registry struct {
 	UpperClusters []string
 	TenantsRepo   string
 	Owner         string
+	// XR bounds what xr.request may ask for (the zero value is the safe default).
+	XR XRPolicy
 }

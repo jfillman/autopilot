@@ -27,7 +27,7 @@ import (
 // dropped; never cached, logged, written, put in an error or returned.
 //
 // The pull request is built with the Git data API, so nothing is cloned and nothing is written to disk. The whole of what
-// this client can send to GitHub is the closed list in endpoint (below): ten requests, GET or POST, each built from
+// this client can send to GitHub is the closed list in endpoint (below): eleven requests, GET or POST, each built from
 // validated parts. There is no merge, no review, no PATCH, no PUT and no DELETE in it, so by no combination of calls can
 // the gateway merge, approve, force-push, delete or move a branch, change protection, or write to an existing branch.
 
@@ -304,6 +304,7 @@ const (
 	epGetContents                   // GET  /repos/{o}/{r}/contents/{path}?ref={ref}
 	epGetRepo                       // GET  /repos/{o}/{r}
 	epListPullFiles                 // GET  /repos/{o}/{r}/pulls/{n}/files?per_page=100
+	epListOpenPulls                 // GET  /repos/{o}/{r}/pulls?state=open&per_page=100
 )
 
 // AllowedGitHubRequests is the list, for the documentation and for a test that holds what is sent to it.
@@ -318,6 +319,7 @@ var AllowedGitHubRequests = []string{
 	"GET /repos/{owner}/{repo}/contents/{path}?ref={ref}",
 	"GET /repos/{owner}/{repo}",
 	"GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100",
+	"GET /repos/{owner}/{repo}/pulls?state=open&per_page=100",
 }
 
 type ghReq struct {
@@ -364,6 +366,8 @@ func (r ghReq) target() (method, target string, err error) {
 		return http.MethodGet, root + "/git/commits/" + r.sha, nil
 	case epGetRepo:
 		return http.MethodGet, root, nil
+	case epListOpenPulls:
+		return http.MethodGet, root + "/pulls?state=open&per_page=100", nil
 	case epListPullFiles:
 		if r.number < 1 {
 			return "", "", errors.New("pull request number")

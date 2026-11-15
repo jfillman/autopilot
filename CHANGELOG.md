@@ -13,7 +13,8 @@ says what each gateway tag adds. The manager cuts the tags.
   private database ranges only, names that start with `<app>-`, one YAML document read back strictly; never an `Agent` XR. Every call is scoped by the gateway itself (`profile.airframe.apps`, `repos.allow`, `proposeFlight`) before any request.
   The GitHub closed list is ten requests (the pull request's files); the Kubernetes reads are a closed list of the contract's plurals, namespaced. No cluster write was added.
 - Settings: `AIRFRAME_ENABLED`, `AIRFRAME_CLUSTER`, `AIRFRAME_UPPER_CLUSTERS`, `AIRFRAME_TENANTS_REPO`, `XR_REQUEST_ENABLED` (default `GITHUB_PR_ENABLED`) and Go's `AIRFRAME_OWNER`. The rule that `GITHUB_PR_ENABLED` needs `XR_REQUEST_ENABLED=0` is gone.
-- `agents/coding-agent.yaml` gets `airframe: { apps: ["*"] }` (it is granted `xr.request`). `docs/admin/go-gateway.md` has the section.
+- After an independent review: the state tools take an environment's namespace from the platform's own labels (never a name joined from an argument); a cloud name belongs to the onboarded app with the longest name that starts it; an SLO's selectors are written by the gateway from `label: value` pairs; deleting or emptying data, a region, a network, a chat channel, a size and a consumer count are platform settings (`XR_*`); a second session's request for a pending file is refused; the field tables are tested against vendored XRDs. The GitHub closed list is eleven requests.
+- `agents/coding-agent.yaml` gets `airframe: { apps: ["*"] }` (it is granted `xr.request`; equal to Python's unscoped behaviour, an owner's decision at cutover). `docs/admin/go-gateway.md` has the section.
 
 
 ### Added (A-9 S4: the agent definition set in the Go gateway)

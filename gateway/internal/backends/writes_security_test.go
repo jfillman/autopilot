@@ -522,7 +522,7 @@ func TestTheGitHubRequestsAreTheClosedList(t *testing.T) {
 }
 
 func TestNoGitHubRequestExistsForAMergeAReviewADeleteOrAProtectionChange(t *testing.T) {
-	for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo, epListPullFiles} {
+	for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo, epListPullFiles, epListOpenPulls} {
 		r := ghReq{ep: ep, owner: "o", name: "r", number: 3, branch: "agent/x", sha: strings.Repeat("a", 40), state: "all", perPage: 5, ref: "main", path: "a",
 			body: refBody{Ref: "refs/heads/agent/x", Sha: strings.Repeat("a", 40)}}
 		m, target, err := r.target()

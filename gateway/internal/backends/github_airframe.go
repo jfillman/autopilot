@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,9 @@ const OnboardingBranch = "onboarding-resync"
 
 // maxPRPaths is how many of a pull request's files are listed (one page, as Python reads: the first 100).
 const maxPRPaths = 100
+
+// maxTenantsListing is how many entries of tenants/ one listing can be believed to be all of (GitHub lists at most 1,000).
+const maxTenantsListing = 1000
 
 // FindPRIn is find_pr: the pull request a branch already has (open, closed or merged), or nil. GET only. repo may be the tenants
 // repository when tenants is set. With meta, an open or closed pull request is also checked to be this session's own (its head
@@ -246,16 +250,38 @@ func (g *GitHub) CommitXR(ctx context.Context, c XRCommit) (map[string]any, erro
 	if err := g.resolveBase(ctx, token, owner, name, &in); err != nil {
 		return nil, err
 	}
-	// The app is onboarded (it has a directory here) and the request is new (no file of that name yet, on the default branch).
-	status, doc, err := g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: "tenants/" + b.App, ref: in.Base})
+	// The apps that are onboarded are the directories of tenants/ (one bounded listing). The requesting app is one of them, and every
+	// name the cloud holds for everyone in the request belongs to the app with the longest name that starts it. Past the bound, or on
+	// any answer that is not the listing, nothing is decided: the request is refused.
+	status, doc, err := g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: "tenants", ref: in.Base})
 	if err != nil {
 		return nil, err
 	}
-	if _, isDir := doc.([]any); status == 404 || (status == 200 && !isDir) {
+	list, isDir := doc.([]any)
+	if status == 404 || (status == 200 && !isDir) {
 		return nil, &core.Denied{Rule: "XR-APP-UNKNOWN", Message: b.App + " has no tenants/" + b.App + "/ in " + g.tenants,
 			Hint: "Request XRs for an onboarded app (its tenants directory exists)."}
 	} else if status != 200 {
 		return nil, ghErrorOf("contents", status, doc, "message")
+	}
+	if len(list) >= maxTenantsListing {
+		return nil, &core.Denied{Rule: "XR-APP-UNKNOWN", Message: "tenants/ lists " + itoa(len(list)) + " entries or more: the apps that own a name cannot be decided",
+			Hint: "Ask a person."}
+	}
+	var onboarded []string
+	for _, e := range list {
+		if m, ok := e.(map[string]any); ok && m["type"] == "dir" {
+			if n, ok := m["name"].(string); ok && repoSeg.MatchString(n) {
+				onboarded = append(onboarded, n)
+			}
+		}
+	}
+	if !slices.Contains(onboarded, b.App) {
+		return nil, &core.Denied{Rule: "XR-APP-UNKNOWN", Message: b.App + " has no tenants/" + b.App + "/ in " + g.tenants,
+			Hint: "Request XRs for an onboarded app (its tenants directory exists)."}
+	}
+	if err := b.CheckOwners(onboarded); err != nil {
+		return nil, err
 	}
 	status, doc, err = g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: b.Path, ref: in.Base})
 	if err != nil {
@@ -267,6 +293,30 @@ func (g *GitHub) CommitXR(ctx context.Context, c XRCommit) (map[string]any, erro
 	}
 	if status != 404 {
 		return nil, ghErrorOf("contents", status, doc, "message")
+	}
+	// A pull request of another session (or task) that already adds this file is a pending request, not this session's to resume:
+	// the branches of an XR request end `-xr-<name>-<8 hex>`, so one page of the open pull requests says.
+	status, doc, err = g.gh(ctx, token, ghReq{ep: epListOpenPulls, owner: owner, name: name})
+	if err != nil {
+		return nil, err
+	}
+	open, ok := doc.([]any)
+	if status != 200 || !ok {
+		return nil, ghErrorOf("pulls", status, doc, "message")
+	}
+	tail := regexp.MustCompile(`-xr-` + regexp.QuoteMeta(b.Name) + `-[0-9a-f]{8}\z`)
+	for _, x := range open {
+		pm, _ := x.(map[string]any)
+		ref, _ := obj(pm["head"])["ref"].(string)
+		if ref != "" && ref != in.Branch && strings.HasPrefix(ref, AgentBranchPrefix) && tail.MatchString(ref) {
+			n, _ := asInt64(pm["number"])
+			return nil, &core.Denied{Rule: "XR-PENDING", Message: "pull request #" + itoa(int(n)) + " already requests " + b.Path,
+				Hint: "A person merges or closes that one; xr.request does not open a second pull request for the same file."}
+		}
+	}
+	if len(open) >= 100 {
+		return nil, &core.Denied{Rule: "XR-PENDING", Message: "the tenants repository has 100 open pull requests or more: whether one already requests " + b.Path + " cannot be decided",
+			Hint: "Ask a person to clear the open pull requests."}
 	}
 	pr, err := g.ensureWith(ctx, token, owner, name, in, entries)
 	if err != nil {

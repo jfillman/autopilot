@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,5 +118,61 @@ func TestTheAirframeSettings(t *testing.T) {
 	c, err = configFromEnv(envOf(base(nil)))
 	if err != nil || c.hangar.airframeEnabled || c.hangar.airframeNote == "" {
 		t.Fatalf("%v %+v", err, c.hangar)
+	}
+}
+
+func TestTheXRBoundsHaveSafeDefaultsAndRefuseAboveTheXRDsMaximum(t *testing.T) {
+	c, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_ENABLED": "0"}))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := c.hangar.xrPolicy
+	if len(p.Regions) != 0 || len(p.VPCCidrs) != 0 || len(p.SlackChannels) != 0 || p.AllowUnprotectedDB || p.AllowEmptyOnDelete || p.MaxStorageGiB != 0 {
+		t.Fatalf("the defaults leave everything to the platform's own: %+v", p)
+	}
+	c, err = configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_ENABLED": "0", "XR_REGIONS": "eu-west-1, us-east-1", "XR_VPC_CIDRS": "10.43.0.0/16",
+		"XR_SLACK_CHANNELS": "#deploys", "XR_DB_SIZES": "small", "XR_MAX_DB_STORAGE_GIB": "128", "XR_MAX_CONSUMERS": "5", "XR_ALLOW_EMPTY_ON_DELETE": "1"}))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = c.hangar.xrPolicy
+	if len(p.Regions) != 2 || p.VPCCidrs[0] != "10.43.0.0/16" || p.MaxStorageGiB != 128 || p.MaxConsumers != 5 || !p.AllowEmptyOnDelete || p.AllowUnprotectedDB {
+		t.Fatalf("%+v", p)
+	}
+	for k, v := range map[string]string{"XR_MAX_DB_STORAGE_GIB": "512", "XR_MAX_CONSUMERS": "11", "XR_DB_SIZES": "huge", "XR_REGIONS": "nowhere", "XR_VPC_CIDRS": "0.0.0.0/0",
+		"XR_SLACK_CHANNELS": "a b", "XR_ALLOW_UNPROTECTED_DB": "maybe"} {
+		if _, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_ENABLED": "0", k: v})))); err == nil {
+			t.Errorf("%s=%s was accepted", k, v)
+		}
+	}
+}
+
+// Only the onboarding agents have airframe.apply (which writes a new app's tenants directory); the agent that holds xr.request does not,
+// so it cannot onboard an app: xr.request needs tenants/<app>/ to exist.
+func TestOnlyTheOnboardingAgentsMayApplyAnAppSpec(t *testing.T) {
+	reg := tools.Default()
+	defs, err := definitions.LoadDir(filepath.Join("..", "..", "..", "agents"), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var applying []string
+	for _, d := range defs {
+		has := func(tool string) bool {
+			for _, x := range d.Limits.Tools {
+				if x == tool {
+					return true
+				}
+			}
+			return false
+		}
+		if has("airframe.apply") {
+			applying = append(applying, d.Name)
+		}
+		if has("xr.request") && has("airframe.apply") {
+			t.Errorf("%s holds both xr.request and airframe.apply", d.Name)
+		}
+	}
+	if len(applying) == 0 || len(applying) > 2 {
+		t.Fatalf("the agents that apply an AppSpec: %v (parachute and app-provisioner)", applying)
 	}
 }

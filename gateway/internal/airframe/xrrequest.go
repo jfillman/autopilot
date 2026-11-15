@@ -96,6 +96,7 @@ const (
 	tObject
 	tArray
 	tCIDR
+	tSelector
 )
 
 // rule is what one field may be. A zero rule of a type allows anything of that type up to the size limits (which every string,
@@ -115,13 +116,23 @@ type rule struct {
 	// bind: the value is the app's name followed by `-` and more (appDash), or the app's name with its dashes taken out followed
 	// by more (appFlat, for names that may hold no dash).
 	bind string
+	// global: the name is one the cloud holds for everyone (a bucket, a storage account, a server, a queue, a resource group): it
+	// must also belong to this app by the longest-owner rule (BuiltXR.CheckOwners), decided from the apps the tenants repository lists.
+	global bool
+	// policy names the platform setting that bounds the value (XRPolicy): region, vpc, slack, dbsize, storage, protect, emptyOnDelete.
+	policy string
+	// selector: a mapping of label to value that this gateway writes as a Prometheus matcher list; the agent supplies no selector
+	// syntax. ownApp says one of the values must name the app's own.
+	selector, ownApp bool
 }
 
 func s(re string, bind string) *rule {
 	return &rule{t: tString, re: regexp.MustCompile(`\A(?:` + re + `)\z`), bind: bind, maxLen: 256}
 }
-func se(vals ...string) *rule { return &rule{t: tString, enumS: vals} }
-func ie(vals ...int64) *rule  { return &rule{t: tInt, enumI: vals} }
+func se(vals ...string) *rule        { return &rule{t: tString, enumS: vals} }
+func glob(r *rule) *rule             { r.global = true; return r }
+func pol(r *rule, name string) *rule { r.policy = name; return r }
+func ie(vals ...int64) *rule         { return &rule{t: tInt, enumI: vals} }
 func ir(min, max int64) *rule {
 	return &rule{t: tInt, min: float64(min), max: float64(max), ranged: true}
 }
@@ -137,13 +148,12 @@ const (
 )
 
 var (
-	region   = s(`[a-z]{2}(-[a-z]+)+-[0-9]`, "")
+	region   = &rule{t: tString, re: regexp.MustCompile(`\A(?:[a-z]{2}(-[a-z]+)+-[0-9])\z`), maxLen: 256, policy: "region"}
 	location = s(`[a-z0-9]+`, "")
-	rgroup   = s(`[a-zA-Z0-9._()-]{1,90}`, appDash)
+	rgroup   = glob(s(`[a-zA-Z0-9._()-]{1,90}`, appDash))
 	cloud    = se("aws", "azure")
 	// target is a reference to a Lambda target XR of the same app (the XR is in the app's own namespace).
 	target = s(`[a-z0-9]([-a-z0-9]*[a-z0-9])?`, appDash)
-	filter = s(`[A-Za-z0-9_:.,{}=!~"'()\[\]|/*+<> -]{1,256}`, "")
 )
 
 // kindFields is the whole of what xr.request may set, kind by kind: the XRDs of the Airframe commit the contract was made
@@ -151,22 +161,22 @@ var (
 var kindFields = map[string]*rule{
 	"ManagedPostgreSQL": obj(map[string]*rule{
 		"cloud":               cloud,
-		"serverName":          s(`[a-z][a-z0-9-]{1,61}[a-z0-9]`, appDash),
+		"serverName":          glob(s(`[a-z][a-z0-9-]{1,61}[a-z0-9]`, appDash)),
 		"version":             se("16", "17"),
-		"size":                se("small", "medium", "large"),
-		"storageGiB":          ie(32, 64, 128, 256),
+		"size":                pol(se("small", "medium", "large"), "dbsize"),
+		"storageGiB":          pol(ie(32, 64, 128, 256), "storage"),
 		"databaseName":        s(`[a-z][a-z0-9_]{0,62}`, ""),
 		"backupRetentionDays": ir(7, 35),
 		"allowedCidrs":        arr(20, &rule{t: tCIDR}),
-		"protect":             b(),
+		"protect":             pol(b(), "protect"),
 		"region":              region,
-		"vpcCidr":             s(`10\.([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.0\.0/16`, ""),
+		"vpcCidr":             pol(s(`10\.([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.0\.0/16`, ""), "vpc"),
 		"location":            location,
 		"resourceGroup":       rgroup,
 	}),
 	"MessageQueue": obj(map[string]*rule{
 		"cloud":            cloud,
-		"queueName":        s(`[a-z0-9][a-z0-9-]{0,59}`, appDash),
+		"queueName":        glob(s(`[a-z0-9][a-z0-9-]{0,59}`, appDash)),
 		"fifo":             b(),
 		"lockSeconds":      ir(1, 43200),
 		"retentionSeconds": ir(60, 1209600),
@@ -174,54 +184,54 @@ var kindFields = map[string]*rule{
 		"region":           region,
 		"location":         location,
 		"resourceGroup":    rgroup,
-		"namespaceName":    s(`[a-zA-Z][a-zA-Z0-9-]{4,48}[a-zA-Z0-9]`, appDash),
-		"consumers": arr(10, obj(map[string]*rule{
+		"namespaceName":    glob(s(`[a-zA-Z][a-zA-Z0-9-]{4,48}[a-zA-Z0-9]`, appDash)),
+		"consumers": pol(arr(10, obj(map[string]*rule{
 			"awsLambdaTarget": &rule{t: tString, re: target.re, bind: appDash, maxLen: 40},
 			"access":          se("send", "receive", "sendReceive"),
 			"trigger":         b(),
 			"batchSize":       ir(1, 10),
-		})),
+		}, "awsLambdaTarget")), "consumers"),
 	}),
 	"ObjectStorage": obj(map[string]*rule{
 		"cloud":              cloud,
-		"bucketName":         s(`[a-z0-9][a-z0-9-]{1,61}[a-z0-9]`, appDash),
+		"bucketName":         glob(s(`[a-z0-9][a-z0-9-]{1,61}[a-z0-9]`, appDash)),
 		"versioning":         b(),
-		"emptyOnDelete":      b(),
+		"emptyOnDelete":      pol(b(), "emptyOnDelete"),
 		"region":             region,
 		"location":           location,
 		"resourceGroup":      rgroup,
-		"storageAccountName": s(`[a-z0-9]{3,24}`, appFlat),
-		"consumers": arr(10, obj(map[string]*rule{
+		"storageAccountName": glob(s(`[a-z0-9]{3,24}`, appFlat)),
+		"consumers": pol(arr(10, obj(map[string]*rule{
 			"awsLambdaTarget": &rule{t: tString, re: target.re, bind: appDash, maxLen: 40},
 			"access":          se("read", "readWrite"),
-		})),
+		}, "awsLambdaTarget")), "consumers"),
 	}),
 	"RolloutWatch": obj(map[string]*rule{
-		"environmentRef": obj(map[string]*rule{"name": s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, "")}),
+		"environmentRef": obj(map[string]*rule{"name": s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, "")}, "name"),
 		"appName":        s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, ""),
 		"cluster":        s(`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`, ""),
 		"env":            s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, ""),
 		"notifications": obj(map[string]*rule{"slack": obj(map[string]*rule{
 			"enabled": b(),
-			"channel": s(`[#A-Za-z0-9._-]{1,80}`, ""),
-		})}),
+			"channel": pol(s(`[#A-Za-z0-9._-]{1,80}`, ""), "slack"),
+		}, "enabled")}),
 	}),
 	"SLO": obj(map[string]*rule{
-		"environmentRef": obj(map[string]*rule{"name": s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, "")}),
-		"service":        s(`[a-zA-Z0-9_.-]{1,100}`, appDash),
+		"environmentRef": obj(map[string]*rule{"name": s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, "")}, "name"),
+		"service":        &rule{t: tString, re: regexp.MustCompile(`\A(?:[a-zA-Z0-9_.-]+)\z`), bind: appDash, maxLen: 100},
 		"objective":      {t: tNumber, min: 0, max: 100, ranged: true},
 		"indicator": obj(map[string]*rule{
 			"type":             se("availability", "latency"),
-			"metric":           filter,
-			"totalFilter":      filter,
-			"errorFilter":      filter,
-			"latencyThreshold": filter,
-		}),
+			"metric":           s(`[a-zA-Z_:][a-zA-Z0-9_:]{0,199}`, ""),
+			"totalFilter":      &rule{t: tSelector, selector: true, ownApp: true},
+			"errorFilter":      &rule{t: tSelector, selector: true},
+			"latencyThreshold": s(`[0-9]{1,6}(\.[0-9]{1,6})?`, ""),
+		}, "type", "metric", "totalFilter"),
 	}),
 	"ApplicationEnvironment": obj(map[string]*rule{
 		"appName":            s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, ""),
 		"cluster":            s(`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`, ""),
-		"env":                s(`[a-z0-9]([-a-z0-9]*[a-z0-9])?`, ""),
+		"env":                &rule{t: tString, re: regexp.MustCompile(`\A(?:[a-z0-9]([-a-z0-9]*[a-z0-9])?)\z`), maxLen: 20},
 		"appType":            se("app", "infra"),
 		"configMapGenerator": b(),
 	}),
@@ -286,6 +296,19 @@ type XRRequest struct {
 type BuiltXR struct {
 	Path, Text, Name, Namespace, Kind, App, Env string
 	XR                                          *definitions.OMap
+	// Owned are the names the cloud holds for everyone that the request asks for, to be checked against the apps that exist.
+	Owned []OwnedName
+}
+
+// OwnedName is a name in the request that must belong to the requesting app.
+type OwnedName struct {
+	Path, Value string
+	Flat        bool // a name that may hold no dash: the app's name with its dashes taken out is its prefix
+}
+
+type checkCtx struct {
+	pol   XRPolicy
+	owned []OwnedName
 }
 
 func asLabel(v any) (string, bool) {
@@ -325,6 +348,7 @@ func BuildXR(r XRRequest, reg Registry) (*BuiltXR, error) {
 	fixed := fixedFields(kind, app, env, reg)
 	devName := app + "-" + reg.DevCluster + "-" + env
 	out := definitions.OMap{M: map[string]any{}}
+	cx := &checkCtx{pol: reg.XR.withDefaults()}
 	for _, k := range fixed.keys {
 		if v, has := spec.M[k]; has && !xrEqual(v, fixed.vals[k]) {
 			return nil, xrRefuse("XR-SPEC", fmt.Sprintf("spec.%s must be %s for this request", k, pyrepr.Value(fixed.vals[k])),
@@ -356,11 +380,16 @@ func BuildXR(r XRRequest, reg Registry) (*BuiltXR, error) {
 			}
 			return nil, xrRefuse("XR-FIELD", "spec."+clip100(k)+" "+why, hint)
 		}
-		v, err := check(fr, spec.M[k], "spec."+k, app, nil)
+		v, err := check(fr, spec.M[k], "spec."+k, app, cx)
 		if err != nil {
 			return nil, err
 		}
 		out.Set(k, v)
+	}
+	if kind == "ManagedPostgreSQL" && !cx.pol.AllowUnprotectedDB {
+		if _, has := out.M["protect"]; !has {
+			out.Set("protect", true) // a database an agent asks for is deletion-protected unless the platform says otherwise
+		}
 	}
 	for _, k := range requiredFields[kind] {
 		if _, has := out.M[k]; !has {
@@ -405,7 +434,7 @@ func BuildXR(r XRRequest, reg Registry) (*BuiltXR, error) {
 		return nil, xrRefuse("XR-SPEC", "the request does not read back as the one XR it was built as: "+err.Error(), "Request fewer or simpler fields.")
 	}
 	return &BuiltXR{Path: "tenants/" + app + "/xr-requests/" + filename, Text: text, Name: name, Namespace: "app-" + app + "-cicd",
-		Kind: kind, App: app, Env: env, XR: &xr}, nil
+		Kind: kind, App: app, Env: env, XR: &xr, Owned: cx.owned}, nil
 }
 
 type fixedSet struct {
@@ -462,7 +491,7 @@ func badField(path, why string) error {
 
 // check validates one value against its rule and returns the value to write (the same, copied: nothing the agent sent is
 // aliased into the XR).
-func check(r *rule, v any, path, app string, _ *rule) (any, error) {
+func check(r *rule, v any, path, app string, cx *checkCtx) (any, error) {
 	switch r.t {
 	case tString:
 		str, ok := v.(string)
@@ -478,6 +507,9 @@ func check(r *rule, v any, path, app string, _ *rule) (any, error) {
 		if len(r.enumS) > 0 {
 			for _, e := range r.enumS {
 				if e == str {
+					if err := policyString(r.policy, str, path, cx.pol); err != nil {
+						return nil, err
+					}
 					return str, nil
 				}
 			}
@@ -489,11 +521,20 @@ func check(r *rule, v any, path, app string, _ *rule) (any, error) {
 		if r.bind != "" && !bound(app, r.bind, str) {
 			return nil, badField(path, "must start with the app's name and a dash ("+app+"-...): a request names its own app's resources only")
 		}
+		if r.global {
+			cx.owned = append(cx.owned, OwnedName{Path: path, Value: str, Flat: r.bind == appFlat})
+		}
+		if err := policyString(r.policy, str, path, cx.pol); err != nil {
+			return nil, err
+		}
 		return str, nil
 	case tInt:
 		n, ok := v.(int64)
 		if !ok {
 			return nil, badField(path, "must be a whole number")
+		}
+		if r.policy == "storage" && n > cx.pol.MaxStorageGiB {
+			return nil, badField(path, fmt.Sprintf("is above the %d GiB this platform lets an agent request (XR_MAX_DB_STORAGE_GIB)", cx.pol.MaxStorageGiB))
 		}
 		if len(r.enumI) > 0 {
 			for _, e := range r.enumI {
@@ -526,7 +567,15 @@ func check(r *rule, v any, path, app string, _ *rule) (any, error) {
 		if !ok {
 			return nil, badField(path, "must be true or false")
 		}
+		switch {
+		case r.policy == "protect" && !bl && !cx.pol.AllowUnprotectedDB:
+			return nil, badField(path, "may not be false: deleting a database is a person's change (XR_ALLOW_UNPROTECTED_DB)")
+		case r.policy == "emptyOnDelete" && bl && !cx.pol.AllowEmptyOnDelete:
+			return nil, badField(path, "may not be true: emptying a bucket is a person's change (XR_ALLOW_EMPTY_ON_DELETE)")
+		}
 		return bl, nil
+	case tSelector:
+		return checkSelector(r, v, path, app)
 	case tCIDR:
 		str, ok := v.(string)
 		if !ok || !PrivateCIDR(str) {
@@ -538,12 +587,16 @@ func check(r *rule, v any, path, app string, _ *rule) (any, error) {
 		if !ok {
 			return nil, badField(path, "must be a list")
 		}
-		if len(l) > r.maxItems {
-			return nil, badField(path, fmt.Sprintf("has more than %d entries", r.maxItems))
+		max := r.maxItems
+		if r.policy == "consumers" && cx.pol.MaxConsumers < max {
+			max = cx.pol.MaxConsumers
+		}
+		if len(l) > max {
+			return nil, badField(path, fmt.Sprintf("has more than %d entries", max))
 		}
 		out := make([]any, len(l))
 		for i, e := range l {
-			c, err := check(r.item, e, fmt.Sprintf("%s[%d]", path, i), app, nil)
+			c, err := check(r.item, e, fmt.Sprintf("%s[%d]", path, i), app, cx)
 			if err != nil {
 				return nil, err
 			}
@@ -562,7 +615,7 @@ func check(r *rule, v any, path, app string, _ *rule) (any, error) {
 				return nil, xrRefuse("XR-FIELD", path+"."+clip100(k)+" is not a field of this request",
 					"The fields under "+path+" are "+strings.Join(fieldNames(r), ", ")+".")
 			}
-			c, err := check(fr, m.M[k], path+"."+k, app, nil)
+			c, err := check(fr, m.M[k], path+"."+k, app, cx)
 			if err != nil {
 				return nil, err
 			}
@@ -723,4 +776,153 @@ func asFloat(v any) (float64, bool) {
 		return x, true
 	}
 	return 0, false
+}
+
+// -- platform settings ---------------------------------------------------------------------------------------------------------
+
+// XRPolicy are the bounds the platform puts on what an agent may request, each refused above its maximum. The defaults are the
+// safe ones: nothing that deletes or empties data, no network of the agent's choosing, no chat channel, small databases.
+type XRPolicy struct {
+	Regions            []string // XR_REGIONS: the regions a request may name (default us-east-1, the XRDs' own default)
+	VPCCidrs           []string // XR_VPC_CIDRS: the vpcCidr values a request may name (default none: the platform's default network)
+	SlackChannels      []string // XR_SLACK_CHANNELS: the channels a RolloutWatch may notify (default none)
+	DBSizes            []string // XR_DB_SIZES: the database size classes (default small, medium)
+	MaxStorageGiB      int64    // XR_MAX_DB_STORAGE_GIB: at most 256, the XRD's own largest (default 64)
+	MaxConsumers       int      // XR_MAX_CONSUMERS: consumers of a queue or a bucket, at most 10 (default 3)
+	AllowUnprotectedDB bool     // XR_ALLOW_UNPROTECTED_DB: protect: false (default off: a database is deletion-protected)
+	AllowEmptyOnDelete bool     // XR_ALLOW_EMPTY_ON_DELETE: emptyOnDelete: true (default off)
+}
+
+func (p XRPolicy) withDefaults() XRPolicy {
+	if p.Regions == nil {
+		p.Regions = []string{"us-east-1"}
+	}
+	if p.DBSizes == nil {
+		p.DBSizes = []string{"small", "medium"}
+	}
+	if p.MaxStorageGiB <= 0 {
+		p.MaxStorageGiB = 64
+	}
+	if p.MaxStorageGiB > 256 {
+		p.MaxStorageGiB = 256
+	}
+	if p.MaxConsumers <= 0 {
+		p.MaxConsumers = 3
+	}
+	return p
+}
+
+func inList(l []string, v string) bool {
+	for _, x := range l {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func policyString(name, v, path string, p XRPolicy) error {
+	switch name {
+	case "region":
+		if !inList(p.Regions, v) {
+			return badField(path, "is not a region this platform lets an agent choose (XR_REGIONS: "+strings.Join(p.Regions, ", ")+")")
+		}
+	case "vpc":
+		if !inList(p.VPCCidrs, v) {
+			return badField(path, "is not a network this platform lets an agent choose: leave it out for the platform's own (XR_VPC_CIDRS)")
+		}
+	case "slack":
+		if !inList(p.SlackChannels, v) {
+			return badField(path, "is not a channel this platform lets an agent notify (XR_SLACK_CHANNELS)")
+		}
+	case "dbsize":
+		if !inList(p.DBSizes, v) {
+			return badField(path, "is not a database size this platform lets an agent request (XR_DB_SIZES: "+strings.Join(p.DBSizes, ", ")+")")
+		}
+	}
+	return nil
+}
+
+// -- names the cloud holds for everyone ------------------------------------------------------------------------------------------
+
+func flatName(s string) string { return strings.ReplaceAll(strings.ToLower(s), "-", "") }
+
+// CheckOwners decides that every global name in the request belongs to the requesting app, from the apps that are onboarded (the
+// directories of tenants/ in the tenants repository). A dashed name belongs to the onboarded app with the LONGEST name that is
+// a dash-terminated prefix of it, and only that app may ask for it (so `gate` cannot take `gate-api-prod-assets`). A flattened
+// name (a storage account takes no dash) is compared by flattened app names: where another app's flattened name is a prefix of this
+// app's, equal to it, or has it as a prefix, no flattened name is decided for either, and the request is refused.
+func (b *BuiltXR) CheckOwners(onboarded []string) error {
+	apps := append([]string{}, onboarded...)
+	if !inList(apps, b.App) {
+		apps = append(apps, b.App)
+	}
+	for _, o := range b.Owned {
+		if o.Flat {
+			mine := flatName(b.App)
+			for _, other := range apps {
+				if other == b.App {
+					continue
+				}
+				f := flatName(other)
+				if strings.HasPrefix(f, mine) || strings.HasPrefix(mine, f) {
+					return xrRefuse("XR-FIELD", clip100(o.Path)+" cannot be decided: the names of "+b.App+" and "+other+" are the same with the dashes taken out, or one starts the other",
+						"A storage account name has no dash, so it cannot say which app it belongs to; ask a person for it.")
+				}
+			}
+			continue
+		}
+		owner := ""
+		for _, a := range apps {
+			if strings.HasPrefix(o.Value, a+"-") && len(a) > len(owner) {
+				owner = a
+			}
+		}
+		if owner != b.App {
+			return xrRefuse("XR-FIELD", clip100(o.Path)+" is a name of "+clip100(owner)+"'s, not "+b.App+"'s",
+				"A name belongs to the onboarded app whose name is its longest prefix; request names that no other app's name starts.")
+		}
+	}
+	return nil
+}
+
+// -- Prometheus matchers -----------------------------------------------------------------------------------------------------------
+
+var (
+	promLabel = regexp.MustCompile(`\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z`)
+	promValue = regexp.MustCompile(`\A[A-Za-z0-9 _.:/@+=-]{1,128}\z`)
+	// platformLabels are the labels the platform's own series carry for tenancy: an agent does not select on them.
+	platformLabels = map[string]bool{"namespace": true, "app": true, "cluster": true, "pod": true, "container": true, "exported_namespace": true,
+		"kubernetes_namespace": true, "tenant": true, "hangar_io_app": true, "node": true, "instance": true}
+)
+
+// checkSelector reads a mapping of label to value and writes it as the matcher list the composition puts inside braces
+// (label="value",label2="value2"). The agent supplies no selector syntax: a label is a plain name (not `__name__`, nor one of the
+// platform's tenancy labels), a value is plain text with no quote, backslash, brace or line break, and every match is an equality.
+func checkSelector(r *rule, v any, path, app string) (any, error) {
+	m, ok := v.(*definitions.OMap)
+	if !ok || len(m.Keys) == 0 || len(m.Keys) > 8 {
+		return nil, badField(path, "must be a mapping of one to eight labels to the values they equal (the gateway writes the matcher)")
+	}
+	pairs := make([]string, 0, len(m.Keys))
+	names := append([]string{}, m.Keys...)
+	sort.Strings(names)
+	own := false
+	for _, k := range names {
+		val, isStr := m.M[k].(string)
+		if !promLabel.MatchString(k) || strings.HasPrefix(k, "__") || platformLabels[strings.ToLower(k)] {
+			return nil, badField(path+"."+k, "is not a label an agent may select on")
+		}
+		if !isStr || !promValue.MatchString(val) {
+			return nil, badField(path+"."+k, "must be plain text of 1 to 128 characters, with no quote, backslash, brace or line break")
+		}
+		if val == app || strings.HasPrefix(val, app+"-") {
+			own = true
+		}
+		pairs = append(pairs, k+`="`+val+`"`)
+	}
+	if r.ownApp && !own {
+		return nil, badField(path, "must select on the app's own name: one value is "+app+" or starts "+app+"- (the composition does not add a tenant matcher)")
+	}
+	return strings.Join(pairs, ","), nil
 }

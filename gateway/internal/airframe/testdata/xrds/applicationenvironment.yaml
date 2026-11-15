@@ -1,0 +1,235 @@
+# Second Bootstrap-tier XRD - idp/docs/service-catalog-design.md Item 3. Given an app
+# (already onboarded via NodeJSApplication) and an env name, commits that env's
+# <cluster>/<env>/values.yaml into the app's own gitops-<appName> repo and a
+# tenants/<appName>/<env>/identity.yaml entry into gitops-cluster-dev-tenants - read by
+# that repo's tenant-onboarding ApplicationSet to render the real deployment
+# Application via airframe-application (Airframe's shared chart). Pure
+# provider-github, no live cluster credential - same mechanism as NodeJSApplication.
+#
+# apiextensions.crossplane.io/v2 (not v1) for real namespaced-XR support, same as
+# NodeJSApplication/SLO.
+#
+# spec.cluster (added 2026-08-15, a real second upper-env cluster - kind-prod - now
+# exists to build and test against): required, no enum. Gated via a real Crossplane
+# extra-resources lookup against the new cluster registry
+# (gitops-cluster-dev/00-bootstrap/cluster-registry/) instead - must resolve to
+# type: upper + crossplaneReady: "true", or the Composition creates nothing and
+# reports ClusterReady: False. No enum here deliberately: enum values would need an
+# XRD schema bump (a catalog-maintainer action) for what's otherwise a routine
+# cluster-admin fleet operation - same reasoning NodeJSApplication's future
+# devCluster field will use, mixing those two concerns is exactly what the registry
+# exists to avoid. type: dev is explicitly rejected, not just type: upper accepted -
+# gitops-strategy.md §10 scopes gitops-<app-name> (which this XRD writes into) to
+# upper environments only; dev envs belong to the separate platform/envs/-live-read
+# mechanism. See service-catalog-design.md §0 "Where Crossplane runs across a
+# multi-cluster fleet" for the full reasoning.
+#
+# No spec.rollout / image seed: this platform's CICD control plane isn't running on
+# kind-dev yet (same gap NodeJSApplication already reports via CicdOnboarded), so
+# there's no real image to deploy at XR-creation time. The Composition bootstraps an
+# identity-only values.yaml (the chart renders no workload until a release sets an image) - see
+# compositions/applicationenvironment/templates/status/status.yaml for the conditions this
+# XR does report (ClusterReady, AppResolved); whether a workload is up is the target
+# cluster's Rollout, which this XR cannot observe - rather than rendering a Rollout that
+# would sit in permanent ImagePullBackOff.
+#
+# Naming convention (not CEL-enforced, matching NodeJSApplication's precedent of not
+# enforcing any naming relationship between an XR and what it creates): name this XR
+# <appName>-<cluster>-<env> - the exact deterministic string every Attached-tier XR
+# (SLO today; future Redis/OAuthServer) independently computes via airframe-application's
+# own environmentRef helper (charts/airframe-application/templates/_helpers.tpl) when
+# stamping spec.environmentRef.name onto itself. spec.appName/spec.env stay the real
+# source of truth the Composition reads - this XR's own metadata.name is never parsed
+# back apart.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: applicationenvironments.catalog.hangar.io
+  annotations:
+    terasky.backstage.io/add-to-catalog: "true"
+    terasky.backstage.io/target-path: "tenants/${{ parameters.appName }}/xr-requests"
+    terasky.backstage.io/description: "Adds a deploy environment (e.g. staging, prod) on a target cluster for an app that's already been onboarded."
+    hangar.io/agent-summary: "Adds a deploy environment (e.g. staging, prod) on a target cluster for an app that's already been onboarded."
+spec:
+  group: catalog.hangar.io
+  names:
+    kind: ApplicationEnvironment
+    plural: applicationenvironments
+    singular: applicationenvironment
+  scope: Namespaced
+  # Review C13: deterministic Composition choice for an XR that names none (there is one per kind).
+  defaultCompositionRef:
+    name: applicationenvironments.catalog.hangar.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: CLUSTER
+          type: string
+          jsonPath: ".status.conditions[?(@.type=='ClusterReady')].reason"
+          description: "ClusterReady reason"
+        - name: APP
+          type: string
+          jsonPath: ".status.conditions[?(@.type=='AppResolved')].reason"
+          description: "AppResolved reason"
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "ApplicationEnvironment: Adds a deploy environment (e.g. staging, prod) on a target cluster for an app that's already been onboarded."
+          properties:
+            status:
+              type: object
+              description: "Observed state of the ApplicationEnvironment, written by its Composition (conditions are added by Crossplane)."
+              properties:
+                scaffold:
+                  type: object
+                  description: >-
+                    Scaffold ledger, written by the Composition. Scaffold files (RepositoryFiles the
+                    platform writes once and then hands to the developer: boilerplate source, cicd.yaml,
+                    README, the gitops values.yaml) are composed only until they are observed Ready;
+                    their composition-resource-names are then recorded here and the managed resources
+                    retire, leaving the GitHub files in place. "Scaffold once, reconcile never": a name
+                    in this list is never rendered again for this XR, so a later template change cannot
+                    overwrite a developer's edits and the provider has nothing to poll.
+                  properties:
+                    done:
+                      type: array
+                      description: >-
+                        composition-resource-names of the scaffold files this XR has already written
+                        (sorted, unique). Empty or absent on a fresh XR, and again after a cluster
+                        rebuild, when the pinned external names let the provider adopt the existing
+                        files without writing them - after which they re-enter this list.
+                      items:
+                        type: string
+                        description: "A composition-resource-name, e.g. src-repo-readme."
+            spec:
+              type: object
+              description: "Desired state of the ApplicationEnvironment. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply)."
+              x-kubernetes-validations:
+                - rule: "self.appName.size() + self.env.size() <= 58"
+                  message: "appName and env together are at most 58 characters: the environment's namespace is app-<appName>-<env>, a 63-character name"
+              required: ["appName", "env", "cluster"]
+              properties:
+                appName:
+                  type: string
+                  description: >-
+                    Names the owning app XR this env belongs to - a NodeJSApplication,
+                    SpringBootApplication, PythonApplication, GoApplication or
+                    InfraService in this same namespace. Resolved live on every
+                    reconcile (a Crossplane extra-resources lookup, one per kind,
+                    in compositions/applicationenvironment/templates/
+                    render-github-resources/00-app-kind-gate.yaml) and reported as
+                    the AppResolved condition: True once it names a real app,
+                    False/AppNotFound when it does not (a typo, or an env requested
+                    before its app exists - retried every reconcile, no edit needed
+                    once the app appears). It also drives a real
+                    protection.crossplane.io Usage this env's own Composition
+                    composes (spec.of = the resolved app, spec.by = this env) -
+                    blocks that app's deletion while this env still exists, closing
+                    the AppProject/Application deletion-ordering bug
+                    (idp/docs/service-catalog-design.md §0). The Usage is rendered
+                    only once the name resolves (there is nothing to protect
+                    before), and kept as observed through a transient empty lookup
+                    so protection never flaps off. Unlike spec.cluster, an
+                    unresolved appName does not block the RepositoryFile writes:
+                    they target the app's gitops-<appName> repo and fail loudly on
+                    their own (visible via kubectl describe) if that repo doesn't
+                    exist either.
+                  minLength: 1
+                cluster:
+                  type: string
+                  description: >-
+                    Which upper-env cluster to deploy this env onto: its name in the
+                    cluster registry (e.g. "example-prod", an example). Checked live against the cluster registry
+                    (gitops-cluster-dev/00-bootstrap/cluster-registry/) via a
+                    Crossplane extra-resources lookup: must resolve to a
+                    ConfigMap with type: upper and crossplaneReady: "true", or
+                    the Composition creates nothing and reports
+                    ClusterReady: False rather than partially succeeding. A dev
+                    cluster is a structural rejection, not just an unlikely
+                    input - see this XRD's own header comment.
+                  minLength: 1
+                env:
+                  type: string
+                  description: >-
+                    Which environment this is within the target cluster -
+                    "staging"/"prod", or any team-chosen name (e.g. "qa",
+                    "perf", "demo-2"). Previously a closed enum of exactly
+                    dev/staging/prod (2026-08-13); opened up 2026-08-15 once
+                    tracing every real consumer - this Composition's own
+                    template, the tenant-onboarding ApplicationSet, and the
+                    AppProject's own destinations wildcard
+                    (app-<appName>-*) - confirmed nothing branches on the
+                    specific value, it was always pure path/name
+                    interpolation, not encoded business logic. Constrained by
+                    pattern (not free-form) instead, since this value becomes
+                    a literal Kubernetes namespace-name segment
+                    (app-<appName>-<env>) and a git path segment
+                    (<cluster>/<env>/values.yaml,
+                    tenants/<appName>/<env>/identity.yaml) - a value
+                    Kubernetes' own namespace-name rule (DNS-1123 label)
+                    would reject should fail here, at XR admission with a
+                    clear message, not downstream as an ArgoCD sync failure
+                    or a malformed path. maxLength: 20 is a conservative
+                    budget so app-<appName>-<env> has room to stay under
+                    Kubernetes' 63-char namespace limit - does not by itself
+                    bound appName, though (NodeJSApplication's own XRD has no
+                    length limit on its name today - a pre-existing gap, not
+                    introduced here).
+                  pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                  minLength: 1
+                  maxLength: 20
+                appType:
+                  type: string
+                  enum: [app, infra]
+                  default: app
+                  description: >-
+                    `app` (the default) for an env of a NodeJS/SpringBoot/Go/Python application, whose deploy
+                    repo is gitops-<appName>. `infra` for an env of an InfraService (a shared component such
+                    as a broker), whose deploy repo is gitops-infra-<appName>. Without it an infra service's
+                    values.yaml is written to gitops-<appName>, which doesn't exist.
+                chart:
+                  type: object
+                  description: >-
+                    The chart this environment renders, when it is not the cluster's default (glidepath ADR-0023):
+                    written into tenants/<appName>/<env>/identity.yaml's chart block, which the tenant-onboarding
+                    ApplicationSet reads, falling back to cluster-defaults.yaml for each field left out. Set by
+                    Glidepath's flight-chart-sync PR on this request file, from the app's cicd.yaml. Lives here,
+                    not as a direct edit of identity.yaml, because this Composition owns that file and its
+                    reconcile reverted the direct edit (2026-10-08, gate-api staging).
+                  properties:
+                    repoURL:
+                      type: string
+                      description: Git or Helm repository of the chart. A different repo inherits no other field from the cluster default.
+                    path:
+                      type: string
+                      description: Chart directory in a Git repository (replaces the default's chart).
+                    chart:
+                      type: string
+                      description: Chart name in a Helm repository (replaces the default's path).
+                    targetRevision:
+                      type: string
+                      description: Git ref or chart version to render.
+                  # No `additionalProperties: false` here: a CRD structural schema forbids it next to
+                  # `properties` ("additionalProperties and properties are mutual exclusive"), and Crossplane
+                  # could not apply the generated CRD for 9 days (2026-09-30 -> 2026-10-09, XRD generation 4 vs
+                  # CRD generation 1, only an EstablishComposite warning event on the XRD). Unknown fields under
+                  # chart are pruned by the API server anyway, and `airframe-validate --xr` rejects them
+                  # pre-merge (it strictifies every object itself). tools/test_xr_validate.py now lints for it.
+                configMapGenerator:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Generate a ConfigMap for this environment from config
+                    files in the app's gitops repo. On, the environment's
+                    Application also renders
+                    <cluster>/<env>/configmap/ (a Kustomize
+                    configMapGenerator, a fixed-name <appName>-app-config
+                    ConfigMap that values.yaml can mount with
+                    existingConfigMap), and the composition seeds that
+                    folder's kustomization.yaml once. Add the files with
+                    Tower's Config tab. Leave it off if the app has no config
+                    files. Written to tenants/<appName>/<env>/identity.yaml,
+                    where the tenant-onboarding ApplicationSet reads it.
+          required: ["spec"]
