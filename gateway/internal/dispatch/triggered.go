@@ -44,7 +44,7 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 		g.Store.GiveBack(newID)
 		return nil, err
 	}
-	d := g.Defs[agent]
+	d := g.def(agent)
 	if d != nil && d.IdentityType == "workload" && (d.ServiceAccount == nil || *d.ServiceAccount == "") {
 		// The core grants a triggered session the definition's service account as its principal ("" when it names none), and the
 		// schema requires one of a workload definition: a definition without it has no identity a triggered run could have, so it is
@@ -259,7 +259,7 @@ func (g *Gateway) TriggerSessionState(sessionID string) TriggerSession {
 func (g *Gateway) SessionOfTask(agent, task string) string {
 	var best string
 	var at time.Time
-	d := g.Defs[agent]
+	d := g.def(agent)
 	if d == nil || d.IdentityType != "workload" || d.ServiceAccount == nil {
 		return ""
 	}
@@ -320,7 +320,7 @@ func (g *Gateway) TriggeredRequestLive(ctx context.Context, agent, trigger, task
 // triggeredRequest builds the evaluation; the caller holds the hold gate. live is the live session of the task, if any.
 func (g *Gateway) triggeredRequest(ctx context.Context, agent, trigger, taskID, newID string, now time.Time) (*client.EvaluationRequest, *session.Session, error) {
 	var held *Hold
-	if g.Defs[agent] != nil {
+	if g.def(agent) != nil {
 		var err error
 		if held, err = g.holdForLocked(ctx, agent); err != nil {
 			return nil, nil, err
@@ -351,7 +351,11 @@ func (g *Gateway) triggeredRequest(ctx context.Context, agent, trigger, taskID, 
 }
 
 // Definitions is the definition set (the triggers read it for what each agent's triggers are).
-func (g *Gateway) Definitions() map[string]*definitions.Definition { return g.Defs }
+func (g *Gateway) Definitions() map[string]*definitions.Definition {
+	g.defsMu.RLock()
+	defer g.defsMu.RUnlock()
+	return g.Defs
+}
 
 // SessionState says whether a session is known to this gateway, whether it is live (not closed, not past its deadline) and the run
 // it names, "" when it has none.

@@ -51,8 +51,9 @@ func flagEnv(env func(string) string, k string, d bool) (bool, error) {
 // What the Go gateway adds, each stricter than Python and each said in docs/admin/go-gateway.md:
 //   - BROKER_URL has no default (Python's names a lab Service) and GITHUB_PR_ENABLED needs it;
 //   - GITHUB_OWNERS (Go only) names the GitHub owners the pull requests go to: no argument chooses one;
-//   - GITHUB_PR_ENABLED defaults the pinned definitions (AGENT_XRS_ENABLED) and xr.request (XR_REQUEST_ENABLED) on in Python;
-//     the Go gateway carries neither yet, so it needs both said to be 0 rather than start without them silently;
+//   - GITHUB_PR_ENABLED defaults the pinned definitions (AGENT_XRS_ENABLED, carried since S4: definitions.go) and xr.request
+//     (XR_REQUEST_ENABLED) on in Python; the Go gateway does not carry xr.request yet, so it needs that said to be 0 rather than
+//     start without it silently;
 //   - ARGO_SYNC_ENABLED needs ARGO_ENABLED (Python ignores it when Argo CD reads are off).
 func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, error) {
 	var h hangarSettings
@@ -76,22 +77,18 @@ func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, e
 	if h.githubPRs, err = flagEnv(env, "GITHUB_PR_ENABLED", false); err != nil {
 		return h, err
 	}
-	xrs, err := flagEnv(env, "AGENT_XRS_ENABLED", false)
-	if err != nil {
-		return h, err
-	}
 	xrReq, err := flagEnv(env, "XR_REQUEST_ENABLED", false)
 	if err != nil {
 		return h, err
 	}
-	if xrs || xrReq {
-		return h, configError("AGENT_XRS_ENABLED and XR_REQUEST_ENABLED: not carried by the Go gateway yet (docs/admin/go-gateway.md); unset them, or keep running the Python gateway")
+	if xrReq {
+		return h, configError("XR_REQUEST_ENABLED: not carried by the Go gateway yet (docs/admin/go-gateway.md); unset it, or keep running the Python gateway")
 	}
 	h.agentTokenFile = getenv(env, "AGENT_TOKEN_FILE", agentTokenDefault)
 	if h.githubPRs {
-		if env("AGENT_XRS_ENABLED") == "" || env("XR_REQUEST_ENABLED") == "" {
-			return h, configError("GITHUB_PR_ENABLED turns the pinned definitions and xr.request on in the Python gateway, and the Go gateway does not carry them yet: " +
-				"set AGENT_XRS_ENABLED=0 and XR_REQUEST_ENABLED=0 to say you know (docs/admin/go-gateway.md)")
+		if env("XR_REQUEST_ENABLED") == "" {
+			return h, configError("GITHUB_PR_ENABLED turns xr.request on in the Python gateway, and the Go gateway does not carry it yet: " +
+				"set XR_REQUEST_ENABLED=0 to say you know (docs/admin/go-gateway.md)")
 		}
 		h.brokerURL = env("BROKER_URL")
 		for _, o := range strings.Split(env("GITHUB_OWNERS"), ",") {

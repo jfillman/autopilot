@@ -77,7 +77,7 @@ func (g *Gateway) ClampCandidate(cand *definitions.Definition, agent string, bud
 	out.Limits.ModelTokens = want("model_tokens", lim.ModelTokens)
 	out.Limits.Children = want("children", lim.Children)
 	name := "pf-" + firstChars(agent, 28) + "-" + firstChars(fp, 8)
-	if g.Defs[name] != nil {
+	if g.def(name) != nil {
 		return nil, &ControlError{"R001", name + " is a live definition", "", 409}
 	}
 	out.Name, out.Kind, out.IdentityType, out.ServiceAccount = name, "task", "delegated", nil
@@ -110,7 +110,7 @@ func max64(a, b int64) int64 {
 // runtime image by digest (and be on the deployment's image list when it has one); then it is clamped (ClampCandidate).
 func (g *Gateway) Candidate(agent string, document any, budget any) (*definitions.Definition, string, error) {
 	if g.CandidateParse == nil || g.Fingerprint == nil {
-		return nil, "", fmt.Errorf("%w: candidate definitions are validated against the definition schema, which is not carried yet", ErrNotCarried)
+		return nil, "", fmt.Errorf("%w: candidate definitions need a definition parser (CandidateParse), which this gateway was not given", ErrNotCarried)
 	}
 	if _, ok := document.(map[string]any); !ok {
 		return nil, "", &ControlError{"R008", "document is an agent definition (an object)", "", 400}

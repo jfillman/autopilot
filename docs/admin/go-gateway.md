@@ -2,7 +2,8 @@
 
 **Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2, 2026-11-14), the human inbox, person controls and triggers (A-9 S3), the read backends (A-9 S5a:
 `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put`, `artifact.get`) and the Glidepath and repository tools (A-9 S5b:
-every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`, `repo.pr.open_upper`, `argo.sync.lower`) are in, on top of the first
+every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`, `repo.pr.open_upper`, `argo.sync.lower`) and the definition set (A-9 S4, 2026-11-15:
+the Agent XR loader, the schema, the publish to the core) are in, on top of the first
 slice and the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
 the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
@@ -75,7 +76,7 @@ Python changes since the first slice that belong to a later slice, and are there
 | S1 authentication | none: the `engine/auth.py` change was the workload audiences, ported above; people's and Tower's sign-in is S1's own section |
 | S2 runs | **done in S2, below.** One part waits for S5c: `observe` counts `airframe.plan` and `airframe.apply`, which have no handler in Go yet, so nothing makes it count until S5c; the counting itself is ported and tested |
 | S3 people and triggers | the Preflight routes `/v1/preflight/cases` and `/v1/preflight/score` and `document` and `budget` on `POST /v1/agents/{agent}/runs` (`engine/server.py`, `Gateway.preflight_*`) |
-| S4 definitions | publishing the bundled definitions with the pins (`Core.publish_definitions(bundled=)`, `bundled_version`, the retry without the field against a core that predates it, `Definitions.bundled_set`, `AgentDefinition.doc`, `DefinitionsPublisher` at start), and the schema's `profile.airframe.proposeFlight` |
+| S4 definitions | **done in S4, [below](#what-s4-carries-the-definition-set-2026-11-15)**: publishing the bundled definitions with the pins (`Core.publish_definitions(bundled=)`, `bundled_version`, the retry without the field against a core that predates it, `Definitions.bundled_set`, `AgentDefinition.doc`, `DefinitionsPublisher` at start), and the schema's `profile.airframe.proposeFlight` |
 | S5a read backends | **done in S5a, below**: `ReadError` for catalog and app API reads as a `BackendError`, with the handlers behind it |
 | S5b Glidepath and repo tools | **done in S5b, below**: `GitHubError`'s agent message and evidence and the resumable `ensure_pr` (`github_pr.py`), `GlidepathError` naming a connection failure's cause, `ArgoSyncError`'s evidence without the response body, `glidepath.cicd.propose` for the `propose` scope class (`cicd_propose.py`) |
 | S5c Airframe tools | `airframe.apply` (`airframe_apply.py`), `airframe.capabilities` and `airframe.plan` descriptions (already in the generated registry), `AirframeError` as a `BackendError` |
@@ -305,9 +306,10 @@ an object, and it is dropped and counted (`oversize`, `malformed`, `bad-id`, `ba
 of it, never the event.
 
 A triggered session's principal is the definition's service account (the core: `d.ServiceAccount`, or "" when it names none; the replay corpus's
-31 triggered opens all carry it). The schema requires a service account of a workload definition, and the Go gateway does not validate
-definitions (S4), so a workload definition without one is refused **up front** (R008, "no service account", the core is not asked): there is no
-identity a triggered run could have, and the dedupe rule (compare with that principal) could never accept it.
+31 triggered opens all carry it). The schema requires a service account of a workload definition. S3 did not validate definitions, so a workload definition without one is refused **up front**
+(R008, "no service account", the core is not asked): there is no identity a triggered run could have, and the dedupe rule (compare with that principal) could never
+accept it. S4 validates every definition and the refusal stays: a document with no service account for a workload identity is refused by the schema, so no loaded
+definition can reach it (`TestAParsedWorkloadDefinitionAlwaysHasAServiceAccount`, over the corpus, and the fuzzers); it remains as the second line for a definition built by hand.
 
 ### The event bridge as a network client
 
@@ -524,7 +526,7 @@ All of these leave the answer for ordinary inputs unchanged.
   rows alike.
 - **A candidate `document`** on `POST /v1/agents/{agent}/runs` answers `CT-NOTCARRIED` (501), after the person has been checked and before
   anything is opened. S3 supplies the fingerprint, the image rule, the clamp, the person's rule, the grant check and the candidate table;
-  the validated parse of a definition document is S4's (the JSON schema), and `Gateway.CandidateParse` stays nil in `serve` until S4 sets it.
+  the validated parse of a definition document is S4's: `serve` now sets `Gateway.CandidateParse` to the schema read strictly, so the 501 only answers a gateway built without a parser.
 - **The Backstage directory** (`BackstageDirectory`): S5a brought `BACKSTAGE_URL` and the catalog client, but no group lookup is wired. Until it
   is, an agent's owner group resolves to nobody (see above).
 - **The Prometheus endpoint and the trigger counters' names on it** (`METRICS_PORT`) are S6; the counters are counted behind `triggers.Metrics`
@@ -887,7 +889,214 @@ glidepath-api and 8 MiB of files for a pull request. A retry never repeats a wri
 Carried (S5b): `GLIDEPATH_API_ALLOW_HTTP` and `BROKER_ALLOW_HTTP` (Go only, off), `GLIDEPATH_API_URL`, `GLIDEPATH_TOKEN_FILE`, `GLIDEPATH_ON_BEHALF_OF`, `GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`,
 `BROKER_URL` (required with `GITHUB_PR_ENABLED`), `GITHUB_OWNERS` (Go only, required with `GITHUB_PR_ENABLED`), `ARGO_SYNC_ENABLED`.
 `GLIDEPATH_API_URL` is also what the trigger bridge will read (S3); `EVENTS_ENABLED` is still refused. `AGENT_XRS_ENABLED` and
-`XR_REQUEST_ENABLED` are refused when `1` and must be `0` when `GITHUB_PR_ENABLED` is on.
+`XR_REQUEST_ENABLED` are refused when `1` and must be `0` when `GITHUB_PR_ENABLED` is on. (S4: `AGENT_XRS_ENABLED` is carried, see its section;
+`XR_REQUEST_ENABLED` is refused when `1` and must be said to be `0` when `GITHUB_PR_ENABLED` is on.)
+
+## What S4 carries: the definition set (2026-11-15)
+
+The Go gateway now owns the agent definition set: it reads the bundled definitions and the Agent XRs, validates every definition against the
+JSON schema in the words Python does, decides which pins become agents, keeps the live set, and publishes the whole set to the policy core
+(`PUT /v1/definitions`, through the Clearance Go client, v0.44.0). Python sources: `engine/definitions.py` (`Source`, `Loaded`, `Rejected`,
+`from_pin`, `Definitions`), `engine/profile.py` (`parse`, `load_dir`, the baseline deny lists), the schema `engine/schemas/agent-definition.schema.json`
+(copied into the Go package by `tools/gen_gateway_definitions.py`, which fails its `--check` when the copy differs, and embedded), `agent_xrs.py`
+(`AgentXRs`, `DefinitionsPublisher`) and, from `engine/core.py` and `engine/dispatch.py`, `publish_definitions` and `apply_cluster_definitions`.
+Pulled in beyond that list: the Python `jsonschema` library's error choice (`best_match`) and message wording, which the validator has to
+reproduce for the reason text to be Python's; a little of Python's `repr` (`internal/pyrepr`, for those messages); the loader's Kubernetes list and
+the GitHub file read (the S5a `KubeReader` and the S5b `GitHub.ReadFile` gained nothing but an allowlisted list of one kind).
+
+| | Go | Pinned by |
+|---|---|---|
+| Strict reading of a definition file: one document, a mapping, at most 64 KiB, 5,000 nodes, 24 levels; no duplicate key, anchor, alias, merge key or explicit tag; keys are strings; a plain scalar is read the same by YAML 1.1 and 1.2 or refused | `definitions.ParseYAML`, `DecodeJSON` | the corpus (`yaml-strict` group), `strict_test.go`, `FuzzParseYAML` |
+| The schema, in Python's order and words: required, additional properties, enum, pattern, bounds, `oneOf` (the best of its branches) | `definitions.ValidateSchema` | 337 corpus cases against Python's own error text; `FuzzValidateSchema` |
+| What a pin must also satisfy: its file's name is the XR's, its owner is the XR's, a workload identity is `autopilot-runs/<name>`, the name is not a bundled one | `definitions.FromPin` | the corpus (`pin` group), the scenarios |
+| The live set: bundled names first and never shadowed, a name twice is a rejection of both, what changed | `definitions.Set` | the scenarios (29 steps) |
+| The loader | `definitions.Poller` | the scenarios, `loader_test.go` |
+| The publish | `definitions.Manager`, `core.PublishDefinitions` | the scenarios (23 requests, body for body), `loader_test.go` |
+| The set held in memory is replaced whole while the gateway serves | `Gateway.SetDefs`, `Gateway.Definitions` | `defs_live_test.go` (`-race`) |
+| A candidate's `document` (Preflight) is read by the same validator | `Gateway.CandidateParse` is set in `serve` | `cmd/autopilot-gateway/definitions_test.go` |
+| The stored set (`gateway_definitions`) is replaced in one transaction | `pgstate.ReplaceDefinitions` | `TestDefinitionsAreReplacedWhole` (needs `AUTOPILOT_TEST_PG`) |
+
+### Where definitions come from, in what order, and who can write them
+
+1. **The bundled definitions**: the image's `agents/` directory (`AUTOPILOT_AGENTS_DIR`). They are the platform's own, reviewed with the image. A
+   file that does not pass (the schema, a strict reading, a name that is not its file's) stops the start, as in Python. They come first in the set
+   and can never be shadowed: a pin that names a bundled agent is rejected and listed, not loaded.
+2. **Agent XRs** (`catalog.hangar.io/v1alpha1` `Agent`, Airframe's `xrds/agent.yaml`): an XR pins one commit of a definition file in an app's own
+   repository (`spec.source.repo`, `path`, `commit`) and names the owning team (`spec.owner`). The loader lists the XRs, fetches each pinned file
+   once per commit through the agents' GitHub App (`GitHub.ReadFile`: the per-call token from the broker, which allows an onboarded app's own repositories
+   and nothing else), and decides each pin. An unreadable or invalid pin is a rejection with its reason; the rest load.
+3. **The stored set** (`gateway_definitions`), loaded at start when the loader is on so a restart does not unload every pinned agent while
+   the first poll is on its way. Each stored row goes back through the same decision a pin does (the schema, the strict reading, the pin rules and the
+   policy below); a row that no longer passes is a rejection that says so, not a silent drop. With the loader off, stored rows are **not** loaded
+   (nothing would keep them up to date); the log says how many there are.
+
+**Who may write what the loader reads, and what the policy guarantees against them.** Python lists `catalog.hangar.io` Agent XRs in **every** namespace of the
+cluster and trusts what it finds. The Go loader reads only the namespaces it is told to: `AGENT_XRS_NAMESPACES` (no default; the loader will not start without it),
+one namespaced list each, so the access it needs is `get`/`list` on `agents.catalog.hangar.io` in those namespaces and nothing cluster-wide (at S7 the gateway's
+ClusterRole becomes a Role in each listed namespace). An XR in any other namespace is never read, and an item that is not in the namespace that was listed is dropped
+and logged. The setting refuses a wildcard, an upper-case or malformed name, more than 20 namespaces, and the namespaces an agent run or the platform controls
+(`agent-*`, `autopilot-runs`, `kube-*`).
+
+**The namespaces that are listed are app teams' own** (`app-<app>-cicd`, where the live pin `gate-reader` is): whoever can create an Agent XR there can write one, so
+nothing the XR says is trusted. What the pin policy guarantees against an author in such a namespace, at load, on every reload and on stored rows:
+
+- **Only its own app's repository is read.** The XR's repository must be `<owner>/<app>`, `<owner>/gitops-<app>` or `<owner>/gitops-infra-<app>` for the app the namespace
+  names, with an owner in `GITHUB_OWNERS`. The gateway has no registry of an app's repositories to ask (the broker and every write tool bind an app to its repositories by their names, `backends.AppOf`,
+  which a test holds equal to the loader's `definitions.RepoApp`; the Backstage directory is S6), so an app whose name makes that mapping ambiguous has no pins: apps named `gitops-*`
+  or `infra-*` are refused (`gitops-infra-foo` is `foo`'s and never `infra-foo`'s; `gitops-x` is `x`'s gitops repository and never the main repository of an app named `gitops-x`). It is checked before any token is minted, so another app's repository (a `gitops-` repository included) is never fetched. A
+  namespace that is not `app-<app>-cicd` is refused: there are no exempt "platform" namespaces (the platform's own agents are the bundled ones, which are not pins).
+- **A published reason never quotes the file.** The reason a rejected pin is published with (to the core, the store and the read API) is a rule id and a place
+  (`DF-SCHEMA profile/limits/ttlMinutes`, `DF-STRICT`, `DF-YAML at line 3`, `DF-POLICY profile/tools`, `DF-NAME`, `DF-OWNER`, `DF-IDENTITY`): never a value, a key or a name out of the
+  file. The whole story is in the gateway's log (`agent pins: a pin was rejected`, with `detail`).
+- **An agent's name has one owner namespace, decided from configuration alone.** The owner is the namespace `AGENT_XRS_NAMES` lists for the name (`name=namespace`, for the agents that
+  were live before the rule), else, among the namespaces the loader reads, the one whose app is the **longest** app that equals the name or is a dash-terminated prefix of it (`gate-api-reader`
+  belongs to `app-gate-api-cicd`, not `app-gate-cicd`; `gate-reader` to `app-gate-cicd` unless it is listed for another). Only the owner may load the name: another namespace's XR of it is
+  refused alone, before anything is fetched (`DF-NAME`), never both, so a tenant cannot make another's agent go by asking for its name, whatever the apps' names have in common. A listed entry
+  overrides the prefix rule (the start logs each override); it must name a namespace the loader reads and not a bundled agent's name. There is no holder, no state, nothing to squat, and an
+  outage or an empty store at cutover moves nothing (tests: the squat, the holder's outage, the empty-store cutover, the exception map, the gate / gate-api clash both ways, the override, a
+  three-level chain). Two pins of one name that still reach the set are both refused (Python's rule, kept).
+- **Nothing an XR writes is stored or echoed unless it has the form a pin's has.** The repository (`owner/name`, 100 + 100 characters), path (200, a clean relative file path: no leading, double or trailing slash, no `.` or `..` segment), commit (100), XR name (a
+  Kubernetes name) and owner (100) are checked first; an XR that fails is recorded with fixed placeholders (`invalid`) and a fixed reason (`DF-XR`), never its own strings.
+  A rejected row has a largest size (a 300-character reason), a namespace has at most 32 rejected rows listed (the first by name; the rest are counted in one row), and
+  XRs over a namespace's quota are never fetched or examined.
+- **One tenant cannot fill the budget, or freeze another.** A namespace has at most `min(32, 256 / namespaces)` pins (the first by name; the rest `DF-QUOTA`), so the core's own
+  limit is the sum of the shares and never an error that stops a poll; a pin file is at most 24 KiB, a definition 12 KiB, a list 32 entries of 256 bytes. The publish budget (4 MiB, less the
+  bundled definitions) is divided by the number of namespaces the loader reads: a namespace whose rows (pins and rejections) pass its own share loses **its own** rows, which are
+  replaced by one `DF-BUDGET` row. Nothing a namespace does changes another's share, so it cannot drop another's pins or keep the bundled set from being published. This is
+  decided before the live set is changed, so the gateway never runs a set the core was not given.
+
+### A bad definition, and a failed reload
+
+- **One bad pin does not take down the set and does not silently drop the others.** Each pin is decided on its own: the valid ones load, the bad ones are
+  rejected with the reason (the team sees it in the read API and the core records it once as `definition.reject`), and the loaded and the rejected
+  are published together in one request. Two pins of one name are both rejected (a pinned name belongs to its app, so two namespaces cannot ask for one). A bundled definition that does not pass stops the start.
+- **A reload that fails keeps the last good set and says so.** A list that fails (the API server, RBAC, a kind that is not served: a 404 is an error here,
+  not an empty list), a list over 256 XRs, or every pin unreachable, applies nothing: the set the gateway runs and the set the core holds are unchanged,
+  and the log says `keeping the current set` every poll (a warning, and an error from the third failure in a row), until it works. A pin whose file cannot be fetched for a reason that may pass
+  (GitHub or the broker unreachable) is skipped: whatever was loaded for it stays. Only a reason that will not change (no such file at that commit, not YAML,
+  the broker's refusal, the schema, the rules) rejects a pin.
+- **An empty answer is not read as "no definitions" on one reading.** A successful list of zero XRs after a set that was not empty is applied only when the
+  next poll says the same (a transient empty list must not unpin every agent for a minute, and the publish would tell the core so). The first poll, with nothing to
+  lose, publishes at once.
+- A publish that the core did not take (down, 5xx, a refusal) leaves the set applied in the gateway and **unpublished**; the next poll, changed or not, publishes
+  the whole set again. A set that changed while a publish was in flight is published again, not marked as published. A set larger than the core takes (4 MiB) is
+  not sent and says so.
+
+### The publish contract
+
+`PUT /v1/definitions` with `{provider, pins, rejected, bundled}`: every loaded pin as its source, owner and document; every rejection as its name, source and
+reason; every bundled definition as its name, the gateway build (`AUTOPILOT_GATEWAY_VERSION`, as `bundled_version`) and its document. The request is built
+from one snapshot of the bundled definitions, the pins and the rejections taken together under one lock, with the version of the set they belong to; one
+publish runs at a time. It is **atomic from the gateway's side** (the core replaces the provider's whole set; the gateway never sends a part), **idempotent**
+(the same set again changes and records nothing at the core, so the client retries it as it retries an evaluation) and never shrinks the set on a read error
+(see above). It uses its own client with the 5 s attempt timeout and its own breaker, so a slow publish never counts against the decision path. A core that
+predates the `bundled` field refuses the request as an unknown field: the set is sent again without it, and without it from then on. What was published is
+logged as `definitions published` with the counts of pins, rejections and bundled definitions, the SHA-256 of the request's content, its size, and what the core
+said it changed and now holds. (The trigger and expiry counters are not served until S6, and neither is a publish counter: the log line is the record.)
+
+### What a pin may not have (Go only, each in the fixtures with a `why`)
+
+A definition arrives through an app's repository, so a pin is held to more than the schema. These apply to pins (and to the stored rows), not to the bundled
+definitions, which are the platform's own (`jfillman/*` is in a bundled definition and stays), and not to a candidate `document`, which is a pull request's
+version of a live agent, possibly a bundled one, and is clamped before it runs:
+
+- **The pin's commit** is a full commit id (40 or 64 lower-case hex digits). Python reads whatever `spec.source.commit` says as a git ref, so a branch or a tag
+  is fetched once and then held, the version of whenever it was first seen; a pin has to be immutable for the review it stands for to mean anything.
+- **Tools** are on a platform allowlist: `AGENT_XRS_TOOLS` when set, else the read tools (tier 0) and `repo.pr.open`, `glidepath.cicd.propose`, `human.request`, `artifact.put`.
+  Not in a pin unless the platform lists them: `glidepath.promote`, `glidepath.rollback`, `argo.sync.lower`, `airframe.apply`, `run.spawn`, `run.close`, `xr.request`,
+  `repo.pr.open_upper`, `glidepath.run.rerun`, `glidepath.run.cancel`. (Python takes any string.)
+- **Tier ceiling**: at most `AGENT_XRS_MAX_TIER` (default `T2`, the schema's own highest; the schema has no `T3`).
+- **`repos.allow`**: lower case, the owner in `GITHUB_OWNERS`, and each entry one of the app's own repositories written out (`<owner>/<app>`; `<owner>/gitops-<app>` only with the
+  upper pull request tool in the pin's tools, which the default list does not have). No wildcards, so no pattern that reaches beyond the app by a case or a glob trick.
+- **`profile.glidepath.apps` and `profile.airframe.apps`**: the app of the namespace, and nothing else.
+- **`identity.serviceAccount`**: a workload pin's is `autopilot-runs/<name>` (Python's rule: the run identity namespace; a team cannot name another's); a delegated pin names none.
+- **Event triggers**: a Glidepath event whose key starts `<app>.` (never `#`, `*.`, or another app's key); alert and RabbitMQ events have no reader and are refused.
+- **Runtime image and sidecar images**: on the platform's list: the images the bundled definitions run and `RUNTIME_IMAGES_EXTRA` (whole-image globs); the digest is the schema's.
+- The deny paths and fields only extend the baseline: a definition's `denyPaths` and `fieldDeny` are added to `BASELINE_DENY_PATHS` and `BASELINE_DENY_FIELDS`, never replace
+  them (unchanged from Python, pinned by the bundled definitions' scopes).
+- **What else a pin may set**, each bounded by the platform and not by the file: `limits` at most 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children; `network`
+  never `allowlist`; `compute` `small` or `medium`; `airframe.proposeFlight` never true; `apis.allow` its own app only; event triggers Glidepath events of its own app (the RabbitMQ
+  `exchange` and `brokerRef` are in triggers that are refused); `models` and the lists above by their caps. The workload service account `autopilot-runs/<own name>` is safe
+  only because a pinned agent's name belongs to its app: another app cannot name this app's identity (the dependency is stated in `pin.go`).
+- **Oracles that remain, within the author's own app**: the line number in a `DF-YAML` reason, whether a file exists at a commit, which rule fired. They tell an author about the author's own
+  repository and nothing about another tenant's; they are kept because they are what a team needs to fix its pin.
+- **A refusal that is about the repository's state, not the commit's** (the broker's "not an onboarded app's repository", no such file) is asked again after 5 minutes, so an
+  app onboarded later or a file pushed later is read; one about the content stays for that commit, which cannot change.
+
+**Cutover configuration for the live pin:** its name does not start with its app, so `AGENT_XRS_NAMES=gate-reader=app-gate-api-cicd` (with `AGENT_XRS_NAMESPACES=app-gate-api-cicd`,
+`GITHUB_OWNERS=jfillman`). Without that entry it is refused (`DF-POLICY metadata.name`); with it it is accepted (`TestTheLivePinGateReaderStillLoads`).
+
+**The live pin** `app-gate-api-cicd/gate-reader` (`jfillman/gate-api`, `agents/gate-reader.yaml` at `7f8d9657cb94...`, read from the repository and kept in
+`testdata/gate-reader.yaml`) is **accepted** under this policy with the default tools, `GITHUB_OWNERS=jfillman` and the bundled runtime image (`TestTheLivePinGateReaderStillLoads`):
+a T0 workload agent with three Glidepath read tools, `glidepath.apps: [gate-api]`, `autopilot-runs/gate-reader`, a manual trigger and the bundled runtime image. Nothing in its
+repository has to change before the cutover.
+
+### What is deliberately not the same as Python (S4)
+
+Each is a case in `testdata/definitions.json` with `go` and `why`; the test fails on a `go` without a `why`. All leave the answer for an ordinary, well-written definition unchanged.
+
+- **A pattern's `$` matches only at the end of the text.** Python's `re.search` lets `$` match before a final newline, so `description`, `owner`, a repository glob, an app glob,
+  a runtime image and a trigger's key that end in a newline pass Python's schema. Here they do not: the text is what the reviewer saw.
+- **An integer is a whole number written as one.** Python's `jsonschema` takes `20.0` as an integer, and `ttlMinutes: 20.0` then flows to the core and the manifests as a float.
+  A fraction is refused by the schema as in Python (`1.5 is not of type 'integer'`); `20.0` is refused too. Integers above 2^53 are refused.
+- **YAML is read strictly**, where Python's `safe_load` is lenient YAML 1.1: a repeated key is refused (Python keeps the last), an anchor, an alias, a merge key and an explicit tag are
+  refused, a mapping key must be a string, `yes`/`no`/`on`/`off` unquoted, an integer in octal, hex, binary, with underscores or as `1:30`, an exponent, `.inf` and a date are refused
+  (Python reads them as a boolean, an integer, an integer, an integer, a string or a float, a float, a date), a control character in a value is refused, a file over 64 KiB, 5,000 nodes or
+  24 levels is refused. The reason reads `<file> is not acceptable: ...`. Python's own syntax-error text is libyaml's and Go's is another parser's: both read `is not valid YAML: ...`
+  and differ after that.
+- **A pin is bound to its app, redacted, and quota'd** (the guarantees above; Python reads any repository an onboarded app has, quotes the file in the reason, rejects both
+  XRs of a name, and publishes whatever size the namespaces make). In the fixtures: every `policy` case (tools, delegated service account, another app's reads, repositories
+  and event keys, images, list and size caps) and every corpus case that Python loads and the app-bound policy refuses (`acme/gate-*`, an app glob of `gate-*`, a trigger
+  `bindingKey` of `a.b.c`, an `alert` or `rabbitmq` trigger, ...) carries `go` and `why`. The published-reason, agent-name, field-form, quota and budget rules are Go-only tests
+  (`pin_policy_test.go`), because the Python loader has nothing to compare them with. The Python scenario in which one agent name is asked for from two namespaces (both refused) is not in the fixtures: a name belongs to one namespace's app now, so the second is refused before its file is read.
+- **The loader reads named namespaces**, not the cluster (above), and **a 404 on the list is an error**, not an empty list.
+- **An empty list is believed on the second reading**, not the first (above).
+- **The stored rows are decided again** at start, and only when the loader is on.
+- **A non-string `spec.source` field** of an XR (which the XRD's schema forbids) is treated as missing; Python would write its `str()`. Timestamps in `loaded_at` have whole seconds.
+- **A deleted pin is removed even while another pin is unreachable.** When some pin's file cannot be read, Python re-adds every definition the poll did not
+  see, so an Agent XR that was deleted keeps its agent for as long as any other pin is unreachable (a revoke delayed by an outage). Go re-adds only the pins that
+  were skipped (PR Lens, #110).
+- **A fetch error that is not the broker's rule skips the pin** this poll; Python skips it only for a GitHub error and aborts the whole poll (keeping the set) for anything else.
+- **The unpublished flag is not set when the store write fails**: Python raises out of the poll before it. The live set is what runs; the store is for the restart, and the log says it could not be kept.
+- **The gateway database holds two rejections of one name** as one row (the table's key is `(name, state)`); Python's insert of both fails on the key.
+
+### Settings carried in S4
+
+| Setting | Meaning |
+|---|---|
+| `AGENT_XRS_ENABLED` | the loader; default `GITHUB_PR_ENABLED` as in Python; needs `GITHUB_PR_ENABLED=1` |
+| `AGENT_XRS_INTERVAL` | seconds between polls: 60, at least 5, at most a day |
+| `AGENT_XRS_NAMESPACES` (Go only) | the namespaces whose Agent XRs may define agents; **required** when the loader is on |
+| `AGENT_XRS_MAX_TIER` (Go only) | the highest tier ceiling a pin may name: `T0`, `T1`, `T2` (default) |
+| `AGENT_XRS_NAMES` (Go only) | `name=namespace,...`: agents whose names do not start with their app, each pinned from one namespace the loader reads; cutover: `gate-reader=app-gate-api-cicd` |
+| `AGENT_XRS_TOOLS` (Go only) | the tools a pin may name, replacing the default (the read tools and the propose-only lower ones); a name that is not a tool stops the start |
+
+With the loader off the gateway publishes the bundled definitions at start and every 30 s until the core has taken them (Python's `DefinitionsPublisher`). `XR_REQUEST_ENABLED`
+(S5c) is still refused when `1`, and still has to be said to be `0` when `GITHUB_PR_ENABLED` is on; `AGENT_XRS_ENABLED=0` no longer has to be said (it is carried).
+
+The loader's Kubernetes access is read-only on exactly one kind: `get`/`list` on `agents.catalog.hangar.io` in the namespaces named, no cluster-wide list, no read by name, nothing
+else on the path allowlist. The API server URL must be https (`requireHTTPS`, the same rule as S5b), the service-account token is read from its file on every call, the CA is re-read when it
+changes, and a redirect is never followed.
+
+### Crash points of the loader
+
+| Point | What survives | Result |
+|---|---|---|
+| after the set is replaced in memory, before the store write | the live set; the store holds the last one | a restart loads the last stored set and the first poll finds the difference |
+| after the store write, before the publish | the live set and the store | the next poll publishes the whole set (`unpublished` is set before the publish and cleared only by a publish that the core took of the set as it still is) |
+| mid-publish (request sent, answer lost) | the live set and the store; `unpublished` stays set | the next poll sends the same set again; the core records nothing for a set it already has |
+| a poll that panics | the loop recovers and polls again | logged as `poll failed` |
+
+### What S5c, S6 and S7 need from this slice
+
+- **S5c** (`xr.request`, `airframe.*`): `XR_REQUEST_ENABLED` is still refused. The `KubeReader` allowlist grows by the XR kinds there; `ListAgents` is the pattern (a path of one namespace, GET only,
+  a 404 an error where "nothing" would be wrong). `commit_xr` and its tenants flow create the XRs the loader reads; its namespaces are what `AGENT_XRS_NAMESPACES` must name.
+- **S6** (`api`, metrics, logs): the read API's `DefinitionsRefresher` and `Definitions.apply_records` read `gateway_definitions`; the rows the Go loader writes have Python's shape (`{name, state, source, doc | reason}`), so
+  the Python read API reads them. The publish and loader counters are logs until the metrics endpoint exists; `Manager.LastPublished` is what a gauge would read.
+- **S7** (cutover): the Go gateway needs `AGENT_XRS_NAMESPACES` set, `AGENT_XRS_NAMES=gate-reader=app-gate-api-cicd` (the one live pin that does not carry its app's name), the ClusterRole that lists every `catalog.hangar.io` kind replaced by a Role per listed namespace, and a clearance core that takes `bundled` (v0.44.0 does). Run both gateways' loaders never at once on one
+  database (the writer lock stops it); after the cutover the first poll publishes the set to the core whatever it finds. Pins that the policy above
+  refuses (a `*/*` pattern, an unknown tool) must be fixed in their repositories first: before the cutover, run the loader's decision (`definitions.FromPin`) over the
+  definitions the tenants repository's Agent XRs pin, and read the rejections.
 
 ## The drift guard
 
@@ -1027,6 +1236,12 @@ is accepted and none panics.
    receipts compared. The replay is unchanged again: its stub handlers do not need the new backends, and no line it skips was
    skipped for want of one, so none became takeable; it still shows zero differences against clearance v0.44.0 (342 tool calls,
    261 session opens, 35 session spawns, 49 model calls; 372 spends, 648 records and 265 grants compared).
+6. **The S4 fixtures** (above): the Python loader driven over 337 definition files (the schema's every rejection, the pin rules, the YAML readings) and
+   8 scenarios of its poll, 29 steps, with the 23 requests it made to the core, body for body. Zero differences except the 110 file cases and 5 steps
+   carried as `go` with a `why`. The replay is unchanged (zero differences; 342 tool calls, 292 session opens, 35 spawns, 49 model calls, 372 spends,
+   679 records, 290 grants compared against clearance v0.44.0): its corpus has no definition publish, and no line it skips was skipped for want of a
+   definition, so none became takeable (the 12 kinds it still lists are numbers beyond int64, a gateway with no model routes, and the decisions
+   changed on purpose).
 
 ### What the replay does not cover (and why)
 
@@ -1038,28 +1253,23 @@ is accepted and none panics.
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
 
-## What is not carried (after S5b)
+## What is not carried (after S4)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`EVENTS_RABBITMQ_ENABLED`, `AGENT_XRS_ENABLED` or `XR_REQUEST_ENABLED` set to `1`, `AUTOPILOT_EPHEMERAL`), so nobody believes a
+does not (`EVENTS_RABBITMQ_ENABLED`, `XR_REQUEST_ENABLED` set to `1`, `AUTOPILOT_EPHEMERAL`), so nobody believes a
 feature is live when it is not. (`BACKSTAGE_URL` and `APP_API_SERVICES` left this list in S5a: they are read, and a bad value stops the
 start. `GITHUB_PR_ENABLED`, `GLIDEPATH_API_URL` and `ARGO_SYNC_ENABLED` left it in S5b; `GITHUB_PR_ENABLED` also needs
-`AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0`, because Python turns both on with it. S3 removed `EVENTS_ENABLED`: the event bridge
+`XR_REQUEST_ENABLED=0`, because Python turns it on with it. S3 removed `EVENTS_ENABLED`: the event bridge
 reads glidepath-api with the S5b settings, `GLIDEPATH_API_URL` (https unless `GLIDEPATH_API_ALLOW_HTTP=1`) and `GLIDEPATH_TOKEN_FILE`;
 `SCHEDULES_ENABLED`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`, `RUNTIME_IMAGES_EXTRA` and
-`PREFLIGHT_CASES_DIR` are read, with Python's checks.)
+`PREFLIGHT_CASES_DIR` are read, with Python's checks. S4 removed `AGENT_XRS_ENABLED` and brought `AGENT_XRS_INTERVAL`; with the loader on, the Go-only
+`AGENT_XRS_NAMESPACES` is required.)
 
 Not ported, and still the Python gateway's:
 
-- **A candidate's definition document** (S4): `POST /v1/agents/{agent}/runs` with `document` answers `CT-NOTCARRIED` (501) until the
-  definition schema is carried and `Gateway.CandidateParse` is set. Everything around it is in (see [S3](#what-s3-carries-the-human-inbox-person-controls-and-triggers-2026-11-14)).
 - **The Backstage directory** (`BackstageDirectory`, `reads.py`; S5a classified it S6): the catalog client exists (S5a) but no group lookup is wired, so an agent's owner group resolves to nobody and only a session's person and the admins act until it is.
 - **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`, S6): a candidate's image globs are
   `Gateway.RuntimeImages`, filled from `RUNTIME_IMAGES_EXTRA` alone.
-- **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader (S4): the Go gateway reads the
-  bundled `agents/` and the pinned set the Python loader keeps in `gateway_definitions`, and publishes nothing. It does
-  not validate definitions against the JSON schema (the loader that wrote the set did). Triggers are read from the definition as it
-  is and an entry that does not have the schema's shape fires nothing.
 - **Backends**: `metrics.query`, `logs.query`, `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put` and `artifact.get`
   are ported with per-backend timeouts and pools; S5b adds every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`,
   `repo.pr.open_upper` and `argo.sync.lower`. The rest have no handler, so a call to them is refused as having no backend,
@@ -1091,8 +1301,8 @@ It reads the variables the Python gateway reads, for the part it carries: `PORT`
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
 `AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`,
 `APP_API_SERVICES`, `ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, `GLIDEPATH_API_URL`, `GLIDEPATH_TOKEN_FILE`, `GLIDEPATH_ON_BEHALF_OF`,
-`GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`, `BROKER_URL`, `ARGO_SYNC_ENABLED`, `LOG_LEVEL`, and (S3) `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`, `EVENTS_ENABLED`, `GLIDEPATH_API_ALLOW_HTTP` (Go only), `SCHEDULES_ENABLED`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA`, `PREFLIGHT_CASES_DIR`; `GITHUB_OWNERS` is Go's own too (it is required with
-`GITHUB_PR_ENABLED`, and `AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0` must be said); and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
+`GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`, `BROKER_URL`, `ARGO_SYNC_ENABLED`, `LOG_LEVEL`, (S4) `AGENT_XRS_ENABLED`, `AGENT_XRS_INTERVAL`, `AGENT_XRS_NAMESPACES` (Go only) and `AGENT_XRS_MAX_TIER` (Go only), and (S3) `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`, `EVENTS_ENABLED`, `GLIDEPATH_API_ALLOW_HTTP` (Go only), `SCHEDULES_ENABLED`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA`, `PREFLIGHT_CASES_DIR`; `GITHUB_OWNERS` is Go's own too (it is required with
+`GITHUB_PR_ENABLED`, and `XR_REQUEST_ENABLED=0` must be said); and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.
 

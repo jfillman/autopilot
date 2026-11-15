@@ -5,6 +5,29 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S4: the agent definition set in the Go gateway)
+- The Go gateway (`gateway/`, still off by default and not deployed) owns the agent definition set: it reads the bundled `agents/` and the Agent XRs,
+  validates every definition against the JSON schema (a Go validator over the embedded schema, in Python's error order and words), decides each pin
+  (`from_pin`: name, owner, workload identity, no bundled name), keeps the live set (replaced whole while serving: `Gateway.SetDefs`) and publishes the
+  whole set to the policy core with `PUT /v1/definitions` through the Clearance Go client (v0.44.0): pins, rejections and the bundled definitions,
+  atomic from the gateway's side, idempotent, never shrunk by a read error, logged with counts and a digest. `AGENT_XRS_ENABLED` and
+  `AGENT_XRS_INTERVAL` are carried; a candidate's Preflight `document` is validated by the same schema (it answered 501 before).
+- Differences from Python, each pinned in `gateway/internal/definitions/testdata/definitions.json` with a `go` and a `why`
+  (`tools/gen_gateway_definitions.py` drives the Python loader over 337 definition files and 8 scenarios of its poll, 29 steps, 23 publish
+  requests): YAML is read strictly (a repeated key, an anchor or alias, a merge key, a tag, `yes`, `0755`, `1:30`, `1e3`, a date, a control character,
+  a file over 64 KiB are refused); a pattern's `$` does not match before a final newline; `20.0` is not an integer; the loader reads only the namespaces
+  in the new required `AGENT_XRS_NAMESPACES` (Python lists every namespace), a 404 on the list is an error, and an empty list is believed only when it is
+  given twice, and a deleted pin is not kept alive by another pin's outage; a pin must name a full commit id (not a branch or a tag), may not name a tool the gateway lacks, a `*/*`, `acme/*` or upper-case repository pattern, an app pattern of only wildcards, or a tier
+  above `AGENT_XRS_MAX_TIER` (default `T2`). `docs/admin/go-gateway.md` lists each, the sources and precedence of definitions, the bad-definition and
+  failed-reload rules, the publish contract and the loader's crash points.
+- A pin is held to what an app team may have (the namespaces the loader lists are app teams' own): it may read only its own app's repository (checked before
+  anything is fetched), its Glidepath apps, repository patterns, event keys and service account are its own app's, its tools are the platform's list
+  (`AGENT_XRS_TOOLS`; default the read tools and the propose-only lower ones), its images the platform's; a published rejection reason names a rule and a place, never
+  the file's content; an agent name belongs to its namespace's app (or is listed in `AGENT_XRS_NAMES`: `gate-reader=app-gate-api-cicd` at cutover), decided from the XR alone; nothing an XR writes is stored unless it has a pin's form; each namespace has its own share of the publish budget; a tenant is capped (32 XRs, 12 KiB a definition, 32 entries a list) and the publish size is
+  checked before the live set changes. The live pin `gate-reader` is still accepted.
+- The Kubernetes reader's path allowlist gains one entry: a list of one namespace's Agent XRs (GET, no name, no cluster-wide list).
+  `pgstate.ReplaceDefinitions` replaces the stored set in one transaction.
+
 ### Added (A-9 S3: the human inbox, person controls and triggers in the Go gateway)
 - The Go gateway (`gateway/`, still off by default and not deployed) carries the human inbox (`human.request`, the pending list,
   answering, expiry), the person controls (freeze, end, hold, release) and a person's run behind the `/v1` routes, with Preflight's

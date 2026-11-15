@@ -321,3 +321,31 @@ func (s *State) Definitions(ctx context.Context) ([]json.RawMessage, error) {
 	}
 	return out, rows.Err()
 }
+
+// ReplaceDefinitions replaces the cluster-pinned definition set (gateway_definitions) with rows, whole and in one transaction: a
+// reader sees the old set or the new one, never a mix, and a failure leaves the old one. A row is {name, state, source, doc | reason}.
+// The table's key is (name, state), so of two rejections of one name (two pins of one agent name) the first is kept: the Python
+// gateway's insert of both fails on the key.
+func (s *State) ReplaceDefinitions(ctx context.Context, rows []map[string]any) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "DELETE FROM gateway_definitions"); err != nil {
+		return err
+	}
+	for _, r := range rows {
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		name, _ := r["name"].(string)
+		state, _ := r["state"].(string)
+		if _, err := tx.Exec(ctx, "INSERT INTO gateway_definitions (name, state, record) VALUES ($1, $2, $3) ON CONFLICT (name, state) DO NOTHING",
+			name, state, raw); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
