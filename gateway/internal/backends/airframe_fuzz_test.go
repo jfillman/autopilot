@@ -16,7 +16,7 @@ func FuzzApplyBranches(f *testing.F) {
 		f.Add(s[0], s[1], s[2])
 	}
 	f.Fuzz(func(t *testing.T, session, task, name string) {
-		if b := branchForXR(SessionFacts{ID: session, Task: task}, name); xrLabelOK(name) && !ValidNewBranch(b, "main") {
+		if b := branchForXR(SessionFacts{ID: session, Task: task}, "flight-api", name); xrLabelOK(name) && !ValidNewBranch(b, "main") {
 			t.Fatalf("branchForXR(%q, %q, %q) = %q", session, task, name, b)
 		}
 		if b := branchForStep("parachute", "app-repo", session); !ValidNewBranch(b, "main") {

@@ -13,13 +13,13 @@ import (
 
 // The reads of the airframe.* tools: the allowlist, held to a list written out separately.
 
-var kubeOracle = regexp.MustCompile(`^/apis/(catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/[a-z]+(/[a-z0-9][a-z0-9.-]*)?|argoproj\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/(applications|rollouts)(/[a-z0-9][a-z0-9.-]*)?)$`)
+var kubeOracle = regexp.MustCompile(`^(?:/api/v1/namespaces/[a-z0-9][a-z0-9-]*|/apis/(catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/[a-z]+(/[a-z0-9][a-z0-9.-]*)?|argoproj\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/(applications|rollouts)(/[a-z0-9][a-z0-9.-]*)?))$`)
 
 func TestTheKubeAllowlistIsTheClosedListOfXRsRolloutsAndApplications(t *testing.T) {
 	ok := []string{
 		XRPath("managedpostgresqls", "app-shop-dev", ""), XRPath("pythonapplications", "app-shop-cicd", "shop"), XRPath("redis", "infra-x-dev", "r"),
 		XRPath("agents", "app-x-cicd", ""), RolloutsPath("app-shop-dev", ""), RolloutsPath("app-shop-dev", "shop"),
-		ApplicationsPath("argocd-apps", ""), ApplicationsPath("argocd-apps", "shop-dev"),
+		ApplicationsPath("argocd-apps", ""), ApplicationsPath("argocd-apps", "shop-dev"), "/api/v1/namespaces/app-shop-dev",
 	}
 	for _, p := range ok {
 		if !pathAllowed(p) {
@@ -41,7 +41,8 @@ func TestTheKubeAllowlistIsTheClosedListOfXRsRolloutsAndApplications(t *testing.
 		"/apis/argoproj.io/v1alpha1/rollouts", "/apis/argoproj.io/v1alpha1/applications",
 		"/apis/argoproj.io/v1alpha1/namespaces/a/rollouts/x/status", "/apis/argoproj.io/v1alpha1/namespaces/a/analysisruns/x",
 		"/apis/argoproj.io/v1alpha1/namespaces/a/appprojects/x", "/apis/argoproj.io/v1alpha1/namespaces/a/applicationsets",
-		"/api/v1/namespaces/a/secrets/x", "/api/v1/namespaces/a/configmaps", "/api/v1/namespaces/a/pods/x/exec",
+		"/api/v1/namespaces", "/api/v1/namespaces/", "/api/v1/namespaces/A", "/api/v1/namespaces/a/status", "/api/v1/namespaces/a/finalize", "/api/v1/namespaces/a/b",
+		"/api/v1/nodes/x", "/api/v1/namespaces/a/secrets/x", "/api/v1/namespaces/a/configmaps", "/api/v1/namespaces/a/pods/x/exec",
 		"/apis/rbac.authorization.k8s.io/v1/clusterroles", "/apis/external-secrets.io/v1beta1/namespaces/a/externalsecrets",
 	}
 	for _, p := range no {
@@ -50,7 +51,7 @@ func TestTheKubeAllowlistIsTheClosedListOfXRsRolloutsAndApplications(t *testing.
 		}
 	}
 	for _, l := range AllowedKubeGETs {
-		if !strings.HasPrefix(l, "GET /apis/") {
+		if !strings.HasPrefix(l, "GET /apis/") && !strings.HasPrefix(l, "GET /api/v1/namespaces/{ns} ") {
 			t.Errorf("%s", l)
 		}
 	}

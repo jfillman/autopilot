@@ -275,7 +275,8 @@ var (
 //
 //	XR_REGIONS (us-east-1), XR_VPC_CIDRS (none: the platform's own network), XR_SLACK_CHANNELS (none), XR_DB_SIZES (small,medium),
 //	XR_MAX_DB_STORAGE_GIB (64, at most 256), XR_MAX_CONSUMERS (3, at most 10), XR_ALLOW_UNPROTECTED_DB (0: protect: false is refused)
-//	and XR_ALLOW_EMPTY_ON_DELETE (0: emptyOnDelete: true is refused).
+//	XR_ALLOW_EMPTY_ON_DELETE (0: emptyOnDelete: true is refused) and XR_SLO_LABELS (job, service, route, method, code, status_code, le: the only
+//	labels an SLO's matchers may select on, never one that names a namespace).
 func xrPolicyFromEnv(env func(string) string, p *airframe.XRPolicy) error {
 	listOf := func(k string, ok *regexp.Regexp) ([]string, error) {
 		var out []string
@@ -298,6 +299,14 @@ func xrPolicyFromEnv(env func(string) string, p *airframe.XRPolicy) error {
 	}
 	if p.SlackChannels, err = listOf("XR_SLACK_CHANNELS", slackChannel); err != nil {
 		return err
+	}
+	if p.SLOLabels, err = listOf("XR_SLO_LABELS", regexp.MustCompile(`\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z`)); err != nil {
+		return err
+	}
+	for _, l := range p.SLOLabels {
+		if strings.HasPrefix(l, "__") || strings.Contains(strings.ToLower(l), "namespace") {
+			return configError("XR_SLO_LABELS names " + strconv.Quote(l) + ": a label that names a namespace is the gateway's to write, never an agent's")
+		}
 	}
 	if p.DBSizes, err = listOf("XR_DB_SIZES", nil); err != nil {
 		return err

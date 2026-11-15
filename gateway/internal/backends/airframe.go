@@ -102,7 +102,22 @@ func (c *AirframeConfig) handlers(sc *scope, git *GitHub, gp *Glidepath) map[str
 			if err != nil {
 				return nil, xrSpecErr(err)
 			}
-			built, err := airframe.BuildXR(airframe.XRRequest{App: a["app"], Env: a["env"], Kind: a["kind"], Name: a["name"], Spec: spec}, reg)
+			// An SLO's matchers are forced into the namespace(s) the platform assigned to the app's environment: resolved from the
+			// cluster (an Application labelled for the app and the environment, a Namespace labelled for the app), never joined from a name.
+			var nss []string
+			if a["kind"] == "SLO" {
+				app, _ := a["app"].(string)
+				env, _ := a["env"].(string)
+				if c.State == nil {
+					return nil, xrRefuse("XR-FIELD", "an SLO cannot be written: this gateway does not read the cluster to find the app's namespace", "Ask a person for the SLO.")
+				}
+				if app != "" && env != "" {
+					if nss, err = c.State.AppNamespaces(ctx, app, env); err != nil {
+						return nil, err
+					}
+				}
+			}
+			built, err := airframe.BuildXR(airframe.XRRequest{App: a["app"], Env: a["env"], Kind: a["kind"], Name: a["name"], Spec: spec, Namespaces: nss}, reg)
 			if err != nil {
 				return nil, err
 			}
@@ -220,6 +235,10 @@ func (c *AirframeConfig) airframeTools(h map[string]dispatch.Handler, sc *scope,
 			return (&applier{git: git, gp: gp, reg: reg, sc: sc}).apply(ctx, d, f, a)
 		}
 	}
+}
+
+func xrRefuse(rule, msg, hint string) error {
+	return &core.Denied{Rule: rule, Message: msg, Hint: hint}
 }
 
 func xrSpecErr(err error) error {

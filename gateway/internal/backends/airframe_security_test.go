@@ -81,7 +81,7 @@ func newAFEnv(t *testing.T, gh *fakes.GitHub, gpf *fakes.Glidepath, def *definit
 		}
 		return def
 	}, Tools: reg, Airframe: &AirframeConfig{Enabled: true, XRRequests: xr, Registry: airframeFixtureRegistry,
-		State: &airframe.State{Kube: kube, Cluster: "dev-cluster", ArgoNamespace: airframe.ArgoNamespace}}}
+		State: &airframe.State{Kube: afKube(kube), Cluster: "dev-cluster", ArgoNamespace: airframe.ArgoNamespace}}}
 	e := &fakeEnv{}
 	g, err := NewGitHub(GitHubOptions{API: gh.Srv.URL, BrokerURL: gh.BrokerURL(), TokenFile: write("agent", "agent-token-value"), Owners: []string{"o"},
 		TenantsRepo: tenantsRepo, AllowHTTP: true, AllowHTTPAPI: true, Timeout: 5 * time.Second})
@@ -361,7 +361,7 @@ func TestABranchThatIsNotThisSessionsIsNeverBuiltOnForAnXRRequest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch := branchForXR(SessionFacts{ID: "s-1", Task: "t-abc123"}, "flight-api-orders")
+	branch := branchForXR(SessionFacts{ID: "s-1", Task: "t-abc123"}, "flight-api", "flight-api-orders")
 	// someone else made the branch, with the right file in it
 	gh.SeedBranch(tenantsRepo, branch, map[string]string{built.Path: built.Text}, "just a commit by a person")
 	_, err = e.call(xrTool, xrArgs())
@@ -370,7 +370,7 @@ func TestABranchThatIsNotThisSessionsIsNeverBuiltOnForAnXRRequest(t *testing.T) 
 		t.Fatal("a pull request was opened on a branch that is not this session's")
 	}
 	// another session's name is its own: it does not meet this one's branch at all
-	if branchForXR(SessionFacts{ID: "s-2", Task: "t-abc123"}, "flight-api-orders") == branch {
+	if branchForXR(SessionFacts{ID: "s-2", Task: "t-abc123"}, "flight-api", "flight-api-orders") == branch {
 		t.Fatal("two sessions name one branch")
 	}
 }
@@ -710,5 +710,97 @@ func TestASecondSessionsRequestForTheSameFileIsRefusedNotRepeated(t *testing.T) 
 	// the first session's own retry is still its own to resume
 	if out, err := e1.call(xrTool, xrArgs()); err != nil || asMap(t, out)["resumed"] != true {
 		t.Fatalf("%v %v", out, err)
+	}
+}
+
+func TestAnotherAppsPendingRequestOfTheSameNameIsNeitherANoticeNorLeaked(t *testing.T) {
+	gh := fakes.NewGitHub(tenantsRepo)
+	defer gh.Close()
+	gh.SeedFiles(tenantsRepo, map[string]string{"tenants/gate/xr-requests/keep.yaml": "x\n", "tenants/gate-api/xr-requests/keep.yaml": "x\n"})
+	d := afDef([]string{"o/*"}, `{"airframe":{"apps":["gate","gate-api"]}}`)
+	e1 := newAFEnv(t, gh, nil, d, allTools(), "T2", "s-1", true)
+	e2 := newAFEnv(t, gh, nil, d, allTools(), "T2", "s-2", true)
+	a := map[string]any{"env": "dev", "kind": "MessageQueue", "name": "gate-api-jobs", "spec": map[string]any{"fifo": true}}
+	if _, err := e1.call(xrTool, merge1(a, "app", "gate-api")); err != nil {
+		t.Fatal(err)
+	}
+	// `gate` asks for a file of the same XR name in its own directory: a different file, no business of the other request
+	if _, err := e2.call(xrTool, merge1(a, "app", "gate")); err != nil {
+		t.Fatalf("another app's pending request refused this one: %v", err)
+	}
+	if len(gh.PullRequests(tenantsRepo)) != 2 {
+		t.Fatal("two files, two pull requests")
+	}
+}
+
+func TestACrowdedTenantsRepositoryDoesNotRefuseEveryRequest(t *testing.T) {
+	gh := afGitHub()
+	defer gh.Close()
+	for i := 0; i < 100; i++ {
+		gh.SeedPR(tenantsRepo, "feature/other-"+itoa(i))
+	}
+	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
+	out, err := e.call(xrTool, xrArgs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(asMap(t, out)["pendingCheck"].(string), "incomplete") {
+		t.Fatalf("the answer does not say the check was not complete: %v", out)
+	}
+}
+
+// afKubeOverride lets a test give the Airframe state tools a cluster of its own.
+var afKubeOverride airframe.Reader
+
+func afKube(def airframe.Reader) airframe.Reader {
+	if afKubeOverride != nil {
+		return afKubeOverride
+	}
+	return def
+}
+
+func TestAnSLORequestedThroughTheGatewayIsForcedIntoTheAppsNamespace(t *testing.T) {
+	afKubeOverride = fixtureKube{}
+	defer func() { afKubeOverride = nil }()
+	gh := afGitHub()
+	defer gh.Close()
+	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
+	slo := func(total, errf map[string]any) map[string]any {
+		return map[string]any{"app": "flight-api", "env": "dev", "kind": "SLO", "name": "flight-api-slo", "spec": map[string]any{
+			"environmentRef": map[string]any{"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": json.Number("99"),
+			"indicator": map[string]any{"type": "availability", "metric": "http_requests_total", "totalFilter": total, "errorFilter": errf}}}
+	}
+	// the reviewer's four, which named another app's series by a label an agent may not select on, and the same in the error filter
+	for _, l := range []map[string]any{{"service_name": "gate-api"}, {"k8s_namespace_name": "gate-api-prod"}, {"deployment": "gate-api"}, {"exported_pod": "gate-x"}} {
+		for _, pos := range []int{0, 1} {
+			a := slo(map[string]any{"job": "flight-api"}, map[string]any{"code": "5"})
+			ind := a["spec"].(map[string]any)["indicator"].(map[string]any)
+			ind[[]string{"totalFilter", "errorFilter"}[pos]] = l
+			_, err := e.call(xrTool, a)
+			refusedWith(t, err, "XR-FIELD")
+		}
+	}
+	if len(gh.PullRequests(tenantsRepo)) != 0 {
+		t.Fatal("a pull request was opened")
+	}
+	if _, err := e.call(xrTool, slo(map[string]any{"job": "flight-api", "code": "200"}, map[string]any{"code": "500"})); err != nil {
+		t.Fatal(err)
+	}
+	prs := gh.PullRequests(tenantsRepo)
+	for _, content := range gh.CommitFiles(tenantsRepo, prs[0].CommitSHA) {
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+			t.Fatal(err)
+		}
+		ind := doc["spec"].(map[string]any)["indicator"].(map[string]any)
+		if ind["totalFilter"] != `namespace="app-flight-api-dev",code="200",job="flight-api"` || ind["errorFilter"] != `namespace="app-flight-api-dev",code="500"` {
+			t.Fatalf("the forced matcher is not first in both filters: %v", ind)
+		}
+	}
+	// an environment the platform assigned no namespace to has nothing to select in
+	a := slo(map[string]any{"job": "flight-api"}, map[string]any{"code": "5"})
+	a["env"] = "agent-x"
+	if _, err := e.call(xrTool, a); err == nil {
+		t.Fatal("an SLO for an environment with no namespace was written")
 	}
 }

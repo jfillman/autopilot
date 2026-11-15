@@ -29,7 +29,7 @@ func spec(t *testing.T, js string) any {
 
 func build(t *testing.T, app, env, kind any, name any, js string) (*BuiltXR, error) {
 	t.Helper()
-	return BuildXR(XRRequest{App: app, Env: env, Kind: kind, Name: name, Spec: spec(t, js)}, xrReg)
+	return BuildXR(XRRequest{App: app, Env: env, Kind: kind, Name: name, Spec: spec(t, js), Namespaces: []string{"app-flight-api-dev"}}, xrReg)
 }
 
 // xrRegOpen is the registry of a platform that lets agents choose a network and a channel.
@@ -38,7 +38,7 @@ var xrRegOpen = Registry{DevCluster: "dev-cluster", UpperClusters: []string{"up-
 
 func buildOpen(t *testing.T, app, kind any, name any, js string) (*BuiltXR, error) {
 	t.Helper()
-	return BuildXR(XRRequest{App: app, Env: "dev", Kind: kind, Name: name, Spec: spec(t, js)}, xrRegOpen)
+	return BuildXR(XRRequest{App: app, Env: "dev", Kind: kind, Name: name, Spec: spec(t, js), Namespaces: []string{"app-flight-api-dev"}}, xrRegOpen)
 }
 
 func ruleOf(err error) string {
@@ -296,26 +296,33 @@ func FuzzBuildXR(f *testing.F) {
 	})
 }
 
-// An agent supplies no selector syntax: the composition writes `metric{totalFilter,errorFilter}`, so a filter that closes the brace
-// reads the series of every tenant. The composition adds no tenant matcher itself (compositions/slo, Airframe 4131191): a defect to
-// raise there; here the matcher is written by the gateway from label=value pairs, one of which must name the app.
-func TestAnSLOCannotSuppliesSelectorSyntax(t *testing.T) {
+// An agent supplies no selector syntax and no tenancy: the composition writes `metric{totalFilter,errorFilter}` and adds no tenant matcher
+// itself (compositions/slo, Airframe 4131191: a defect to raise there), so the gateway writes the first matcher of each, the
+// namespace the platform assigned to the app's environment, and lets the agent add equality matchers on a closed list of labels.
+func TestAnSLOIsForcedIntoTheAppsOwnNamespaceAndTakesNoSelectorSyntax(t *testing.T) {
 	slo := func(metric, total, errf string) string {
 		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": ` + metric + `, "totalFilter": ` + total + `, "errorFilter": ` + errf + `}}`
 	}
 	good := `{"job": "flight-api"}`
 	bad := []string{
+		// the reviewer's four: another app's series named by a label an agent may not select on
+		slo(`"kube_secret_info"`, `{"service_name": "gate-api"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"k8s_namespace_name": "gate-api-prod"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"deployment": "gate-api"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"exported_pod": "gate-x"}`, `{"code": "5"}`),
+		// the same in the error filter, which has no value of its own to name the app
+		slo(`"m"`, good, `{"service_name": "gate-api"}`),
+		slo(`"m"`, good, `{"exported_namespace": "app-other-prod"}`),
+		slo(`"m"`, good, `{"Namespace": "x"}`),
 		slo(`"{__name__=~\".+\"}"`, good, `{"code": "5"}`),
 		slo(`"m"`, `"namespace=\"app-other-cicd\"} or {__name__=~\".+\""`, `{"code": "5"}`),
 		slo(`"m"`, good, `"code=~\"5..\""`),
-		slo(`"m"`, `{"__name__": "x", "job": "flight-api"}`, `{"code": "5"}`),
-		slo(`"m"`, `{"namespace": "app-other-cicd", "job": "flight-api"}`, `{"code": "5"}`),
+		slo(`"m"`, `{"__name__": "x"}`, `{"code": "5"}`),
 		slo(`"m"`, `{"job": "flight-api\"} or {x=\"y"}`, `{"code": "5"}`),
 		slo(`"m"`, `{"job": "flight-api}"}`, `{"code": "5"}`),
 		slo(`"m"`, `{"job": "a\\b"}`, `{"code": "5"}`),
 		slo(`"m"`, `{"job": "flight-api\nx"}`, `{"code": "5"}`),
 		slo(`"m"`, `{"jo b": "flight-api"}`, `{"code": "5"}`),
-		slo(`"m"`, `{"job": "other-app"}`, `{"code": "5"}`), // names another app's, not this app's
 		slo(`"m{x=\"y\"}"`, good, `{"code": "5"}`),
 		slo(`"m"`, `{}`, `{"code": "5"}`),
 	}
@@ -324,13 +331,31 @@ func TestAnSLOCannotSuppliesSelectorSyntax(t *testing.T) {
 			t.Errorf("case %d accepted:\n%s", i, b.Text)
 		}
 	}
-	b, err := build(t, "flight-api", "dev", "SLO", nil, slo(`"http_requests_total"`, `{"service": "flight-api", "code": "200"}`, `{"code": "500"}`))
+	b, err := build(t, "flight-api", "dev", "SLO", nil, slo(`"http_requests_total"`, `{"service": "anything", "code": "200"}`, `{"code": "500"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ind := b.XR.M["spec"].(*definitions.OMap).M["indicator"].(*definitions.OMap)
-	if ind.M["totalFilter"] != `code="200",service="flight-api"` || ind.M["errorFilter"] != `code="500"` || ind.M["metric"] != "http_requests_total" {
-		t.Fatalf("%v", definitions.Plain(ind))
+	if ind.M["totalFilter"] != `namespace="app-flight-api-dev",code="200",service="anything"` || ind.M["errorFilter"] != `namespace="app-flight-api-dev",code="500"` || ind.M["metric"] != "http_requests_total" {
+		t.Fatalf("the matchers the gateway wrote: %v", definitions.Plain(ind))
+	}
+	// two namespaces of one environment are written as exact names, never a pattern over app names
+	two, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, good, `{"code": "5"}`)), Namespaces: []string{"app-flight-api-dev", "infra-flight-api-dev"}}, xrReg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := two.XR.M["spec"].(*definitions.OMap).M["indicator"].(*definitions.OMap).M["totalFilter"]; got != `namespace=~"app-flight-api-dev|infra-flight-api-dev",job="flight-api"` {
+		t.Fatalf("%v", got)
+	}
+	// with no namespace the platform assigned, there is nothing to select in
+	if _, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, good, `{"code": "5"}`))}, xrReg); err == nil {
+		t.Error("an SLO with no namespace was written")
+	}
+	// the labels are the platform's setting
+	reg := xrReg
+	reg.XR = XRPolicy{SLOLabels: []string{"job"}}
+	if _, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, `{"code": "1"}`, `{"job": "x"}`)), Namespaces: []string{"app-flight-api-dev"}}, reg); err == nil {
+		t.Error("a label outside XR_SLO_LABELS was written")
 	}
 }
 

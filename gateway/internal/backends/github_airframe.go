@@ -27,6 +27,9 @@ const OnboardingBranch = "onboarding-resync"
 // maxPRPaths is how many of a pull request's files are listed (one page, as Python reads: the first 100).
 const maxPRPaths = 100
 
+// maxPendingCandidates bounds the pull requests whose files are read to find a pending request for the same file.
+const maxPendingCandidates = 5
+
 // maxTenantsListing is how many entries of tenants/ one listing can be believed to be all of (GitHub lists at most 1,000).
 const maxTenantsListing = 1000
 
@@ -209,7 +212,7 @@ var xrBranchUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 // branchForXR is the branch of an XR request: the task (or the session), the XR's name and a part made from the session, so the
 // same session's retry finds its own branch and another session cannot make this one's name first. Python: agent/<task>-xr-<name>.
-func branchForXR(f SessionFacts, name string) string {
+func branchForXR(f SessionFacts, app, name string) string {
 	id := f.Task
 	if id == "" {
 		id = f.ID
@@ -223,7 +226,7 @@ func branchForXR(f SessionFacts, name string) string {
 		s = "task"
 	}
 	h := sha256.Sum256([]byte(f.ID))
-	return AgentBranchPrefix + s + "-xr-" + name + "-" + hex.EncodeToString(h[:])[:8]
+	return AgentBranchPrefix + s + "-xr-" + app + "--" + name + "-" + hex.EncodeToString(h[:])[:8]
 }
 
 // CommitXR is commit_xr: one new XR request file on the tenants repository, as a pull request. Everything about the file was
@@ -235,7 +238,7 @@ func (g *GitHub) CommitXR(ctx context.Context, c XRCommit) (map[string]any, erro
 	if g.tenants == "" {
 		return nil, &core.Denied{Rule: "XR-TENANTS-TOKEN", Message: "no tenants repository is configured", Hint: "xr.request needs AIRFRAME_TENANTS_REPO."}
 	}
-	in := OpenPRInput{Repo: g.tenants, Branch: branchForXR(c.Facts, b.Name), Title: "Request " + b.Kind + " " + b.Name + " for " + b.App + " (" + b.Env + ")",
+	in := OpenPRInput{Repo: g.tenants, Branch: branchForXR(c.Facts, b.App, b.Name), Title: "Request " + b.Kind + " " + b.Name + " for " + b.App + " (" + b.Env + ")",
 		Files: []File{{Path: b.Path, Content: b.Text}}, Meta: c.Facts.Meta(), DenyPaths: c.DenyPaths, Tenants: true,
 		Body: "An XR request from xr.request: `" + b.Kind + "` `" + b.Name + "` in `" + b.Namespace + "`, for " + b.App + "'s " + b.Env +
 			" environment. A person reviews and merges it; Argo CD's " + b.App + "-xr-requests Application then applies it."}
@@ -304,20 +307,40 @@ func (g *GitHub) CommitXR(ctx context.Context, c XRCommit) (map[string]any, erro
 	if status != 200 || !ok {
 		return nil, ghErrorOf("pulls", status, doc, "message")
 	}
-	tail := regexp.MustCompile(`-xr-` + regexp.QuoteMeta(b.Name) + `-[0-9a-f]{8}\z`)
+	// The branch of an XR request names the app and the XR (`-xr-<app>--<name>-<8 hex>`), so the candidates are the open pull requests of
+	// this app's request for this name; each counts only if it really adds the exact path (its changed files say so). Another app's
+	// request of the same name is not a candidate and is never named.
+	tail := regexp.MustCompile(`-xr-` + regexp.QuoteMeta(b.App) + `--` + regexp.QuoteMeta(b.Name) + `-[0-9a-f]{8}\z`)
+	checked := 0
 	for _, x := range open {
 		pm, _ := x.(map[string]any)
 		ref, _ := obj(pm["head"])["ref"].(string)
-		if ref != "" && ref != in.Branch && strings.HasPrefix(ref, AgentBranchPrefix) && tail.MatchString(ref) {
-			n, _ := asInt64(pm["number"])
-			return nil, &core.Denied{Rule: "XR-PENDING", Message: "pull request #" + itoa(int(n)) + " already requests " + b.Path,
-				Hint: "A person merges or closes that one; xr.request does not open a second pull request for the same file."}
+		if ref == "" || ref == in.Branch || !strings.HasPrefix(ref, AgentBranchPrefix) || !tail.MatchString(ref) {
+			continue
+		}
+		n, ok := asInt64(pm["number"])
+		if !ok || checked >= maxPendingCandidates {
+			continue
+		}
+		checked++
+		st, fdoc, ferr := g.gh(ctx, token, ghReq{ep: epListPullFiles, owner: owner, name: name, number: n})
+		if ferr != nil {
+			return nil, ferr
+		}
+		files, isList := fdoc.([]any)
+		if st != 200 || !isList {
+			return nil, ghErrorOf("pull files", st, fdoc, "message")
+		}
+		for _, f := range files {
+			if fn, _ := obj(f)["filename"].(string); fn == b.Path {
+				return nil, &core.Denied{Rule: "XR-PENDING", Message: "pull request #" + itoa(int(n)) + " already requests " + b.Path,
+					Hint: "A person merges or closes that one; xr.request does not open a second pull request for the same file."}
+			}
 		}
 	}
-	if len(open) >= 100 {
-		return nil, &core.Denied{Rule: "XR-PENDING", Message: "the tenants repository has 100 open pull requests or more: whether one already requests " + b.Path + " cannot be decided",
-			Hint: "Ask a person to clear the open pull requests."}
-	}
+	// One page of open pull requests is all that is read: when it is full, a pending request may be beyond it. A second pull request
+	// for the same new file is harmless (the second cannot merge cleanly), so the request goes on and the answer says it was not checked.
+	truncated := len(open) >= 100
 	pr, err := g.ensureWith(ctx, token, owner, name, in, entries)
 	if err != nil {
 		return nil, err
@@ -327,6 +350,9 @@ func (g *GitHub) CommitXR(ctx context.Context, c XRCommit) (map[string]any, erro
 		delete(pr, "resumed")
 	}
 	pr["path"], pr["kind"], pr["name"], pr["namespace"] = b.Path, b.Kind, b.Name, b.Namespace
+	if truncated {
+		pr["pendingCheck"] = "incomplete: the tenants repository has 100 or more open pull requests, so a pending request for this file may not have been seen"
+	}
 	return pr, nil
 }
 

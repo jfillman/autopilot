@@ -140,7 +140,7 @@ func TestTheXRBoundsHaveSafeDefaultsAndRefuseAboveTheXRDsMaximum(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 	for k, v := range map[string]string{"XR_MAX_DB_STORAGE_GIB": "512", "XR_MAX_CONSUMERS": "11", "XR_DB_SIZES": "huge", "XR_REGIONS": "nowhere", "XR_VPC_CIDRS": "0.0.0.0/0",
-		"XR_SLACK_CHANNELS": "a b", "XR_ALLOW_UNPROTECTED_DB": "maybe"} {
+		"XR_SLACK_CHANNELS": "a b", "XR_ALLOW_UNPROTECTED_DB": "maybe", "XR_SLO_LABELS": "job,k8s_namespace_name"} {
 		if _, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_ENABLED": "0", k: v})))); err == nil {
 			t.Errorf("%s=%s was accepted", k, v)
 		}

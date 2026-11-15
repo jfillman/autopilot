@@ -251,12 +251,27 @@ func (s *State) Verify(ctx context.Context, app, kind, name string, env *string)
 			}
 			knownEnv, ns = true, pl.ns
 		}
+		if !named {
+			ok, oerr := s.owned(ctx, ns, app)
+			if oerr != nil {
+				return nil, oerr
+			}
+			if !ok {
+				continue
+			}
+		}
 		var err error
 		if xr, err = s.get(ctx, stXrPath(plural, ns, name)); err != nil {
 			return nil, err
 		}
 		if xr != nil {
-			allowed = map[string]bool{ns: true, t + "-" + app + "-cicd": true}
+			allowed = map[string]bool{ns: true}
+			cicd := t + "-" + app + "-cicd"
+			if ok, oerr := s.owned(ctx, cicd, app); oerr != nil {
+				return nil, oerr
+			} else if ok {
+				allowed[cicd] = true
+			}
 			break
 		}
 	}

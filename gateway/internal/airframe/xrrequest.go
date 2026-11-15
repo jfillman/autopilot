@@ -223,7 +223,7 @@ var kindFields = map[string]*rule{
 		"indicator": obj(map[string]*rule{
 			"type":             se("availability", "latency"),
 			"metric":           s(`[a-zA-Z_:][a-zA-Z0-9_:]{0,199}`, ""),
-			"totalFilter":      &rule{t: tSelector, selector: true, ownApp: true},
+			"totalFilter":      &rule{t: tSelector, selector: true},
 			"errorFilter":      &rule{t: tSelector, selector: true},
 			"latencyThreshold": s(`[0-9]{1,6}(\.[0-9]{1,6})?`, ""),
 		}, "type", "metric", "totalFilter"),
@@ -290,6 +290,9 @@ func contractRequestable() map[string]string {
 // XRRequest is one request as an agent made it: every field untrusted.
 type XRRequest struct {
 	App, Env, Kind, Name, Spec any
+	// Namespaces are the exact namespaces the platform assigns to this app's environment (an SLO's matchers are forced to them): the
+	// handler resolves them from the cluster; none for another kind.
+	Namespaces []string
 }
 
 // BuiltXR is a request ready to be written: the path derived from the app and the name, the file's text, and the XR.
@@ -307,8 +310,9 @@ type OwnedName struct {
 }
 
 type checkCtx struct {
-	pol   XRPolicy
-	owned []OwnedName
+	pol        XRPolicy
+	owned      []OwnedName
+	namespaces []string
 }
 
 func asLabel(v any) (string, bool) {
@@ -348,7 +352,7 @@ func BuildXR(r XRRequest, reg Registry) (*BuiltXR, error) {
 	fixed := fixedFields(kind, app, env, reg)
 	devName := app + "-" + reg.DevCluster + "-" + env
 	out := definitions.OMap{M: map[string]any{}}
-	cx := &checkCtx{pol: reg.XR.withDefaults()}
+	cx := &checkCtx{pol: reg.XR.withDefaults(), namespaces: r.Namespaces}
 	for _, k := range fixed.keys {
 		if v, has := spec.M[k]; has && !xrEqual(v, fixed.vals[k]) {
 			return nil, xrRefuse("XR-SPEC", fmt.Sprintf("spec.%s must be %s for this request", k, pyrepr.Value(fixed.vals[k])),
@@ -575,7 +579,7 @@ func check(r *rule, v any, path, app string, cx *checkCtx) (any, error) {
 		}
 		return bl, nil
 	case tSelector:
-		return checkSelector(r, v, path, app)
+		return checkSelector(v, path, cx)
 	case tCIDR:
 		str, ok := v.(string)
 		if !ok || !PrivateCIDR(str) {
@@ -791,6 +795,7 @@ type XRPolicy struct {
 	MaxConsumers       int      // XR_MAX_CONSUMERS: consumers of a queue or a bucket, at most 10 (default 3)
 	AllowUnprotectedDB bool     // XR_ALLOW_UNPROTECTED_DB: protect: false (default off: a database is deletion-protected)
 	AllowEmptyOnDelete bool     // XR_ALLOW_EMPTY_ON_DELETE: emptyOnDelete: true (default off)
+	SLOLabels          []string // XR_SLO_LABELS: the only labels an SLO's matchers may select on (default job, service, route, method, code, status_code, le)
 }
 
 func (p XRPolicy) withDefaults() XRPolicy {
@@ -805,6 +810,9 @@ func (p XRPolicy) withDefaults() XRPolicy {
 	}
 	if p.MaxStorageGiB > 256 {
 		p.MaxStorageGiB = 256
+	}
+	if p.SLOLabels == nil {
+		p.SLOLabels = []string{"job", "service", "route", "method", "code", "status_code", "le"}
 	}
 	if p.MaxConsumers <= 0 {
 		p.MaxConsumers = 3
@@ -889,40 +897,47 @@ func (b *BuiltXR) CheckOwners(onboarded []string) error {
 // -- Prometheus matchers -----------------------------------------------------------------------------------------------------------
 
 var (
-	promLabel = regexp.MustCompile(`\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z`)
-	promValue = regexp.MustCompile(`\A[A-Za-z0-9 _.:/@+=-]{1,128}\z`)
-	// platformLabels are the labels the platform's own series carry for tenancy: an agent does not select on them.
-	platformLabels = map[string]bool{"namespace": true, "app": true, "cluster": true, "pod": true, "container": true, "exported_namespace": true,
-		"kubernetes_namespace": true, "tenant": true, "hangar_io_app": true, "node": true, "instance": true}
+	promLabel   = regexp.MustCompile(`\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z`)
+	promValue   = regexp.MustCompile(`\A[A-Za-z0-9 _.:/@+=-]{1,128}\z`)
+	anyNamespac = regexp.MustCompile(`(?i)namespace`)
 )
 
-// checkSelector reads a mapping of label to value and writes it as the matcher list the composition puts inside braces
-// (label="value",label2="value2"). The agent supplies no selector syntax: a label is a plain name (not `__name__`, nor one of the
-// platform's tenancy labels), a value is plain text with no quote, backslash, brace or line break, and every match is an equality.
-func checkSelector(r *rule, v any, path, app string) (any, error) {
+// checkSelector reads a mapping of label to value and writes it as the matcher list the composition puts inside braces. The agent
+// supplies no selector syntax and no tenancy: the gateway writes the first matcher itself, `namespace` equal to the namespace (or
+// one of the few) the platform assigned to the app's environment, so a query can only read this app's series; the agent may add
+// equality matchers on a CLOSED list of label names (XR_SLO_LABELS), never one that names a namespace, with a plain value (no quote,
+// backslash, brace or line break). Nothing is a prefix of, or a pattern over, an app's name.
+func checkSelector(v any, path string, cx *checkCtx) (any, error) {
 	m, ok := v.(*definitions.OMap)
 	if !ok || len(m.Keys) == 0 || len(m.Keys) > 8 {
 		return nil, badField(path, "must be a mapping of one to eight labels to the values they equal (the gateway writes the matcher)")
 	}
-	pairs := make([]string, 0, len(m.Keys))
+	for _, n := range cx.namespaces {
+		if !xrLabel.MatchString(n) {
+			return nil, badField(path, "cannot be written: a namespace is not a plain name")
+		}
+	}
+	if len(cx.namespaces) == 0 {
+		return nil, badField(path, "cannot be written: the platform has assigned this app's environment no namespace on this cluster to select in")
+	}
 	names := append([]string{}, m.Keys...)
 	sort.Strings(names)
-	own := false
+	var forced string
+	if len(cx.namespaces) == 1 {
+		forced = `namespace="` + cx.namespaces[0] + `"`
+	} else {
+		forced = `namespace=~"` + strings.Join(cx.namespaces, "|") + `"`
+	}
+	pairs := []string{forced}
 	for _, k := range names {
 		val, isStr := m.M[k].(string)
-		if !promLabel.MatchString(k) || strings.HasPrefix(k, "__") || platformLabels[strings.ToLower(k)] {
-			return nil, badField(path+"."+k, "is not a label an agent may select on")
+		if !promLabel.MatchString(k) || anyNamespac.MatchString(k) || !inList(cx.pol.SLOLabels, k) {
+			return nil, badField(path+"."+k, "is not a label an agent may select on (XR_SLO_LABELS: "+strings.Join(cx.pol.SLOLabels, ", ")+")")
 		}
 		if !isStr || !promValue.MatchString(val) {
 			return nil, badField(path+"."+k, "must be plain text of 1 to 128 characters, with no quote, backslash, brace or line break")
 		}
-		if val == app || strings.HasPrefix(val, app+"-") {
-			own = true
-		}
 		pairs = append(pairs, k+`="`+val+`"`)
-	}
-	if r.ownApp && !own {
-		return nil, badField(path, "must select on the app's own name: one value is "+app+" or starts "+app+"- (the composition does not add a tenant matcher)")
 	}
 	return strings.Join(pairs, ","), nil
 }

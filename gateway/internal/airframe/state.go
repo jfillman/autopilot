@@ -119,6 +119,36 @@ func stXrPath(plural, namespace, name string) string {
 	return p
 }
 
+func stNamespacePath(namespace string) string { return "/api/v1/namespaces/" + stEsc(namespace) }
+
+// owned says a namespace is the app's: the Namespace object carries the platform's own label hangar.io/app, exactly the app. Nothing is
+// listed or read in a namespace before this says yes; a Namespace that is missing, unlabelled or labelled for another app is not the
+// app's, and an answer that is not either (the API server failing) is an error, never a yes.
+func (s *State) owned(ctx context.Context, ns, app string) (bool, error) {
+	o, err := s.get(ctx, stNamespacePath(ns))
+	if err != nil || o == nil {
+		return false, err
+	}
+	l, _ := stAsMap(stAsMap(o["metadata"])["labels"])["hangar.io/app"].(string)
+	return l != "" && l == app, nil
+}
+
+// AppNamespaces are the exact namespaces the platform assigned to one of the app's environments on this cluster (an Application the
+// platform labelled for it is destined for them, and each carries the app's own label): what an SLO's matchers are forced into.
+func (s *State) AppNamespaces(ctx context.Context, app, env string) ([]string, error) {
+	var out []string
+	for _, t := range stTypes {
+		pl, err := s.place(ctx, app, env, t, false)
+		if err != nil {
+			return nil, err
+		}
+		if pl.ns != "" {
+			out = append(out, pl.ns)
+		}
+	}
+	return out, nil
+}
+
 func stArgoPath(resource, namespace, name string) string {
 	p := "/apis/argoproj.io/v1alpha1/namespaces/" + stEsc(namespace) + "/" + stEsc(resource)
 	if name != "" {
@@ -210,6 +240,12 @@ func stMdName(o map[string]any) string {
 func (s *State) cicd(ctx context.Context, app string) (t, ns string, xrs []map[string]any, err error) {
 	for _, t = range stTypes {
 		ns = t + "-" + app + "-cicd"
+		if ok, oerr := s.owned(ctx, ns, app); oerr != nil || !ok {
+			if oerr != nil {
+				return "", "", nil, oerr
+			}
+			continue
+		}
 		if xrs, err = s.xrsIn(ctx, ns); err != nil {
 			return "", "", nil, err
 		}
@@ -285,8 +321,14 @@ func (s *State) place(ctx context.Context, app, env, t string, flight bool) (*en
 			continue
 		}
 		p.apps = append(p.apps, a)
-		if dest, _ := stAsMap(stAsMap(a["spec"])["destination"])["namespace"].(string); dest == t+"-"+app+"-"+env {
-			p.ns = dest
+		if dest, _ := stAsMap(stAsMap(a["spec"])["destination"])["namespace"].(string); dest == t+"-"+app+"-"+env && p.ns == "" {
+			ok, oerr := s.owned(ctx, dest, app)
+			if oerr != nil {
+				return nil, oerr
+			}
+			if ok {
+				p.ns = dest
+			}
 		}
 	}
 	p.known = flight || len(p.apps) > 0
@@ -547,7 +589,7 @@ func (s *State) applications(ctx context.Context, app, env, t string) ([]map[str
 	}
 	var out []map[string]any
 	seen := map[string]bool{}
-	for _, ns := range []string{argo, t + "-" + app + "-cicd"} {
+	for _, ns := range []string{argo} {
 		if seen[ns] {
 			continue
 		}

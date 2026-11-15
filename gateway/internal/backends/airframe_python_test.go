@@ -49,7 +49,7 @@ func newAirframeEnv(t *testing.T, tok map[string]string, c *writesCase) *env {
 	reg := tools.Default()
 	def, names := airframeDefinition(reg)
 	cfg := HangarConfig{Definition: func(string) *definitions.Definition { return def }, Tools: reg,
-		Airframe: &AirframeConfig{Enabled: true, XRRequests: true, Registry: airframeFixtureRegistry}}
+		Airframe: &AirframeConfig{Enabled: true, XRRequests: true, Registry: airframeFixtureRegistry, State: &airframe.State{Kube: fixtureKube{}, Cluster: "dev-cluster"}}}
 	e := &env{w: w, sess: fixtureSession(c.Session, names)}
 	gp, err := NewGlidepath(w.srv.URL+"/gp", write("gp", tok["glidepath"]), false, 5*time.Second, true)
 	if err != nil {
@@ -229,4 +229,22 @@ func TestAirframeToolsEqualPython(t *testing.T) {
 	if n["xr.request"] < 35 || n["airframe.apply"] < 15 || n["differs"] < 30 || n["denied"] < 10 || n["result"] < 10 {
 		t.Fatalf("the fixture's cases: %v", n)
 	}
+}
+
+// fixtureKube is the cluster of the fixture: flight-api has one environment, dev, in the namespace the platform labelled for it.
+type fixtureKube struct{}
+
+func (fixtureKube) Get(_ context.Context, path string) (any, bool, error) {
+	if path == "/api/v1/namespaces/app-flight-api-dev" {
+		return map[string]any{"metadata": map[string]any{"labels": map[string]any{"hangar.io/app": "flight-api"}}}, true, nil
+	}
+	return nil, false, nil
+}
+
+func (fixtureKube) List(_ context.Context, path, sel string) ([]map[string]any, error) {
+	if path == "/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications" && strings.Contains(sel, "hangar.io/app=flight-api") && strings.Contains(sel, "hangar.io/env=dev") {
+		return []map[string]any{{"metadata": map[string]any{"labels": map[string]any{"hangar.io/app": "flight-api", "hangar.io/env": "dev"}},
+			"spec": map[string]any{"destination": map[string]any{"namespace": "app-flight-api-dev"}}}}, nil
+	}
+	return nil, nil
 }

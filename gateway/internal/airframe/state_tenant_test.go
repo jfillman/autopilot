@@ -79,6 +79,10 @@ func tenantWorld() *recReader {
 	add("/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications", app("gate-dev", "argocd-apps", "gate", "dev", "app-gate-dev"))
 	add("/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications", app("gate-api-prod", "argocd-apps", "gate-api", "prod", "app-gate-api-prod"))
 	add("/apis/argoproj.io/v1alpha1/namespaces/app-gate-api-prod/rollouts", map[string]any{"kind": "Rollout", "metadata": map[string]any{"name": "web", "namespace": "app-gate-api-prod"}})
+	for ns, a := range map[string]string{"app-gate-cicd": "gate", "app-gate-dev": "gate", "app-gate-api-cicd": "gate-api", "app-gate-api-prod": "gate-api", "app-gate-pr-12": "gate"} {
+		r.objs["/api/v1/namespaces/"+ns] = map[string]any{"kind": "Namespace", "metadata": map[string]any{"name": ns, "labels": map[string]any{"hangar.io/app": a}}}
+	}
+	r.objs["/api/v1/namespaces/app-gate-bare"] = map[string]any{"kind": "Namespace", "metadata": map[string]any{"name": "app-gate-bare"}}
 	r.objs["/apis/catalog.hangar.io/v1alpha1/namespaces/app-gate-api-prod/redis/secret-cache"] = xr("Redis", "app-gate-api-prod", "secret-cache", nil)
 	r.objs["/apis/catalog.hangar.io/v1alpha1/namespaces/app-gate-api-cicd/redis/secret-cache"] = xr("Redis", "app-gate-api-cicd", "secret-cache", nil)
 	r.objs["/apis/argoproj.io/v1alpha1/namespaces/app-gate-api-prod/rollouts/web"] = map[string]any{"kind": "Rollout", "metadata": map[string]any{"name": "web"}}
@@ -144,4 +148,65 @@ func mustJSONValue(t *testing.T, s string) any {
 		t.Fatal(err)
 	}
 	return v
+}
+
+// One Application labelled for `gate` whose destination is gate-api's namespace (the namespace a tenant of `gate` cannot own): the
+// Namespace says whose it is, and nothing is read in it.
+func TestAnApplicationLabelledForAnAppCannotPointTheToolsAtAnotherAppsNamespace(t *testing.T) {
+	r := tenantWorld()
+	r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"] = append(r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"],
+		map[string]any{"kind": "Application", "metadata": map[string]any{"name": "evil", "namespace": "argocd-apps", "labels": map[string]any{"hangar.io/app": "gate", "hangar.io/env": "api-prod"}},
+			"spec": map[string]any{"destination": map[string]any{"namespace": "app-gate-api-prod"}}})
+	s := &State{Kube: r, Cluster: "k"}
+	env := "api-prod"
+	if _, err := s.Status(context.Background(), "gate", &env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Describe(context.Background(), "gate", env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Verify(context.Background(), "gate", "Redis", "secret-cache", &env); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range r.seen {
+		if strings.Contains(p, "namespaces/app-gate-api-prod/") && !strings.HasPrefix(p, "/api/v1/namespaces/") {
+			t.Fatalf("read in gate-api's namespace: %s", p)
+		}
+	}
+	if nss, err := s.AppNamespaces(context.Background(), "gate", "api-prod"); err != nil || len(nss) != 0 {
+		t.Fatalf("%v %v", nss, err)
+	}
+}
+
+func TestANamespaceWithoutTheAppsLabelIsNeverRead(t *testing.T) {
+	r := tenantWorld()
+	r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"] = append(r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"],
+		map[string]any{"kind": "Application", "metadata": map[string]any{"name": "bare", "namespace": "argocd-apps", "labels": map[string]any{"hangar.io/app": "gate", "hangar.io/env": "bare"}},
+			"spec": map[string]any{"destination": map[string]any{"namespace": "app-gate-bare"}}})
+	s := &State{Kube: r, Cluster: "k"}
+	env := "bare"
+	out, err := s.Status(context.Background(), "gate", &env)
+	if err != nil || r.touched("namespaces/app-gate-bare/") {
+		t.Fatalf("%v %v %v", out, err, r.seen)
+	}
+}
+
+func TestADashedEnvironmentIsReadWhenItsNamespaceCarriesTheAppsLabel(t *testing.T) {
+	r := tenantWorld()
+	r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"] = append(r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"],
+		map[string]any{"kind": "Application", "metadata": map[string]any{"name": "pr", "namespace": "argocd-apps", "labels": map[string]any{"hangar.io/app": "gate", "hangar.io/env": "pr-12"}},
+			"spec": map[string]any{"destination": map[string]any{"namespace": "app-gate-pr-12"}}})
+	// an Application in the app's own cicd namespace (a tenant can write there) is not a source of environments
+	r.lists["/apis/argoproj.io/v1alpha1/namespaces/app-gate-cicd/applications"] = []map[string]any{
+		{"kind": "Application", "metadata": map[string]any{"name": "x", "labels": map[string]any{"hangar.io/app": "gate", "hangar.io/env": "api-prod"}},
+			"spec": map[string]any{"destination": map[string]any{"namespace": "app-gate-api-prod"}}}}
+	s := &State{Kube: r, Cluster: "k"}
+	env := "pr-12"
+	out, err := s.Status(context.Background(), "gate", &env)
+	if err != nil || stAsMap(out)["error"] != nil || !r.touched("namespaces/app-gate-pr-12/") {
+		t.Fatalf("%v %v %v", out, err, r.seen)
+	}
+	if r.touched("namespaces/app-gate-cicd/applications") {
+		t.Fatalf("Applications were listed in a namespace a tenant writes: %v", r.seen)
+	}
 }

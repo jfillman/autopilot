@@ -954,12 +954,14 @@ The file is built here byte by byte; the agent gives a kind, an optional name an
 
 ### What an environment is (the state tools)
 
-`airframe.status`, `describe` and `verify` never join `<type>-<app>-<env>` from an argument: for app `gate` the name `api-prod` would be the namespace of app `gate-api`'s `prod`. An
-environment is one the app **has**: an `ApplicationEnvironment` of its own in `<type>-<app>-cicd` (its `spec.appName` is the app), or an Argo CD Application the platform labelled
-`hangar.io/app=<app>,hangar.io/env=<env>` (both labels re-checked on every item). Its namespace is the one such an Application is destined for, and only when that is `<type>-<app>-<env>`:
-nothing is read from another. An environment that is not a DNS label, or is not the app's, is answered `AF-ENV-404` and nothing is read for it. A `verify` `resource` step reads only the XR's own namespace
-and the app's `cicd` namespace (Python: any namespace that starts `app-<app>-`, which is another app's when its name starts with this one's plus a dash). Tests: `gate` against `gate-api` for status, describe, verify and the resource step, an
-unknown environment, one with dashes (`TestAnAppCannotReadAnotherAppsNamespaceByNamingAnEnvironmentThatJoinsToIt`). What Python read with no Application (`status {env: stage}` of an environment nobody registered) is now the `AF-ENV-404` answer.
+`airframe.status`, `describe` and `verify` never join `<type>-<app>-<env>` from an argument, and no ownership is decided from a prefix of an app's name: for app `gate` the name `api-prod` would be the
+namespace of app `gate-api`'s `prod`. The rule: **nothing is listed or read in a namespace until its Namespace object (`GET /api/v1/namespaces/{ns}`, one name, on the closed list) carries the platform's own label `hangar.io/app` equal to
+the app, exactly**; a Namespace that is missing, unlabelled or another app's is refused, and an API error is an error, never a yes. That covers the app's `<type>-<app>-cicd` namespace, an environment's namespace and, for `verify`'s resource step, the
+XR's own and the cicd namespace. An environment is one the app **has**: an `ApplicationEnvironment` of its own in the cicd namespace (its `spec.appName` is the app), or an Argo CD Application in the platform's Argo CD namespace (`argocd-apps`; it is not
+listed in `-cicd` namespaces, which a tenant writes) labelled `hangar.io/app=<app>,hangar.io/env=<env>`; its namespace is the one that Application is destined for, only when that is `<type>-<app>-<env>` **and** that Namespace is the app's. An environment that
+is not a DNS label, or is not the app's, is answered `AF-ENV-404` and nothing is read for it. Tests: `gate` against `gate-api` for status, describe, verify and the resource step, an unknown and a dashed environment, an Application labelled for `gate` whose
+destination is `gate-api`'s namespace, a namespace without the label, and a legitimate `pr-12` whose namespace carries the label (`state_tenant_test.go`). Differences: Python read any namespace it was asked for, and an ephemeral environment whose Application
+lives in the app's cicd namespace is no longer found (the platform's Argo CD namespace is the one source); the Namespace read needs `get` on `namespaces` in the gateway's ClusterRole.
 
 ### Names the cloud holds for everyone, and who may ask for one
 
@@ -968,18 +970,22 @@ A bucket, a storage account, a database server, a queue, a service bus namespace
 onboarded app whose name, with a dash, is its longest prefix, and only that app may ask for it; a flattened name (a storage account has no dash) is compared by flattened app names, and where another app's is equal, a prefix or an extension of this app's,
 no flattened name is decided for either: refused. A listing that fails, is not a listing, or is 1,000 entries long decides nothing: the request is refused. Stateless: an app onboarded later whose name starts an existing name still shadows it
 (a person's call at onboarding).
+Two limits, both the platform's: the `tenants/` listing is one GitHub contents answer, which holds at most 1,000 entries, and at 1,000 **every** `xr.request` is refused (`XR-APP-UNKNOWN`) until a person moves apps out; there is no
+setting, the bound is GitHub's. And onboarding an app whose flattened name (dashes taken out) is a prefix of, equal to, or an extension of another app's **disables storage-account names for both** (`XR-FIELD`); the message names the other app.
 
 ### What an SLO may select
 
 The composition writes `metric{totalFilter}` and `metric{totalFilter,errorFilter}` (Airframe `compositions/slo`, 4131191) and **does not add a tenant matcher of its own**: whatever the XR says is what Prometheus is asked, for any tenant's series. That is
-an Airframe defect to raise there; this gateway cannot fix it, so it takes the selector syntax out of the agent's hands. `indicator.metric` is a bare metric name (`[a-zA-Z_:][a-zA-Z0-9_:]*`); `totalFilter` and `errorFilter` are mappings of one to eight `label: value` pairs
-that the gateway writes as `label="value",...` (equality only; the label is a plain name, not `__name__` and not a tenancy label: `namespace`, `app`, `cluster`, `pod`, `container`, `node`, `instance`, `tenant`...; the value 1 to 128 characters with no quote, backslash, brace or line break);
-at least one `totalFilter` value is the app's own name (`<app>` or `<app>-...`); `latencyThreshold` is a number. A RolloutWatch has no query field. Residual: which label carries the app's name is the service's own; a value that is the app's name on a label of another service's is not detectable here.
+an Airframe defect to raise there. Until it is fixed there, **the gateway forces the tenant matcher**: the first matcher of every filter string it writes (`totalFilter` and `errorFilter` alike) is `namespace="<ns>"`, the namespace the platform assigned to the
+request's environment (`State.AppNamespaces`: an Application labelled for the app and the environment, and a Namespace labelled for the app, as above; `namespace=~"a|b"` of exact names when both types exist; no namespace means no SLO). The agent
+gives `label: value` mappings (one to eight pairs) and may select only on a **closed list of label names** (`XR_SLO_LABELS`, default `job, service, route, method, code, status_code, le`), by equality, with a plain value (no quote, backslash, brace or line break);
+no label that matches `(?i)namespace` is ever accepted, in any setting. `indicator.metric` is a bare metric name; `latencyThreshold` a number. A RolloutWatch has no query field. Residual: a series that carries the app's namespace is the app's;
+which of its labels an SLO may select on is the platform's list, which the services' own labelling must fit.
 
 ### What the platform bounds (settings, each refused above its maximum)
 
 Go only; Python bounds none of these. The defaults are the safe ones. `XR_REGIONS` (`us-east-1`), `XR_VPC_CIDRS` (none: the platform's own network; an agent cannot choose one), `XR_SLACK_CHANNELS` (none: the channel of a RolloutWatch is not an agent's to choose),
-`XR_DB_SIZES` (`small,medium`), `XR_MAX_DB_STORAGE_GIB` (64, at most the XRD's 256), `XR_MAX_CONSUMERS` (3, at most the XRD's 10), `XR_ALLOW_UNPROTECTED_DB` (off: `protect: false` is refused and a database request carries `protect: true`),
+`XR_SLO_LABELS` (above), `XR_DB_SIZES` (`small,medium`), `XR_MAX_DB_STORAGE_GIB` (64, at most the XRD's 256), `XR_MAX_CONSUMERS` (3, at most the XRD's 10), `XR_ALLOW_UNPROTECTED_DB` (off: `protect: false` is refused and a database request carries `protect: true`),
 `XR_ALLOW_EMPTY_ON_DELETE` (off: `emptyOnDelete: true` is refused): deleting or emptying data is a person's change.
 
 ### The field tables are held to the XRDs
@@ -989,8 +995,9 @@ an accepted mapping the XRD leaves free-form, or leaves out a field the XRD requ
 
 ### A pending request is not repeated
 
-Before the pull request, `CommitXR` reads one page of the tenants repository's open pull requests: one from another session or task whose branch is `...-xr-<name>-<8 hex>` for this XR's name is `XR-PENDING` and names it (it is not resumed: it is not this
-session's). Residual: a pull request that adds the file from a branch of another name is not found; a hundred open pull requests decide nothing and refuse.
+Before the pull request, `CommitXR` reads one page of the tenants repository's open pull requests. The branch of an XR request is `agent/<task>-xr-<app>--<name>-<8 hex of the session>`, so the candidates are exactly the open pull requests of this app's request for this name
+(another app's of the same name is not one, and is never named); at most five are looked at, and one counts only if its changed files include the exact path `tenants/<app>/xr-requests/<name>.yaml` (`XR-PENDING`, naming that pull request). A page of 100 open pull
+requests may hide a pending one: the request then goes on, the answer carries `pendingCheck: "incomplete: ..."`, and a duplicate pull request for the same new file is harmless (the second cannot merge cleanly). A pull request that adds the file from a branch of another name is not found.
 
 ### What `coding-agent` and `airframe.apply` are
 
@@ -1007,11 +1014,11 @@ every repository is checked before the first request; the default branch is the 
 
 ### The closed lists of requests this slice adds
 
-GitHub (`AllowedGitHubRequests`, now **eleven**): two new entries. `GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100` (one page, at most 100 names, each at most 1,024 bytes) and `GET /repos/{owner}/{repo}/pulls?state=open&per_page=100` (one page of the tenants repository's open pull requests, for the pending-request check below). `onboarding_prs` uses the existing list of pulls (`state=open`, `per_page=10`, head `onboarding-resync`), `find_pr` `state=all&per_page=5`.
+GitHub (`AllowedGitHubRequests`, now **eleven**): two new entries. `GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100` (one page, at most 100 names, each at most 1,024 bytes; also the pending-request check reads at most five) and `GET /repos/{owner}/{repo}/pulls?state=open&per_page=100` (one page of the tenants repository's open pull requests, for the pending-request check below). `onboarding_prs` uses the existing list of pulls (`state=open`, `per_page=10`, head `onboarding-resync`), `find_pr` `state=all&per_page=5`.
 The broker (`POST {BROKER_URL}/agent-installation-token`) is asked for the tenants repository with no `app`, and for it only: `GitHubOptions.TenantsRepo`, derived from `AIRFRAME_OWNER` and `AIRFRAME_TENANTS_REPO`, is the one repository `mintFor(tenants=true)` accepts; any other is `XR-TENANTS-TOKEN` with no request. No URL part is an agent's but a validated owner, repository, number and path.
 
 Kubernetes (`backends.AllowedKubeGETs`, GET only, query `labelSelector`, `limit`, `continue`): `/apis/argoproj.io/v1alpha1/namespaces/{ns}/applications[/{name}]`, `/apis/argoproj.io/v1alpha1/namespaces/{ns}/rollouts[/{name}]`,
-`/apis/catalog.hangar.io/v1alpha1/namespaces/{ns}/{plural}[/{name}]` where the plural is one of the contract's 26 XR plurals (Python: any `[a-z0-9]{1,63}`), and the S4 list of `agents` (list only). A cluster-wide list is refused (Python allows it). Namespaces are built from the app: `<type>-<app>-cicd`, `<type>-<app>-<env>`, `argocd-apps`.
+`/apis/catalog.hangar.io/v1alpha1/namespaces/{ns}/{plural}[/{name}]` where the plural is one of the contract's 26 XR plurals (Python: any `[a-z0-9]{1,63}`), the S4 list of `agents` (list only) and one Namespace by name (`/api/v1/namespaces/{ns}`, read for its `hangar.io/app` label). A cluster-wide list is refused (Python allows it). Namespaces are built from the app: `<type>-<app>-cicd`, `<type>-<app>-<env>`, `argocd-apps`.
 A Rollout that an Application's status names is read only in `<type>-<app>-<env>` of the app asked about. **No Kubernetes write is added**; `argo.sync.lower`'s one PATCH is S5b's.
 
 ### Settings and the new interlock rule
@@ -1052,7 +1059,7 @@ and the planner's, YAML writer's, `FuzzKubeAllowlist` (5 minutes in three runs, 
 ### What S6 and S7 need from this slice
 
 - **S6**: nothing in the `api` subcommand reads the Airframe tools; the state tools read through an interface (`airframe.Reader`) if it shows XR state.
-- **S7**: set `AIRFRAME_OWNER` (or one `GITHUB_OWNERS` entry), `AIRFRAME_CLUSTER`, `AIRFRAME_UPPER_CLUSTERS` and `AIRFRAME_TENANTS_REPO` explicitly; the gateway's ClusterRole needs `get`/`list` on the contract's `catalog.hangar.io` kinds, `argoproj.io` `applications` and `rollouts` (as the Python gateway's); the broker must mint for the tenants repository with no `app` (glidepath#236) and the App be installed there; give each definition that uses `xr.request` or `apply` `profile.airframe.apps` and the repositories on `repos.allow`.
+- **S7**: set `AIRFRAME_OWNER` (or one `GITHUB_OWNERS` entry), `AIRFRAME_CLUSTER`, `AIRFRAME_UPPER_CLUSTERS` and `AIRFRAME_TENANTS_REPO` explicitly; the gateway's ClusterRole needs `get`/`list` on the contract's `catalog.hangar.io` kinds, `argoproj.io` `applications` and `rollouts` (as the Python gateway's) and `get` on `namespaces`; the platform must label each namespace it creates for an app with `hangar.io/app` (the state tools and SLO requests fail closed without it); the broker must mint for the tenants repository with no `app` (glidepath#236) and the App be installed there; give each definition that uses `xr.request` or `apply` `profile.airframe.apps` and the repositories on `repos.allow`.
   `AGENT_XRS_NAMESPACES` must still name the namespaces whose Agent XRs may define agents; no tool of this slice writes one.
 
 ## What S4 carries: the definition set (2026-11-15)

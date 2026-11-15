@@ -16,6 +16,7 @@ Called by tools/gen_gateway_airframe.py (outputs()), whose --check fails when a 
 from __future__ import annotations
 
 import json
+import re as _re0
 import sys
 import tempfile
 import threading
@@ -32,6 +33,7 @@ from autopilot.engine.dispatch import Denied  # noqa: E402
 
 OUT = ROOT / "gateway" / "internal" / "airframe" / "testdata" / "state.json"
 SERVER = "https://k.invalid"
+_re_ns = _re0.compile(r"^(app|infra)-([a-z0-9]+)-")
 PLURAL = {k: v["plural"] for k, v in CONTRACT["xrds"].items()}
 REG = airframe_plan.Registry("kind-dev", ("kind-prod",), "gitops-cluster-dev-tenants")
 
@@ -51,6 +53,11 @@ class World:
 
     def __init__(self, objects=(), status=None, pages=None, raw=None):
         self.objects = {path_of(o): o for o in objects}
+        # the platform's Namespaces, each labelled with its app (Python never reads them; Go does before it reads in a namespace)
+        for ns in sorted({o["metadata"]["namespace"] for o in objects if o["metadata"].get("namespace")}):
+            m = _re_ns.match(ns)
+            if m:
+                self.objects["/api/v1/namespaces/" + ns] = {"kind": "Namespace", "metadata": {"name": ns, "labels": {"hangar.io/app": m.group(2)}}}
         self.status, self.pages, self.raw = status or {}, pages or {}, raw or {}
         self.seen: list[dict] = []
         self.lock = threading.Lock()
@@ -204,6 +211,7 @@ def case(name, objects, tool, args, status=None, pages=None, go=None, why=None):
 import re as _re
 
 _LABEL = _re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_NS_OK = _LABEL
 
 
 def _peek(world, target):
@@ -215,79 +223,118 @@ def _peek(world, target):
 
 
 def go_env(cs, world, objects):
-    """Go decides which namespace is an environment's from the platform's own labels: an environment is one the app has (an
-    ApplicationEnvironment of its own, or an Application labelled for it), and its namespace the one such an Application is
-    destined for, not a name joined from the argument. Fills the case's `go` where that differs from Python: the extra reads
-    (the app's Applications), the namespace reads dropped, and an unknown environment answered."""
+    """Go reads a namespace only after its Namespace object says it is the app's (the platform's label hangar.io/app), takes an
+    environment's namespace from an Application of the platform's Argo CD namespace labelled for the app and the environment (never a
+    name joined from the argument, never an Application of a namespace a tenant writes), and answers an environment the app does not
+    have. This writes what Go sends and answers for the same world: the Namespace reads added, the reads of a namespace that is not
+    the app's dropped, the Applications listed in argocd-apps only."""
     tool, args = cs["tool"], cs["args"]
     if tool not in ("status", "describe", "verify") or cs.get("go"):
         return
     app = args[0]
+    if not isinstance(app, str):
+        return
     env = (args[1] if len(args) > 1 else None) if tool != "verify" else (args[3] if len(args) > 3 else None)
-    if not env or not isinstance(app, str):
-        return
     reqs = list(cs["requests"])
-    if not any("-cicd/" in r["target"] for r in reqs) and tool != "verify":
+    if tool == "verify" and not reqs and not cs.get("error") and "AF-KIND-404" in json.dumps(cs.get("result")):
+        return   # the kind is refused before anything is read
+    why0 = ("Go reads in a namespace only once its Namespace object carries the platform's label hangar.io/app for the app: the first read "
+            "is the app's cicd Namespace, which is refused, as a path outside the closed list, when the app is not a name")
+    first_ns = f"app-{app}-cicd"
+    if not (tool == "verify" and env) and not _NS_OK.match(first_ns):
+        e = PathRefused("/api/v1/namespaces/" + urllib.parse.quote(first_ns, safe=""))
+        cs["go"] = {"requests": [], "error": {"class": "Denied", "rule": e.rule, "message": e.message, "hint": e.hint}}
+        cs["why"] = why0
         return
-    t = next((t for t in ("app", "infra") if any(o["metadata"]["namespace"] == f"{t}-{app}-cicd" for o in objects if o["kind"] not in ("Application", "Rollout"))), None)
-    if tool != "verify" and t is None:
-        return
-    def place(t):
-        if not (_LABEL.match(env) and _LABEL.match(app)):
-            return False, None, []
-        apps = [o for o in objects if o["kind"] == "Application" and o["metadata"].get("labels", {}).get("hangar.io/app") == app
-                and o["metadata"].get("labels", {}).get("hangar.io/env") == env and o["metadata"]["namespace"] in ("argocd-apps", f"{t}-{app}-cicd")]
-        flight = tool != "verify" and any(o["kind"] == "ApplicationEnvironment" and o["metadata"]["namespace"] == f"{t}-{app}-cicd"
-                                          and o["spec"].get("env") == env and o["spec"].get("appName") == app for o in objects)
-        ns = f"{t}-{app}-{env}" if any(((o["spec"].get("destination") or {}).get("namespace") == f"{t}-{app}-{env}") for o in apps) else None
-        return bool(apps) or flight, ns, apps
-
-    def app_lists(t):
-        if not (_LABEL.match(env) and _LABEL.match(app)):
-            return []
-        sel = urllib.parse.quote(f"hangar.io/app={app},hangar.io/env={env}", safe="")
-        return [_peek(world, f"/apis/argoproj.io/v1alpha1/namespaces/{ns}/applications?labelSelector={sel}&limit=500")
-                for ns in dict.fromkeys(["argocd-apps", f"{t}-{app}-cicd"])]
-    why = ("Go takes an environment's namespace from the platform's own labels (an ApplicationEnvironment of the app, or an Application "
-           "labelled for it whose destination is the namespace the platform assigns to the app and the environment), never from a name "
-           "joined from the argument: gate + api-prod is the namespace of gate-api's prod. An environment the app does not have is answered, "
-           "and nothing is read for it")
+    nsobj = {o["metadata"]["name"]: o for o in (world.objects[k] for k in world.objects if k.startswith("/api/v1/namespaces/"))}
+    owned = lambda ns: nsobj.get(ns, {}).get("metadata", {}).get("labels", {}).get("hangar.io/app") == app
+    nsget = lambda ns: _peek(world, "/api/v1/namespaces/" + ns)
+    under = lambda ns: [r for r in reqs if f"/namespaces/{ns}/" in r["target"] and "/applications?" not in r["target"] and "/rollouts" not in r["target"]]
+    why = ("Go reads in a namespace only once its Namespace object carries the platform's label hangar.io/app for the app, takes an "
+           "environment's namespace from an Application in the platform's Argo CD namespace labelled for the app and the environment "
+           "(never from a name joined from the argument, and never from an Application in a namespace a tenant writes), and answers an "
+           "environment the app does not have")
+    out, res = [], None
+    srt = lambda l: sorted(l, key=lambda r: (r["target"], r["status"]))
     unknown = {"result": {"error": {"rule": "AF-ENV-404", "message": f"{app} has no environment {env!r} on this cluster",
                                     "hint": "airframe.status {app} lists the app's environments; an environment is one the platform registered for the app."}}}
-    srt = lambda l: sorted(l, key=lambda r: (r["target"], r["status"]))
+
+    def argo_list():
+        if not (env and _LABEL.match(env) and _LABEL.match(app)):
+            return []
+        sel = urllib.parse.quote(f"hangar.io/app={app},hangar.io/env={env}", safe="")
+        return [_peek(world, f"/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications?labelSelector={sel}&limit=500")]
+
+    def place(t):
+        """(known, env namespace or None, the NS reads made)"""
+        reads = []
+        if not (env and _LABEL.match(env) and _LABEL.match(app)):
+            return False, None, reads, []
+        apps = [o for o in objects if o["kind"] == "Application" and o["metadata"]["namespace"] == "argocd-apps"
+                and o["metadata"].get("labels", {}).get("hangar.io/app") == app and o["metadata"].get("labels", {}).get("hangar.io/env") == env]
+        flight = tool != "verify" and any(o["kind"] == "ApplicationEnvironment" and o["metadata"]["namespace"] == f"{t}-{app}-cicd"
+                                          and o["spec"].get("env") == env and o["spec"].get("appName") == app for o in objects)
+        ns = None
+        want = f"{t}-{app}-{env}"
+        if any((o["spec"].get("destination") or {}).get("namespace") == want for o in apps):
+            reads.append(nsget(want))
+            if owned(want):
+                ns = want
+        return bool(apps) or flight, ns, reads, apps
+
     if tool == "verify":
-        out, known = [], False
-        for t2 in ("app", "infra"):
-            out += app_lists(t2)
-            k, ns, _ = place(t2)
-            if k and ns:
+        known = not env
+        for t in ("app", "infra"):
+            if env:
+                out += argo_list()
+                k, ns, reads, _ = place(t)
+                out += reads
+                if not (k and ns):
+                    continue
                 known = True
-                got = [r for r in reqs if f"/namespaces/{ns}/" in r["target"]]
-                out += got
-                if cs.get("result") is not None and not (cs["result"] or {}).get("error"):
-                    break
-                if got and got[0]["status"] == 200:
-                    break
-        if not known:
+            else:
+                ns = f"{t}-{app}-cicd"
+                out.append(nsget(ns))
+                if not owned(ns):
+                    continue
+            got = under(ns)
+            out += got
+            if "error" in cs:
+                break   # the first read that fails ends the call
+            if got and got[0]["status"] == 200:
+                out.append(nsget(f"{t}-{app}-cicd"))   # the cicd namespace is allowed to a resource step only if it is the app's
+                break
+        if env and not known:
             cs["go"] = {"requests": srt(out), **unknown}
         else:
             cs["go"] = {"requests": srt(out), **({"result": cs["result"]} if "result" in cs else {"error": cs["error"]})}
         cs["why"] = why
         return
-    known, ns, apps = place(t)
-    envns = f"{t}-{app}-{env}"
-    keep = [r for r in reqs if f"/namespaces/{envns}/" not in r["target"]]
-    # the environment's own namespace is read after its Applications were listed: an error there ends the call before it
-    out = keep + ([r for r in reqs if f"/namespaces/{envns}/" in r["target"]] if known and ns and "error" not in cs else [])
-    if tool == "status":
-        out += app_lists(t)
-    if not known:
-        out = [r for r in out if "/rollouts" not in r["target"] and not (tool == "describe" and "/applications" in r["target"])]
-        if tool == "describe":
-            out += [r for r in reqs if "/applications" in r["target"] and _LABEL.match(env)]
-        cs["go"] = {"requests": srt(out), **unknown}
-    else:
+    # status and describe: the app's cicd namespace first, whichever type holds it
+    t_found = None
+    for t in ("app", "infra"):
+        ns = f"{t}-{app}-cicd"
+        out.append(nsget(ns))
+        if owned(ns):
+            out += under(ns)
+            if any(o["metadata"].get("namespace") == ns for o in objects if o["kind"] not in ("Application", "Rollout", "Namespace")):
+                t_found = t
+                break
+    if t_found is None or not env:
         cs["go"] = {"requests": srt(out), **({"result": cs["result"]} if "result" in cs else {"error": cs["error"]})}
+        cs["why"] = why
+        return
+    t = t_found
+    k, ns, reads, apps = place(t)
+    al = argo_list()
+    out += al + ([] if any(r["status"] != 200 for r in al) else reads)
+    if not k:
+        cs["go"] = {"requests": srt(out), **unknown}
+        cs["why"] = why
+        return
+    if ns and "error" not in cs:
+        out += [r for r in reqs if f"/namespaces/{ns}/" in r["target"]]
+    cs["go"] = {"requests": srt(out), **({"result": cs["result"]} if "result" in cs else {"error": cs["error"]})}
     cs["why"] = why
 
 
@@ -320,7 +367,8 @@ def verify_cases():
             if kind == "Agent":
                 # Agent XRs are read by the definition loader's list only; Go has no read of one by name.
                 e = PathRefused(xr_path("agents", "app-vx-cicd", "x1"))
-                cs["go"] = {"requests": [], "error": {"class": "Denied", "rule": e.rule, "message": e.message, "hint": e.hint}}
+                cs["go"] = {"requests": [{"target": "/api/v1/namespaces/app-vx-cicd", "status": 200, "body": {"kind": "Namespace", "metadata": {"name": "app-vx-cicd", "labels": {"hangar.io/app": "vx"}}}}],
+                            "error": {"class": "Denied", "rule": e.rule, "message": e.message, "hint": e.hint}}
                 cs["why"] = ("an Agent XR is listed (the definition loader) and never read by name: the closed list of reads has no "
                              "request for it, so verify of an Agent is refused before any request")
             cases.append(cs)
@@ -363,9 +411,9 @@ def all_cases():
                rollout("x", "app-other-dev", 1, "1")] + [o for o in shop if o["kind"] not in ("Rollout", "Application")]
     py_foreign = case("describe: an Application names a Rollout in another app's namespace", foreign, "describe", ["shop", "dev"])
     r = json.loads(json.dumps(py_foreign))
-    r["requests"] = [q for q in r["requests"] if "/rollouts/x" not in q["target"]]
+    r["go"]["requests"] = [q for q in r["go"]["requests"] if "/rollouts/x" not in q["target"]]
     r["result"]["rollouts"] = []
-    py_foreign["go"] = {"requests": r["requests"], "result": r["result"]}
+    py_foreign["go"] = {"requests": r["go"]["requests"], "result": r["result"]}
     py_foreign["why"] = ("an Application's resource list is written from a tenant's manifests: a Rollout is read only in this "
                          "environment's own namespace (<type>-<app>-<env>), never in another app's")
     cs.append(py_foreign)

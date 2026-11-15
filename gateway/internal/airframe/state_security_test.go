@@ -17,7 +17,7 @@ import (
 )
 
 // oracle is the closed list of reads written out on its own (not the allowlist's own regexes).
-var oracle = regexp.MustCompile(`^/apis/(catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/[a-z]+(/[a-z0-9][a-z0-9.-]*)?|argoproj\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/(applications|rollouts)(/[a-z0-9][a-z0-9.-]*)?)$`)
+var oracle = regexp.MustCompile(`^(?:/api/v1/namespaces/[a-z0-9][a-z0-9-]*|/apis/(catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/[a-z]+(/[a-z0-9][a-z0-9.-]*)?|argoproj\.io/v1alpha1/namespaces/[a-z0-9][a-z0-9-]*/(applications|rollouts)(/[a-z0-9][a-z0-9.-]*)?))$`)
 
 var attacks = []string{"", "a", "shop", "A", "Shop", "a/b", "../x", "..", ".", "a%2fb", "a%2Fb", "x%00", "a\x00b", "a\nb", "a\r\nb", "é", "日本", "a b", "a?b=1", "a#b",
 	"a\\b", "a;b", "x,hangar.io/env=y", "x=y", strings.Repeat("a", 63), strings.Repeat("a", 64), strings.Repeat("a", 300), "-", "-a", "a-", "a.b", "a_b", "*", "{name}", "${x}", "'; drop", "\u202e", "a\ufeffb"}
@@ -83,7 +83,7 @@ func TestStateNeverReachesAPathOutsideTheClosedList(t *testing.T) {
 		t.Fatalf("the corpus proved nothing: %d refused, %d requests", refused, len(rec.reqs))
 	}
 	for _, r := range rec.reqs {
-		if strings.Contains(r, "/secrets/") || strings.Contains(r, "/secrets?") || strings.Contains(r, "/configmaps") || strings.Contains(r, "/api/") {
+		if strings.Contains(r, "/secrets/") || strings.Contains(r, "/secrets?") || strings.Contains(r, "/configmaps") || (strings.Contains(r, "/api/") && !strings.Contains(r, " /api/v1/namespaces/")) {
 			t.Fatalf("%s", r)
 		}
 	}
@@ -146,7 +146,12 @@ func TestStateReadsHostileAnswersWithoutPanicOrUnboundedOutput(t *testing.T) {
 
 type bigReader struct{ n int }
 
-func (b bigReader) Get(ctx context.Context, path string) (any, bool, error) { return nil, false, nil }
+func (b bigReader) Get(ctx context.Context, path string) (any, bool, error) {
+	if path == "/api/v1/namespaces/app-shop-cicd" {
+		return map[string]any{"metadata": map[string]any{"labels": map[string]any{"hangar.io/app": "shop"}}}, true, nil
+	}
+	return nil, false, nil
+}
 func (b bigReader) List(ctx context.Context, path, sel string) ([]map[string]any, error) {
 	if !strings.HasSuffix(path, "/pythonapplications") || !strings.Contains(path, "app-shop-cicd") {
 		return nil, nil

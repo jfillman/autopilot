@@ -45,8 +45,10 @@ var (
 	// The whole allowlist (pathAllowed): Applications and Rollouts of one namespace, listed or read by name; the Airframe XR kinds of
 	// one namespace (only the plurals of the vendored contract's xrds, listed or read by name); and (A-9 S4, the Agent XR loader)
 	// the Agent XRs of one namespace, listed (never read by name, never across namespaces). No path without a namespace.
-	argoPath     = regexp.MustCompile(`^/apis/argoproj\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/(?:applications|rollouts)(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
-	xrKindPath   = regexp.MustCompile(`^/apis/catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/([a-z0-9]{1,63})(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
+	argoPath   = regexp.MustCompile(`^/apis/argoproj\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/(?:applications|rollouts)(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
+	xrKindPath = regexp.MustCompile(`^/apis/catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/([a-z0-9]{1,63})(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
+	// nsPath is one Namespace by name (never a list, never a subresource): the platform labels its namespaces with the app they belong to.
+	nsPath       = regexp.MustCompile(`^/api/v1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	allowedQuery = map[string]bool{"labelSelector": true, "limit": true, "continue": true}
 )
 
@@ -143,10 +145,11 @@ var AllowedKubeGETs = []string{
 	"GET /apis/argoproj.io/v1alpha1/namespaces/{ns}/rollouts[/{name}]",
 	"GET /apis/catalog.hangar.io/v1alpha1/namespaces/{ns}/{plural}[/{name}] (plural: one of the contract's XR kinds except agents)",
 	"GET /apis/catalog.hangar.io/v1alpha1/namespaces/{ns}/agents (a list only)",
+	"GET /api/v1/namespaces/{ns} (one Namespace, for its hangar.io/app label)",
 }
 
 func pathAllowed(p string) bool {
-	if argoPath.MatchString(p) {
+	if argoPath.MatchString(p) || nsPath.MatchString(p) {
 		return true
 	}
 	m := xrKindPath.FindStringSubmatch(p)
