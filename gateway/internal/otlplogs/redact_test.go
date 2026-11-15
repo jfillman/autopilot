@@ -90,3 +90,24 @@ func TestALiteralSecretIsRemovedAnywhere(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// What a rule would take and is not a credential stays: a count under a plural label, and an image's digest. The same shapes in the
+// singular, or a run that is not a whole digest, are still removed (no secret shape was loosened to keep these).
+func TestCountsAndImageDigestsSurvive(t *testing.T) {
+	digest := "b5c9832f0d5d092e616a98e365862eb1e03a15dffe2d545f97c9adfed7f1d965"
+	for _, s := range []string{"secrets: 3 loaded", "tokens: 12 issued", "credentials=2 rotated", `"secrets": 4`, "agent runtime pulled ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + digest + " ok",
+		"image sha256:" + digest, "sha512:" + digest + digest} {
+		if got := Redact(s); got != s {
+			t.Errorf("%q became %q", s, got)
+		}
+	}
+	for _, c := range []struct{ line, gone string }{
+		{"secret: 3", "3"}, {"password=123", "123"}, {"token=5", "5"}, {"secrets: abc", "abc"}, {"tokens: 12abc", "12abc"}, {`"secrets": "hunter2hunter2"`, "hunter2hunter2"},
+		{"sha256:" + digest[:40], digest[:40]}, {"sha256:" + digest + "ab", digest[:50]}, {"sha512:" + digest, digest[:50]}, {"abc:" + digest, digest[:50]},
+		{"AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhI", "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"},
+	} {
+		if got := Redact(c.line); strings.Contains(got, c.gone) || !strings.Contains(got, Redacted) {
+			t.Errorf("%q survives as %q", c.line, got)
+		}
+	}
+}

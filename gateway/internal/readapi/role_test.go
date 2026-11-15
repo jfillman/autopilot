@@ -63,6 +63,14 @@ func TestTheAPIRefusesARoleThatCouldWrite(t *testing.T) {
 		{"create in the database", mk("dbc", "GRANT CREATE ON DATABASE "+dbName+" TO dbc"+suffix), "create"},
 		{"pg_write_all_data", mk("wad", "GRANT pg_write_all_data TO wad"+suffix), "pg_write_all_data"},
 		{"membership of a role that can write", mk("mem", "CREATE ROLE grp"+suffix+" NOLOGIN", "GRANT INSERT ON gateway_holds TO grp"+suffix, "GRANT grp"+suffix+" TO mem"+suffix), "gateway_holds"},
+		{"SET-able membership of a writer (WITH INHERIT FALSE, SET TRUE)", mk("sst", "CREATE ROLE wsr"+suffix+" NOLOGIN", "GRANT INSERT, DELETE ON gateway_holds TO wsr"+suffix, "GRANT wsr"+suffix+" TO sst"+suffix+" WITH INHERIT FALSE, SET TRUE"), "gateway_holds"},
+		{"SET-able pg_write_all_data", mk("swa", "GRANT pg_write_all_data TO swa"+suffix+" WITH INHERIT FALSE, SET TRUE"), "pg_write_all_data"},
+		{"membership through two roles", mk("two", "CREATE ROLE mid"+suffix+" NOLOGIN", "CREATE ROLE wtw"+suffix+" NOLOGIN", "GRANT DELETE ON gateway_sessions TO wtw"+suffix, "GRANT wtw"+suffix+" TO mid"+suffix+" WITH INHERIT FALSE, SET TRUE", "GRANT mid"+suffix+" TO two"+suffix+" WITH INHERIT FALSE, SET TRUE"), "gateway_sessions"},
+		{"insert on a view over a gateway table", mk("viw", "CREATE VIEW holds_v"+suffix+" AS SELECT * FROM gateway_holds", "GRANT INSERT ON holds_v"+suffix+" TO viw"+suffix), "holds_v"},
+		{"a column grant", mk("col", "GRANT UPDATE (until) ON gateway_holds TO col"+suffix), "gateway_holds"},
+		{"a column insert grant", mk("coi", "GRANT INSERT (agent, until, record) ON gateway_holds TO coi"+suffix), "gateway_holds"},
+		{"usage on a sequence", mk("seq", "GRANT USAGE ON SEQUENCE gateway_outbox_id_seq TO seq"+suffix), "gateway_outbox_id_seq"},
+		{"update on a sequence", mk("squ", "GRANT UPDATE ON SEQUENCE gateway_outbox_id_seq TO squ"+suffix), "gateway_outbox_id_seq"},
 	} {
 		err := check(c.dsn)
 		if err == nil || !strings.Contains(err.Error(), c.expect) || !strings.Contains(err.Error(), "read-only role") {

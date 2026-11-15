@@ -408,55 +408,95 @@ func SplitCursor(s string) (t, id string, hasID bool) {
 }
 
 // CheckRole refuses a role that could write. A read-only session default (default_transaction_read_only) is not a defence: a role that
-// may write can switch it off for its session. So the role must not be a superuser or a member of pg_write_all_data, must not own or have
-// INSERT, UPDATE, DELETE or TRUNCATE on any gateway_* table (through a role it is a member of too), and must not have CREATE on the
-// schema or the database. It is asked at start, before anything is served, and again by nothing: the role is the deployment's.
+// may write can switch it off for its session. So the role, AND EVERY ROLE IT CAN BECOME (any membership, direct or through other roles,
+// whatever its INHERIT and SET options: a membership granted WITH INHERIT FALSE, SET TRUE lets the user SET ROLE to the writer, and
+// before Postgres 16 every membership can), must not be a superuser or pg_write_all_data, must not own or have INSERT, UPDATE, DELETE
+// or TRUNCATE (or an INSERT or UPDATE on any column) on any table, view, materialized view or foreign table of the schema (a view over a
+// gateway table is writable through), nor UPDATE or USAGE on any sequence (nextval, setval), and must not have CREATE on the schema or
+// the database. It is asked at start, before anything is served.
+//
+// What it does NOT prove, and is not for: a SECURITY DEFINER function that PUBLIC may execute and that writes; default privileges that
+// give a future table to the role; a grant made after the check. The control is the read-only ROLE the deployment defines (S7: SELECT on
+// the gateway tables and nothing else, no membership of a role that can write); this check is a guard against pointing the process at
+// the wrong DSN (the writer's).
 func (s *PgStore) CheckRole(ctx context.Context) error {
 	var user string
-	var super, writeAll, schemaCreate, dbCreate bool
-	err := s.Pool.QueryRow(ctx, `SELECT current_user,
-		(SELECT rolsuper FROM pg_roles WHERE rolname = current_user),
-		COALESCE(to_regrole('pg_write_all_data') IS NOT NULL AND pg_has_role(current_user, 'pg_write_all_data', 'USAGE'), false),
-		has_schema_privilege(COALESCE(current_schema(), 'public'), 'CREATE'),
-		has_database_privilege(current_database(), 'CREATE')`).Scan(&user, &super, &writeAll, &schemaCreate, &dbCreate)
+	err := s.Pool.QueryRow(ctx, "SELECT current_user").Scan(&user)
 	if err != nil {
 		return fmt.Errorf("the database role could not be checked: %w", err)
 	}
-	var problems []string
-	if super {
-		problems = append(problems, "it is a superuser")
-	}
-	if writeAll {
-		problems = append(problems, "it is a member of pg_write_all_data")
-	}
-	if schemaCreate {
-		problems = append(problems, "it may create in the schema")
-	}
-	if dbCreate {
-		problems = append(problems, "it may create in the database")
-	}
-	rows, err := s.Pool.Query(ctx, `SELECT c.relname, pg_has_role(c.relowner, 'USAGE'), has_table_privilege(c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
-		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE c.relname LIKE 'gateway\_%' AND c.relkind IN ('r', 'p') AND n.nspname = ANY (current_schemas(false)) ORDER BY c.relname`)
+	rows, err := s.Pool.Query(ctx, `WITH RECURSIVE reach(oid) AS (
+			SELECT oid FROM pg_roles WHERE rolname = current_user
+			UNION
+			SELECT m.roleid FROM pg_auth_members m JOIN reach ON m.member = reach.oid)
+		SELECT ro.oid, ro.rolname, ro.rolname = current_user, ro.rolsuper, ro.rolname = 'pg_write_all_data',
+			has_schema_privilege(ro.oid, COALESCE(current_schema(), 'public'), 'CREATE'), has_database_privilege(ro.oid, current_database(), 'CREATE')
+		FROM pg_roles ro WHERE ro.oid IN (SELECT oid FROM reach) ORDER BY ro.rolname`)
 	if err != nil {
 		return fmt.Errorf("the database role could not be checked: %w", err)
 	}
-	defer rows.Close()
+	type roleRow struct {
+		oid                         uint32
+		name                        string
+		self, super, writeAll, a, b bool
+	}
+	var rs []roleRow
 	for rows.Next() {
-		var name string
-		var owns, writes bool
-		if err := rows.Scan(&name, &owns, &writes); err != nil {
+		var r roleRow
+		if err := rows.Scan(&r.oid, &r.name, &r.self, &r.super, &r.writeAll, &r.a, &r.b); err != nil {
+			rows.Close()
 			return err
 		}
-		switch {
-		case owns:
-			problems = append(problems, "it owns, or is a member of the role that owns, "+name)
-		case writes:
-			problems = append(problems, "it may write "+name)
-		}
+		rs = append(rs, r)
 	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	var problems []string
+	for _, r := range rs {
+		who := "it"
+		if !r.self {
+			who = "it can become " + r.name + ", which"
+		}
+		if r.super {
+			problems = append(problems, who+" is a superuser")
+		}
+		if r.writeAll {
+			problems = append(problems, "it is, or can become, pg_write_all_data")
+		}
+		if r.a {
+			problems = append(problems, who+" may create in the schema")
+		}
+		if r.b {
+			problems = append(problems, who+" may create in the database")
+		}
+		rel, err := s.Pool.Query(ctx, `SELECT c.relname, c.relkind::text, pg_has_role($1::oid, c.relowner, 'USAGE'),
+				CASE WHEN c.relkind = 'S' THEN has_sequence_privilege($1::oid, c.oid, 'UPDATE,USAGE')
+				     ELSE has_table_privilege($1::oid, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE') OR has_any_column_privilege($1::oid, c.oid, 'INSERT,UPDATE') END
+			FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND n.nspname = ANY (current_schemas(false)) ORDER BY c.relname`, r.oid)
+		if err != nil {
+			return fmt.Errorf("the database role could not be checked: %w", err)
+		}
+		for rel.Next() {
+			var name, kind string
+			var owns, writes bool
+			if err := rel.Scan(&name, &kind, &owns, &writes); err != nil {
+				rel.Close()
+				return err
+			}
+			switch {
+			case owns:
+				problems = append(problems, who+" owns, or is a member of the role that owns, "+name)
+			case writes:
+				problems = append(problems, who+" may write "+name)
+			}
+		}
+		rel.Close()
+		if err := rel.Err(); err != nil {
+			return err
+		}
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("GATEWAY_API_DSN must name a read-only role (SELECT on gateway_* and nothing else); %s: %s", user, strings.Join(problems, "; "))

@@ -1390,11 +1390,18 @@ string in the read API's package that could write (it fails on a planted `INSERT
 `gateway_definitions` every `GATEWAY_API_DEFINITIONS_INTERVAL` (30 s) through the same pin decision `serve` makes (a stored row that no longer
 passes it is shown as rejected, with the reason).
 
-**The role is checked at start, before anything is served** (`PgStore.CheckRole`): the process refuses to start unless the role is not a superuser or
-a member of `pg_write_all_data`, owns no `gateway_*` table (nor is a member of the role that does), has no INSERT, UPDATE, DELETE or TRUNCATE on any of
-them (through a role it is a member of too), and has no CREATE on the schema or the database. A session default of read-only is not a defence for a role
-that may write: it can switch it off. The message names the role and what is wrong (`TestTheAPIRefusesARoleThatCouldWrite`: the writer's DSN, each
-privilege, group membership, ownership; `TestTheAPIDoesNotStartOnTheWritersRole`). Give it a role with `SELECT` on the gateway tables and nothing else.
+**The role is checked at start, before anything is served** (`PgStore.CheckRole`): the process refuses to start unless the role, **and every role it can
+become** (any membership, direct or through other roles, whatever its INHERIT and SET options: a membership `WITH INHERIT FALSE, SET TRUE` lets the user
+`SET ROLE` to the writer, and before Postgres 16 every membership can), is not a superuser or `pg_write_all_data`, owns nothing in the schema, has no INSERT,
+UPDATE, DELETE or TRUNCATE (nor an INSERT or UPDATE on any column) on any table, view, materialized view or foreign table of it (a view over a gateway table is
+writable through), has no UPDATE or USAGE on any sequence (`nextval`, `setval`), and has no CREATE on the schema or the database. A session default of
+read-only is not a defence for a role that may write: it can switch it off. The message names the role and what is wrong
+(`TestTheAPIRefusesARoleThatCouldWrite`: the writer's DSN, each privilege, group and SET-able membership, two hops, a view, column and sequence grants;
+`TestTheAPIDoesNotStartOnTheWritersRole`).
+
+**What the check does not prove**, and is not for: a `SECURITY DEFINER` function that PUBLIC may execute and that writes; default privileges that give the
+role a future table; a grant made after the check. **The control is the read-only role the deployment defines** (S7: `SELECT` on the gateway tables and nothing
+else, no membership of a role that can write); the startup check is a guard against pointing the process at the wrong DSN (the writer's).
 
 ### Metrics
 
@@ -1414,7 +1421,7 @@ numbers, body (cut at 4096 characters) and the 2000-line queue, 200-line batches
 `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1` (Go only, off by default) is needed for a plain `http` collector: **the endpoint must be https**. A full
 queue drops the line and counts it; a post that fails, hangs (5 s) or is answered with a redirect drops its batch and counts it; logging never
 waits. A line is **redacted before it is queued**: a field named like a credential, a prompt or a request body (`token`, `secret`, `password`,
-`authorization`, `api_key`, `prompt`, `body`, `input`, `instructions`...) is `[redacted]`, and so is anything shaped like one in the text (a labelled value in text or JSON, quoted or not, `client_secret` and `db_password` included; a URL's userinfo; `Bearer`, `bearer:`, `Basic` and `Token` values; a cookie header; a JWT; GitHub, GitLab, Slack, Stripe and provider keys; AWS access key ids and the 40-character secret key; a private key's whole BEGIN to END block; a long key-like run), `TestEveryShapeOfCredentialIsRemoved` has one case for each, and the contents of the credential files the process reads (`api` too: the catalog token and its own DSN and password). The gateway
+`authorization`, `api_key`, `prompt`, `body`, `input`, `instructions`...) is `[redacted]`, and so is anything shaped like one in the text (a labelled value in text or JSON, quoted or not, `client_secret` and `db_password` included; a URL's userinfo; `Bearer`, `bearer:`, `Basic` and `Token` values; a cookie header; a JWT; GitHub, GitLab, Slack, Stripe and provider keys; AWS access key ids and the 40-character secret key; a private key's whole BEGIN to END block; a long key-like run), `TestEveryShapeOfCredentialIsRemoved` has one case for each; a count under a plural label such as `secrets: 3 loaded` and an image digest `sha256:<64 hex digits>` are kept, and the same shapes in the singular or of another length are not, and the contents of the credential files the process reads (`api` too: the catalog token and its own DSN and password). The gateway
 had no log redaction before S6 (its only redaction, `backends.redact`, is a literal replace on an upstream's answer); this reuses that scheme (a literal
 secret becomes `[redacted]`) and adds the names and shapes.
 

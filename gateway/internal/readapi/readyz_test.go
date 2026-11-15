@@ -58,3 +58,24 @@ func TestReadyzIsServedFromACachedProbe(t *testing.T) {
 		t.Fatalf("a failure was not cached too: %d probes=%d", rec.Code, st.pings.Load())
 	}
 }
+
+type hangStore struct{ captureStore }
+
+func (*hangStore) Ping(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+
+// A database that never answers makes /readyz a 503 after the probe's limit (3 s), not a request that waits for ever, and the failure is
+// then what the probe says for its interval.
+func TestAHungReadinessProbeIsCutOffAtItsLimit(t *testing.T) {
+	api, _ := New(&API{Access: accessWith(mapDir{}, mapOwn{}), Store: &hangStore{}, Defs: defsFrom(t, nil)})
+	done := make(chan int, 1)
+	start := time.Now()
+	go func() { done <- get(api, "/readyz", "").Code }()
+	select {
+	case code := <-done:
+		if d := time.Since(start); code != 503 || d < 2*time.Second || d > 8*time.Second {
+			t.Fatalf("%d after %v: want a 503 after about 3 s", code, d)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the probe never ended")
+	}
+}
