@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -69,18 +70,53 @@ func Migrate(ctx context.Context, dsn string, o MigrateOptions) (created []strin
 			return nil, err
 		}
 	}
-	if _, err := conn.Exec(ctx, schema); err != nil {
-		return nil, fmt.Errorf("schema: %w", err)
+	// The schema step is skipped when the database already has it (the Go-only columns are the last thing it adds): ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+	// takes an ACCESS EXCLUSIVE lock even when the column is there, so a routine re-run must not run it.
+	var haveCols int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema()
+		AND table_name = 'gateway_trigger_launches' AND column_name IN ('failures', 'first_failed_at', 'last_failed_at')`).Scan(&haveCols); err != nil {
+		return nil, err
 	}
-	if _, err := conn.Exec(ctx, goSchema); err != nil {
-		return nil, fmt.Errorf("schema: %w", err)
+	if haveCols == 3 {
+		o.Log("schema: present (no statement run)")
+	} else {
+		if _, err := conn.Exec(ctx, schema); err != nil {
+			return nil, fmt.Errorf("schema: %w", err)
+		}
+		if _, err := conn.Exec(ctx, goSchema); err != nil {
+			return nil, fmt.Errorf("schema: %w", err)
+		}
+		o.Log("schema: created or completed")
 	}
 	states, err := dbindex.Check(ctx, dbindex.Pgx(conn))
 	if err != nil {
 		return nil, err
 	}
+	wrong, err := WrongDefinitions(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
 	for _, s := range states {
 		switch {
+		case s.Valid && wrong[s.Name]:
+			// Right name, wrong definition (an older release's, or one made by hand): build the right one beside it under a temporary name,
+			// drop the old one, rename. The table is never without an index for the query, and no write waits for the build.
+			o.Log("index " + s.Name + ": present with another definition: building the right one beside it")
+			tmp := s.Name + "_new"
+			if _, err := conn.Exec(ctx, "DROP INDEX CONCURRENTLY IF EXISTS "+tmp); err != nil {
+				return created, fmt.Errorf("index %s: %w", s.Name, err)
+			}
+			if _, err := conn.Exec(ctx, createIndex(dbindex.Index{Name: tmp, Table: s.Table, Def: s.Def})); err != nil {
+				return created, fmt.Errorf("index %s: %w (a failed build leaves an invalid %s: run migrate again)", s.Name, err, tmp)
+			}
+			if _, err := conn.Exec(ctx, "DROP INDEX CONCURRENTLY "+s.Name); err != nil {
+				return created, fmt.Errorf("index %s: %w", s.Name, err)
+			}
+			if _, err := conn.Exec(ctx, "ALTER INDEX "+tmp+" RENAME TO "+s.Name); err != nil {
+				return created, fmt.Errorf("index %s: %w", s.Name, err)
+			}
+			created = append(created, s.Name)
+			continue
 		case s.Valid:
 			o.Log("index " + s.Name + ": present")
 			continue
@@ -108,4 +144,44 @@ func createIndex(ix dbindex.Index) string {
 // CheckIndexes is the state of the six indexes, as serve asks it at start.
 func (s *State) CheckIndexes(ctx context.Context) ([]dbindex.State, error) {
 	return dbindex.Check(ctx, dbindex.Pgx(s.Pool))
+}
+
+var indexDefNorm = regexp.MustCompile(`^CREATE (UNIQUE )?INDEX \S+ ON \S+ `)
+
+// WrongDefinitions names each of the six indexes that exists, valid, with a definition other than the expected one. The expected text is not
+// written out here (Postgres prints its own canonical form, which differs between versions): the same definition is built on an empty TEMP table
+// of the same columns, and its pg_get_indexdef is compared with the real index's, each with the index and table names removed.
+func WrongDefinitions(ctx context.Context, conn *pgx.Conn) (map[string]bool, error) {
+	wrong := map[string]bool{}
+	canon := func(def string) string { return indexDefNorm.ReplaceAllString(def, "CREATE INDEX ") }
+	for _, ix := range dbindex.Indexes {
+		var have string
+		err := conn.QueryRow(ctx, `SELECT pg_get_indexdef(c.oid) FROM pg_class c WHERE c.relname = $1 AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())`, ix.Name).Scan(&have)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var want string
+		_, err = tx.Exec(ctx, "CREATE TEMP TABLE _ix_expected (LIKE "+ix.Table+") ON COMMIT DROP")
+		if err == nil {
+			_, err = tx.Exec(ctx, "CREATE INDEX _ix_expected_i ON _ix_expected "+ix.Def)
+		}
+		if err == nil {
+			err = tx.QueryRow(ctx, "SELECT pg_get_indexdef('_ix_expected_i'::regclass)").Scan(&want)
+		}
+		_ = tx.Rollback(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("the expected definition of %s could not be built: %w", ix.Name, err)
+		}
+		if canon(have) != canon(want) {
+			wrong[ix.Name] = true
+		}
+	}
+	return wrong, nil
 }

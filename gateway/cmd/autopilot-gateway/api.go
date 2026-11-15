@@ -219,12 +219,16 @@ func buildAPI(ctx context.Context, cfg *apiConfig, log *slog.Logger) (*http.Serv
 		store.Close()
 		return nil, nil, err
 	}
-	// The six indexes are `migrate`'s: a missing one makes the lists slow (bounded by the statement timeout), not wrong, so it is said, loudly, and
-	// the api serves (the readiness probe is the database answering, not the schema's age).
+	// The six indexes are `migrate`'s: without them the lists scan their tables. Refused by default (a silent slow path in production is what
+	// migrate exists to prevent); GATEWAY_ALLOW_MISSING_INDEXES=1 serves anyway, loudly.
 	if m, err := store.IndexProblems(cctx); err != nil {
 		log.Warn("the read API's indexes could not be checked", "err", err.Error())
 	} else if m != "" {
-		log.Error("the gateway database lacks indexes the read API needs: " + m)
+		if !boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false) {
+			store.Close()
+			return nil, nil, fmt.Errorf("the gateway database lacks indexes the read API needs: %s (GATEWAY_ALLOW_MISSING_INDEXES=1 serves without them)", m)
+		}
+		log.Error("serving without indexes the read API needs (GATEWAY_ALLOW_MISSING_INDEXES=1): " + m)
 	}
 	a, err := readapi.New(&readapi.API{Access: access, Store: store, Defs: set, Runtimes: runtimes, CustomImages: cfg.runtimeImages,
 		GatewayURL: cfg.gatewayURL, ClearanceURL: cfg.clearanceURL})

@@ -62,6 +62,11 @@ autopilot-gateway migrate --check    change nothing; exit 1 if an index is missi
 
 - **`CREATE INDEX CONCURRENTLY IF NOT EXISTS`**, one statement per index, so no write to a gateway table waits for a build. It may run while
   the Python or the Go gateway is writing.
+- **A routine re-run takes no table lock**: the schema step (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, which needs an ACCESS EXCLUSIVE lock even when the column is
+  there) is skipped when the Go-only columns already exist, and a valid, correct index is not touched (tested with a reader holding ACCESS SHARE and a 300 ms lock timeout).
+- **The definition is checked, not only the name**: an index with the right name and another definition is rebuilt **beside the old one** (new under a temporary
+  name, concurrently; then the old one dropped, the new renamed), so the table is never unindexed and no write waits. The expected text is not hard-coded: the same definition is
+  built on an empty TEMP table and its `pg_get_indexdef` compared, so the check follows Postgres's own printing across versions. `migrate --check` fails on it too.
 - **Idempotent and repairable**: a valid index is left alone; an `INVALID` one (what an interrupted concurrent build leaves) is dropped
   (`DROP INDEX CONCURRENTLY`) and built again. A failure leaves nothing a second run does not repair.
 - **Lock and statement timeouts**: `lock_timeout` 5 s (`MIGRATE_LOCK_TIMEOUT_SECONDS`) so a statement never queues behind a long transaction (it
@@ -70,35 +75,72 @@ autopilot-gateway migrate --check    change nothing; exit 1 if an index is missi
   not a wait).
 - **One at a time**: its own advisory lock (`apg1`; the writer's is `apg0`), so two migrates do not race, and it does not need the writer's lock.
 - It uses `GATEWAY_DSN` (the owner's DSN: it creates indexes). Exit 0 done, 1 failed or missing (`--check`), 2 configuration.
-- **`serve` and `api` check at start** that the six exist and are valid (they only read the system catalogs) and, when one is not, log an
-  error that names it and says to run `autopilot-gateway migrate`. They start anyway: a missing index slows the read API's lists (bounded by
-  its 5 s statement timeout), it does not make an answer wrong.
+- **`serve` and `api` check at start** that the six exist and are valid (they only read the system catalogs) and **refuse to start** when one is not (exit 1 / 2),
+  naming it and saying to run `autopilot-gateway migrate`: a silent slow read path in production is what `migrate` exists to prevent.
+  `GATEWAY_ALLOW_MISSING_INDEXES=1` (default off) starts anyway, with an error line each start. **Ordering in the cutover**: `migrate` and `migrate --check` run
+  BEFORE the switch (step 4), so the first Go start finds the indexes; the override is for an emergency rollforward, not a procedure.
 
 **Deployment choice, and why**: `migrate` is a **manual step in the cutover runbook**, not a pre-sync Job (yet). A Job against the database
 every sync would need the owner's DSN in another pod, and a failing Job would block every sync of the Autopilot Application. The runbook runs
-it once, as a one-off Job (`kubectl create job --from` the rendered template, or the Job the render emits when
-`autopilot.gateway.go.migrateJob` is true), then `migrate --check` is a gate before the switch. Moving it to a PreSync hook is a decision for
-after the first cutover, when its run time is known.
+it once as a one-off Job (below, or the Job the render emits when `autopilot.gateway.go.migrateJob` is true), then `migrate --check` is a gate
+before the switch. (`kubectl create job --from` takes a CronJob, so it is not used.)
+
+```
+kubectl -n autopilot-system apply -f - <<'EOF'
+apiVersion: batch/v1
+kind: Job
+metadata: {name: autopilot-gateway-migrate-1, labels: {app.kubernetes.io/name: autopilot-gateway-migrate}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata: {labels: {app.kubernetes.io/name: autopilot-gateway-migrate}}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: <the Go image, tag@digest>
+          args: [migrate]          # then a second Job with args: [migrate, --check]
+          env: [{name: GATEWAY_DSN, valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+EOF
+kubectl -n autopilot-system wait --for=condition=complete job/autopilot-gateway-migrate-1 --timeout=20m && kubectl -n autopilot-system logs job/autopilot-gateway-migrate-1
+```
+
+The database admits only the gateway and read API pods (`networkpolicy.yaml`); the policy that admits the Job's label (`autopilot-pg-migrate`) is rendered only with
+`autopilot.gateway.go.migrateJob: true`, so for the first cutover set it, render and sync (the hook then runs `migrate` itself, and the hand-run Job above is only needed for
+`migrate --check` and re-runs), and turn it off again afterwards if a PreSync hook is not wanted. Making it the permanent PreSync step is a decision for after the first cutover, when its run time is known.
 
 ### The read-only role (`GATEWAY_API_DSN`)
 
-`gateway/sql/gateway-api-reader.sql` makes the NOLOGIN group role `gateway_api_reader` (`SELECT` on every `gateway_*` table, and nothing else:
-no write, no sequence, no `CREATE`, no membership of a role that can write). The owner then makes a login role in it and keeps the password in
-Infisical (never in this repository):
+**The default is the role the cluster already has.** The Python deployment's CNPG-managed role `autopilot_reader` (`pg_read_all_data`, its password
+generated by an ESO generator into the Secret `autopilot-pg-reader`, key `uri`) is read-only and passes the same check: the real binary starts as it
+(`TestTheRealAPIRefusesEveryRoleShapeThatCouldWrite` includes the `pg_read_all_data` shape). The Apron switch therefore defaults to that secret: the
+cutover needs no new role and no new secret.
+
+**The option, for other installs or the narrower grant** (only `gateway_*` tables readable, no other table): `gateway/sql/gateway-api-reader.sql` makes the
+NOLOGIN group role `gateway_api_reader` (`SELECT` on every `gateway_*` table and nothing else: no write, no sequence, no `CREATE`, no default
+privileges, no membership). `TestTheRoleFileHasOnlyTheStatementsItClaims` fails on any statement outside an allowlist and
+`TestTheRoleFileGrantsNothingButSelect` checks the live role. The owner then makes a login role in the group. **Never put the password on a command
+line** (it lands in shell history and the process list): create the role without one and set it with `\password`, which sends the hash, then put the
+DSN in Infisical:
 
 ```
 psql "$OWNER_DSN" -v ON_ERROR_STOP=1 -f gateway/sql/gateway-api-reader.sql
-psql "$OWNER_DSN" -c "CREATE ROLE autopilot_reader LOGIN PASSWORD '<from Infisical>' IN ROLE gateway_api_reader"
+psql "$OWNER_DSN" -c "CREATE ROLE autopilot_reader2 LOGIN IN ROLE gateway_api_reader"
+psql "$OWNER_DSN"            # then, at the prompt:  \password autopilot_reader2
 ```
 
-`api` refuses to start on a role that could write (`CheckRole`: superuser, `pg_write_all_data`, owner or writer of any table, `CREATE` anywhere, or
-a membership that can become one). `TestTheReadOnlyRoleFileMakesARoleTheAPIStartsWith` runs the real binary against Postgres: it starts and
-answers `/readyz` as this role, and exits 2 on the writer's DSN.
+On a CNPG cluster prefer the managed-role path the cluster already uses (`spec.managed.roles` with `inRoles: [gateway_api_reader]` and a
+`passwordSecret`, as `postgres.yaml` does for `autopilot_reader`), so no human types a password at all. Point `autopilot.gateway.go.readerSecret` at the
+secret that holds the DSN under the key `uri`.
 
-**The existing role already passes.** The Python deployment's CNPG-managed role `autopilot_reader` (`pg_read_all_data`, password from an ESO
-generator, `autopilot-pg-reader`, key `uri`) is read-only and passes the same check, so the Apron switch **defaults to that secret**: the cutover needs no
-new role and no new secret. Use the SQL file and an Infisical-held password when you want the narrower grant (only `gateway_*` tables
-readable); point `autopilot.gateway.go.readerSecret` at the secret that holds its DSN under the key `uri`.
+`api` refuses to start on a role that could write (`CheckRole`: superuser, `pg_write_all_data`, owner or writer of any table, view, materialized view,
+foreign table or partitioned table, a column or sequence write grant, `CREATE` anywhere, or any membership that can become one whatever its
+INHERIT and SET options). The real binary is tested against each shape, including a writer granted `WITH INHERIT FALSE, SET TRUE` and `INSERT` on an
+auto-updatable view over a gateway table: all exit 2.
 
 ## Settings the Go gateway refuses, and what changed
 
@@ -113,8 +155,8 @@ Every refusal in `serve` and `api` was read against the Python gateway. Result:
 | `GATEWAY_API_TABLES` other than `gateway` | refused (as before) | retired at R-4 |
 | the settings S3 to S6 carried (`EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `SCHEDULES_ENABLED`, `AGENT_XRS_*`, `XR_*`, `METRICS_PORT`, ...) | no longer refused | carried and tested in their slices; `unported` lists only the three above |
 
-The full environment table (Python against Go, every variable) is generated: [go-gateway-env.md](go-gateway-env.md) (123 variables: 69 the same,
-25 new in Go, 25 refused by both, 2 kubelet-only, **2 not carried**: `CLEARANCE_CORE_TOKEN` and `CLEARANCE_TOKEN`, dev-only tokens of the Python
+The full environment table (Python against Go, every variable) is generated: [go-gateway-env.md](go-gateway-env.md) (124 variables: 69 the same,
+26 new in Go, 25 refused by both, 2 kubelet-only, **2 not carried**: `CLEARANCE_CORE_TOKEN` and `CLEARANCE_TOKEN`, dev-only tokens of the Python
 smoke tools). `TestEveryVariableThePythonDeploymentSetsIsReadByGo` fails the build when a variable the Python Deployment sets would be silently
 ignored by Go.
 
@@ -183,9 +225,9 @@ belongs to the canary. **Unverified until then.** Pins the Go policy rejected st
 - **The coding agent's `airframe.apps: ["*"]`** (`agents/coding-agent.yaml`, [go-gateway.md](go-gateway.md) S5c): the Go gateway scopes `xr.request` by
   `profile.airframe.apps`, so `["*"]` equals Python's unscoped behaviour for that tool (the core never scoped it by app). It is the owner's call whether the
   coding agent keeps `*` at the cutover or is narrowed to named apps first; the cutover does not change it.
-- **Three known defects of the Python code that the Go gateway carries unchanged** are left as they are, by the owner's rule (a bug that exists identically
-  in Python is not fixed in Go during the port, so the replay and the comparison stay meaningful). They are tracked in the A-9 owner digest, not here; fix them
-  in one change after the cutover, in Go, once Python is gone.
+- **Three known defects of the ported Python code, left as they are** by the owner's rule (a bug that exists identically in Python is not fixed in Go during the port, so the
+  replay and the comparison stay meaningful): (1) `CheckQuestion` dedupes before trimming; (2) `RecordFromRuns` leaves `PathsTouched` empty; (3) `human.answer` is recorded
+  before `Inbox.Save`. Fix them in one change, in Go, after the cutover, once Python is gone.
 - **`migrate` as a PreSync Job** instead of a manual step (above): after the first cutover.
 - **Narrow the gateway's cluster-wide read RBAC**: the Go gateway needs `get` on `namespaces` (added by the Go render) and today still rides the Python
   ClusterRole that lists every `catalog.hangar.io` kind; a Role per `AGENT_XRS_NAMESPACES` entry is the least-privilege shape (go-gateway.md, S4).

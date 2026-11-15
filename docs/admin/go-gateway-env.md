@@ -13,12 +13,12 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | Class | Variables |
 |---|---|
 | Same name, same meaning (Go may be stricter: see the note) | 69 |
-| New in Go (the Python gateway has no such setting) | 25 |
+| New in Go (the Python gateway has no such setting) | 26 |
 | Refused at start by both gateways | 12 |
 | Renamed AUTOPILOT_* at R-10a; the old name is refused by both | 13 |
 | Not carried: Python reads it, Go does not | 2 |
 | Set on the pod and read by no process | 2 |
-| Total | 123 |
+| Total | 124 |
 
 ## Same name, same meaning (Go may be stricter: see the note)
 
@@ -106,6 +106,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `AUTOPILOT_JWKS_ALLOW_HTTP` | - | serve,api | - | Plain http to an OIDC or Tower key set (default off). |
 | `BACKSTAGE_ALLOW_HTTP` | - | serve,api | - | Plain http to the catalog (default off). |
 | `BROKER_ALLOW_HTTP` | - | serve | - | Plain http to the installation-token broker (default off). |
+| `GATEWAY_ALLOW_MISSING_INDEXES` | - | serve,api | - | Start although the read API's six indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`). |
 | `GATEWAY_CALL_TIMEOUT_SECONDS` | - | serve | - |  |
 | `GATEWAY_PG_CONNS` | - | serve | - |  |
 | `GITHUB_OWNERS` | - | serve | - | The GitHub owners the pull requests go to (no argument chooses one). Required with GITHUB_PR_ENABLED. |

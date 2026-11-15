@@ -29,12 +29,30 @@ env:
   # The Clearance core the gateway is replayed and conformance-tested against: the release gateway/go.mod and pyproject.toml pin and
   # test.yaml runs. tests/test_gateway_go.py fails if this and test.yaml differ.
   CLEARANCE_REF: v0.44.0
-  GLIDEPATH_REF: main
+  # The contracts the generators and tests read, PINNED to commits (a tag push must not depend on whatever main is that minute). Bump them
+  # on purpose: `gh api repos/jfillman/airframe/commits/main --jq .sha` (and glidepath), change the two lines, and let the gates run on the PR.
+  AIRFRAME_REF: 05ee00f01872464b2f2d5adfa76840aa7438f990
+  GLIDEPATH_REF: 75af684aa52cb95bd0f606af81059f357a987924
   IMAGE: ghcr.io/jfillman/autopilot-gateway-go
 permissions:
   contents: read
 jobs:
+  # A tag publishes an image: only from a commit that is on main (an ancestor of origin/main), so a tag pushed on a branch or a fork-point
+  # cannot publish code that was never reviewed and merged. Needed by every job that pushes.
+  tag-on-main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        if: github.ref_type == 'tag'
+        with:
+          fetch-depth: 0   # the whole history: the ancestor test needs main's commits
+      - name: The tagged commit is on main
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch -q --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          if git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then echo "ok: ${GITHUB_SHA} is on main"; else echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not an ancestor of main: nothing is published"; exit 1; fi
   gates:
+    needs: tag-on-main
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -57,6 +75,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: jfillman/airframe
+          ref: ${{ env.AIRFRAME_REF }}
           path: tech/airframe
       - uses: actions/checkout@v4
         with:
@@ -111,7 +130,7 @@ jobs:
       - name: The environment table matches the Python source
         run: pytest -q --noconftest tests/test_gateway_env_table.py
   image:
-    needs: gates
+    needs: [tag-on-main, gates]
     runs-on: ubuntu-latest
     permissions:
       contents: read

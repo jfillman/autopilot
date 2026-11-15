@@ -103,6 +103,15 @@ func checkIndexes(ctx context.Context, dsn string, log *slog.Logger) int {
 		log.Error("migrate --check: " + m)
 		return 1
 	}
+	wrong, err := pgstate.WrongDefinitions(ctx, conn)
+	if err != nil {
+		log.Error("migrate --check: " + err.Error())
+		return 1
+	}
+	if len(wrong) > 0 {
+		log.Error(fmt.Sprintf("migrate --check: indexes with another definition than the expected one: %v: run `autopilot-gateway migrate` (it rebuilds them beside the old ones)", wrong))
+		return 1
+	}
 	log.Info(fmt.Sprintf("migrate --check: all %d indexes are in place", len(states)))
 	return 0
 }

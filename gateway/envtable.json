@@ -1,4 +1,8 @@
 {
+ "deployed_recorded": {
+  "serve": 36,
+  "api": 23
+ },
  "_": "Every environment variable the Python gateway and autopilot-api read, against the Go gateway's (docs/admin/go-gateway-env.md is generated from this file by tools/gen_gateway_env_table.py). class: same | new (Go only) | not_carried (Python reads, Go does not: say why) | refused (both refuse it) | retired (renamed, both refuse the old name) | kubelet (set on the pod, read by no process). python/go: the processes that read it (serve, api, migrate). deployed: the Python Deployment sets it today (apron templates/55-autopilot/gateway). example: a value the test gives it.",
  "vars": [
   {
@@ -751,6 +755,13 @@
    "go": "serve",
    "class": "new",
    "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "GATEWAY_ALLOW_MISSING_INDEXES",
+   "python": "",
+   "go": "serve,api",
+   "class": "new",
+   "note": "Start although the read API's six indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`)."
   },
   {
    "name": "MIGRATE_LOCK_TIMEOUT_SECONDS",

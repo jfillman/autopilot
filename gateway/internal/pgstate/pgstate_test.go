@@ -434,3 +434,72 @@ func TestMigrateTakesOneAtATimeAndGivesUpOnALockHeldOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A valid index with the right name and the wrong definition is not accepted: migrate builds the right one beside it, drops the old, renames.
+func TestMigrateRebuildsAnIndexWithTheWrongDefinition(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	if _, err := pgstate.Migrate(ctx, dsn, pgstate.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(ctx)
+	if w, err := pgstate.WrongDefinitions(ctx, c); err != nil || len(w) != 0 {
+		t.Fatalf("a fresh migrate has wrong definitions: %v %v", w, err)
+	}
+	// the right name, valid, but on another column and in the locale's collation
+	for _, q := range []string{"DROP INDEX gateway_sessions_agent", "CREATE INDEX gateway_sessions_agent ON gateway_sessions ((record->>'agent'))"} {
+		if _, err := c.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w, _ := pgstate.WrongDefinitions(ctx, c); !w["gateway_sessions_agent"] || len(w) != 1 {
+		t.Fatalf("the wrong definition was not seen: %v", w)
+	}
+	created, err := pgstate.Migrate(ctx, dsn, pgstate.MigrateOptions{})
+	if err != nil || len(created) != 1 || created[0] != "gateway_sessions_agent" {
+		t.Fatalf("migrate rebuilt %v, %v", created, err)
+	}
+	if w, _ := pgstate.WrongDefinitions(ctx, c); len(w) != 0 {
+		t.Fatalf("still wrong: %v", w)
+	}
+	var n int
+	if err := c.QueryRow(ctx, "SELECT count(*) FROM pg_class WHERE relname LIKE 'gateway_sessions_agent%'").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("%d indexes named like it (the temporary one must be gone): %v", n, err)
+	}
+}
+
+// A routine re-run takes no table lock: with a reader holding ACCESS SHARE on the ledger table (what an ADD COLUMN IF NOT EXISTS would queue
+// behind), and a short lock timeout, a second migrate still succeeds, because it runs no ALTER and builds nothing.
+func TestAMigrateReRunTakesNoTableLock(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	if _, err := pgstate.Migrate(ctx, dsn, pgstate.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	hold, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hold.Close(ctx)
+	tx, err := hold.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, tb := range []string{"gateway_trigger_launches", "gateway_sessions", "gateway_events"} {
+		if _, err := tx.Exec(ctx, "LOCK TABLE "+tb+" IN ACCESS SHARE MODE"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var logged []string
+	if _, err := pgstate.Migrate(ctx, dsn, pgstate.MigrateOptions{LockTimeout: 300 * time.Millisecond, Log: func(m string) { logged = append(logged, m) }}); err != nil {
+		t.Fatalf("a re-run queued behind a reader: %v", err)
+	}
+	if !strings.Contains(strings.Join(logged, "|"), "schema: present (no statement run)") {
+		t.Fatalf("the schema step ran: %v", logged)
+	}
+}

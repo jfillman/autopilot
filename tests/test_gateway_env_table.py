@@ -53,3 +53,10 @@ def test_the_only_variables_go_does_not_carry_are_two_dev_only_tokens():
 def test_the_env_document_is_current():
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "gen_gateway_env_table.py"), "--check"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_the_deployed_count_is_recorded_and_matches():
+    doc = json.loads((ROOT / "gateway" / "envtable.json").read_text())
+    for proc in ("serve", "api"):
+        n = sum(1 for v in doc["vars"] if v.get("deployed") == "both" or proc in v.get("deployed", "").split(","))
+        assert n == doc["deployed_recorded"][proc] > 0, (proc, n, doc["deployed_recorded"])

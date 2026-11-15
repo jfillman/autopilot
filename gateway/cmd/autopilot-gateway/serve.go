@@ -368,11 +368,16 @@ func serve(_ []string) int {
 	}
 	defer st.Close(context.Background())
 	// The read API's indexes are `autopilot-gateway migrate`'s (a plain CREATE INDEX here would hold this table's writes for the build). A
-	// missing one slows the api's lists and nothing else, so this says what to run and starts.
+	// database without them is refused by default: a silently slow read path in production is what migrate exists to prevent. The cutover
+	// runs migrate BEFORE the switch, so the first start finds them; GATEWAY_ALLOW_MISSING_INDEXES=1 starts anyway (and says so).
 	if states, err := st.CheckIndexes(ctx); err != nil {
 		log.Warn("the read API's indexes could not be checked", "err", err.Error())
 	} else if m := dbindex.Problems(states); m != "" {
-		log.Error("the gateway database lacks indexes the read API needs: " + m)
+		if !boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false) {
+			log.Error("the gateway database lacks indexes the read API needs: " + m + " (GATEWAY_ALLOW_MISSING_INDEXES=1 starts without them)")
+			return 1
+		}
+		log.Error("starting without indexes the read API needs (GATEWAY_ALLOW_MISSING_INDEXES=1): " + m)
 	}
 	store, err := session.NewStore(ctx, pgstate.NewSessions(ctx, st))
 	if err != nil {

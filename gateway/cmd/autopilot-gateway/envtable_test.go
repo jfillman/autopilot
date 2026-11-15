@@ -227,3 +227,30 @@ func TestTheEnvTableNamesEveryVariableTheGoSourceReads(t *testing.T) {
 		t.Fatalf("only %d variables were found in the source: the scan is not looking at it", len(found))
 	}
 }
+
+// `deployed` is a hand list of what the Python Deployments set, so a few cleared entries would pass every test above. The count is recorded
+// (deployed_recorded) and must be edited in the same change as the list; apron's tests/run.sh holds the list itself to the rendered Python
+// Deployments, from a vendored copy of this file.
+func TestTheDeployedListCannotShrinkWithoutTheRecordedCountBeingEdited(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "envtable.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Recorded map[string]int `json:"deployed_recorded"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, proc := range []string{"serve", "api"} {
+		n := 0
+		for _, v := range loadEnvTable(t) {
+			if v.Deployed == "both" || has(v.Deployed, proc) {
+				n++
+			}
+		}
+		if doc.Recorded[proc] == 0 || n != doc.Recorded[proc] {
+			t.Errorf("%s: %d variables are marked deployed, deployed_recorded says %d: edit both in one change, and check apron's vendored copy", proc, n, doc.Recorded[proc])
+		}
+	}
+}

@@ -334,3 +334,15 @@ def test_the_read_api_fixtures_carry_a_why_for_every_difference_and_cover_every_
     from autopilot import read_api
     assert contract == read_api.contract()
     assert {o["operationId"] for o in contract["operations"]} == {r["operationId"] for r in read_api.ROUTES}
+
+
+def test_the_go_image_workflow_publishes_only_from_main_and_pins_the_contracts():
+    import re
+    import yaml
+    text = (ROOT / ".github" / "workflows" / "gateway-go-image.yaml").read_text()
+    wf = yaml.safe_load(text)
+    assert "merge-base --is-ancestor" in text and "refs/remotes/origin/main" in text
+    assert "tag-on-main" in wf["jobs"]["image"]["needs"], "the push job must need the ancestor check"
+    assert "tag-on-main" in wf["jobs"]["gates"]["needs"] or "tag-on-main" == wf["jobs"]["gates"]["needs"]
+    for name in ("AIRFRAME_REF", "GLIDEPATH_REF"):
+        assert re.search(rf"^  {name}: [0-9a-f]{{40}}$", text, re.M), f"{name} must be a full commit SHA"
