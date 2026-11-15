@@ -334,7 +334,10 @@ def drive(client, method, path, caller):
         body = r.json() if "json" in (ct or "") else {"text": r.text}
     except ValueError:
         body = {"text": r.text}
-    return {"status": r.status_code, "content_type": ct, "allow": r.headers.get("allow"), "location": r.headers.get("location"), "body": body}
+    # Starlette writes Allow from a set: its order changes from one process to the next, so it is recorded sorted.
+    allow = r.headers.get("allow")
+    allow = ", ".join(sorted(allow.split(", "))) if allow else None
+    return {"status": r.status_code, "content_type": ct, "allow": allow, "location": r.headers.get("location"), "body": body}
 
 
 def cases(data) -> list[dict]:
