@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -66,6 +64,7 @@ type config struct {
 	reconcileWindowHours int
 	runtimeImages        []string
 	preflightCasesDir    string
+	hangar               hangarSettings
 }
 
 type configError string
@@ -110,8 +109,7 @@ func number(env func(string) string, k string, d float64) (float64, error) {
 // A-9 S3 carries EVENTS_ENABLED (the event bridge) and with it GLIDEPATH_API_URL, which the bridge reads and nothing else of the Go
 // gateway does yet: it is accepted only together with EVENTS_ENABLED (see configFromEnv). EVENTS_RABBITMQ_ENABLED is refused, as the
 // Python gateway refuses it: the RabbitMQ source is designed and not built.
-var unported = []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_RABBITMQ_ENABLED",
-	"ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
+var unported = []string{"EVENTS_RABBITMQ_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
 
 // strictFlag is Python's _flag: 1/true/yes/on, 0/false/no/off, nothing is the default, anything else is an error.
 func strictFlag(env func(string) string, k string, d bool) (bool, error) {
@@ -149,10 +147,6 @@ func configFromEnv(env func(string) string) (*config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if env("GLIDEPATH_API_URL") != "" && !events {
-		// glidepath-api's tools are a later slice (S5b): the only thing the Go gateway does with the URL is read the event stream.
-		stale = append(stale, "GLIDEPATH_API_URL (without EVENTS_ENABLED)")
-	}
 	if len(stale) > 0 {
 		return nil, configError(strings.Join(stale, ", ") + ": not carried by the Go gateway yet (docs/admin/go-gateway.md); unset them, or keep running the Python gateway")
 	}
@@ -161,25 +155,6 @@ func configFromEnv(env func(string) string) (*config, error) {
 	}
 	c := &config{}
 	c.eventsEnabled = events
-	if events {
-		if c.glidepathURL = env("GLIDEPATH_API_URL"); c.glidepathURL == "" {
-			return nil, configError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
-		}
-		if !strings.HasPrefix(c.glidepathURL, "http://") && !strings.HasPrefix(c.glidepathURL, "https://") {
-			return nil, configError("GLIDEPATH_API_URL is an http(s) URL")
-		}
-		if c.glidepathAllowHTTP, err = strictFlag(env, "GLIDEPATH_API_ALLOW_HTTP", false); err != nil {
-			return nil, err
-		}
-		if u, perr := url.Parse(c.glidepathURL); perr != nil || u.Host == "" {
-			return nil, configError("GLIDEPATH_API_URL is an http(s) URL with a host")
-		} else if u.Scheme == "http" && !c.glidepathAllowHTTP {
-			if ip := net.ParseIP(u.Hostname()); ip == nil || !ip.IsLoopback() {
-				return nil, configError("GLIDEPATH_API_URL is https (the gateway's bearer token goes to it): set GLIDEPATH_API_ALLOW_HTTP=1 to allow plain http")
-			}
-		}
-		c.glidepathTokenFile = getenv(env, "GLIDEPATH_TOKEN_FILE", "/var/run/secrets/kubernetes.io/serviceaccount/token")
-	}
 	if c.schedulesEnabled, err = strictFlag(env, "SCHEDULES_ENABLED", false); err != nil {
 		return nil, err
 	}
@@ -291,6 +266,17 @@ func configFromEnv(env func(string) string) (*config, error) {
 	if c.reads, err = readBackends(env); err != nil {
 		return nil, err
 	}
+	if c.hangar, err = hangarFromEnv(env, len(c.reads.argoNamespaces) > 0); err != nil {
+		return nil, err
+	}
+	if c.eventsEnabled {
+		// The event bridge reads glidepath-api's stream with the same URL, token file and plain-http switch the glidepath.* tools use
+		// (S5b parsed and checked them: an https URL unless GLIDEPATH_API_ALLOW_HTTP=1).
+		if c.hangar.glidepathURL == "" {
+			return nil, configError("EVENTS_ENABLED needs GLIDEPATH_API_URL (the events come from glidepath-api)")
+		}
+		c.glidepathURL, c.glidepathAllowHTTP, c.glidepathTokenFile = c.hangar.glidepathURL, c.hangar.glidepathAllowHTTP, c.hangar.glidepathTokenFile
+	}
 	c.modelRoutes = map[string]string{}
 	for _, pair := range strings.Split(env("MODEL_ROUTES"), ",") {
 		if pair = strings.TrimSpace(pair); pair != "" {
@@ -366,9 +352,17 @@ func serve(_ []string) int {
 		}
 	}
 	artifacts := pgstate.NewArtifacts(st)
+	// The Glidepath, repository and Argo CD sync tools decide a call's scope from the agent's definition; the gateway is built
+	// after the handlers, so the lookup is made late.
+	var gw *dispatch.Gateway
+	hangar, err := hangarConfig(cfg.hangar, cfg.reads.argoNamespaces, reg, func(agent string) *definitions.Definition { return gw.Def(agent) })
+	if err != nil {
+		log.Error("configuration: " + err.Error())
+		return 2
+	}
 	handlers, err := backends.NewHandlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL,
 		BackstageURL: cfg.reads.backstageURL, BackstageTokenFile: cfg.reads.backstageTokenFile, AppAPIServices: cfg.reads.appAPIServices,
-		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: artifacts})
+		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: artifacts, Hangar: hangar})
 	if err != nil {
 		log.Error("configuration: " + err.Error())
 		return 2
@@ -384,7 +378,12 @@ func serve(_ []string) int {
 		log.Error(err.Error())
 		return 2
 	}
+	gw = g
 	g.CallTimeout = cfg.callTimeout
+	g.KeepAnswer = map[string]bool{}
+	for _, t := range backends.RemoteWrites {
+		g.KeepAnswer[t] = true
+	}
 	// Runs are AgentRun XRs in the run namespace, as the gateway's own in-cluster identity (Python: KubeAgentRuns(), always);
 	// a finished run's answer is kept in the gateway database; the pinned model version a run's records carry is the
 	// alias's upstream model.

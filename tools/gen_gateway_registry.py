@@ -811,6 +811,8 @@ if __name__ == "__main__":
     runs_ops = run_ops_cases()
     import gen_gateway_reads   # the S5a read backends' fixtures (tools/gen_gateway_reads.py)
     runs.update(gen_gateway_reads.outputs())
+    import gen_gateway_writes   # the S5b Glidepath and repository tools' fixtures (tools/gen_gateway_writes.py)
+    runs.update(gen_gateway_writes.outputs())
     if "--check" in sys.argv:
         ok = (OUT.read_text() == text and SCHEMA_OUT.read_text() == pg.SCHEMA and AGENTS_OUT.read_text() == ag
               and ROWS_OUT.is_file() and ROWS_OUT.read_text() == rw

@@ -69,7 +69,10 @@ type Gateway struct {
 	Now      func() time.Time
 	Tools    *tools.Registry
 	Handlers map[string]Handler
-	Log      *slog.Logger
+	// KeepAnswer names the tools whose handler writes to another system. A call that finished its write is reported as it
+	// finished, not as a timeout, even when the call's own time ran out a moment after the write (the change was made).
+	KeepAnswer map[string]bool
+	Log        *slog.Logger
 
 	// CallTimeout bounds one whole tool call (decision, backend and outcome); OutcomeTimeout bounds the outcome alone.
 	CallTimeout    time.Duration
@@ -290,7 +293,7 @@ func (g *Gateway) Call(ctx context.Context, token, sessionID, tool string, args 
 			return g.spawn(ctx, parent, childDef, v, newID, a, now)
 		}
 	}
-	data, herr := g.runWith(ctx, handler, s, args, spawn)
+	data, herr := g.runWith(ctx, handler, s, args, spawn || g.KeepAnswer[tool])
 	switch {
 	case herr == nil:
 		if tool == "airframe.apply" {

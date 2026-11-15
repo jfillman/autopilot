@@ -58,6 +58,8 @@ type KubeReader struct {
 	TokenFile string
 	CAFile    string
 	Timeout   time.Duration
+	// AllowHTTP lets Server be plain http (a test); the in-cluster reader is https.
+	AllowHTTP bool
 
 	lim    limiter
 	mu     sync.Mutex
