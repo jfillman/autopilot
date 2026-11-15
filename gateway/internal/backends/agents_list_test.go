@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jfillman/autopilot/gateway/internal/definitions"
 )
 
 // The Agent XR list (A-9 S4, the definition loader's read): read-only, one namespace per list, nothing else reachable, the token read on
@@ -103,5 +105,17 @@ func TestOnlyTheListOfOneNamespacesAgentsIsReachable(t *testing.T) {
 	}
 	if err := NewKubeReader().Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// One resolution of an app's repositories for the whole gateway: the loader's (definitions.RepoApp) is the broker's and the write tools'
+// (AppOf) for every name a pin may use (lower case).
+func TestTheLoaderMapsARepositoryToItsAppAsTheWriteToolsDo(t *testing.T) {
+	for _, name := range []string{"gate-api", "gitops-gate-api", "gitops-infra-gate-api", "gitops-x", "infra-foo", "gitops-infra-foo", "gitops-infra", "gitops-", "x", "a-b-c",
+		"gitops-gitops-x", "gitops-infra-infra-x"} {
+		app, _ := definitions.RepoApp(name)
+		if got := AppOf(name); got != app {
+			t.Errorf("%s: the write tools say %q, the loader %q", name, got, app)
+		}
 	}
 }

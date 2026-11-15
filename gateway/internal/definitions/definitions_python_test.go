@@ -136,7 +136,44 @@ func stubReserved(names []string) map[string]*definitions.Definition {
 // pins bound to their app by namespace, and Python's reasons (the corpus compares them; production publishes redacted ones).
 func testPolicy() definitions.PinPolicy {
 	return definitions.PinPolicy{Tools: tools.Default(), AllowTools: definitions.DefaultPinTools(tools.Default()), Owners: []string{"acme"},
-		ImageGlobs: []string{"ghcr.io/acme/runtime@sha256:*"}, BindApp: true, Detailed: true}
+		ImageGlobs: []string{"ghcr.io/acme/runtime@sha256:*"}, BindApp: true, Detailed: true, Names: fixtureNames()}
+}
+
+var (
+	namesOnce sync.Once
+	names     map[string]string
+)
+
+// fixtureNames is the agent names the fixtures use, each listed for the corpus's namespace (AGENT_XRS_NAMES): the fixtures were written
+// before a pinned agent's name belonged to its app. A case whose XR is named zz-... is left out, and is refused for its name.
+func fixtureNames() map[string]string {
+	namesOnce.Do(func() {
+		raw, err := os.ReadFile("testdata/definitions.json")
+		if err != nil {
+			panic(err)
+		}
+		var f defsFile
+		if err := json.Unmarshal(raw, &f); err != nil {
+			panic(err)
+		}
+		names = map[string]string{}
+		for _, c := range f.Cases {
+			if !strings.HasPrefix(c.XR, "zz-") {
+				names[c.XR] = "app-gate-api-cicd"
+			}
+		}
+		for _, sc := range f.Scen {
+			for _, st := range sc.Steps {
+				for _, x := range st.XRs {
+					md, _ := x["metadata"].(map[string]any)
+					n, _ := md["name"].(string)
+					ns, _ := md["namespace"].(string)
+					names[n] = ns
+				}
+			}
+		}
+	})
+	return names
 }
 
 func decideGo(t *testing.T, c pyCase) pyOutcome {

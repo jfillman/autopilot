@@ -152,35 +152,16 @@ func (s *Set) ReplaceCluster(loaded []*Loaded, rejected []Rejected) Changes {
 		byName[l.Name()] = l
 	}
 	rej := append([]Rejected(nil), rejected...)
+	// Two pins of one name are both refused: Clearance will not guess. (A pin's name belongs to its namespace's app, so two namespaces
+	// cannot ask for one name; the loader refuses it before it gets here. A name is never held by whichever pin happened to load.)
 	for n, ls := range cands {
 		if len(ls) < 2 {
 			continue
 		}
-		// An agent name is held by the namespace that has it. A pin of the same name from another namespace is the one that is
-		// refused, so nobody can take another team's agent away by creating an XR of its name. A name nobody holds yet that two
-		// namespaces ask for at once goes to neither (Python's rule for every duplicate), and the holder's own pin that is gone or
-		// broken lets go of the name.
-		var holder *Loaded
-		if cur, ok := s.cluster[n]; ok {
-			for _, l := range ls {
-				if samePtr(l.Source.Namespace, cur.Source.Namespace) {
-					holder = l
-				}
-			}
-		}
 		for _, l := range ls {
-			switch {
-			case holder == nil:
-				rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("two pins name the agent %s; neither is loaded", pyrepr.Str(n)), ""})
-			case l != holder:
-				rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("DF-NAME: another namespace holds the agent name %s", pyrepr.Str(n)), ""})
-			}
+			rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("two pins name the agent %s; neither is loaded", pyrepr.Str(n)), ""})
 		}
-		if holder != nil {
-			byName[n] = holder
-		} else {
-			delete(byName, n)
-		}
+		delete(byName, n)
 	}
 	for n, l := range byName {
 		if _, ok := s.bundled[n]; ok {

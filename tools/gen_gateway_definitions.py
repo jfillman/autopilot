@@ -346,6 +346,14 @@ def corpus() -> None:
     pol("policy: a deny path longer than a pin may write", put(["profile", "repos", "denyPaths"], ["x" * 300]))
     pol("policy: a definition larger than a pin may be", lambda d: d["profile"]["repos"].update(
         {"denyPaths": ["y" * 250 + f"{i:02d}" for i in range(32)], "fieldDeny": ["/" + "z" * 249 + f"{i:02d}" for i in range(32)]}))
+    pol("policy: network allowlist", put(["profile", "network"], "allowlist"))
+    pol("policy: gpu compute", put(["profile", "compute"], "gpu"))
+    pol("policy: large compute", put(["profile", "compute"], "large"))
+    pol("policy: proposeFlight", put(["profile", "airframe"], {"apps": ["gate-api"], "proposeFlight": True}))
+    pol("policy: another app's api", put(["profile", "apis"], {"allow": ["billing"]}))
+    for k, v in (("ttlMinutes", 121), ("toolCalls", 501), ("githubCalls", 201), ("openPrs", 6), ("modelTokens", 2_000_001), ("children", 6)):
+        pol(f"policy: {k} above the platform's maximum", put(["profile", "limits", k], v))
+    case("policy: a name that is not the app's", dump(base("zz-squat")), xr="zz-squat", group="policy")
     mutate("policy: the default tools are allowed", put(["profile", "tools"], ["glidepath.runs.list", "repo.file.get", "repo.pr.open", "human.request", "artifact.put", "glidepath.cicd.propose"]), group="valid")
     # ---- breadth in what the profile grants (Go refuses for pins what the schema lets through; see the docs) ----
     # ---- YAML ----
@@ -569,7 +577,6 @@ def f(doc=None, **kw):
 def scenarios() -> list[dict]:
     A, B = "gate-triage", "gate-two"
     fa = {fkey(REPO, f"agents/{A}.yaml", COMMIT): f(base(A))}
-    fo = {fkey(OTHER, f"agents/{A}.yaml", COMMIT): f(base_for(A, "other"))}
     fa2 = {fkey(REPO, f"agents/{A}.yaml", COMMIT2): f({**base(A), "profile": {**base(A)["profile"], "tools": ["glidepath.runs.list"]}})}
     out = []
     out.append(scenario("load, hold, repin, remove", [
@@ -599,10 +606,6 @@ def scenarios() -> list[dict]:
          "xrs": [xr("missing"), xr("a-dir")], "files": {fkey(REPO, "agents/a-dir.yaml", COMMIT): {"dir": 1}}},
         {"label": "a fixed pin loads and its rejection clears", "at": at(2), "xrs": [xr("missing", commit=COMMIT2), xr("a-dir")],
          "files": {fkey(REPO, "agents/missing.yaml", COMMIT2): f(base("missing")), fkey(REPO, "agents/a-dir.yaml", COMMIT): {"dir": 1}}},
-    ]))
-    out.append(scenario("two pins of one name load neither", [
-        {"label": "the same agent in two namespaces", "at": at(0), "xrs": [xr(A, NS), xr(A, NS2, repo=OTHER)], "files": {**fa, **fo}},
-        {"label": "one of them is removed", "at": at(1), "xrs": [xr(A, NS2, repo=OTHER)], "files": fo},
     ]))
     out.append(scenario("a transient failure drops nothing", [
         {"label": "a pin loads", "at": at(0), "xrs": [xr(A)], "files": fa},
@@ -660,7 +663,7 @@ def scenarios() -> list[dict]:
                                "so a deleted pin keeps running for as long as any other pin is unreachable, which delays a revoke by an outage's length")
     out.append(main)
     # the empty-list difference: Go reads an empty list as "no definitions" only the second time in a row
-    sc = out[4]
+    sc = next(x for x in out if x["name"].startswith("a list that fails"))
     s3, s4 = sc["steps"][3], sc["steps"][4]
     nochange = {"changes": {"added": [], "changed": [], "removed": [], "rejected": [], "cleared": []},
                 "state": sc["steps"][2]["state"], "fetched": [], "requests": []}
@@ -752,6 +755,11 @@ def deviations() -> None:
               "trigger: alert", "trigger: rabbitmq", "trigger: rabbitmq with brokerRef and rate", "trigger: glidepath minimal", "trigger: glidepath topic keys",
               "trigger: glidepath maxPerHour 600") + tuple(c["name"] for c in CASES if c["group"] == "policy"):
         go(n, {"rejected_prefix": "policy: "}, appb)
+    maxima = ("a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool "
+              "calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, "
+              "and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows")
+    for n in ("network allowlist", "compute large", "compute gpu", "limits: ttl 1440", "limits: modelTokens huge", "limits: children 20", "apis.allow: ok"):
+        go(n, {"rejected_prefix": "policy: "}, maxima)
     strict = ("a definition is read strictly: what the reviewer read is what the schema sees. Python's safe_load is lenient YAML 1.1 "
               "(a repeated key is the last one, yes is a boolean, 0755 is octal, 1:30 is 90, an alias expands, a tag picks a type); "
               "here each of those is refused, so nothing is read differently by two readers")

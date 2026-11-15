@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -169,16 +170,78 @@ func (p *Poller) list(ctx context.Context) ([]map[string]any, error) {
 		for _, it := range got {
 			if strField(mapField(it, "metadata"), "namespace") != ns {
 				p.Log.Warn("agent pins: an Agent XR that is not in the namespace that was listed was ignored", "namespace", ns,
-					"name", strField(mapField(it, "metadata"), "name"))
+					"name", clip(strField(mapField(it, "metadata"), "name"), 100))
 				continue
 			}
 			items = append(items, it)
 		}
-		if len(items) > MaxPins {
-			return nil, fmt.Errorf("more than %d Agent XRs: the core takes no more in one set", MaxPins)
-		}
 	}
 	return items, nil
+}
+
+var (
+	reXRName = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$`)
+	reRepo   = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$`)
+	rePath   = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}$`)
+	reRef    = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,100}$`)
+	reOwner  = regexp.MustCompile(`^[A-Za-z0-9:_./-]{1,100}$`)
+)
+
+// xrFieldsOK is whether every string an XR supplies is in the form a pin's is, and no longer than that form allows. An empty one is
+// not this function's to refuse (an XR with no complete source has its own rejection).
+func xrFieldsOK(repo, path, commit, name, owner string) bool {
+	ok := func(v string, re *regexp.Regexp) bool { return v == "" || re.MatchString(v) }
+	return ok(repo, reRepo) && ok(path, rePath) && !strings.Contains(path, "..") && ok(commit, reRef) && ok(name, reXRName) && ok(owner, reOwner)
+}
+
+// MaxRejectedPerNamespace is how many rejected pins of one namespace are listed; the rest are counted in one row.
+const MaxRejectedPerNamespace = 32
+
+// maxReasonBytes bounds a rejected row's reason (a published reason names a rule and a place, but a detailed one quotes a file).
+const maxReasonBytes = 300
+
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// boundRejections is the rejections a poll publishes: each of a fixed largest size, and at most MaxRejectedPerNamespace of a
+// namespace (the first by name and reason), the rest counted in one row, so what one namespace does cannot make the set too big.
+func boundRejections(in []Rejected) []Rejected {
+	byNS := map[string][]Rejected{}
+	for _, r := range in {
+		r.Reason, r.Detail = clip(r.Reason, maxReasonBytes), clip(r.Detail, 4*maxReasonBytes)
+		ns := strOr(r.Source.Namespace, "")
+		byNS[ns] = append(byNS[ns], r)
+	}
+	var out []Rejected
+	for ns, rs := range byNS {
+		sort.SliceStable(rs, func(i, j int) bool {
+			if rs[i].Name != rs[j].Name {
+				return rs[i].Name < rs[j].Name
+			}
+			return rs[i].Reason < rs[j].Reason
+		})
+		if len(rs) > MaxRejectedPerNamespace {
+			more := len(rs) - MaxRejectedPerNamespace
+			rs = append(rs[:MaxRejectedPerNamespace:MaxRejectedPerNamespace], Rejected{Name: "?", Source: Source{Kind: "cluster", Namespace: ptrIfString(map[string]any{"n": ns}, "n")},
+				Reason: fmt.Sprintf("DF-QUOTA: %d more rejected pins in this namespace are not listed", more)})
+		}
+		out = append(out, rs...)
+	}
+	return out
+}
+
+// quota is how many pins one namespace may have: MaxPinsPerNamespace, less when there are so many namespaces that the sum would be
+// more than the core takes in one set.
+func (p *Poller) quota() int {
+	q := MaxPinsPerNamespace
+	if n := len(p.Namespaces); n > 0 && MaxPins/n < q {
+		q = MaxPins / n
+	}
+	return q
 }
 
 // Poll is one pass: list, fetch what is new, decide, apply. It returns what changed.
@@ -217,7 +280,9 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 	}
 	var loaded []*Loaded
 	var rejected []Rejected
-	// A tenant's namespace holds at most MaxPinsPerNamespace pins (the first by name): one cannot fill the budget the others share.
+	// A namespace holds at most quota pins (the first by name), whatever it lists: one tenant cannot fill the budget the others share, and the
+	// core's own limit on a set (MaxPins) is the sum of the namespaces' shares, never an error that stops the poll.
+	quota := p.quota()
 	perNS := map[string][]string{}
 	for _, xr := range items {
 		md := mapField(xr, "metadata")
@@ -227,7 +292,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 	for ns, names := range perNS {
 		sort.Strings(names)
 		for i, n := range names {
-			if i >= MaxPinsPerNamespace {
+			if i >= quota {
 				overQuota[ns+"/"+n] = true
 			}
 		}
@@ -242,6 +307,17 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		src := Source{Kind: "cluster", Repo: S(strField(srcSpec, "repo")), Path: S(strField(srcSpec, "path")), Commit: S(strField(srcSpec, "commit")),
 			Namespace: ptrIfString(meta, "namespace"), XR: ptrIfString(meta, "name")}
 		repo, path, commit, name := strField(srcSpec, "repo"), strField(srcSpec, "path"), strField(srcSpec, "commit"), strField(meta, "name")
+		if !xrFieldsOK(repo, path, commit, name, strField(spec, "owner")) {
+			// Nothing the XR wrote is stored or echoed: its strings are of any length, and a rejected row is published. The row has a
+			// fixed size, the namespace the XR is in (which is one that was listed) and its name when that is a name.
+			ph := Source{Kind: "cluster", Repo: S("invalid"), Path: S("invalid"), Commit: S("invalid"), Namespace: ptrIfString(meta, "namespace")}
+			n := "?"
+			if reXRName.MatchString(name) {
+				n, ph.XR = name, S(name)
+			}
+			rejected = append(rejected, Rejected{Name: n, Source: ph, Reason: "DF-XR: a field of the XR is not in the form a pin's is (a name, a repository, a path, a commit, an owner)"})
+			continue
+		}
 		if repo == "" || path == "" || commit == "" || name == "" {
 			n := name
 			if n == "" {
@@ -251,10 +327,10 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 			continue
 		}
 		if overQuota[strField(meta, "namespace")+"/"+name] {
-			rejected = append(rejected, Rejected{Name: name, Source: src, Reason: fmt.Sprintf("DF-QUOTA: more than %d Agent XRs in this namespace", MaxPinsPerNamespace)})
+			rejected = append(rejected, Rejected{Name: name, Source: src, Reason: fmt.Sprintf("DF-QUOTA: more than %d Agent XRs in this namespace", quota)})
 			continue
 		}
-		if err := p.Policy.CheckSource(strField(meta, "namespace"), repo); err != nil {
+		if err := p.Policy.CheckSource(strField(meta, "namespace"), name, repo); err != nil {
 			// Before anything is fetched: no token is minted for a repository this namespace's app does not own.
 			var pe *PolicyError
 			errors.As(err, &pe)
@@ -276,7 +352,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		c, err := p.fetch(ctx, src, key)
 		if err != nil {
 			skipped++
-			skippedNames[name] = true
+			skippedNames[strField(meta, "namespace")+"/"+name] = true
 			continue
 		}
 		src.LoadedAt = S(c.at)
@@ -304,13 +380,10 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		for _, l := range loaded {
 			seen[l.Name()] = true
 		}
-		for _, r := range rejected {
-			seen[r.Name] = true
-		}
 		p.mu.Lock()
 		for _, name := range p.Set.ClusterNames() {
 			l := p.Set.Loaded(name)
-			if l == nil || seen[name] || !skippedNames[name] {
+			if l == nil || seen[name] || !skippedNames[strOr(l.Source.Namespace, "")+"/"+name] {
 				continue
 			}
 			key := pinKey{strOr(l.Source.Repo, ""), strOr(l.Source.Path, ""), strOr(l.Source.Commit, "")}
@@ -320,7 +393,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		}
 		p.mu.Unlock()
 	}
-	ch := p.Sink.ApplyCluster(ctx, loaded, rejected)
+	ch := p.Sink.ApplyCluster(ctx, loaded, boundRejections(rejected))
 	for _, r := range ch.Rejected {
 		// The published reason carries no value out of the file; what the file said is here, in the gateway's log.
 		p.Log.Warn("agent pins: a pin was rejected", "agent", r.Name, "pin", r.Source.Pin(), "reason", r.Reason, "detail", r.Detail)

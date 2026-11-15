@@ -401,6 +401,7 @@ func serve(_ []string) int {
 	}
 	c.SetDefinitionsClient(dcl, clip64(gatewayVersion()))
 	mgr := definitions.NewManager(set, st, c, g.SetDefs, log)
+	mgr.Namespaces = len(cfg.defs.namespaces)
 	// A candidate definition (Preflight's `document`) is read like any definition: the schema, strictly. It is not held to the pin
 	// policy: it is a pull request's version of a live agent, which may be a bundled one, and it is clamped before it runs.
 	g.CandidateParse = candidateParser(reg)

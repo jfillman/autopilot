@@ -40,8 +40,11 @@ type Manager struct {
 	// every call, so a re-pin to a tighter definition applies to runs in flight.
 	SetDefs func(map[string]*Definition)
 	Log     *slog.Logger
-	// MaxBytes is the publish budget (MaxPublishBytes unless a test lowers it).
-	MaxBytes int
+	// MaxBytes is the publish budget (MaxPublishBytes unless a test lowers it); Namespaces how many namespaces the loader reads (it
+	// divides the budget); NamespaceShare, when set, is one namespace's share outright.
+	MaxBytes       int
+	Namespaces     int
+	NamespaceShare int
 
 	mu          sync.Mutex // the set and the unpublished flag
 	pubMu       sync.Mutex // one publish at a time
@@ -88,58 +91,60 @@ func (m *Manager) ApplyCluster(ctx context.Context, loaded []*Loaded, rejected [
 	return ch
 }
 
-// fit is the set that goes in: loaded and rejected as they are when everything fits the publish budget, else with the pins of the
-// namespace that takes the most dropped (each rejected with a reason), until it does. It runs BEFORE the live set is replaced, so the
-// gateway never runs a set the core cannot be given, and a tenant that fills the budget loses its own pins, not everybody's
-// revocations.
+// fit is the set that goes in: loaded and rejected as they are when every namespace is within its own share of the publish budget; a
+// namespace over its share loses its own rows (its pins, and its rejections, which are replaced by one row that says so) and nothing
+// else changes. The share is fixed by configuration (the budget less the bundled definitions, over the namespaces the loader is
+// told to read), not by what the others do, so nothing a namespace writes can make another namespace's pins go, or the bundled
+// set stay unpublished. It runs BEFORE the live set is replaced, so the gateway never runs a set the core cannot be given.
 func (m *Manager) fit(loaded []*Loaded, rejected []Rejected) ([]*Loaded, []Rejected) {
 	budget := m.MaxBytes
 	if budget <= 0 {
 		budget = MaxPublishBytes
 	}
 	size := func(v any) int { b, _ := json.Marshal(v); return len(b) }
-	base := size(m.Set.BundledSet())
+	share := m.NamespaceShare
+	if share <= 0 {
+		n := m.Namespaces
+		if n <= 0 {
+			n = 20
+		}
+		if share = (budget - size(m.Set.BundledSet()) - 4096) / n; share < 1024 {
+			share = 1024
+		}
+	}
+	per := map[string]int{}
+	for _, l := range loaded {
+		per[strOr(l.Source.Namespace, "")] += size(l.Doc) + size(l.Source.View()) + len(l.Owner) + 64
+	}
 	for _, r := range rejected {
-		base += size(r) + 64
+		per[strOr(r.Source.Namespace, "")] += size(r) + 64
 	}
-	sizes := make([]int, len(loaded))
-	total := base
-	for i, l := range loaded {
-		sizes[i] = size(l.Doc) + size(l.Source.View()) + len(l.Owner) + 64
-		total += sizes[i]
+	over := map[string]bool{}
+	for ns, n := range per {
+		if n > share {
+			over[ns] = true
+			m.Log.Error("the rows of one namespace do not fit its share of the publish budget: none of its pins is loaded", "namespace", ns, "bytes", n, "share", share)
+		}
 	}
-	dropped := map[string]bool{}
-	for total > budget {
-		per := map[string]int{}
-		for i, l := range loaded {
-			if ns := strOr(l.Source.Namespace, ""); !dropped[ns] {
-				per[ns] += sizes[i]
-			}
-		}
-		worst, most := "", 0
-		for ns, n := range per {
-			if n > most || (n == most && ns < worst) {
-				worst, most = ns, n
-			}
-		}
-		if most == 0 {
-			break
-		}
-		dropped[worst] = true
-		total -= most
-		m.Log.Error("the pins of one namespace do not fit the publish budget: none of them is loaded", "namespace", worst, "bytes", most, "budget", budget)
-	}
-	if len(dropped) == 0 {
+	if len(over) == 0 {
 		return loaded, rejected
 	}
 	var keep []*Loaded
-	rej := append([]Rejected(nil), rejected...)
+	var rej []Rejected
 	for _, l := range loaded {
-		if dropped[strOr(l.Source.Namespace, "")] {
-			rej = append(rej, Rejected{Name: l.Name(), Source: l.Source, Reason: "DF-BUDGET: this namespace's pins together do not fit what the core takes in one set; none of them is loaded"})
-		} else {
+		if !over[strOr(l.Source.Namespace, "")] {
 			keep = append(keep, l)
 		}
+	}
+	for _, r := range rejected {
+		if !over[strOr(r.Source.Namespace, "")] {
+			rej = append(rej, r)
+		}
+	}
+	for ns := range over {
+		nsp := ns
+		rej = append(rej, Rejected{Name: "?", Source: Source{Kind: "cluster", Namespace: &nsp},
+			Reason: "DF-BUDGET: this namespace's pins and rejections together do not fit its share of what the core takes in one set; none of its pins is loaded"})
 	}
 	return keep, rej
 }

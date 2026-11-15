@@ -2,6 +2,8 @@ package definitions_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +17,7 @@ import (
 // A pin is held to what an app team may have, whoever wrote the XR: the namespace of an XR is an app team's.
 
 // The platform's own policy for the live deployment (GITHUB_OWNERS=jfillman; the images the bundled agents run).
-func livePolicy(t *testing.T) (definitions.PinPolicy, map[string]*definitions.Definition) {
+func livePolicy(t *testing.T, names map[string]string) (definitions.PinPolicy, map[string]*definitions.Definition) {
 	t.Helper()
 	reg := tools.Default()
 	bundled, err := definitions.LoadDir(filepath.Join("..", "..", "..", "agents"), reg)
@@ -28,7 +30,7 @@ func livePolicy(t *testing.T) (definitions.PinPolicy, map[string]*definitions.De
 			images = append(images, *d.Image)
 		}
 	}
-	return definitions.PinPolicy{Tools: reg, AllowTools: definitions.DefaultPinTools(reg), Owners: []string{"jfillman"}, ImageGlobs: images, BindApp: true}, bundled
+	return definitions.PinPolicy{Tools: reg, AllowTools: definitions.DefaultPinTools(reg), Owners: []string{"jfillman"}, ImageGlobs: images, BindApp: true, Names: names}, bundled
 }
 
 // The one live pin, app-gate-api-cicd/gate-reader at the commit its XR names (jfillman/gate-api, agents/gate-reader.yaml), read from the
@@ -38,14 +40,14 @@ func TestTheLivePinGateReaderStillLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pol, bundled := livePolicy(t)
+	pol, bundled := livePolicy(t, map[string]string{"gate-reader": "app-gate-api-cicd"})
 	doc, reason, _ := definitions.ReadPinnedFile("agents/gate-reader.yaml", string(raw), false)
 	if reason != "" {
 		t.Fatal(reason)
 	}
 	src := definitions.Source{Kind: "cluster", Repo: definitions.S("jfillman/gate-api"), Path: definitions.S("agents/gate-reader.yaml"),
 		Commit: definitions.S("7f8d9657cb943f03d258c2fbb092cee5fb90f6fd"), Namespace: definitions.S("app-gate-api-cicd"), XR: definitions.S("gate-reader")}
-	if err := pol.CheckSource("app-gate-api-cicd", "jfillman/gate-api"); err != nil {
+	if err := pol.CheckSource("app-gate-api-cicd", "gate-reader", "jfillman/gate-api"); err != nil {
 		t.Fatal(err)
 	}
 	l, rej := definitions.FromPin(doc, src, "group:default/team-platform", bundled, tools.Default(), pol)
@@ -54,6 +56,19 @@ func TestTheLivePinGateReaderStillLoads(t *testing.T) {
 	}
 	if l.Name() != "gate-reader" {
 		t.Fatal(l.Name())
+	}
+	// without its entry in AGENT_XRS_NAMES (its name does not start with its app) it is refused, before anything is fetched, whatever else is right
+	bare, _ := livePolicy(t, nil)
+	if err := bare.CheckSource("app-gate-api-cicd", "gate-reader", "jfillman/gate-api"); err == nil || !strings.Contains(err.Error(), "metadata.name") {
+		t.Fatalf("gate-reader needs its entry: %v", err)
+	}
+	if _, rej := definitions.FromPin(doc, src, "group:default/team-platform", bundled, tools.Default(), bare); rej == nil || !strings.HasPrefix(rej.Reason, "DF-POLICY: metadata.name") {
+		t.Fatalf("%v", rej)
+	}
+	// and the entry is for its namespace alone
+	other, _ := livePolicy(t, map[string]string{"gate-reader": "app-other-cicd"})
+	if err := other.CheckSource("app-gate-api-cicd", "gate-reader", "jfillman/gate-api"); err == nil {
+		t.Fatal("an entry for another namespace admits nothing here")
 	}
 }
 
@@ -79,7 +94,7 @@ func TestAPublishedReasonNeverQuotesTheFile(t *testing.T) {
 		"a match key":            base("triggers:\n  - {type: event, source: glidepath, bindingKey: gate-api.x, match: {" + secret + " b: c}}\n"),
 		"not a mapping":          "- " + secret + "\n",
 	}
-	pol, bundled := livePolicy(t)
+	pol, bundled := livePolicy(t, map[string]string{"gate-triage": "app-gate-api-cicd"})
 	src := definitions.Source{Kind: "cluster", Repo: definitions.S("jfillman/gate-api"), Path: definitions.S("agents/gate-triage.yaml"),
 		Commit: definitions.S(commit), Namespace: definitions.S("app-gate-api-cicd"), XR: definitions.S("gate-triage")}
 	for name, text := range files {
@@ -151,109 +166,16 @@ func TestAPinCannotNameAnotherAppsRepositoryOrNamespace(t *testing.T) {
 		x["spec"].(map[string]any)["source"].(map[string]any)["repo"] = c.repo
 		r.lister.items = []map[string]any{x}
 		ch := r.poll()
-		if len(ch.Added) != 0 || len(ch.Rejected) != 1 || len(r.files.calls) != 0 || !strings.HasPrefix(ch.Rejected[0].Reason, "DF-POLICY") {
+		if len(ch.Added) != 0 || len(ch.Rejected) != 1 || len(r.files.calls) != 0 || !(strings.HasPrefix(ch.Rejected[0].Reason, "DF-POLICY") || strings.HasPrefix(ch.Rejected[0].Reason, "DF-XR")) {
 			t.Errorf("%s: %+v, fetched %v", name, ch, r.files.calls)
 		}
 	}
 	// its own are fine
 	for _, repo := range []string{"acme/gate-api", "acme/gitops-gate-api", "acme/gitops-infra-gate-api"} {
 		pol := definitions.PinPolicy{Owners: []string{"acme"}, BindApp: true}
-		if err := pol.CheckSource("app-gate-api-cicd", repo); err != nil {
+		if err := pol.CheckSource("app-gate-api-cicd", "gate-api-x", repo); err != nil {
 			t.Errorf("%s: %v", repo, err)
 		}
-	}
-}
-
-// Nobody can take another team's agent away by creating an XR of its name.
-func TestAnEstablishedAgentNameIsNotTakenAwayByAnotherNamespace(t *testing.T) {
-	r := newRig(t, "app-gate-api-cicd", "app-other-cicd")
-	r.pin("shared", "app-gate-api-cicd", defDoc("shared", nil))
-	r.poll()
-	if r.defs["shared"] == nil {
-		t.Fatal("the holder loads")
-	}
-	// the attacker's XR of the same name, in a namespace of its own app
-	other := defDoc("shared", map[string]any{})
-	other["profile"] = map[string]any{"tierCeiling": "T1", "tools": []any{"repo.file.get"}, "repos": map[string]any{"allow": []any{"acme/other"}},
-		"limits": defDoc("x", nil)["profile"].(map[string]any)["limits"]}
-	x := xrOf("shared", "app-other-cicd")
-	x["spec"].(map[string]any)["source"].(map[string]any)["repo"] = "acme/other"
-	r.lister.items = append(r.lister.items, x)
-	r.files.files["acme/other|agents/shared.yaml|"+commit] = map[string]any{"doc": other}
-	ch := r.poll()
-	if len(ch.Removed) != 0 || r.defs["shared"] == nil || r.set.Loaded("shared").Source.Namespace == nil || *r.set.Loaded("shared").Source.Namespace != "app-gate-api-cicd" {
-		t.Fatalf("the holder lost its name: %+v", ch)
-	}
-	if len(ch.Rejected) != 1 || *ch.Rejected[0].Source.Namespace != "app-other-cicd" || !strings.Contains(ch.Rejected[0].Reason, "DF-NAME") {
-		t.Fatalf("only the newcomer is refused: %+v", ch.Rejected)
-	}
-	// a restart: the stored set is loaded before the first poll, so the holder is still the holder
-	set2 := definitions.NewSet(r.set.Bundled())
-	loaded, rejected := definitions.FromRecords(r.mgr.Set.Records(), set2.Bundled(), tools.Default(), definitions.PinPolicy{})
-	set2.ReplaceCluster(loaded, rejected)
-	l2, rj := definitions.FromPin(definitions.FromPlain(other).(*definitions.OMap), pinSourceIn("shared", "app-other-cicd", "acme/other"), owner, set2.Bundled(), tools.Default(), definitions.PinPolicy{})
-	if rj != nil {
-		t.Fatal(rj.Reason)
-	}
-	ch2 := set2.ReplaceCluster(append(append([]*definitions.Loaded{}, loaded...), l2), nil)
-	if len(ch2.Changed) != 0 || *set2.Loaded("shared").Source.Namespace != "app-gate-api-cicd" {
-		t.Fatalf("a restart flipped the holder: %+v", ch2)
-	}
-	// a name two namespaces ask for at once, with no holder, goes to neither (a creator cannot win a race by being first)
-	r2 := newRig(t, "app-gate-api-cicd", "app-other-cicd")
-	r2.pin("fresh", "app-gate-api-cicd", defDoc("fresh", nil))
-	x2 := xrOf("fresh", "app-other-cicd")
-	x2["spec"].(map[string]any)["source"].(map[string]any)["repo"] = "acme/other"
-	r2.lister.items = append(r2.lister.items, x2)
-	r2.files.files["acme/other|agents/fresh.yaml|"+commit] = map[string]any{"doc": other2(other, "fresh")}
-	if ch := r2.poll(); len(ch.Added) != 0 || len(ch.Rejected) != 2 {
-		t.Fatalf("%+v", ch)
-	}
-}
-
-func other2(d map[string]any, name string) map[string]any {
-	c := map[string]any{}
-	for k, v := range d {
-		c[k] = v
-	}
-	c["name"] = name
-	c["identity"] = map[string]any{"type": "workload", "serviceAccount": "autopilot-runs/" + name}
-	return c
-}
-
-func pinSourceIn(name, ns, repo string) definitions.Source {
-	return definitions.Source{Kind: "cluster", Repo: definitions.S(repo), Path: definitions.S("agents/" + name + ".yaml"), Commit: definitions.S(commit),
-		Namespace: definitions.S(ns), XR: definitions.S(name)}
-}
-
-// One tenant cannot fill the budget the others share: per-pin and per-list caps, a per-namespace count, and the publish size is
-// checked BEFORE the live set is swapped, dropping the namespace that takes the most.
-func TestOneTenantCannotFillThePublishBudgetOrFreezeTheOthers(t *testing.T) {
-	r := newRig(t, "app-gate-api-cicd", "app-hog-cicd")
-	r.p.Policy = definitions.PinPolicy{Tools: tools.Default(), Detailed: true}
-	r.mgr.MaxBytes = 6000
-	r.pin("quiet", "app-gate-api-cicd", defDoc("quiet", nil))
-	for i := 0; i < 3; i++ {
-		name := "hog" + string(rune('a'+i))
-		d := defDoc(name, nil)
-		d["runtime"].(map[string]any)["instructions"] = strings.Repeat("x", 1500)
-		x := xrOf(name, "app-hog-cicd")
-		r.lister.items = append(r.lister.items, x)
-		r.files.files[repo+"|agents/"+name+".yaml|"+commit] = map[string]any{"doc": d}
-	}
-	ch := r.poll()
-	if r.defs["quiet"] == nil || r.defs["hoga"] != nil || r.defs["hogb"] != nil || r.defs["hogc"] != nil {
-		t.Fatalf("the namespace that takes the most is dropped, the quiet one is not: %v", r.defs)
-	}
-	if len(ch.Rejected) != 3 || !strings.HasPrefix(ch.Rejected[0].Reason, "DF-BUDGET") {
-		t.Fatalf("%+v", ch.Rejected)
-	}
-	if r.pub.count() != 1 || len(r.pub.pins[0]) != 1 {
-		t.Fatalf("the set that fits is published: %d publishes", r.pub.count())
-	}
-	// and what the gateway runs is always what was published
-	if r.mgr.Unpublished() {
-		t.Fatal("unpublished")
 	}
 }
 
@@ -311,4 +233,226 @@ func TestARefusalAboutTheRepositoryIsAskedAgainButTheContentIsNot(t *testing.T) 
 		t.Fatal("a content refusal was asked again")
 	}
 	_ = context.Background
+}
+
+// -- what one tenant can do to another -----------------------------------------------------------------------------------------------
+
+func appRig(t *testing.T, namespaces ...string) *rig {
+	t.Helper()
+	r := newRig(t, namespaces...)
+	r.p.Policy = definitions.PinPolicy{Tools: tools.Default(), Owners: []string{"acme"}, ImageGlobs: []string{"ghcr.io/acme/runtime@*"}, BindApp: true, Detailed: false}
+	r.mgr.Namespaces = len(namespaces)
+	return r
+}
+
+func appPin(r *rig, name, ns, repository string) {
+	app, _ := definitions.AppOfNamespace(ns)
+	d := defDoc(name, nil)
+	d["profile"].(map[string]any)["repos"] = map[string]any{"allow": []any{"acme/" + app}}
+	x := xrOf(name, ns)
+	x["spec"].(map[string]any)["source"].(map[string]any)["repo"] = repository
+	r.lister.items = append(r.lister.items, x)
+	r.files.files[repository+"|agents/"+name+".yaml|"+commit] = map[string]any{"doc": d}
+}
+
+// The rows a poll publishes have a fixed largest size, whatever an XR writes: nothing of its own strings is stored or echoed when they are
+// not in the form a pin's are, and an XR that is not rejected for its form is rejected with fields that are.
+func TestXRFieldsAreBoundedBeforeTheyAreStoredOrEchoed(t *testing.T) {
+	r := appRig(t, "app-hog-cicd", "app-gate-api-cicd")
+	appPin(r, "gate-api-quiet", "app-gate-api-cicd", "acme/gate-api")
+	huge := strings.Repeat("p", 50_000)
+	for i := 0; i < 3; i++ {
+		x := xrOf(fmt.Sprintf("hog-%d", i), "app-hog-cicd")
+		src := x["spec"].(map[string]any)["source"].(map[string]any)
+		src["path"], src["repo"], src["commit"] = huge, "evil/"+huge, huge
+		x["spec"].(map[string]any)["owner"] = huge
+		r.lister.items = append(r.lister.items, x)
+	}
+	long := xrOf("hog-long-name", "app-hog-cicd")
+	long["metadata"].(map[string]any)["name"] = strings.Repeat("n", 200)
+	r.lister.items = append(r.lister.items, long)
+	ch := r.poll()
+	if r.defs["gate-api-quiet"] == nil || r.pub.count() != 1 || r.mgr.Unpublished() {
+		t.Fatalf("another namespace's pin must load and be published: %+v", ch)
+	}
+	body, _ := json.Marshal(struct{ A, B any }{r.pub.pins, r.pub.rej})
+	if len(body) > 40_000 || len(r.pub.rej[0]) == 0 {
+		t.Fatalf("the rows are not bounded: %d bytes, %d rejections", len(body), len(r.pub.rej[0]))
+	}
+	for _, rj := range r.pub.rej[0] {
+		if len(rj.Reason) > 400 || len(rj.Name) > 70 || (rj.Source.Path != nil && len(*rj.Source.Path) > 200) || (rj.Source.Repo != nil && len(*rj.Source.Repo) > 201) || (rj.Source.Commit != nil && len(*rj.Source.Commit) > 100) {
+			t.Fatalf("a rejected row of an unbounded size: %+v", rj)
+		}
+	}
+	rows, _ := json.Marshal(r.store.rows)
+	if len(rows) > 40_000 {
+		t.Fatalf("the stored rows are %d bytes", len(rows))
+	}
+}
+
+// 257 XRs in one namespace freeze nothing: the namespace gets its quota (the first by name), the rest are counted in one row, the poll
+// goes on, and the other namespaces' pins are untouched.
+func TestAHugeNamespaceCostsOnlyItself(t *testing.T) {
+	r := appRig(t, "app-hog-cicd", "app-gate-api-cicd")
+	appPin(r, "gate-api-quiet", "app-gate-api-cicd", "acme/gate-api")
+	for i := 0; i < 300; i++ {
+		r.lister.items = append(r.lister.items, xrOf(fmt.Sprintf("hog-%03d", i), "app-hog-cicd"))
+	}
+	ch := r.poll()
+	if r.defs["gate-api-quiet"] == nil || r.mgr.Unpublished() || r.pub.count() != 1 {
+		t.Fatalf("the poll must go on: %+v", ch)
+	}
+	hog := 0
+	var summary bool
+	for _, rj := range r.pub.rej[0] {
+		if rj.Source.Namespace != nil && *rj.Source.Namespace == "app-hog-cicd" {
+			hog++
+			summary = summary || strings.Contains(rj.Reason, "more rejected pins in this namespace are not listed")
+		}
+	}
+	if hog != definitions.MaxRejectedPerNamespace+1 || !summary {
+		t.Fatalf("%d rows of the namespace, summary %v", hog, summary)
+	}
+}
+
+// Each namespace has a share of the budget fixed by configuration: one over its share loses its own rows and nothing else, and the
+// bundled set is published whatever it does.
+func TestANamespaceOverItsShareLosesOnlyItsOwnRows(t *testing.T) {
+	r := appRig(t, "app-hog-cicd", "app-gate-api-cicd")
+	r.mgr.NamespaceShare = 9000
+	appPin(r, "gate-api-quiet", "app-gate-api-cicd", "acme/gate-api")
+	for i := 0; i < 4; i++ {
+		name := fmt.Sprintf("hog-%d", i)
+		d := defDoc(name, nil)
+		d["profile"].(map[string]any)["repos"] = map[string]any{"allow": []any{"acme/hog"}}
+		d["runtime"].(map[string]any)["instructions"] = strings.Repeat("x", 1500)
+		x := xrOf(name, "app-hog-cicd")
+		x["spec"].(map[string]any)["source"].(map[string]any)["repo"] = "acme/hog"
+		r.lister.items = append(r.lister.items, x)
+		r.files.files["acme/hog|agents/"+name+".yaml|"+commit] = map[string]any{"doc": d}
+	}
+	// rejected rows of the hog too: they count against its share, not the quiet namespace's
+	for i := 0; i < 20; i++ {
+		x := xrOf(fmt.Sprintf("hog-bad-%02d", i), "app-hog-cicd")
+		x["spec"].(map[string]any)["source"].(map[string]any)["repo"] = "evil/x"
+		r.lister.items = append(r.lister.items, x)
+	}
+	ch := r.poll()
+	if r.defs["gate-api-quiet"] == nil || r.defs["hog-0"] != nil {
+		t.Fatalf("the namespace over its share loses its own pins, the other does not: %v", r.defs)
+	}
+	if r.pub.count() != 1 || len(r.pub.pins[0]) != 1 || len(r.pub.bundled[0]) != 1 || r.mgr.Unpublished() {
+		t.Fatalf("what fits is published, with the bundled set: %d", r.pub.count())
+	}
+	budgetRows := 0
+	for _, rj := range r.pub.rej[0] {
+		if strings.HasPrefix(rj.Reason, "DF-BUDGET") && *rj.Source.Namespace == "app-hog-cicd" {
+			budgetRows++
+		}
+	}
+	if budgetRows != 1 || len(r.pub.rej[0]) != 1 || len(ch.Rejected) != 1 {
+		t.Fatalf("one row says so: %+v", r.pub.rej[0])
+	}
+}
+
+// An agent's name belongs to its namespace's app, decided from the XR alone: no holder, no state, nothing to take, squat or move.
+func TestAnAgentNameBelongsToItsAppAndNothingCanMoveIt(t *testing.T) {
+	// the rules
+	pol := definitions.PinPolicy{BindApp: true, Names: map[string]string{"gate-reader": "app-gate-api-cicd"}}
+	for _, c := range []struct {
+		ns, name string
+		ok       bool
+	}{{"app-gate-api-cicd", "gate-api", true}, {"app-gate-api-cicd", "gate-api-triage", true}, {"app-gate-api-cicd", "gate-reader", true},
+		{"app-gate-api-cicd", "gate-apix", false}, {"app-gate-api-cicd", "gate", false}, {"app-gate-api-cicd", "triage-agent", false},
+		{"app-other-cicd", "gate-reader", false}, {"app-other-cicd", "other-x", true}, {"app-gate-cicd", "gate-api-x", true}, {"app-gate-api-cicd", "billing-x", false}} {
+		err := pol.CheckSource(c.ns, c.name, "acme/"+strings.TrimSuffix(strings.TrimPrefix(c.ns, "app-"), "-cicd"))
+		if (err == nil) != c.ok {
+			t.Errorf("%s in %s: %v", c.name, c.ns, err)
+		}
+	}
+	// the squat, the holder's outage and a cutover with an empty store, in one sequence
+	r := appRig(t, "app-gate-api-cicd", "app-other-cicd")
+	appPin(r, "gate-api-reader", "app-gate-api-cicd", "acme/gate-api")
+	appPin(r, "other-thing", "app-other-cicd", "acme/other")
+	// the attacker, in its own app's namespace, asks for the holder's name
+	squat := defDoc("gate-api-reader", nil)
+	squat["profile"].(map[string]any)["repos"] = map[string]any{"allow": []any{"acme/other"}}
+	sx := xrOf("gate-api-reader", "app-other-cicd")
+	sx["spec"].(map[string]any)["source"].(map[string]any)["repo"] = "acme/other"
+	r.lister.items = append(r.lister.items, sx)
+	r.files.files["acme/other|agents/gate-api-reader.yaml|"+commit] = map[string]any{"doc": squat}
+	ch := r.poll()
+	holder := r.set.Loaded("gate-api-reader")
+	if holder == nil || *holder.Source.Namespace != "app-gate-api-cicd" || r.defs["other-thing"] == nil {
+		t.Fatalf("%+v", ch)
+	}
+	sawSquat := false
+	for _, rj := range ch.Rejected {
+		sawSquat = sawSquat || (*rj.Source.Namespace == "app-other-cicd" && strings.HasPrefix(rj.Reason, "DF-POLICY: metadata.name"))
+	}
+	if !sawSquat {
+		t.Fatalf("the squatter is refused for the name: %+v", ch.Rejected)
+	}
+	for _, f := range r.files.calls {
+		if strings.Contains(f, "acme/other|agents/gate-api-reader") {
+			t.Fatal("the squatter's file was fetched")
+		}
+	}
+	// the holder bumps its commit and the fetch fails once: it stays (re-added), the squatter does not take its name
+	c2 := strings.Repeat("b", 40)
+	for _, x := range r.lister.items {
+		if md := x["metadata"].(map[string]any); md["name"] == "gate-api-reader" && md["namespace"] == "app-gate-api-cicd" {
+			x["spec"].(map[string]any)["source"].(map[string]any)["commit"] = c2
+		}
+	}
+	r.files.files[repo+"|agents/gate-api-reader.yaml|"+c2] = map[string]any{"transient": true}
+	r.poll()
+	if l := r.set.Loaded("gate-api-reader"); l == nil || *l.Source.Namespace != "app-gate-api-cicd" {
+		t.Fatalf("the holder's outage moved its name: %v", l)
+	}
+	// the fetch works again: the holder is the holder, at its new commit
+	r.files.files[repo+"|agents/gate-api-reader.yaml|"+c2] = r.files.files[repo+"|agents/gate-api-reader.yaml|"+commit]
+	if ch := r.poll(); len(ch.Changed) != 1 || *r.set.Loaded("gate-api-reader").Source.Namespace != "app-gate-api-cicd" {
+		t.Fatalf("%+v", ch)
+	}
+	// a cutover with an empty store: a fresh gateway, the squatter's XR is first in the list, nothing in the store
+	r2 := appRig(t, "app-gate-api-cicd", "app-other-cicd")
+	r2.lister.items = []map[string]any{sx}
+	r2.files.files = r.files.files
+	appPin(r2, "gate-api-reader", "app-gate-api-cicd", "acme/gate-api")
+	r2.lister.items = []map[string]any{sx, r2.lister.items[len(r2.lister.items)-1]}
+	if ch := r2.poll(); r2.set.Loaded("gate-api-reader") == nil || *r2.set.Loaded("gate-api-reader").Source.Namespace != "app-gate-api-cicd" || len(ch.Added) != 1 {
+		t.Fatalf("an empty store flipped the name: %+v", ch)
+	}
+	// two XRs of one name in ONE namespace cannot exist (k8s names are unique), but two pins of one name reaching the set are both refused
+	set := definitions.NewSet(nil)
+	a, b0 := mustLoad(t, "dup"), mustLoad(t, "dup")
+	b1 := *b0
+	b1.Source.Namespace = definitions.S("app-other-cicd")
+	b := &b1
+	if ch := set.ReplaceCluster([]*definitions.Loaded{a, b}, nil); len(ch.Added) != 0 || len(ch.Rejected) != 2 {
+		t.Fatalf("%+v", ch)
+	}
+}
+
+// An app named so that the name-based mapping of its repositories is ambiguous has no pins: `gitops-infra-foo` is foo's, never infra-foo's.
+func TestAnAppWhoseRepositoriesWouldBeAmbiguousHasNoPins(t *testing.T) {
+	for ns, ok := range map[string]bool{"app-foo-cicd": true, "app-x-cicd": true, "app-infra-foo-cicd": false, "app-gitops-x-cicd": false, "app-infra-cicd": true, "app-gate-api-cicd": true, "app-cicd": false} {
+		if _, got := definitions.AppOfNamespace(ns); got != ok {
+			t.Errorf("%s: %v", ns, got)
+		}
+	}
+	pol := definitions.PinPolicy{BindApp: true, Owners: []string{"o"}}
+	if err := pol.CheckSource("app-foo-cicd", "foo-x", "o/gitops-infra-foo"); err != nil {
+		t.Fatalf("foo's own gitops repository: %v", err)
+	}
+	if err := pol.CheckSource("app-foo-cicd", "foo-x", "o/gitops-infra-bar"); err == nil {
+		t.Fatal("another app's")
+	}
+	if err := pol.CheckSource("app-infra-foo-cicd", "infra-foo-x", "o/gitops-infra-foo"); err == nil {
+		t.Fatal("an app named infra-* has no pins")
+	}
+	if err := pol.CheckSource("app-x-cicd", "x-a", "o/gitops-x"); err != nil {
+		t.Fatal(err)
+	}
 }

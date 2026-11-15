@@ -4535,6 +4535,9 @@
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "valid",
    "name": "network allowlist",
    "owner": "group:default/team-gate",
@@ -4691,6 +4694,7 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: allowlist\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
@@ -5082,6 +5086,9 @@
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "valid",
    "name": "compute large",
    "owner": "group:default/team-gate",
@@ -5238,9 +5245,13 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: large\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "valid",
    "name": "compute gpu",
    "owner": "group:default/team-gate",
@@ -5397,6 +5408,7 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: gpu\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
@@ -5770,6 +5782,9 @@
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "limits",
    "name": "limits: ttl 1440",
    "owner": "group:default/team-gate",
@@ -5926,6 +5941,7 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 1440\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
@@ -6391,6 +6407,9 @@
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "limits",
    "name": "limits: modelTokens huge",
    "owner": "group:default/team-gate",
@@ -6547,9 +6566,13 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 1000000000000000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "limits",
    "name": "limits: children 20",
    "owner": "group:default/team-gate",
@@ -6706,6 +6729,7 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 20\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
@@ -9324,6 +9348,9 @@
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
    "group": "apis",
    "name": "apis.allow: ok",
    "owner": "group:default/team-gate",
@@ -9495,6 +9522,7 @@
     "triage-agent"
    ],
    "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\n  apis:\n    allow:\n    - gate-api\n    - billing\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin's resource fields are bounded by the platform, not by whoever writes the file: limits above the platform's maxima (ttl 120 minutes, 500 tool calls, 200 GitHub calls, 5 open PRs, 2,000,000 model tokens, 5 children), an egress allowlist, compute beyond medium, the Flight half of an AppSpec, and an API service that is not its own app's are refused; the schema bounds some of them far higher, and Python takes any value it allows",
    "xr": "gate-triage"
   },
   {
@@ -20633,6 +20661,1986 @@
    "xr": "gate-triage"
   },
   {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: network allowlist",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "allowlist",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "allowlist",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "allowlist",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: allowlist\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: gpu compute",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "gpu",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "gpu",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "gpu",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: gpu\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: large compute",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "large",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "large",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "large",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: large\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: proposeFlight",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "airframe": {
+        "apps": [
+         "gate-api"
+        ],
+        "proposeFlight": true
+       },
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "airframe": {
+        "apps": [
+         "gate-api"
+        ],
+        "proposeFlight": true
+       },
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\n  airframe:\n    apps:\n    - gate-api\n    proposeFlight: true\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: another app's api",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "apis": {
+        "allow": [
+         "billing"
+        ]
+       },
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [
+       "billing"
+      ],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "apis": {
+        "allow": [
+         "billing"
+        ]
+       },
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\n  apis:\n    allow:\n    - billing\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: ttlMinutes above the platform's maximum",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 121
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 121
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 121
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 121\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: toolCalls above the platform's maximum",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 501,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 501,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 501,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 501\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: githubCalls above the platform's maximum",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 201,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 201,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 201,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 201\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: openPrs above the platform's maximum",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 6,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 6,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 6,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 6\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: modelTokens above the platform's maximum",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 2000001,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 2000001,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 2000001,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 2000001\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: children above the platform's maximum",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 6,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "gate-triage",
+      "service_account": "autopilot-runs/gate-triage"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/gate-triage",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "gate-triage",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 6,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "gate-triage",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 6,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: gate-triage\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/gate-triage\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 6\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "gate-triage"
+  },
+  {
+   "go": {
+    "rejected_prefix": "policy: "
+   },
+   "group": "policy",
+   "name": "policy: a name that is not the app's",
+   "owner": "group:default/team-gate",
+   "python": {
+    "loaded": {
+     "agent": {
+      "identity_type": "workload",
+      "kind": "event",
+      "limits": {
+       "children": 0,
+       "compute": "small",
+       "github_calls": 40,
+       "model_tokens": 400000,
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "open_prs": 1,
+       "tier_ceiling": "T1",
+       "tool_calls": 60,
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ],
+       "ttl_minutes": 20
+      },
+      "name": "zz-squat",
+      "service_account": "autopilot-runs/zz-squat"
+     },
+     "doc": {
+      "description": "Reads a failed run and proposes a fix.",
+      "identity": {
+       "serviceAccount": "autopilot-runs/zz-squat",
+       "type": "workload"
+      },
+      "kind": "event",
+      "name": "zz-squat",
+      "owner": "group:default/team-gate",
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "runtime": {
+       "framework": "generic",
+       "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "instructions": "Find why the run failed."
+      },
+      "triggers": [
+       {
+        "bindingKey": "gate-api.pipelinerun.finished",
+        "match": {
+         "subject.content.outcome": "failure"
+        },
+        "maxPerHour": 4,
+        "source": "glidepath",
+        "type": "event"
+       }
+      ]
+     },
+     "name": "zz-squat",
+     "runs_in": "cluster",
+     "scope": {
+      "agent_kind": "event",
+      "api_allow": [],
+      "deny_paths": [
+       ".tekton/**",
+       "**/.tekton/**",
+       "CODEOWNERS",
+       "**/CODEOWNERS",
+       ".github/**",
+       "**/appproject*.yaml",
+       "**/AppProject*.yaml",
+       "release.yaml",
+       "**/release.yaml",
+       "*.release.yaml",
+       "**/*.release.yaml"
+      ],
+      "field_allow": [],
+      "field_deny": [
+       "/extraManifests",
+       "/networkPolicy",
+       "/httpRoute",
+       "/release",
+       "/releaseTracking",
+       "/rollout/image"
+      ],
+      "profile": {
+       "compute": "small",
+       "glidepath": {
+        "apps": [
+         "gate-api"
+        ]
+       },
+       "limits": {
+        "children": 0,
+        "githubCalls": 40,
+        "modelTokens": 400000,
+        "openPrs": 1,
+        "toolCalls": 60,
+        "ttlMinutes": 20
+       },
+       "models": [
+        "claude-sonnet-5-5"
+       ],
+       "network": "clearance+model",
+       "repos": {
+        "allow": [
+         "acme/gate-api"
+        ]
+       },
+       "tierCeiling": "T1",
+       "tools": [
+        "glidepath.runs.list",
+        "repo.file.get",
+        "repo.pr.open"
+       ]
+      },
+      "repos_allow": [
+       "acme/gate-api"
+      ]
+     }
+    }
+   },
+   "reserved": [
+    "researcher",
+    "triage-agent"
+   ],
+   "text": "name: zz-squat\ndescription: Reads a failed run and proposes a fix.\nowner: group:default/team-gate\nkind: event\nidentity:\n  type: workload\n  serviceAccount: autopilot-runs/zz-squat\nprofile:\n  tierCeiling: T1\n  tools:\n  - glidepath.runs.list\n  - repo.file.get\n  - repo.pr.open\n  glidepath:\n    apps:\n    - gate-api\n  repos:\n    allow:\n    - acme/gate-api\n  models:\n  - claude-sonnet-5-5\n  network: clearance+model\n  compute: small\n  limits:\n    ttlMinutes: 20\n    toolCalls: 60\n    githubCalls: 40\n    openPrs: 1\n    modelTokens: 400000\n    children: 0\nruntime:\n  image: ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n  framework: generic\n  instructions: Find why the run failed.\ntriggers:\n- type: event\n  source: glidepath\n  bindingKey: gate-api.pipelinerun.finished\n  match:\n    subject.content.outcome: failure\n  maxPerHour: 4\n",
+   "why": "a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins (the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these",
+   "xr": "zz-squat"
+  },
+  {
    "group": "valid",
    "name": "policy: the default tools are allowed",
    "owner": "group:default/team-gate",
@@ -29373,938 +31381,6 @@
          "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
          "path": "agents/a-dir.yaml",
          "repo": "acme/gate-api"
-        }
-       }
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "bundled": {
-    "researcher": {
-     "description": "The platform's researcher.",
-     "identity": {
-      "type": "delegated"
-     },
-     "kind": "task",
-     "name": "researcher",
-     "owner": "group:default/team-platform",
-     "profile": {
-      "compute": "small",
-      "glidepath": {
-       "apps": [
-        "gate-api"
-       ]
-      },
-      "limits": {
-       "children": 0,
-       "githubCalls": 40,
-       "modelTokens": 400000,
-       "openPrs": 1,
-       "toolCalls": 60,
-       "ttlMinutes": 20
-      },
-      "models": [
-       "claude-sonnet-5-5"
-      ],
-      "network": "clearance+model",
-      "repos": {
-       "allow": [
-        "acme/gate-api"
-       ]
-      },
-      "tierCeiling": "T1",
-      "tools": [
-       "glidepath.runs.list",
-       "repo.file.get",
-       "repo.pr.open"
-      ]
-     },
-     "runtime": {
-      "framework": "generic",
-      "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "instructions": "Find why the run failed."
-     },
-     "triggers": [
-      {
-       "type": "manual"
-      }
-     ]
-    },
-    "triage-agent": {
-     "description": "The platform's triage-agent.",
-     "identity": {
-      "type": "delegated"
-     },
-     "kind": "task",
-     "name": "triage-agent",
-     "owner": "group:default/team-platform",
-     "profile": {
-      "compute": "small",
-      "glidepath": {
-       "apps": [
-        "gate-api"
-       ]
-      },
-      "limits": {
-       "children": 0,
-       "githubCalls": 40,
-       "modelTokens": 400000,
-       "openPrs": 1,
-       "toolCalls": 60,
-       "ttlMinutes": 20
-      },
-      "models": [
-       "claude-sonnet-5-5"
-      ],
-      "network": "clearance+model",
-      "repos": {
-       "allow": [
-        "acme/gate-api"
-       ]
-      },
-      "tierCeiling": "T1",
-      "tools": [
-       "glidepath.runs.list",
-       "repo.file.get",
-       "repo.pr.open"
-      ]
-     },
-     "runtime": {
-      "framework": "generic",
-      "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "instructions": "Find why the run failed."
-     },
-     "triggers": [
-      {
-       "type": "manual"
-      }
-     ]
-    }
-   },
-   "bundled_version": "gw-test-1",
-   "name": "two pins of one name load neither",
-   "steps": [
-    {
-     "at": "2026-11-14T12:00:00+00:00",
-     "changes": {
-      "added": [],
-      "changed": [],
-      "cleared": [],
-      "rejected": [
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-gate-api-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/gate-api",
-         "xr": "gate-triage"
-        }
-       },
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-other-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/other@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/other",
-         "xr": "gate-triage"
-        }
-       }
-      ],
-      "removed": []
-     },
-     "core": [],
-     "fetched": [
-      "acme/gate-api|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-      "acme/other|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"
-     ],
-     "files": {
-      "acme/gate-api|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b": {
-       "doc": {
-        "description": "Reads a failed run and proposes a fix.",
-        "identity": {
-         "serviceAccount": "autopilot-runs/gate-triage",
-         "type": "workload"
-        },
-        "kind": "event",
-        "name": "gate-triage",
-        "owner": "group:default/team-gate",
-        "profile": {
-         "compute": "small",
-         "glidepath": {
-          "apps": [
-           "gate-api"
-          ]
-         },
-         "limits": {
-          "children": 0,
-          "githubCalls": 40,
-          "modelTokens": 400000,
-          "openPrs": 1,
-          "toolCalls": 60,
-          "ttlMinutes": 20
-         },
-         "models": [
-          "claude-sonnet-5-5"
-         ],
-         "network": "clearance+model",
-         "repos": {
-          "allow": [
-           "acme/gate-api"
-          ]
-         },
-         "tierCeiling": "T1",
-         "tools": [
-          "glidepath.runs.list",
-          "repo.file.get",
-          "repo.pr.open"
-         ]
-        },
-        "runtime": {
-         "framework": "generic",
-         "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-         "instructions": "Find why the run failed."
-        },
-        "triggers": [
-         {
-          "bindingKey": "gate-api.pipelinerun.finished",
-          "match": {
-           "subject.content.outcome": "failure"
-          },
-          "maxPerHour": 4,
-          "source": "glidepath",
-          "type": "event"
-         }
-        ]
-       }
-      },
-      "acme/other|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b": {
-       "doc": {
-        "description": "Reads a failed run and proposes a fix.",
-        "identity": {
-         "serviceAccount": "autopilot-runs/gate-triage",
-         "type": "workload"
-        },
-        "kind": "event",
-        "name": "gate-triage",
-        "owner": "group:default/team-gate",
-        "profile": {
-         "compute": "small",
-         "glidepath": {
-          "apps": [
-           "other"
-          ]
-         },
-         "limits": {
-          "children": 0,
-          "githubCalls": 40,
-          "modelTokens": 400000,
-          "openPrs": 1,
-          "toolCalls": 60,
-          "ttlMinutes": 20
-         },
-         "models": [
-          "claude-sonnet-5-5"
-         ],
-         "network": "clearance+model",
-         "repos": {
-          "allow": [
-           "acme/other"
-          ]
-         },
-         "tierCeiling": "T1",
-         "tools": [
-          "glidepath.runs.list",
-          "repo.file.get",
-          "repo.pr.open"
-         ]
-        },
-        "runtime": {
-         "framework": "generic",
-         "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-         "instructions": "Find why the run failed."
-        },
-        "triggers": [
-         {
-          "bindingKey": "other.pipelinerun.finished",
-          "match": {
-           "subject.content.outcome": "failure"
-          },
-          "maxPerHour": 4,
-          "source": "glidepath",
-          "type": "event"
-         }
-        ]
-       }
-      }
-     },
-     "label": "the same agent in two namespaces",
-     "list_fail": null,
-     "requests": [
-      {
-       "authorization": "Bearer fixture-core-token",
-       "body": {
-        "bundled": [
-         {
-          "doc": {
-           "description": "The platform's researcher.",
-           "identity": {
-            "type": "delegated"
-           },
-           "kind": "task",
-           "name": "researcher",
-           "owner": "group:default/team-platform",
-           "profile": {
-            "compute": "small",
-            "glidepath": {
-             "apps": [
-              "gate-api"
-             ]
-            },
-            "limits": {
-             "children": 0,
-             "githubCalls": 40,
-             "modelTokens": 400000,
-             "openPrs": 1,
-             "toolCalls": 60,
-             "ttlMinutes": 20
-            },
-            "models": [
-             "claude-sonnet-5-5"
-            ],
-            "network": "clearance+model",
-            "repos": {
-             "allow": [
-              "acme/gate-api"
-             ]
-            },
-            "tierCeiling": "T1",
-            "tools": [
-             "glidepath.runs.list",
-             "repo.file.get",
-             "repo.pr.open"
-            ]
-           },
-           "runtime": {
-            "framework": "generic",
-            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "instructions": "Find why the run failed."
-           },
-           "triggers": [
-            {
-             "type": "manual"
-            }
-           ]
-          },
-          "name": "researcher",
-          "version": "gw-test-1"
-         },
-         {
-          "doc": {
-           "description": "The platform's triage-agent.",
-           "identity": {
-            "type": "delegated"
-           },
-           "kind": "task",
-           "name": "triage-agent",
-           "owner": "group:default/team-platform",
-           "profile": {
-            "compute": "small",
-            "glidepath": {
-             "apps": [
-              "gate-api"
-             ]
-            },
-            "limits": {
-             "children": 0,
-             "githubCalls": 40,
-             "modelTokens": 400000,
-             "openPrs": 1,
-             "toolCalls": 60,
-             "ttlMinutes": 20
-            },
-            "models": [
-             "claude-sonnet-5-5"
-            ],
-            "network": "clearance+model",
-            "repos": {
-             "allow": [
-              "acme/gate-api"
-             ]
-            },
-            "tierCeiling": "T1",
-            "tools": [
-             "glidepath.runs.list",
-             "repo.file.get",
-             "repo.pr.open"
-            ]
-           },
-           "runtime": {
-            "framework": "generic",
-            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "instructions": "Find why the run failed."
-           },
-           "triggers": [
-            {
-             "type": "manual"
-            }
-           ]
-          },
-          "name": "triage-agent",
-          "version": "gw-test-1"
-         }
-        ],
-        "pins": [],
-        "provider": "autopilot-gateway",
-        "rejected": [
-         {
-          "name": "gate-triage",
-          "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-          "source": {
-           "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-           "loaded_at": "2026-11-14T12:00:00Z",
-           "namespace": "app-gate-api-cicd",
-           "path": "agents/gate-triage.yaml",
-           "repo": "acme/gate-api",
-           "xr": "gate-triage"
-          }
-         },
-         {
-          "name": "gate-triage",
-          "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-          "source": {
-           "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-           "loaded_at": "2026-11-14T12:00:00Z",
-           "namespace": "app-other-cicd",
-           "path": "agents/gate-triage.yaml",
-           "repo": "acme/other",
-           "xr": "gate-triage"
-          }
-         }
-        ]
-       },
-       "method": "PUT",
-       "path": "/v1/definitions"
-      }
-     ],
-     "restart": false,
-     "seeded": null,
-     "state": {
-      "loaded": [],
-      "rejected": [
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-gate-api-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/gate-api",
-         "xr": "gate-triage"
-        }
-       },
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-other-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/other@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/other",
-         "xr": "gate-triage"
-        }
-       }
-      ],
-      "rows": [
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-gate-api-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/gate-api",
-         "xr": "gate-triage"
-        },
-        "state": "rejected"
-       },
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-other-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/other@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/other",
-         "xr": "gate-triage"
-        },
-        "state": "rejected"
-       }
-      ]
-     },
-     "xrs": [
-      {
-       "apiVersion": "catalog.hangar.io/v1alpha1",
-       "kind": "Agent",
-       "metadata": {
-        "name": "gate-triage",
-        "namespace": "app-gate-api-cicd"
-       },
-       "spec": {
-        "app": "gate-api",
-        "owner": "group:default/team-gate",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "path": "agents/gate-triage.yaml",
-         "repo": "acme/gate-api"
-        }
-       }
-      },
-      {
-       "apiVersion": "catalog.hangar.io/v1alpha1",
-       "kind": "Agent",
-       "metadata": {
-        "name": "gate-triage",
-        "namespace": "app-other-cicd"
-       },
-       "spec": {
-        "app": "gate-api",
-        "owner": "group:default/team-gate",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "path": "agents/gate-triage.yaml",
-         "repo": "acme/other"
-        }
-       }
-      }
-     ]
-    },
-    {
-     "at": "2026-11-14T12:01:00+00:00",
-     "changes": {
-      "added": [
-       "gate-triage"
-      ],
-      "changed": [],
-      "cleared": [
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-gate-api-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/gate-api",
-         "xr": "gate-triage"
-        }
-       },
-       {
-        "name": "gate-triage",
-        "reason": "two pins name the agent 'gate-triage'; neither is loaded",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-other-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/other@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/other",
-         "xr": "gate-triage"
-        }
-       }
-      ],
-      "rejected": [],
-      "removed": []
-     },
-     "core": [],
-     "fetched": [],
-     "files": {
-      "acme/other|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b": {
-       "doc": {
-        "description": "Reads a failed run and proposes a fix.",
-        "identity": {
-         "serviceAccount": "autopilot-runs/gate-triage",
-         "type": "workload"
-        },
-        "kind": "event",
-        "name": "gate-triage",
-        "owner": "group:default/team-gate",
-        "profile": {
-         "compute": "small",
-         "glidepath": {
-          "apps": [
-           "other"
-          ]
-         },
-         "limits": {
-          "children": 0,
-          "githubCalls": 40,
-          "modelTokens": 400000,
-          "openPrs": 1,
-          "toolCalls": 60,
-          "ttlMinutes": 20
-         },
-         "models": [
-          "claude-sonnet-5-5"
-         ],
-         "network": "clearance+model",
-         "repos": {
-          "allow": [
-           "acme/other"
-          ]
-         },
-         "tierCeiling": "T1",
-         "tools": [
-          "glidepath.runs.list",
-          "repo.file.get",
-          "repo.pr.open"
-         ]
-        },
-        "runtime": {
-         "framework": "generic",
-         "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-         "instructions": "Find why the run failed."
-        },
-        "triggers": [
-         {
-          "bindingKey": "other.pipelinerun.finished",
-          "match": {
-           "subject.content.outcome": "failure"
-          },
-          "maxPerHour": 4,
-          "source": "glidepath",
-          "type": "event"
-         }
-        ]
-       }
-      }
-     },
-     "label": "one of them is removed",
-     "list_fail": null,
-     "requests": [
-      {
-       "authorization": "Bearer fixture-core-token",
-       "body": {
-        "bundled": [
-         {
-          "doc": {
-           "description": "The platform's researcher.",
-           "identity": {
-            "type": "delegated"
-           },
-           "kind": "task",
-           "name": "researcher",
-           "owner": "group:default/team-platform",
-           "profile": {
-            "compute": "small",
-            "glidepath": {
-             "apps": [
-              "gate-api"
-             ]
-            },
-            "limits": {
-             "children": 0,
-             "githubCalls": 40,
-             "modelTokens": 400000,
-             "openPrs": 1,
-             "toolCalls": 60,
-             "ttlMinutes": 20
-            },
-            "models": [
-             "claude-sonnet-5-5"
-            ],
-            "network": "clearance+model",
-            "repos": {
-             "allow": [
-              "acme/gate-api"
-             ]
-            },
-            "tierCeiling": "T1",
-            "tools": [
-             "glidepath.runs.list",
-             "repo.file.get",
-             "repo.pr.open"
-            ]
-           },
-           "runtime": {
-            "framework": "generic",
-            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "instructions": "Find why the run failed."
-           },
-           "triggers": [
-            {
-             "type": "manual"
-            }
-           ]
-          },
-          "name": "researcher",
-          "version": "gw-test-1"
-         },
-         {
-          "doc": {
-           "description": "The platform's triage-agent.",
-           "identity": {
-            "type": "delegated"
-           },
-           "kind": "task",
-           "name": "triage-agent",
-           "owner": "group:default/team-platform",
-           "profile": {
-            "compute": "small",
-            "glidepath": {
-             "apps": [
-              "gate-api"
-             ]
-            },
-            "limits": {
-             "children": 0,
-             "githubCalls": 40,
-             "modelTokens": 400000,
-             "openPrs": 1,
-             "toolCalls": 60,
-             "ttlMinutes": 20
-            },
-            "models": [
-             "claude-sonnet-5-5"
-            ],
-            "network": "clearance+model",
-            "repos": {
-             "allow": [
-              "acme/gate-api"
-             ]
-            },
-            "tierCeiling": "T1",
-            "tools": [
-             "glidepath.runs.list",
-             "repo.file.get",
-             "repo.pr.open"
-            ]
-           },
-           "runtime": {
-            "framework": "generic",
-            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "instructions": "Find why the run failed."
-           },
-           "triggers": [
-            {
-             "type": "manual"
-            }
-           ]
-          },
-          "name": "triage-agent",
-          "version": "gw-test-1"
-         }
-        ],
-        "pins": [
-         {
-          "doc": {
-           "description": "Reads a failed run and proposes a fix.",
-           "identity": {
-            "serviceAccount": "autopilot-runs/gate-triage",
-            "type": "workload"
-           },
-           "kind": "event",
-           "name": "gate-triage",
-           "owner": "group:default/team-gate",
-           "profile": {
-            "compute": "small",
-            "glidepath": {
-             "apps": [
-              "other"
-             ]
-            },
-            "limits": {
-             "children": 0,
-             "githubCalls": 40,
-             "modelTokens": 400000,
-             "openPrs": 1,
-             "toolCalls": 60,
-             "ttlMinutes": 20
-            },
-            "models": [
-             "claude-sonnet-5-5"
-            ],
-            "network": "clearance+model",
-            "repos": {
-             "allow": [
-              "acme/other"
-             ]
-            },
-            "tierCeiling": "T1",
-            "tools": [
-             "glidepath.runs.list",
-             "repo.file.get",
-             "repo.pr.open"
-            ]
-           },
-           "runtime": {
-            "framework": "generic",
-            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "instructions": "Find why the run failed."
-           },
-           "triggers": [
-            {
-             "bindingKey": "other.pipelinerun.finished",
-             "match": {
-              "subject.content.outcome": "failure"
-             },
-             "maxPerHour": 4,
-             "source": "glidepath",
-             "type": "event"
-            }
-           ]
-          },
-          "owner": "group:default/team-gate",
-          "source": {
-           "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-           "loaded_at": "2026-11-14T12:00:00Z",
-           "namespace": "app-other-cicd",
-           "path": "agents/gate-triage.yaml",
-           "repo": "acme/other",
-           "xr": "gate-triage"
-          }
-         }
-        ],
-        "provider": "autopilot-gateway"
-       },
-       "method": "PUT",
-       "path": "/v1/definitions"
-      }
-     ],
-     "restart": false,
-     "seeded": null,
-     "state": {
-      "loaded": [
-       {
-        "name": "gate-triage",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-other-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/other@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/other",
-         "xr": "gate-triage"
-        }
-       }
-      ],
-      "rejected": [],
-      "rows": [
-       {
-        "doc": {
-         "description": "Reads a failed run and proposes a fix.",
-         "identity": {
-          "serviceAccount": "autopilot-runs/gate-triage",
-          "type": "workload"
-         },
-         "kind": "event",
-         "name": "gate-triage",
-         "owner": "group:default/team-gate",
-         "profile": {
-          "compute": "small",
-          "glidepath": {
-           "apps": [
-            "other"
-           ]
-          },
-          "limits": {
-           "children": 0,
-           "githubCalls": 40,
-           "modelTokens": 400000,
-           "openPrs": 1,
-           "toolCalls": 60,
-           "ttlMinutes": 20
-          },
-          "models": [
-           "claude-sonnet-5-5"
-          ],
-          "network": "clearance+model",
-          "repos": {
-           "allow": [
-            "acme/other"
-           ]
-          },
-          "tierCeiling": "T1",
-          "tools": [
-           "glidepath.runs.list",
-           "repo.file.get",
-           "repo.pr.open"
-          ]
-         },
-         "runtime": {
-          "framework": "generic",
-          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "instructions": "Find why the run failed."
-         },
-         "triggers": [
-          {
-           "bindingKey": "other.pipelinerun.finished",
-           "match": {
-            "subject.content.outcome": "failure"
-           },
-           "maxPerHour": 4,
-           "source": "glidepath",
-           "type": "event"
-          }
-         ]
-        },
-        "name": "gate-triage",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "kind": "cluster",
-         "loaded_at": "2026-11-14T12:00:00Z",
-         "namespace": "app-other-cicd",
-         "path": "agents/gate-triage.yaml",
-         "pin": "acme/other@1a2b3c4 agents/gate-triage.yaml",
-         "repo": "acme/other",
-         "xr": "gate-triage"
-        },
-        "state": "loaded"
-       }
-      ]
-     },
-     "xrs": [
-      {
-       "apiVersion": "catalog.hangar.io/v1alpha1",
-       "kind": "Agent",
-       "metadata": {
-        "name": "gate-triage",
-        "namespace": "app-other-cicd"
-       },
-       "spec": {
-        "app": "gate-api",
-        "owner": "group:default/team-gate",
-        "source": {
-         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
-         "path": "agents/gate-triage.yaml",
-         "repo": "acme/other"
         }
        }
       }

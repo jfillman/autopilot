@@ -171,3 +171,28 @@ func TestThePolicyServeBuildsIsTheStrictOne(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// AGENT_XRS_NAMES: the agents whose names do not start with their app, each for one namespace the loader reads.
+func TestAgentXRSNamesIsTheExceptionMapForNamesThatDoNotFollowTheConvention(t *testing.T) {
+	env := merge(githubOn, map[string]string{"AGENT_XRS_NAMESPACES": "app-gate-api-cicd,app-other-cicd", "AGENT_XRS_NAMES": "gate-reader=app-gate-api-cicd, old-thing=app-other-cicd"})
+	c, err := configFromEnv(envOf(base(env)))
+	if err != nil || c.defs.names["gate-reader"] != "app-gate-api-cicd" || len(c.defs.names) != 2 {
+		t.Fatalf("%+v %v", c.defs.names, err)
+	}
+	p, err := c.defs.policy(tools.Default(), nil, nil, nil)
+	if err != nil || p.Names["gate-reader"] != "app-gate-api-cicd" {
+		t.Fatalf("%+v %v", p.Names, err)
+	}
+	for name, v := range map[string]string{"no namespace": "gate-reader", "a namespace the loader does not read": "gate-reader=app-else-cicd", "a bad name": "Gate=app-gate-api-cicd",
+		"a name twice": "x=app-gate-api-cicd,x=app-other-cicd"} {
+		_, err := configFromEnv(envOf(base(merge(env, map[string]string{"AGENT_XRS_NAMES": v}))))
+		if err == nil || !strings.Contains(err.Error(), "AGENT_XRS_NAMES") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	bundled := map[string]*definitions.Definition{"researcher": {Name: "researcher"}}
+	c.defs.names = map[string]string{"researcher": "app-gate-api-cicd"}
+	if _, err := c.defs.policy(tools.Default(), nil, nil, bundled); err == nil || !strings.Contains(err.Error(), "bundled") {
+		t.Fatalf("a bundled name cannot be listed: %v", err)
+	}
+}

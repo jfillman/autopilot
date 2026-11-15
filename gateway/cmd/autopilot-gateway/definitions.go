@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,10 @@ import (
 //     XR anywhere else is never read. It is required when the loader is on, and it may not name a namespace an agent run or the platform
 //     controls (agent-*, autopilot-runs, kube-*).
 //   - AGENT_XRS_MAX_TIER (Go only, default T2, the schema's own highest): the highest tier ceiling a pinned definition may name.
+//   - AGENT_XRS_NAMES (Go only): `name=namespace,...`, the agents whose names do not start with their app and the one namespace each is
+//     pinned from. A pinned agent's name is its app's or starts with the app and a dash (decided from the XR alone, so two namespaces can
+//     never contend for a name); an agent that was live before that rule is listed here. Cutover configuration: the live
+//     `gate-reader` in `app-gate-api-cicd` is `gate-reader=app-gate-api-cicd`.
 //   - AGENT_XRS_TOOLS (Go only): the tools a pinned definition may name, comma separated. The default is the read tools and the
 //     propose-only lower ones (definitions.DefaultPinTools); setting it replaces the default, so promote, rollback, sync, apply, spawn
 //     and the upper pull request tool are in a pin only when the platform lists them.
@@ -34,6 +39,7 @@ type defsSettings struct {
 	namespaces []string
 	maxTier    string
 	tools      []string // nil: DefaultPinTools
+	names      map[string]string
 }
 
 var nsName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -66,6 +72,17 @@ func defsFromEnv(env func(string) string, githubPRs bool) (defsSettings, error) 
 		return d, configError("AGENT_XRS_MAX_TIER is T0, T1 or T2")
 	}
 	d.tools = list(env("AGENT_XRS_TOOLS"))
+	d.names = map[string]string{}
+	for _, e := range list(env("AGENT_XRS_NAMES")) {
+		n, ns, ok := strings.Cut(e, "=")
+		if !ok || !nsName.MatchString(n) || !nsName.MatchString(ns) {
+			return d, configError("AGENT_XRS_NAMES entries are name=namespace, not " + fmt.Sprintf("%q", e))
+		}
+		if _, dup := d.names[n]; dup {
+			return d, configError("AGENT_XRS_NAMES lists " + n + " twice: a name belongs to one namespace")
+		}
+		d.names[n] = ns
+	}
 	for _, ns := range list(env("AGENT_XRS_NAMESPACES")) {
 		switch {
 		case !nsName.MatchString(ns):
@@ -77,6 +94,11 @@ func defsFromEnv(env func(string) string, githubPRs bool) (defsSettings, error) 
 	}
 	if len(d.namespaces) > maxXRNamespaces {
 		return d, configError(fmt.Sprintf("AGENT_XRS_NAMESPACES names more than %d namespaces", maxXRNamespaces))
+	}
+	for n, ns := range d.names {
+		if !slices.Contains(d.namespaces, ns) {
+			return d, configError("AGENT_XRS_NAMES puts " + n + " in " + ns + ", which AGENT_XRS_NAMESPACES does not name")
+		}
 	}
 	if d.enabled && len(d.namespaces) == 0 {
 		return d, configError("AGENT_XRS_ENABLED needs AGENT_XRS_NAMESPACES: the namespaces whose Agent XRs may define agents (the Python gateway reads every namespace; the Go gateway reads only the ones it is told to). " +
@@ -98,6 +120,11 @@ func (d defsSettings) policy(reg *tools.Registry, owners, extraImages []string, 
 			allow[t] = true
 		}
 	}
+	for n := range d.names {
+		if _, bundledName := bundled[n]; bundledName {
+			return definitions.PinPolicy{}, configError("AGENT_XRS_NAMES lists " + n + ", which is a bundled definition's name")
+		}
+	}
 	images := []string{}
 	for _, g := range extraImages {
 		images = append(images, g)
@@ -110,7 +137,7 @@ func (d defsSettings) policy(reg *tools.Registry, owners, extraImages []string, 
 			images = append(images, sc["image"])
 		}
 	}
-	return definitions.PinPolicy{Tools: reg, AllowTools: allow, MaxTier: d.maxTier, Owners: append([]string{}, owners...), ImageGlobs: images, BindApp: true}, nil
+	return definitions.PinPolicy{Tools: reg, AllowTools: allow, MaxTier: d.maxTier, Owners: append([]string{}, owners...), ImageGlobs: images, BindApp: true, Names: d.names}, nil
 }
 
 // githubFiles is the pinned files' reader: repo.file.get's, through the agents' GitHub App.

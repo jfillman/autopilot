@@ -180,6 +180,8 @@ type PinPolicy struct {
 	// BindApp ties a pin to the app its namespace belongs to (`app-<app>-cicd`): its repository, its repository patterns, its app
 	// patterns and its event keys may name that app only. A pin in a namespace that is no app's is refused.
 	BindApp bool
+	// Names lists, for the agents whose names do not start with their app, the one namespace each may be pinned from (AGENT_XRS_NAMES).
+	Names map[string]string
 	// Detailed publishes Python's reasons, which quote the file (a value, a key, a name). Only the equivalence tests set it.
 	Detailed bool
 }
@@ -205,20 +207,31 @@ func (e *PolicyError) Error() string { return "policy: " + e.Path + ": " + e.Msg
 
 func pol(path, format string, a ...any) error { return &PolicyError{path, fmt.Sprintf(format, a...)} }
 
-// AppOfNamespace is the app a namespace belongs to: `app-<app>-cicd` (the tenants flow's), and nothing else.
+// AppOfNamespace is the app a namespace belongs to: `app-<app>-cicd` (the tenants flow's), and nothing else. An app whose name makes the
+// name-based mapping of its repositories ambiguous (`gitops-*`, `infra-*`: see RepoApp) has no pins: the gateway has no registry of an
+// app's repositories to ask (the broker and the write tools bind an app to its repositories by their names, backends.AppOf, and the
+// Backstage directory is S6), so the one way to be sure `gitops-infra-foo` is app foo's and not app infra-foo's is that no app is
+// named infra-foo, and that `gitops-x` is app x's gitops repository and not the main repository of an app named gitops-x.
 func AppOfNamespace(ns string) (string, bool) {
 	m := nsApp.FindStringSubmatch(ns)
-	if m == nil {
+	if m == nil || strings.HasPrefix(m[1], "gitops-") || strings.HasPrefix(m[1], "infra-") {
 		return "", false
 	}
 	return m[1], true
 }
 
+// AppOfName reports whether a pinned agent's name belongs to the app: it is the app's name or starts with it and a dash. This is
+// decided from the XR alone, so two namespaces can never contend for one name and there is no state to hold, to lose or to move: an
+// outage cannot hand a name to another tenant, nothing can be squatted, and an empty store at cutover changes nothing. Names that do
+// not follow the convention (the agents that were live before it) are listed for their namespace in PinPolicy.Names.
+func AppOfName(app, name string) bool { return name == app || strings.HasPrefix(name, app+"-") }
+
 var nsApp = regexp.MustCompile(`^app-([a-z0-9]+(?:-[a-z0-9]+)*)-cicd$`)
 
-// repoApp is the app a repository belongs to by Glidepath's naming (<app>, gitops-<app>, gitops-infra-<app>), and whether it is a
-// gitops repository.
-func repoApp(name string) (app string, gitops bool) {
+// RepoApp is the app a repository belongs to by Glidepath's naming (<app>, gitops-<app>, gitops-infra-<app>), and whether it is a
+// gitops repository: backends.AppOf, which the broker and every write tool bind an app to its repositories with, for names in the
+// lower case a pin is held to (a test holds the two equal).
+func RepoApp(name string) (app string, gitops bool) {
 	for _, p := range []string{"gitops-infra-", "gitops-"} {
 		if strings.HasPrefix(name, p) {
 			return name[len(p):], true
@@ -229,7 +242,7 @@ func repoApp(name string) (app string, gitops bool) {
 
 // CheckSource is whether a pin of repo in namespace ns may be fetched at all: before any token is minted for it. The repository must
 // be one of the namespace's own app (<app>, gitops-<app>, gitops-infra-<app>) under an owner this gateway may use.
-func (p PinPolicy) CheckSource(ns, repo string) error {
+func (p PinPolicy) CheckSource(ns, name, repo string) error {
 	if !p.BindApp {
 		return nil
 	}
@@ -237,17 +250,27 @@ func (p PinPolicy) CheckSource(ns, repo string) error {
 	if !ok {
 		return pol("namespace", "the namespace is not an app's (app-<app>-cicd)")
 	}
+	if err := p.checkName(app, ns, name); err != nil {
+		return err
+	}
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || name == "" || strings.Contains(name, "/") {
 		return pol("spec.source.repo", "not owner/name")
 	}
-	if got, _ := repoApp(name); got != app {
+	if got, _ := RepoApp(name); got != app {
 		return pol("spec.source.repo", "the repository is not this app's")
 	}
 	if p.Owners != nil && !slices.Contains(p.Owners, owner) {
 		return pol("spec.source.repo", "the owner is not one this gateway may use")
 	}
 	return nil
+}
+
+func (p PinPolicy) checkName(app, ns, name string) error {
+	if AppOfName(app, name) || (p.Names != nil && p.Names[name] == ns) {
+		return nil
+	}
+	return pol("metadata.name", "an agent's name is the app's or starts with it and a dash (%s, %s-...), or is listed for this namespace", app, app)
 }
 
 // Check is nil for a definition a pin of this source may be, else the reason it may not.
@@ -261,6 +284,11 @@ func (p PinPolicy) Check(d *Definition, src Source) error {
 		var ok bool
 		if app, ok = AppOfNamespace(strOr(src.Namespace, "")); !ok {
 			return pol("namespace", "the namespace is not an app's (app-<app>-cicd)")
+		}
+	}
+	if p.BindApp {
+		if err := p.checkName(app, strOr(src.Namespace, ""), d.Name); err != nil {
+			return err
 		}
 	}
 	raw, _ := json.Marshal(d.Doc)
@@ -290,6 +318,11 @@ func (p PinPolicy) Check(d *Definition, src Source) error {
 	}
 	if tierRank[d.Limits.TierCeiling] > tierRank[max] {
 		return pol("profile/tierCeiling", "%s is above %s, the highest ceiling a pinned agent may have", d.Limits.TierCeiling, max)
+	}
+	if p.BindApp {
+		if err := checkFields(d, prof, apis, app); err != nil {
+			return err
+		}
 	}
 	if d.IdentityType == "delegated" && d.ServiceAccount != nil {
 		return pol("identity/serviceAccount", "a delegated pin acts as the person who opens it and names no service account")
@@ -322,7 +355,7 @@ func (p PinPolicy) Check(d *Definition, src Source) error {
 		if p.Owners != nil && !slices.Contains(p.Owners, owner) {
 			return pol("profile/repos/allow", "%s: the owner is not one this gateway may use", pyrepr.Str(pat))
 		}
-		got, gitops := repoApp(repo)
+		got, gitops := RepoApp(repo)
 		if strings.Contains(repo, "*") || got != app {
 			return pol("profile/repos/allow", "%s: a pin may name its own app's repositories only, written out (%s, gitops-%s)", pyrepr.Str(pat), app, app)
 		}
@@ -382,6 +415,57 @@ func (p PinPolicy) Check(d *Definition, src Source) error {
 		}
 	}
 	return nil
+}
+
+// What a pin may set that the schema leaves open, and the platform's maxima for it. A pin comes from an app team: the values are
+// bounded here, not left to whoever writes the file. (A workload pin's service account, autopilot-runs/<its own name>, is safe only
+// because a pinned agent's name belongs to its app, AppOfName: another app cannot name this app's identity.)
+const (
+	maxTTLMinutes  = 120
+	maxToolCalls   = 500
+	maxGithubCalls = 200
+	maxOpenPRs     = 5
+	maxModelTokens = 2_000_000
+	maxChildren    = 5
+)
+
+func checkFields(d *Definition, prof, apis map[string]any, app string) error {
+	l := d.Limits
+	for _, c := range []struct {
+		name     string
+		v, limit int64
+	}{{"ttlMinutes", l.TTLMinutes, maxTTLMinutes}, {"toolCalls", l.ToolCalls, maxToolCalls}, {"githubCalls", l.GithubCalls, maxGithubCalls},
+		{"openPrs", l.OpenPRs, maxOpenPRs}, {"modelTokens", l.ModelTokens, maxModelTokens}, {"children", l.Children, maxChildren}} {
+		if c.v > c.limit {
+			return pol("profile/limits/"+c.name, "%d is above %d, the most a pinned agent may have", c.v, c.limit)
+		}
+	}
+	if l.Network == "allowlist" {
+		return pol("profile/network", "a pinned agent may not have an egress allowlist")
+	}
+	if l.Compute != "small" && l.Compute != "medium" {
+		return pol("profile/compute", "a pinned agent runs on small or medium compute")
+	}
+	if air, _ := prof["airframe"].(map[string]any); air["proposeFlight"] == true {
+		return pol("profile/airframe/proposeFlight", "a pinned agent may not open the Flight half of an AppSpec")
+	}
+	for _, a := range stringList(apis["allow"]) {
+		if a != app {
+			return pol("profile/apis/allow", "%s: a pin may name its own app's API only", pyrepr.Str(a))
+		}
+	}
+	return nil
+}
+
+func stringList(v any) []string {
+	l, _ := v.([]any)
+	var out []string
+	for _, e := range l {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // globMatch is a whole-string match where `*` stands for any run of characters (a glob with no wildcard is an exact image).

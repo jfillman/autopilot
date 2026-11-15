@@ -220,23 +220,6 @@ func TestTheFirstPollPublishesEvenWhenThereIsNothingPinned(t *testing.T) {
 	}
 }
 
-// More Agent XRs than the core takes in one set is a list failure, not a set that is cut: no partial set reaches the core.
-func TestMoreXRsThanTheCoreTakesIsRefusedWhole(t *testing.T) {
-	r := newRig(t)
-	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
-	r.poll()
-	for i := 0; i <= definitions.MaxPins; i++ {
-		r.lister.items = append(r.lister.items, xrOf(fmt.Sprintf("a%d", i), "app-gate-api-cicd"))
-	}
-	r.logs.Reset()
-	if ch := r.poll(); ch.Any() || r.defs["good"] == nil || r.pub.count() != 1 {
-		t.Fatalf("an over-long list must change and publish nothing: %+v", ch)
-	}
-	if !strings.Contains(r.logs.String(), "keeping the current set") {
-		t.Fatal(r.logs.String())
-	}
-}
-
 // The publish is made whole from one snapshot, repeated until the core has it, and never marks a set as published that changed while it
 // was on its way.
 func TestAPublishTheCoreDidNotTakeIsMadeAgainWholeAndASetThatChangedMidPublishIsNotMarkedPublished(t *testing.T) {
@@ -373,7 +356,7 @@ func TestASetLargerThanTheCoreTakesIsNotSent(t *testing.T) {
 	}
 	r.mgr.ApplyCluster(context.Background(), loaded, nil)
 	// the gateway never runs a set the core was not given: the pins of the namespace that does not fit are dropped before the swap
-	if r.pub.count() != 1 || len(r.pub.pins[0]) != 0 || len(r.pub.rej[0]) != 200 || r.defs["p0"] != nil || !strings.Contains(r.logs.String(), "do not fit the publish budget") {
+	if r.pub.count() != 1 || len(r.pub.pins[0]) != 0 || len(r.pub.rej[0]) != 1 || r.defs["p0"] != nil || !strings.Contains(r.logs.String(), "do not fit its share") {
 		t.Fatalf("a set over the core's limit is cut before it is applied (%d publishes): %s", r.pub.count(), r.logs.String())
 	}
 }
