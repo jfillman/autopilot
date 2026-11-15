@@ -1,0 +1,178 @@
+# Cloud-dependency XRD (2026-10-24): private object storage - an Amazon S3 bucket, or an Azure Storage
+# Account with one blob container - stood up and torn down on request like the cloud targets
+# (docs/user/cloud-dependencies.md). One kind for both clouds: `spec.cloud` picks the implementation and
+# can't change afterwards.
+#
+# Always private, always encrypted, TLS only: S3 Block Public Access on all four settings, ownership
+# BucketOwnerEnforced (no ACLs), SSE-S3; Azure minimum TLS 1.2, HTTPS only, no public blob access. There
+# is no field to make a bucket public - that is a guardrail, not a missing feature (docs/admin/governance.md).
+#
+# Requested as a stand-alone XR in the app's xr-requests, in the app's app-<app>-cicd namespace on the dev
+# cluster, where the cloud providers run.
+#
+# Access, AWS: `consumers[]` names AwsLambdaTargets in the same namespace; each gets an inline policy on its
+# execution role for exactly this bucket. Access, Azure: the account's connection string, which the provider
+# writes into the Secret <name>-credentials.
+#
+# Deleting: an S3 bucket that still holds objects is not deleted unless emptyOnDelete is true (the XR's
+# deletion waits, and says so, until someone empties it). Azure deletes the storage account with its
+# contents, so an Azure XR must say emptyOnDelete: true to be accepted at all.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: objectstorages.catalog.hangar.io
+  annotations:
+    terasky.backstage.io/add-to-catalog: "true"
+    terasky.backstage.io/target-path: "tenants/${{ parameters.xrName }}/xr-requests"
+    terasky.backstage.io/description: "Private, encrypted object storage - an Amazon S3 bucket or an Azure Storage Account blob container - with IAM access for AWS Lambda targets."
+    hangar.io/agent-summary: "Private, encrypted object storage - an Amazon S3 bucket or an Azure Storage Account blob container - with IAM access for AWS Lambda targets."
+spec:
+  group: catalog.hangar.io
+  names:
+    kind: ObjectStorage
+    plural: objectstorages
+    singular: objectstorage
+  scope: Namespaced
+  # Review C13: deterministic Composition choice for an XR that names none (there is one per kind).
+  defaultCompositionRef:
+    name: objectstorages.catalog.hangar.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: CLOUD
+          type: string
+          jsonPath: ".spec.cloud"
+        - name: DEPENDENCY
+          type: string
+          jsonPath: ".status.conditions[?(@.type=='DependencyReady')].reason"
+          description: "DependencyReady reason (closed set in xrds/<kind>.meta.yaml)"
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "ObjectStorage: Private, encrypted object storage - an Amazon S3 bucket or an Azure Storage Account blob container - with IAM access for AWS Lambda targets."
+          properties:
+            metadata:
+              type: object
+              description: "Standard object metadata. Only name is constrained here (its length)."
+              properties:
+                name:
+                  type: string
+                  maxLength: 40
+                  description: >-
+                    At most 40 characters: composed objects are named <name>-<suffix>, and grants
+                    <name>-grant-<consumer>.
+            spec:
+              type: object
+              description: "Desired state of the ObjectStorage. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply)."
+              x-kubernetes-validations:
+                - rule: "self.cloud == 'aws' || !has(self.consumers) || size(self.consumers) == 0"
+                  message: "consumers grant IAM access to AWS Lambda targets; an Azure account's consumers use the connection string in the Secret <name>-credentials"
+                - rule: "self.cloud == 'aws' || self.emptyOnDelete"
+                  message: "Azure deletes a storage account together with its contents; set emptyOnDelete: true to say that is intended"
+              properties:
+                cloud:
+                  type: string
+                  description: aws (an S3 bucket) or azure (a Storage Account with one blob container). Fixed at creation.
+                  enum: [aws, azure]
+                  default: aws
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "cloud can't change after creation; delete and re-create the ObjectStorage"
+                bucketName:
+                  type: string
+                  description: >-
+                    The S3 bucket's name, or the Azure blob container's. Defaults to this XR's own name.
+                    S3 bucket names are global across all of AWS, so a taken name fails at create.
+                  pattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
+                  x-kubernetes-validations:
+                    - rule: "self == oldSelf"
+                      message: "bucketName can't change after creation"
+                versioning:
+                  type: boolean
+                  description: Keep every version of every object (S3 versioning, Azure blob versioning). Costs storage for each version.
+                  default: false
+                emptyOnDelete:
+                  type: boolean
+                  description: >-
+                    Delete the objects with the bucket when the XR is deleted. false (the default) keeps
+                    an S3 bucket that holds objects, and the XR's deletion waits until it is emptied.
+                    Must be true on Azure, which always deletes the contents.
+                  default: false
+                region:
+                  type: string
+                  description: AWS only. The bucket's region.
+                  pattern: '^[a-z]{2}(-[a-z]+)+-[0-9]$'
+                  default: us-east-1
+                location:
+                  type: string
+                  description: Azure only. The storage account's Azure region.
+                  pattern: '^[a-z0-9]+$'
+                  default: eastus
+                resourceGroup:
+                  type: string
+                  description: >-
+                    Azure only. The resource group this XR CREATES and owns (deleting the XR deletes the
+                    group). Defaults to <bucketName>-rg.
+                  pattern: '^[a-zA-Z0-9._()-]{1,90}$'
+                storageAccountName:
+                  type: string
+                  description: >-
+                    Azure only. The storage account, created for this container alone: 3 to 24 lowercase
+                    letters and digits, global across Azure. Defaults to the bucket name without its
+                    hyphens, cut to 24 characters.
+                  pattern: '^[a-z0-9]{3,24}$'
+                consumers:
+                  type: array
+                  maxItems: 10
+                  description: >-
+                    AWS only. The Lambda targets (AwsLambdaTarget XRs in this namespace) that use the
+                    bucket. Each gets an inline IAM policy on its execution role scoped to this bucket.
+                  items:
+                    type: object
+                    required: [awsLambdaTarget]
+                    properties:
+                      awsLambdaTarget:
+                        type: string
+                        description: The AwsLambdaTarget XR's name, in this namespace.
+                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                        maxLength: 40
+                      access:
+                        type: string
+                        description: >-
+                          read (GetObject, ListBucket) or readWrite (also PutObject, DeleteObject and
+                          multipart uploads).
+                        enum: [read, readWrite]
+                        default: readWrite
+            status:
+              type: object
+              description: Published by the Composition once the storage exists.
+              properties:
+                cloud:
+                  type: string
+                  description: The cloud the storage lives in.
+                bucketName:
+                  type: string
+                  description: The S3 bucket's or the blob container's name.
+                arn:
+                  type: string
+                  description: AWS. The bucket's ARN.
+                storageAccount:
+                  type: string
+                  description: Azure. The storage account's name.
+                endpoint:
+                  type: string
+                  description: The HTTPS endpoint objects are read and written through.
+                connectionConfigMap:
+                  type: string
+                  description: The ConfigMap in this namespace with the storage's non-secret connection details.
+                credentialsSecret:
+                  type: string
+                  description: Azure. The Secret in this namespace with the account's connection string.
+                consumers:
+                  type: array
+                  description: The consumers whose grant is composed, by AwsLambdaTarget name.
+                  items:
+                    type: string
+          required: ["spec"]

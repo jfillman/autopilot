@@ -88,6 +88,7 @@ var (
 	rePulls    = regexp.MustCompile(`^/repos/([^/]+/[^/]+)/pulls$`)
 	reContents = regexp.MustCompile(`^/repos/([^/]+/[^/]+)/contents/(.*)$`)
 	reRepo     = regexp.MustCompile(`^/repos/([^/]+/[^/]+)$`)
+	rePullFile = regexp.MustCompile(`^/repos/([^/]+/[^/]+)/pulls/([0-9]+)/files$`)
 )
 
 // NewGitHub is a fake with one repository's worth of state per onboarded name; each has a main branch.
@@ -190,6 +191,17 @@ func (g *GitHub) PullRequests(repo string) []*PullRequest {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return append([]*PullRequest(nil), g.PRs[repo]...)
+}
+
+// CommitFiles are the files a commit holds (path -> content).
+func (g *GitHub) CommitFiles(repo, sha string) map[string]string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := map[string]string{}
+	for p, c := range g.files[repo][sha] {
+		out[p] = c
+	}
+	return out
 }
 
 // Calls are the requests seen, in order.
@@ -324,11 +336,36 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 	case rePulls.MatchString(p) && r.Method == "GET":
 		m := reRepoPulls(p)
 		head := strings.TrimPrefix(r.URL.Query().Get("head"), strings.SplitN(m, "/", 2)[0]+":")
+		all := r.URL.Query().Get("head") == ""
 		out := []any{}
 		for _, pr := range g.PRs[m] {
-			if pr.Head == head {
+			if all && pr.State != "open" {
+				continue
+			}
+			if all || pr.Head == head {
 				out = append(out, map[string]any{"number": pr.Number, "html_url": fmt.Sprintf("https://github.example/%s/pull/%d", m, pr.Number),
 					"state": pr.State, "merged_at": pr.MergedAt, "head": map[string]any{"ref": pr.Head, "sha": pr.CommitSHA}})
+			}
+		}
+		reply(w, 200, out)
+	case rePullFile.MatchString(p) && r.Method == "GET":
+		// the files a pull request carries: the head commit's files that the default branch's does not have, or has otherwise
+		m := rePullFile.FindStringSubmatch(p)
+		out := []any{}
+		for _, pr := range g.PRs[m[1]] {
+			if fmt.Sprint(pr.Number) != m[2] {
+				continue
+			}
+			base := g.files[m[1]][g.branches[m[1]]["main"]]
+			names := []string{}
+			for path, content := range g.files[m[1]][pr.CommitSHA] {
+				if b, has := base[path]; !has || b != content {
+					names = append(names, path)
+				}
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				out = append(out, map[string]any{"filename": n, "status": "added"})
 			}
 		}
 		reply(w, 200, out)
@@ -340,9 +377,20 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 			c = ref
 		}
 		var entries []any
+		seenEntry := map[string]bool{}
+		dir := strings.TrimRight(m[2], "/")
 		for p := range g.files[m[1]][c] {
-			if strings.HasPrefix(p, strings.TrimRight(m[2], "/")+"/") {
-				entries = append(entries, map[string]any{"name": p, "type": "file"})
+			if dir == "" || strings.HasPrefix(p, dir+"/") {
+				rest := strings.TrimPrefix(strings.TrimPrefix(p, dir), "/")
+				name, deeper, _ := strings.Cut(rest, "/")
+				typ := "file"
+				if deeper != "" {
+					typ = "dir"
+				}
+				if !seenEntry[name] {
+					seenEntry[name] = true
+					entries = append(entries, map[string]any{"name": name, "type": typ})
+				}
 			}
 		}
 		if typ, ok := g.special[m[1]+"/"+strings.TrimRight(m[2], "/")]; ok {

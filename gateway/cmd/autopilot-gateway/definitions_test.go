@@ -16,7 +16,7 @@ import (
 // The definition set's settings (A-9 S4): Python's AGENT_XRS_ENABLED and AGENT_XRS_INTERVAL, and the two the Go gateway adds. A bad one
 // stops the start; the loader never starts without being told which namespaces may define agents.
 
-var githubOn = map[string]string{"GITHUB_PR_ENABLED": "1", "XR_REQUEST_ENABLED": "0", "BROKER_URL": "https://b:8080", "GITHUB_OWNERS": "acme"}
+var githubOn = map[string]string{"GITHUB_PR_ENABLED": "1", "BROKER_URL": "https://b:8080", "GITHUB_OWNERS": "acme"}
 
 func TestTheLoaderIsOffByDefaultAndOnWithGitHubOnlyWhenItKnowsWhereToRead(t *testing.T) {
 	c, err := configFromEnv(envOf(base(nil)))
@@ -79,8 +79,8 @@ func TestSettingsThisSliceCarriesAreNotRefusedAsUnported(t *testing.T) {
 			}
 		}
 	}
-	// xr.request is not carried yet and stays refused, loader or not
-	if _, err := configFromEnv(envOf(base(map[string]string{"XR_REQUEST_ENABLED": "1"}))); err == nil || !strings.Contains(err.Error(), "not carried") {
+	// xr.request is carried since S5c: it needs GitHub, not a refusal as not carried
+	if _, err := configFromEnv(envOf(base(map[string]string{"XR_REQUEST_ENABLED": "1"}))); err == nil || strings.Contains(err.Error(), "not carried") {
 		t.Fatalf("xr.request: %v", err)
 	}
 }
@@ -131,7 +131,7 @@ func TestThePolicyServeBuildsIsTheStrictOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_NAMESPACES": "app-gate-api-cicd", "GITHUB_OWNERS": "acme,other", "RUNTIME_IMAGES_EXTRA": "ghcr.io/acme/*"}))))
+	c, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_NAMESPACES": "app-gate-api-cicd", "GITHUB_OWNERS": "acme,other", "AIRFRAME_OWNER": "acme", "RUNTIME_IMAGES_EXTRA": "ghcr.io/acme/*"}))))
 	if err != nil {
 		t.Fatal(err)
 	}

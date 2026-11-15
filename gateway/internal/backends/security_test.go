@@ -543,7 +543,7 @@ func TestKubeReaderReadsApplicationsOnly(t *testing.T) {
 	for _, p := range []string{
 		"/api/v1/namespaces/argocd/secrets", "/api/v1/namespaces/argocd/secrets/x", "/api/v1/namespaces/argocd/configmaps/x",
 		"/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/x/status", "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/x/logs",
-		"/apis/argoproj.io/v1alpha1/namespaces/argocd/applicationsets/x", "/apis/argoproj.io/v1alpha1/namespaces/argocd/rollouts/x",
+		"/apis/argoproj.io/v1alpha1/namespaces/argocd/applicationsets/x", "/apis/argoproj.io/v1alpha1/namespaces/argocd/rollouts/x/status", "/apis/argoproj.io/v1alpha1/rollouts", "/apis/catalog.hangar.io/v1alpha1/xrds", "/apis/catalog.hangar.io/v1alpha1/namespaces/a/managedpostgresqls/x/status", "/apis/catalog.hangar.io/v1alpha1/namespaces/a/compositions",
 		"/apis/argoproj.io/v1alpha1/applications", "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/",
 		"/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/../secrets", "/apis/argoproj.io/v1alpha1/namespaces/../applications/x",
 		"/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/a%2fb", "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/a?x=1",

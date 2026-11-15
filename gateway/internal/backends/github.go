@@ -27,7 +27,7 @@ import (
 // dropped; never cached, logged, written, put in an error or returned.
 //
 // The pull request is built with the Git data API, so nothing is cloned and nothing is written to disk. The whole of what
-// this client can send to GitHub is the closed list in endpoint (below): nine requests, GET or POST, each built from
+// this client can send to GitHub is the closed list in endpoint (below): eleven requests, GET or POST, each built from
 // validated parts. There is no merge, no review, no PATCH, no PUT and no DELETE in it, so by no combination of calls can
 // the gateway merge, approve, force-push, delete or move a branch, change protection, or write to an existing branch.
 
@@ -125,6 +125,7 @@ type GitHub struct {
 	broker    string
 	tokenFile string
 	owners    map[string]string // lower case -> lower case: the one spelling every request and receipt uses
+	tenants   string            // owner/name of the tenants repo (AIRFRAME_TENANTS_REPO): the one repository a token is asked for with no app
 	timeout   time.Duration
 	apiHC     *http.Client
 	brokerHC  *http.Client
@@ -140,7 +141,10 @@ type GitHubOptions struct {
 	// GitHub owners (users or organisations) this gateway may open pull requests for: no argument chooses one.
 	API, BrokerURL, TokenFile string
 	Owners                    []string
-	Timeout                   time.Duration
+	// TenantsRepo is the dev cluster's tenants repository, owner/name (AIRFRAME_TENANTS_REPO with its owner): the one repository
+	// the broker is asked about with no app (it is no app's), for xr.request and airframe.apply's tenants step. Empty: none.
+	TenantsRepo string
+	Timeout     time.Duration
 	// AllowHTTP lets the broker URL (and an API URL) be plain http: for a lab that serves them so (BROKER_ALLOW_HTTP). Off by
 	// default: a bearer token does not cross the network in the clear.
 	AllowHTTP bool
@@ -182,10 +186,21 @@ func NewGitHub(o GitHubOptions) (*GitHub, error) {
 	if len(owners) == 0 {
 		return nil, errors.New("GITHUB_OWNERS names the GitHub owners the agents' pull requests go to (at least one)")
 	}
+	tenants := ""
+	if o.TenantsRepo != "" {
+		c, ok := CanonicalRepo(o.TenantsRepo)
+		if !ok {
+			return nil, fmt.Errorf("the tenants repository %s is not owner/name", pyStrRepr(o.TenantsRepo))
+		}
+		if _, known := owners[c[:strings.Index(c, "/")]]; !known {
+			return nil, fmt.Errorf("the tenants repository %s is not under one of GITHUB_OWNERS", pyStrRepr(o.TenantsRepo))
+		}
+		tenants = c
+	}
 	if o.Timeout <= 0 {
 		o.Timeout = 30 * time.Second
 	}
-	return &GitHub{api: a, broker: b, tokenFile: o.TokenFile, owners: owners, timeout: o.Timeout,
+	return &GitHub{api: a, broker: b, tokenFile: o.TokenFile, owners: owners, tenants: tenants, timeout: o.Timeout,
 		apiHC: client(nil, 3*time.Second, 16), brokerHC: client(nil, 3*time.Second, 8),
 		apiLim: newLimiter(16), brokerLim: newLimiter(8), retry: defaultRetry()}, nil
 }
@@ -279,15 +294,17 @@ type File struct{ Path, Content string }
 type endpoint int
 
 const (
-	epGetRef      endpoint = iota // GET  /repos/{o}/{r}/git/ref/heads/{branch}
-	epGetCommit                   // GET  /repos/{o}/{r}/git/commits/{sha}
-	epPostTree                    // POST /repos/{o}/{r}/git/trees
-	epPostCommit                  // POST /repos/{o}/{r}/git/commits
-	epPostRef                     // POST /repos/{o}/{r}/git/refs
-	epPostPull                    // POST /repos/{o}/{r}/pulls
-	epListPulls                   // GET  /repos/{o}/{r}/pulls?head={o}:{branch}&state=all|open&per_page=n
-	epGetContents                 // GET  /repos/{o}/{r}/contents/{path}?ref={ref}
-	epGetRepo                     // GET  /repos/{o}/{r}
+	epGetRef        endpoint = iota // GET  /repos/{o}/{r}/git/ref/heads/{branch}
+	epGetCommit                     // GET  /repos/{o}/{r}/git/commits/{sha}
+	epPostTree                      // POST /repos/{o}/{r}/git/trees
+	epPostCommit                    // POST /repos/{o}/{r}/git/commits
+	epPostRef                       // POST /repos/{o}/{r}/git/refs
+	epPostPull                      // POST /repos/{o}/{r}/pulls
+	epListPulls                     // GET  /repos/{o}/{r}/pulls?head={o}:{branch}&state=all|open&per_page=n
+	epGetContents                   // GET  /repos/{o}/{r}/contents/{path}?ref={ref}
+	epGetRepo                       // GET  /repos/{o}/{r}
+	epListPullFiles                 // GET  /repos/{o}/{r}/pulls/{n}/files?per_page=100
+	epListOpenPulls                 // GET  /repos/{o}/{r}/pulls?state=open&per_page=100
 )
 
 // AllowedGitHubRequests is the list, for the documentation and for a test that holds what is sent to it.
@@ -301,6 +318,8 @@ var AllowedGitHubRequests = []string{
 	"GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state={all|open}&per_page={5|10}",
 	"GET /repos/{owner}/{repo}/contents/{path}?ref={ref}",
 	"GET /repos/{owner}/{repo}",
+	"GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100",
+	"GET /repos/{owner}/{repo}/pulls?state=open&per_page=100",
 }
 
 type ghReq struct {
@@ -312,6 +331,7 @@ type ghReq struct {
 	ref         string // epGetContents
 	state       string // epListPulls
 	perPage     int    // epListPulls
+	number      int64  // epListPullFiles
 	body        any    // the POSTs
 }
 
@@ -346,6 +366,13 @@ func (r ghReq) target() (method, target string, err error) {
 		return http.MethodGet, root + "/git/commits/" + r.sha, nil
 	case epGetRepo:
 		return http.MethodGet, root, nil
+	case epListOpenPulls:
+		return http.MethodGet, root + "/pulls?state=open&per_page=100", nil
+	case epListPullFiles:
+		if r.number < 1 {
+			return "", "", errors.New("pull request number")
+		}
+		return http.MethodGet, fmt.Sprintf("%s/pulls/%d/files?per_page=100", root, r.number), nil
 	case epPostTree:
 		return http.MethodPost, root + "/git/trees", nil
 	case epPostCommit:
@@ -469,6 +496,17 @@ func AppOf(repo string) string {
 
 // mint asks the broker for an installation token for this one repository, as an app's own. Each call asks anew.
 func (g *GitHub) mint(ctx context.Context, owner, name string) (string, error) {
+	return g.mintFor(ctx, owner, name, false)
+}
+
+// mintFor is mint, or (tenants) the same for the tenants repository, which is no app's: the broker mints for it only when the
+// request names no app (glidepath#236) and refuses it with one. Only the one repository the deployment names as its tenants
+// repository can be asked for so: no argument reaches this, and a repository that is not that one is refused here.
+func (g *GitHub) mintFor(ctx context.Context, owner, name string, tenants bool) (string, error) {
+	if tenants && (g.tenants == "" || owner+"/"+name != g.tenants) {
+		return "", &core.Denied{Rule: "XR-TENANTS-TOKEN", Message: "no tenants repository is configured for " + owner + "/" + name,
+			Hint: "xr.request and airframe.apply write the dev cluster's tenants repository only (AIRFRAME_TENANTS_REPO)."}
+	}
 	tok, err := readTokenMin(g.tokenFile)
 	if err != nil {
 		return "", err
@@ -476,7 +514,11 @@ func (g *GitHub) mint(ctx context.Context, owner, name string) (string, error) {
 	if strings.ContainsAny(tok, "\r\n") {
 		return "", headerError()
 	}
-	body, _ := json.Marshal(map[string]string{"owner": owner, "repo": name, "app": AppOf(name)})
+	req := map[string]string{"owner": owner, "repo": name}
+	if !tenants {
+		req["app"] = AppOf(name)
+	}
+	body, _ := json.Marshal(req)
 	hdr := http.Header{"Authorization": {"Bearer " + tok}, "Content-Type": {"application/json"}}
 	rp, err := send(ctx, g.brokerHC, g.brokerLim, g.timeout, http.MethodPost, g.broker+"/agent-installation-token", hdr, body, maxAPIOK, maxAPIErr)
 	if err != nil {
@@ -496,6 +538,10 @@ func (g *GitHub) mint(ctx context.Context, owner, name string) (string, error) {
 	// What the broker says in a failure is read with every credential taken out of it.
 	minted, _ := raw["token"].(string)
 	doc := docMap(docAny(redact(redact(rp.body, tok), minted)))
+	if rp.status == 403 && tenants {
+		return "", &core.Denied{Rule: "XR-TENANTS-TOKEN", Message: "Glidepath's broker does not mint agent tokens for " + owner + "/" + name,
+			Hint: "xr.request and airframe.apply need the broker to allow the tenants repo for the agents' App (Glidepath agentToken, AGENT_PIN_TENANTS_REPO) and the App installed there; ask a person, or open the XR file with repo.pr.open on the app's own repo for them to move."}
+	}
 	if rp.status == 403 {
 		return "", &core.Denied{Rule: "GH-REPO-NOT-APP", Message: owner + "/" + name + " is not an onboarded app's repo",
 			Hint: "Agents open PRs on an app's own repos only (<app>, gitops-<app>)."}
@@ -534,6 +580,9 @@ type OpenPRInput struct {
 	Body                      string
 	// DenyPaths are the paths the agent may not write (its definition's, with the baseline).
 	DenyPaths []string
+	// Tenants says the repository is the tenants repository: the token is asked for with no app. Only the configured one is
+	// accepted (mintFor).
+	Tenants bool
 	// Check runs once the base is known and before anything is written: the cicd.yaml check, asked about the resolved base.
 	Check func(ctx context.Context, base string) error
 }
@@ -892,7 +941,7 @@ func (g *GitHub) OpenPR(ctx context.Context, in OpenPRInput) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	token, err := g.mint(ctx, owner, name)
+	token, err := g.mintFor(ctx, owner, name, in.Tenants)
 	if err != nil {
 		return nil, err
 	}
@@ -1182,13 +1231,18 @@ func (g *GitHub) EnsurePR(ctx context.Context, in OpenPRInput) (map[string]any, 
 	if err != nil {
 		return nil, err
 	}
-	token, err := g.mint(ctx, owner, name)
+	token, err := g.mintFor(ctx, owner, name, in.Tenants)
 	if err != nil {
 		return nil, err
 	}
 	if err := g.resolveBase(ctx, token, owner, name, &in); err != nil {
 		return nil, err
 	}
+	return g.ensureWith(ctx, token, owner, name, in, entries)
+}
+
+// ensureWith is EnsurePR once the token is minted and the base known.
+func (g *GitHub) ensureWith(ctx context.Context, token, owner, name string, in OpenPRInput, entries []treeEntry) (map[string]any, error) {
 	found, err := g.prOf(ctx, token, owner, name, in.Branch)
 	if err != nil {
 		return nil, err
@@ -1265,6 +1319,11 @@ func (g *GitHub) ReadFile(ctx context.Context, repo any, path string, ref string
 	if err != nil {
 		return nil, err
 	}
+	return g.readWith(ctx, token, owner, name, path, ref)
+}
+
+// readWith is read_file after the token: one file's text, or a directory's entries, at a ref.
+func (g *GitHub) readWith(ctx context.Context, token, owner, name, path, ref string) (map[string]any, error) {
 	status, doc, err := g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: path, ref: ref})
 	if err != nil {
 		return nil, err

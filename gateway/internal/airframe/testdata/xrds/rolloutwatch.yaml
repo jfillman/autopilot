@@ -1,0 +1,173 @@
+# AI-triage redesign (2026-08-18) - Attached-tier XRD, same shape/conventions as
+# slos.catalog.hangar.io (see that XRD's own header). Wraps function-rollout-watcher
+# (extracted from the ai-rollout prototype - see that function's own README for the
+# HolmesGPT redesign history).
+#
+# apiextensions.crossplane.io/v2, Namespaced, same as every other Attached-tier XRD -
+# this catalog's general "real namespaced-XR support" reasoning applies identically
+# here, not repeated per-XRD.
+#
+# airframe-application's own chart renders exactly one of these per release, unconditionally
+# whenever rollout: is set (same treatment as ServiceMonitor - see
+# charts/airframe-application/templates/attached/rolloutwatch.yaml), metadata.name equal to
+# .Values.appName - the SAME name the chart's own Rollout gets (workload/rollout.yaml),
+# in the SAME namespace. That's deliberate, not incidental: function-rollout-watcher's
+# Composition never gets told a separate "which Rollout" identity - it derives the
+# Rollout it should watch (extra-resources match_name) from THIS XR's own
+# metadata.name/metadata.namespace being identical to the Rollout's.
+#
+# Deployed per cluster (Attached-tier locality - idp/docs/service-catalog-design.md §0),
+# same as SLO - Crossplane must be running on whichever cluster actually hosts the
+# Rollout this watches, since extra-resources lookups never cross clusters. Unlike SLO,
+# this has no ApplicationEnvironment dependency beyond environmentRef being
+# labeling/audit only (same convention every Attached-tier XRD already uses) - the
+# Composition derives GitOps/source repo coordinates deterministically from
+# spec.appName/cluster/env instead (see function-rollout-watcher's own fn.py header for
+# why a live cross-cluster NodeJSApplication lookup can't work here).
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: rolloutwatches.catalog.hangar.io
+  annotations:
+    terasky.backstage.io/add-to-catalog: "false"
+    hangar.io/catalog-exclusion: "Rendered by the airframe-application chart for every app environment; never requested directly."
+    hangar.io/agent-summary: "Watches an app's Argo Rollout and runs AI-triage diagnosis on a failed canary."
+spec:
+  group: catalog.hangar.io
+  names:
+    kind: RolloutWatch
+    plural: rolloutwatches
+    singular: rolloutwatch
+  scope: Namespaced
+  # Review C13: deterministic Composition choice for an XR that names none (there is one per kind).
+  defaultCompositionRef:
+    name: rolloutwatches.catalog.hangar.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: PHASE
+          type: string
+          jsonPath: ".status.rolloutPhase"
+          description: "Last observed Rollout phase"
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "RolloutWatch: Watches an app's Argo Rollout and runs AI-triage diagnosis on a failed canary."
+          properties:
+            spec:
+              type: object
+              description: "Desired state of the RolloutWatch. Each field below is documented; the XRD rejects unknown fields at sync time (server-side apply)."
+              required:
+                - environmentRef
+                - appName
+                - cluster
+                - env
+              properties:
+                environmentRef:
+                  type: object
+                  description: >-
+                    Names the owning ApplicationEnvironment XR (app+cluster+env
+                    identity) this watcher belongs to. Labeling/audit only - not a
+                    live lookup, same convention as every other Attached-tier XRD
+                    in this catalog.
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      description: The ApplicationEnvironment XR's own name.
+
+                appName:
+                  type: string
+                  description: >-
+                    The app this watches - also airframe-application's own release name,
+                    the Rollout's metadata.name in this XR's own namespace (extra-
+                    resources match_name), and the GitHub repo name (gitops-<appName>
+                    / <appName>) the Composition derives GitOps/source coordinates
+                    from. Always equal to this XR's own metadata.name in practice
+                    (airframe-application's chart sets both identically) but declared
+                    explicitly rather than re-derived from metadata.name, so the
+                    Composition never has to assume that invariant holds.
+                  minLength: 1
+
+                cluster:
+                  type: string
+                  description: >-
+                    Which cluster this app is deployed to: its name in the cluster registry (e.g. "example-prod", an example). Used,
+                    together with env, to derive the GitOps manifest path
+                    (<cluster>/<env>/values.yaml) a dispatched diagnosis Job opens
+                    its fix PR against.
+                  minLength: 1
+
+                env:
+                  type: string
+                  description: >-
+                    Which environment within that cluster - e.g. "prod"/"staging".
+                    Same DNS-1123-pattern convention as ApplicationEnvironment's own
+                    spec.env (not repeated here as a literal pattern - this field is
+                    only ever chart-templated from airframe-application's own .Values.envName,
+                    which ApplicationEnvironment's XRD already validates upstream).
+                  minLength: 1
+
+                notifications:
+                  type: object
+                  description: >-
+                    Where a completed diagnosis gets reported, beyond the XR's own
+                    status/events (function-rollout-watcher's own README) and
+                    whatever HolmesGPT did on its own (GitHub PR, if it opened one).
+                    Optional and omitted entirely by airframe-application's chart unless a
+                    developer set notifications.slack.enabled: true in their
+                    values.yaml - same shape/opt-in convention as platform-cicd's own
+                    cicd.yaml notifications.slack.{enabled,channel}, deliberately not
+                    a new one. See that chart's own notify-external-secret.yaml for
+                    where the actual webhook URL comes from (never a plain spec
+                    field - it's a credential).
+                  properties:
+                    slack:
+                      type: object
+                      description: >-
+                        Slack-specific notification settings - the only channel this XRD
+                        supports today, mirroring platform-cicd's own cicd.yaml
+                        notifications.slack shape rather than a new convention.
+                      required:
+                        - enabled
+                      properties:
+                        enabled:
+                          type: boolean
+                          description: >-
+                            Whether a completed diagnosis posts to Slack. The webhook URL
+                            itself is never a spec field (it's a credential) - see
+                            notify-external-secret.yaml for where it actually comes from.
+                        channel:
+                          type: string
+                          description: >-
+                            Optional Slack channel override (e.g. "#your-channel") -
+                            only takes effect if the workspace's webhook app allows
+                            overriding its own configured default channel.
+            status:
+              type: object
+              description: >-
+                Written by function-rollout-watcher every reconcile - see that
+                function's own fn.py for the exact meaning of each field. Same
+                shape the ai-rollout-derived version of this function already used.
+              properties:
+                rolloutPhase:
+                  type: string
+                  description: The watched Rollout's last-observed status.phase (Healthy/Progressing/Degraded/Error/...), copied straight through, not reinterpreted.
+                lastDiagnosisRevision:
+                  type: string
+                  description: >-
+                    The Rollout's currentPodHash at the last dispatched diagnosis - the
+                    de-dupe key that stops the same Degraded revision from dispatching a
+                    second diagnosis Job. Cleared once the rollout recovers, so a future
+                    degradation (even a flap back to this same revision) dispatches fresh.
+                lastDiagnosisJob:
+                  type: string
+                  description: Name of the Job dispatched to HolmesGPT for lastDiagnosisRevision (diagnosis-<app>-<revision>, truncated to 63 chars). Cleared alongside lastDiagnosisRevision on recovery.
+                lastDiagnosisTime:
+                  type: string
+                  description: When lastDiagnosisJob was dispatched, UTC ISO-8601. Cleared alongside lastDiagnosisRevision on recovery.
+          required: ["spec"]

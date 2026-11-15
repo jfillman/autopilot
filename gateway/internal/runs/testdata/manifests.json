@@ -1466,6 +1466,11 @@
    "name": "coding-agent",
    "owner": "group:default/team-platform",
    "profile": {
+    "airframe": {
+     "apps": [
+      "*"
+     ]
+    },
     "compute": "small",
     "glidepath": {
      "apps": [
@@ -1668,6 +1673,11 @@
    "name": "coding-agent",
    "owner": "group:default/team-platform",
    "profile": {
+    "airframe": {
+     "apps": [
+      "*"
+     ]
+    },
     "compute": "small",
     "glidepath": {
      "apps": [
@@ -1851,6 +1861,11 @@
    "name": "coding-agent",
    "owner": "group:default/team-platform",
    "profile": {
+    "airframe": {
+     "apps": [
+      "*"
+     ]
+    },
     "compute": "small",
     "glidepath": {
      "apps": [

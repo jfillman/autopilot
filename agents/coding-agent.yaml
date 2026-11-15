@@ -10,6 +10,11 @@ profile:
   tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.file.get, repo.pr.open, xr.request, argo.sync.lower, glidepath.run.rerun, glidepath.run.cancel, glidepath.live.list, glidepath.live.watch, glidepath.previews.list, glidepath.cicd.validate, glidepath.cicd.propose, run.spawn, run.close, human.request, repo.pr.open_upper]
   repos: { allow: ["jfillman/*"] }
   glidepath: { apps: ["*"] }
+  # xr.request is scoped by the gateway to the apps named here (the Python gateway scopes only the airframe.* tools by it, so
+  # until now this agent could request an XR for any app that has a tenants directory: "*" is exactly that). A definition names its
+  # apps by glob; there is no per-session app mechanism, so narrowing this is a decision for the owner at cutover (docs/admin/go-gateway.md,
+  # "What S5c carries"). This agent has no airframe.apply, so it cannot onboard an app: xr.request needs tenants/<app>/ to exist.
+  airframe: { apps: ["*"] }
   models: [claude-sonnet-5-5]
   network: clearance+model
   compute: small

@@ -814,6 +814,8 @@ if __name__ == "__main__":
     runs.update(gen_gateway_reads.outputs())
     import gen_gateway_writes   # the S5b Glidepath and repository tools' fixtures (tools/gen_gateway_writes.py)
     runs.update(gen_gateway_writes.outputs())
+    import gen_gateway_airframe   # the S5c Airframe tools' fixtures and copies (tools/gen_gateway_airframe.py)
+    runs.update(gen_gateway_airframe.outputs())
     import gen_gateway_definitions   # the S4 definitions' fixtures and the schema copy (tools/gen_gateway_definitions.py)
     runs.update(gen_gateway_definitions.outputs())
     if "--check" in sys.argv:

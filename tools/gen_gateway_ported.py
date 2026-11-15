@@ -114,30 +114,40 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "src/autopilot/engine/backends.py": (
         ("gateway/internal/dispatch", "gateway/internal/backends"), "BackendError (evidence, agent message), Handler, RunBackend "
         "(and a fake), core_handlers for catalog.read, argo.app.get, app.api.get and artifact.put/get (S5a), the human inbox's handlers (human.request, human.request.get, S3)",
-        "(S5b: the repo.* handlers and argo.sync.lower) S5c the core tools' other handlers (xr.request, chat)"),
+        "(S5b: the repo.* handlers and argo.sync.lower; S5c: xr.request) chat"),
     "src/autopilot/reads.py": (("gateway/internal/backends",), "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: "
                                "BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), "
                                "ReadError; S5b: KubeArgo.sync (argo.sync.lower, over backends.ArgoSync)",
                                "S6 BackstageDirectory and BackstageOwnership (the read API)"),
     "src/autopilot/airframe_api.py": (("gateway/internal/backends",), "S5a: KubeReader's GET and list of Argo CD Applications "
-                                      "(the path allowlist, the token and CA read on every call, AirframeError, argo_path)",
-                                      "S5c the XR kinds and Rollouts the airframe.* tools read through it"),
+                                      "(the path allowlist, the token and CA read on every call, AirframeError, argo_path); S5c: the XR kinds "
+                                      "(a closed list of the contract's plurals) and Rollouts the airframe.* tools read through it, per namespace only", ""),
+    "src/autopilot/airframe_plan.py": (("gateway/internal/airframe",), "the AppSpec planner: Registry, plan() and every step, file and warning it makes, "
+                                       "ground_cicd, flight_cicd, patch_cicd, the XR annotations; the schema check in Python's words", ""),
+    "src/autopilot/airframe_tools.py": (("gateway/internal/airframe", "gateway/internal/backends"),
+                                        "capabilities (every section and kind), explain, plan/changeset, status, describe, verify and normalise; "
+                                        "no validate (the image carries no airframe-validate, so serve drops the tool)", ""),
+    "src/autopilot/vendor/airframe_sidecars.py": (("gateway/internal/airframe",), "dig, render, when_matches: the sidecar templates verify reads", ""),
+    "src/autopilot/airframe_apply.py": (("gateway/internal/backends",), "airframe.apply: the steps, the resume from GitHub, the Flight half "
+                                        "as a proposal marked for a person, merge_onboarding_file; every repository on repos.allow before the first request", ""),
+    "src/autopilot/xr_request.py": (("gateway/internal/airframe",), "xr.request's build: the kinds, the lower environments, the names, the path and the "
+                                    "annotations, with a field table per kind (Go's own, from the XRDs)", ""),
     "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/internal/runs", "gateway/cmd/autopilot-gateway"),
                                  "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, "
                                  "artifact.put/get, run.spawn, run.close; S5b: every glidepath.* tool, repo.file.get, repo.pr.open, "
-                                 "repo.pr.open_upper, argo.sync.lower), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend "
+                                 "repo.pr.open_upper, argo.sync.lower; S5c: airframe.capabilities, explain, plan, status, describe, verify, apply and xr.request), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend "
                                  "(the run's name, its identity, how it ended)",
-                                 "S5c the airframe.* handlers and xr.request"),
+                                 ""),
     "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the "
                                "authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), "
                                "the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, "
                                "ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, "
-                               "AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), "
+                               "AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S5c: AIRFRAME_ENABLED, AIRFRAME_CLUSTER, AIRFRAME_UPPER_CLUSTERS, AIRFRAME_TENANTS_REPO, XR_REQUEST_ENABLED (AIRFRAME_OWNER is Go's); S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), "
                                "SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, "
                                "RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler; S4: AGENT_XRS_ENABLED, "
                                "AGENT_XRS_INTERVAL (and the Go-only AGENT_XRS_NAMESPACES and AGENT_XRS_MAX_TIER), the Agent XR loader and the "
                                "bundled publish at start",
-                               "S5c/S6 the settings and loops of what is not ported (XR_REQUEST_ENABLED, the Backstage directory, the metrics port)"),
+                               "S6 the settings and loops of what is not ported (the Backstage directory, the metrics port)"),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     # S5b: the Glidepath and repository tools
     "src/autopilot/glidepath_api.py": (
@@ -149,7 +159,8 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
                                         "(glidepath.live.list and glidepath.live.watch)", ""),
     "src/autopilot/github_pr.py": (
         ("gateway/internal/backends",), "GitHubPRs: the per-call broker token, open_pr over the Git data API, ensure_pr, find_pr, read_file "
-        "(repo.file.get), GitHubError with its agent message and evidence, app_of", "S5c commit_xr, pr_paths, repo_ready, onboarding_prs"),
+        "(repo.file.get), GitHubError with its agent message and evidence, app_of; S5c: commit_xr, pr_paths, repo_ready, onboarding_prs, "
+        "find_pr and ensure_pr as airframe.apply calls them", ""),
     "src/autopilot/argo_sync.py": (("gateway/internal/backends",), "ArgoSync (argo.sync.lower): the lower-project and Application checks, "
                                    "the one merge PATCH, ArgoSyncError and its evidence", ""),
     "src/autopilot/cicd_propose.py": (("gateway/internal/backends",), "validate, propose, check_files (the cicd.yaml check on repo.pr.open), "
@@ -164,9 +175,6 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
 # moves it to PORTED.
 NOT_PORTED: dict[str, str] = {
     "src/autopilot/engine/runtimes.py": "S6",      # the catalog file and GET /v1/runtimes; a candidate's image globs are Gateway.RuntimeImages
-    "src/autopilot/airframe_apply.py": "S5c", "src/autopilot/airframe_plan.py": "S5c",
-    "src/autopilot/airframe_tools.py": "S5c", "src/autopilot/xr_request.py": "S5c",
-    "src/autopilot/vendor/airframe_sidecars.py": "S5c",
     "src/autopilot/api_serve.py": "S6", "src/autopilot/metrics.py": "S6", "src/autopilot/otlp_logs.py": "S6",
     "src/autopilot/read_api.py": "S6",
 }

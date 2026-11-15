@@ -472,6 +472,7 @@ var allowedGitHub = []*regexp.Regexp{
 	regexp.MustCompile(`^POST /repos/o/[A-Za-z0-9._-]+/git/refs$`),
 	regexp.MustCompile(`^POST /repos/o/[A-Za-z0-9._-]+/pulls$`),
 	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+/pulls$`),
+	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+/pulls/[0-9]+/files$`),
 	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+/contents/[A-Za-z0-9._%/-]*$`),
 	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+$`),
 }
@@ -521,8 +522,8 @@ func TestTheGitHubRequestsAreTheClosedList(t *testing.T) {
 }
 
 func TestNoGitHubRequestExistsForAMergeAReviewADeleteOrAProtectionChange(t *testing.T) {
-	for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo} {
-		r := ghReq{ep: ep, owner: "o", name: "r", branch: "agent/x", sha: strings.Repeat("a", 40), state: "all", perPage: 5, ref: "main", path: "a",
+	for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo, epListPullFiles, epListOpenPulls} {
+		r := ghReq{ep: ep, owner: "o", name: "r", number: 3, branch: "agent/x", sha: strings.Repeat("a", 40), state: "all", perPage: 5, ref: "main", path: "a",
 			body: refBody{Ref: "refs/heads/agent/x", Sha: strings.Repeat("a", 40)}}
 		m, target, err := r.target()
 		if err != nil {

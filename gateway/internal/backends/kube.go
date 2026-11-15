@@ -10,11 +10,14 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jfillman/autopilot/gateway/internal/airframe"
 	"github.com/jfillman/autopilot/gateway/internal/core"
+	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 )
 
@@ -25,8 +28,8 @@ import (
 // carry the token to wherever it points), and the answer is read to at most maxKubeBody bytes. RBAC is the outer limit; this
 // is the inner one, so a mistake in either alone still reads nothing else.
 //
-// Python's reader allows Airframe XR kinds and Rollouts too, for the airframe.* tools (S5c). Go's allows Application
-// objects only, in one namespace each, as a get by name or a list: the one resource kind argo.app.get reads.
+// The airframe.* tools (S5c) read Airframe XRs and Rollouts through it too. Python's reader takes any single-word plural of the
+// group and lists across namespaces; Go's takes only the contract's XR plurals and only inside one namespace.
 
 const (
 	// InClusterAPI is the API server as a pod reaches it; the service account's token and CA are where the kubelet puts them.
@@ -39,10 +42,13 @@ const (
 var (
 	nsPattern  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	segPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
-	// allowedPath is the whole allowlist: Applications of one namespace, listed or read by name; and (A-9 S4, the Agent XR loader)
-	// the Agent XRs of one namespace, listed (never read by name, never across namespaces).
-	allowedPath = regexp.MustCompile(`^(?:/apis/argoproj\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/applications(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?` +
-		`|/apis/catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/agents)$`)
+	// The whole allowlist (pathAllowed): Applications and Rollouts of one namespace, listed or read by name; the Airframe XR kinds of
+	// one namespace (only the plurals of the vendored contract's xrds, listed or read by name); and (A-9 S4, the Agent XR loader)
+	// the Agent XRs of one namespace, listed (never read by name, never across namespaces). No path without a namespace.
+	argoPath   = regexp.MustCompile(`^/apis/argoproj\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/(?:applications|rollouts)(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
+	xrKindPath = regexp.MustCompile(`^/apis/catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/([a-z0-9]{1,63})(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
+	// nsPath is one Namespace by name (never a list, never a subresource): the platform labels its namespaces with the app they belong to.
+	nsPath       = regexp.MustCompile(`^/api/v1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	allowedQuery = map[string]bool{"labelSelector": true, "limit": true, "continue": true}
 )
 
@@ -115,7 +121,43 @@ func (k *KubeReader) httpClient() (*http.Client, error) {
 	return k.hc, nil
 }
 
-func pathAllowed(p string) bool { return allowedPath.MatchString(p) }
+// xrPlurals are the plurals of the catalog.hangar.io kinds the vendored contract lists: the only XR kinds that are read.
+var xrPlurals = func() map[string]bool {
+	m := map[string]bool{}
+	xrds, _ := airframe.Contract().M["xrds"].(*definitions.OMap)
+	if xrds != nil {
+		for _, k := range xrds.Keys {
+			x, _ := xrds.M[k].(*definitions.OMap)
+			if x != nil && x.M["group"] == "catalog.hangar.io" {
+				if pl, ok := x.M["plural"].(string); ok {
+					m[pl] = true
+				}
+			}
+		}
+	}
+	return m
+}()
+
+// AllowedKubeGETs is the list of requests the Kubernetes reader can make (every one a GET, with at most the query parameters
+// labelSelector, limit and continue), for the documentation and its tests.
+var AllowedKubeGETs = []string{
+	"GET /apis/argoproj.io/v1alpha1/namespaces/{ns}/applications[/{name}]",
+	"GET /apis/argoproj.io/v1alpha1/namespaces/{ns}/rollouts[/{name}]",
+	"GET /apis/catalog.hangar.io/v1alpha1/namespaces/{ns}/{plural}[/{name}] (plural: one of the contract's XR kinds except agents)",
+	"GET /apis/catalog.hangar.io/v1alpha1/namespaces/{ns}/agents (a list only)",
+	"GET /api/v1/namespaces/{ns} (one Namespace, for its hangar.io/app label)",
+}
+
+func pathAllowed(p string) bool {
+	if argoPath.MatchString(p) || nsPath.MatchString(p) {
+		return true
+	}
+	m := xrKindPath.FindStringSubmatch(p)
+	if m == nil || !xrPlurals[m[2]] {
+		return false
+	}
+	return m[2] != "agents" || m[3] == ""
+}
 
 func refusedPath(p string) error {
 	return &core.Denied{Rule: "AF-K8S-PATH", Message: "Clearance does not read " + pyStrRepr(p),
@@ -147,6 +189,15 @@ func (k *KubeReader) Get(ctx context.Context, path string, query []kv) (any, boo
 		parts = append(parts, url.QueryEscape(q.k)+"="+url.QueryEscape(q.v))
 	}
 	if !pathAllowed(path) {
+		// Python's message names the query keys too ("...?labelSelector&limit"), sorted.
+		keys := make([]string, 0, len(query))
+		for _, q := range query {
+			keys = append(keys, q.k)
+		}
+		sort.Strings(keys)
+		if len(keys) > 0 {
+			path += "?" + strings.Join(keys, "&")
+		}
 		return nil, false, refusedPath(path)
 	}
 	full := strings.TrimRight(k.Server, "/") + path
@@ -196,6 +247,37 @@ func (k *KubeReader) Get(ctx context.Context, path string, query []kv) (any, boo
 // otherwise (a test).
 func (k *KubeReader) Validate() error {
 	return requireHTTPS("the Kubernetes API URL", strings.TrimRight(k.Server, "/"), k.AllowHTTP)
+}
+
+// XRPath is the path of an Airframe XR (name != "") or of a namespace's XRs of one kind.
+func XRPath(plural, namespace, name string) string {
+	p := "/apis/catalog.hangar.io/v1alpha1/namespaces/" + segEscape(namespace) + "/" + segEscape(plural)
+	if name != "" {
+		p += "/" + segEscape(name)
+	}
+	return p
+}
+
+// RolloutsPath is the path of a Rollout (name != "") or of a namespace's Rollouts.
+func RolloutsPath(namespace, name string) string {
+	p := "/apis/argoproj.io/v1alpha1/namespaces/" + segEscape(namespace) + "/rollouts"
+	if name != "" {
+		p += "/" + segEscape(name)
+	}
+	return p
+}
+
+// GetObject is Get with no query: the object at path, or (nil, false, nil) for a 404.
+func (k *KubeReader) GetObject(ctx context.Context, path string) (any, bool, error) {
+	return k.Get(ctx, path, nil)
+}
+
+// StateReader is a KubeReader as the airframe state tools read it (airframe.Reader): Get by path, List by path and selector.
+type StateReader struct{ *KubeReader }
+
+// Get is the object at path, or found false for a 404.
+func (r StateReader) Get(ctx context.Context, path string) (any, bool, error) {
+	return r.KubeReader.GetObject(ctx, path)
 }
 
 // AgentsPath is the path of a namespace's Agent XRs.

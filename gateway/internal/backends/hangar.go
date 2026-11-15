@@ -34,7 +34,7 @@ type DefinitionOf func(agent string) *definitions.Definition
 type scope struct {
 	def   DefinitionOf
 	tools *tools.Registry
-	apps  sync.Map // *Definition -> []string, profile.glidepath.apps
+	apps  sync.Map // appKey -> []string, profile.<section>.apps
 }
 
 func refuse(rule, msg, hint string) error { return &core.Denied{Rule: rule, Message: msg, Hint: hint} }
@@ -108,35 +108,67 @@ func withRepo(a map[string]any, canon string) map[string]any {
 // app is the scope of a glidepath tool: the app is one the definition names under profile.glidepath.apps (fnmatch globs).
 func (sc *scope) app(d *definitions.Definition, app any) error {
 	a, ok := app.(string)
-	if !ok {
+	if !ok || !sc.appListed(d, "glidepath", a) {
 		return refuse("R022", "that app is not on this agent's Glidepath allowlist", "Read only the apps your definition names under profile.glidepath.apps.")
 	}
+	return nil
+}
+
+// airframeApp is the scope of an airframe tool (and of xr.request): the app is one the definition names under
+// profile.airframe.apps. An app that is not a string, or is empty, is not one.
+func (sc *scope) airframeApp(d *definitions.Definition, app any) error {
+	a, ok := app.(string)
+	if !ok || a == "" || !sc.appListed(d, "airframe", a) {
+		return refuse("R023", "that app is not on this agent's Airframe allowlist", "Read only the apps your definition names under profile.airframe.apps.")
+	}
+	return nil
+}
+
+type appKey struct {
+	d       *definitions.Definition
+	section string
+}
+
+// appListed is whether app matches a glob of profile.<section>.apps.
+func (sc *scope) appListed(d *definitions.Definition, section, a string) bool {
 	var list []string
-	if v, ok := sc.apps.Load(d); ok {
+	k := appKey{d, section}
+	if v, ok := sc.apps.Load(k); ok {
 		list = v.([]string)
 	} else {
-		var p struct {
-			Glidepath struct {
-				Apps []string `json:"apps"`
-			} `json:"glidepath"`
+		var p map[string]struct {
+			Apps []string `json:"apps"`
 		}
 		_ = json.Unmarshal(d.RawProfile, &p)
-		list = p.Glidepath.Apps
-		sc.apps.Store(d, list)
+		list = p[section].Apps
+		sc.apps.Store(k, list)
 	}
 	for _, g := range list {
 		if auth.FnmatchCase(a, g) {
-			return nil
+			return true
 		}
 	}
-	return refuse("R022", "that app is not on this agent's Glidepath allowlist", "Read only the apps your definition names under profile.glidepath.apps.")
+	return false
+}
+
+// proposeFlight is whether the definition sets profile.airframe.proposeFlight to true.
+func proposeFlightAllowed(d *definitions.Definition) bool {
+	var p struct {
+		Airframe struct {
+			ProposeFlight bool `json:"proposeFlight"`
+		} `json:"airframe"`
+	}
+	_ = json.Unmarshal(d.RawProfile, &p)
+	return p.Airframe.ProposeFlight
 }
 
 // HangarConfig is what the Glidepath and repository handlers are built from.
 type HangarConfig struct {
-	Glidepath  *Glidepath
-	GitHub     *GitHub
-	ArgoSync   *ArgoSync
+	Glidepath *Glidepath
+	GitHub    *GitHub
+	ArgoSync  *ArgoSync
+	// Airframe is the airframe.* tools and xr.request (nil: none of them has a handler).
+	Airframe   *AirframeConfig
 	Definition DefinitionOf
 	Tools      *tools.Registry
 }
@@ -144,7 +176,7 @@ type HangarConfig struct {
 // RemoteWrites are the tools whose handler writes to another system: a call that finished its write is reported as it
 // finished even when the call's own time ran out a moment later (dispatch.Gateway.KeepAnswer).
 var RemoteWrites = []string{"repo.pr.open", "repo.pr.open_upper", "glidepath.cicd.propose", "glidepath.run.rerun", "glidepath.run.cancel",
-	"glidepath.promote", "glidepath.rollback", "argo.sync.lower"}
+	"glidepath.promote", "glidepath.rollback", "argo.sync.lower", "airframe.apply", "xr.request"}
 
 // rerunKey is glidepath-api's Idempotency-Key for a session's re-run of one run.
 func rerunKey(sessionID, app, pipelinerun string) string {
@@ -359,6 +391,11 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 			m := who.Meta()
 			m["principal"] = who.Principal
 			return syncer.Sync(ctx, a["app"], a["project"], m, appOK)
+		}
+	}
+	if c.Airframe != nil {
+		for k, v := range c.Airframe.handlers(sc, git, gp) {
+			h[k] = v
 		}
 	}
 	return h
