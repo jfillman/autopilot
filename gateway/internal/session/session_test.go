@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -211,5 +212,59 @@ func TestSweepClosesTheExpired(t *testing.T) {
 	st.Adopt(grant("s-new", nil, 0, client.Limits{Tools: []string{}}), time.Now(), nil, 0)
 	if gone := st.Sweep(time.Now()); len(gone) != 1 || gone[0] != "s-old" || !st.Get("s-old").Closed || st.Get("s-new").Closed {
 		t.Fatalf("%v", gone)
+	}
+}
+
+type hungSave struct {
+	rec              session.Record
+	entered, release chan struct{}
+}
+
+func (h *hungSave) Load(context.Context) ([]session.Record, error) {
+	return []session.Record{h.rec}, nil
+}
+func (h *hungSave) Save(context.Context, []session.Record) error {
+	h.entered <- struct{}{}
+	<-h.release
+	return nil
+}
+
+// A save that hangs does not hold every later save of the session forever: a waiter gives up with its context.
+func TestAWaitingFlushGivesUpWithItsContextWhenASaveHangs(t *testing.T) {
+	var r session.Record
+	if err := json.Unmarshal([]byte(pythonRow), &r); err != nil {
+		t.Fatal(err)
+	}
+	h := &hungSave{rec: r, entered: make(chan struct{}, 2), release: make(chan struct{})}
+	st, err := session.NewStore(context.Background(), h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := st.Get(r.ID)
+	s.Lock()
+	s.Denials++ // a change to write
+	s.Unlock()
+	first := make(chan error, 1)
+	go func() { first <- st.Flush(context.Background(), s) }()
+	<-h.entered
+	s.Lock()
+	s.Denials++ // another change the second flush has to write
+	s.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := st.Flush(ctx, s); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a waiter must give up with its context: %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("it waited %v", time.Since(start))
+	}
+	close(h.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	// the lock is free again
+	if err := st.Flush(context.Background(), s); err != nil {
+		t.Fatal(err)
 	}
 }

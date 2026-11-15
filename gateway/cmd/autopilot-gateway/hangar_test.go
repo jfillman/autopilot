@@ -60,7 +60,7 @@ func TestBadHangarSettingsStopTheStart(t *testing.T) {
 		{"GitHub with no owners", merge(on, map[string]string{"GITHUB_OWNERS": ""}), "GITHUB_OWNERS"},
 		{"GitHub with a bad owner", merge(on, map[string]string{"GITHUB_OWNERS": "a/b"}), "GITHUB_OWNERS"},
 		{"a sync with Argo CD reads off", map[string]string{"ARGO_SYNC_ENABLED": "1", "ARGO_ENABLED": "0"}, "ARGO_SYNC_ENABLED needs ARGO_ENABLED"},
-		{"events still need the trigger bridge", map[string]string{"EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "https://g"}, "EVENTS_ENABLED"},
+		{"events need glidepath-api's URL", map[string]string{"EVENTS_ENABLED": "1"}, "needs GLIDEPATH_API_URL"},
 	}
 	for _, c := range cases {
 		_, err := configFromEnv(envOf(base(c.env)))

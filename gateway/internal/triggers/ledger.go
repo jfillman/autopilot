@@ -53,6 +53,7 @@ type Row struct {
 	// could-not-tell that did not clear), and when the first did. They are kept on the row across takeovers and restarts.
 	Failures    int
 	FirstFailed time.Time
+	LastFailed  time.Time
 }
 
 // Cursor is the newest event id the bridge has handled for a source, and the floor: when the ledger first ran for that source.
@@ -80,7 +81,8 @@ type Ledger interface {
 	Decide(ctx context.Context, agent, key, state, session, run string) error
 	// Failed records one more failed attempt on a claimed row and returns how many there have been and when the first was (kept on the
 	// row, so a restart does not start the count again).
-	Failed(ctx context.Context, agent, key string, now time.Time) (attempts int, first time.Time, err error)
+	// A failure more than quiet after the previous one starts the count again.
+	Failed(ctx context.Context, agent, key string, now time.Time, quiet time.Duration) (attempts int, first time.Time, err error)
 	// Get is the row, or nil.
 	Get(ctx context.Context, agent, key string) (*Row, error)
 	// Cursor is the source's cursor, creating it (floor now) when there is none.
@@ -196,12 +198,12 @@ func (m *MemoryLedger) Claim(_ context.Context, agent, key, via, eventID string,
 	}
 	var kept *string // a claim taken over from an orphan keeps the session that was opened for it, and its failures
 	var fails int
-	var firstFail time.Time
+	var firstFail, lastFail time.Time
 	if r := m.rows[[2]string{agent, key}]; r != nil {
-		kept, fails, firstFail = r.Session, r.Failures, r.FirstFailed
+		kept, fails, firstFail, lastFail = r.Session, r.Failures, r.FirstFailed, r.LastFailed
 	}
 	m.rows[[2]string{agent, key}] = &Row{Agent: agent, Key: key, Via: via, EventID: sp(eventID), State: "claimed", Session: kept, ClaimedAt: now,
-		Failures: fails, FirstFailed: firstFail}
+		Failures: fails, FirstFailed: firstFail, LastFailed: lastFail}
 	return true, nil
 }
 
@@ -223,7 +225,7 @@ func (m *MemoryLedger) Opened(_ context.Context, agent, key, session string) err
 }
 
 // Failed is Ledger.Failed.
-func (m *MemoryLedger) Failed(_ context.Context, agent, key string, now time.Time) (int, time.Time, error) {
+func (m *MemoryLedger) Failed(_ context.Context, agent, key string, now time.Time, quiet time.Duration) (int, time.Time, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.init()
@@ -231,10 +233,11 @@ func (m *MemoryLedger) Failed(_ context.Context, agent, key string, now time.Tim
 	if r == nil || r.State != "claimed" {
 		return 0, time.Time{}, ErrNotClaimed
 	}
-	if r.Failures == 0 {
-		r.FirstFailed = now
+	if r.Failures == 0 || (quiet > 0 && now.Sub(r.LastFailed) > quiet) {
+		r.Failures, r.FirstFailed = 0, now
 	}
 	r.Failures++
+	r.LastFailed = now
 	return r.Failures, r.FirstFailed, nil
 }
 

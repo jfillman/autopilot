@@ -358,13 +358,17 @@ before a run is deleted). A takeover reads those, and the backend, and nothing e
   that could not be tied to the row is closed `unrecorded` and is replaced;
 - a session this gateway no longer knows: `deduped`; none found: the trigger starts from the beginning (the same validity).
 
-A **poison event** (a panic on every delivery, a "could not tell" that never clears) does not block the cursor forever: each failed attempt
-is counted on the ledger row (`failures`, `first_failed_at`, two columns the Go gateway adds; they survive a restart), and after 8 attempts
-over at least 10 minutes (`triggers.PoisonAttempts`, `PoisonAfter`) the trigger is decided `launch-failed` with rule `CT-POISON` in the event
-history, a log line and the metric `poisoned`, and the cursor moves on: but only after the session's run is resolved through the backend as
-above (a run that cannot be confirmed gone keeps the key undecided). Until then the metric `stuck` (attempts of the failing trigger) and
-the cursor's lag (`cursor_time`) are exposed; alert when the cursor lags more than 15 minutes, or `stuck` is above 3. The scheduler has no
-cursor to block and does not poison a slot.
+A **poison event** is one on which the code itself fails on every delivery (a panic). Only that counts; a "could not tell" (a backend,
+the hold store, any dependency that did not answer) is an outage, never counted, never decided and never a reason to delete a run,
+however long it lasts. The rule: each failed attempt is counted on the ledger row (`failures`, `first_failed_at`, `last_failed_at`, three
+columns the Go gateway adds; they survive a restart), a failure more than an hour (`triggers.PoisonQuiet`) after the one before starts the
+count again (a failure from hours ago is not part of it), and when 8 are counted (`PoisonAttempts`) with the first and the last at least 10
+minutes apart (`PoisonAfter`) the trigger is decided. If its session's run is recorded launched, it is decided `launched` from the record
+and the run is left to its session (never deleted because the event kept failing); otherwise the session's run, if any, is deleted and its
+absence confirmed through the backend first (one that cannot be confirmed keeps the key undecided), and the trigger is decided
+`launch-failed`. Either way rule `CT-POISON` is in the event history, with a log line and the metric `poisoned`, and the cursor moves on.
+Until then the metric `stuck` (attempts of the failing trigger) and the cursor's lag (`cursor_time`) are exposed; alert when the cursor
+lags more than 15 minutes, or `stuck` is above 3. The scheduler has no cursor to block and does not poison a slot.
 
 The catch-up (`Resume`) moves the cursor only past events whose triggers were all decided; a catch-up that ends early (an error, the
 context) reports `failed` and is run again from the saved cursor on the next stream, instead of being counted as done.
@@ -379,10 +383,8 @@ commit, timeout after it, a create whose answer is lost and which lands later, a
 also run against a backend that is down. The event arrives once by the stream and once by the catch-up (`Resume`, with the cursor). After
 the takeover and after the deadline's sweep it asserts, against the backend's state: at most one run is ever created for the key; no
 `launched` row without a run that was made (and a live session's run is live); no run is live under a decision other than `launched`; no run
-is created after a hold, an end or a freeze, and none is live after a hold or an end that came before the decision; nothing is left live that
-no session names; the cursor is never past an undecided trigger; every key ends decided after a clean takeover. A hold or an end that lands
-inside the create call itself, or while the decision is being written, does not undo a launch past its last check (an in-flight create is
-undone by the check after it; a late-landing run is the sweep's).
+is created after a hold, an end or a freeze, and none is live after a hold or an end that came before the decision, and at the moment a decision other than `launched` is written (the code's own claim: asked of the backend then); nothing is left live that
+no session names; the cursor is never past an undecided trigger; every key ends decided after a clean takeover. A person's end or freeze is also made to land inside each save (after its record is written, while the save is still in progress), the core is made unreachable before each call, a delete that answers 200 and leaves the run is a fault class (only a GET says so), and poison and hold-store outages run as multi-delivery faults. The windows in which a run may be live although a hold or an end was placed are exactly three: a hold or an end that lands inside the create call itself (the check after the create undoes it before the decision), one that lands while the decision is being written or after it (the launch is past its last check; the sweep ends the run at its deadline), and a run whose create's answer was lost and which lands later (the name is kept, so the sweep deletes it).
 
 The clean run's durable calls are the windows (the same list with the catch-up's cursor write after the decision):
 

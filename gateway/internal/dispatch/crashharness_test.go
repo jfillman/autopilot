@@ -63,7 +63,12 @@ type chaos struct {
 	inHook  bool
 	hookAt  int
 	hook    func(kind string)
-	log     []string
+	// inSave: a person's action that lands INSIDE the save it is set before, after the record is written and while the save is still in
+	// progress (so before the code that follows the save reads the session again).
+	inSave     func()
+	fireInSave func()
+	wg         sync.WaitGroup
+	log        []string
 }
 
 // begin counts one durable call; the hook (a person's action) runs first when this is the call it was set before.
@@ -77,6 +82,9 @@ func (c *chaos) begin(kind string) (int, error) {
 		c.base++
 		// A person's action cannot run inside a save (it would be the same save): when the call it was set before is a save, it runs
 		// before the next call that is not one, which is the same point (the saves of a session are ordered).
+		if kind == "save" && c.inSave != nil && c.hookAt == c.base {
+			c.fireInSave, c.inSave = c.inSave, nil
+		}
 		if c.hook != nil && c.hookAt <= c.base && kind != "save" {
 			h := c.hook
 			c.hook, c.inHook = nil, true
@@ -97,6 +105,15 @@ func (c *chaos) begin(kind string) (int, error) {
 	return cur, nil
 }
 
+// takeInSave hands over the in-save action once (the save it was set before has just written its record).
+func (c *chaos) takeInSave() func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	f := c.fireInSave
+	c.fireInSave = nil
+	return f
+}
+
 // leftover runs the action that was set before a call the process never made (it ended first).
 func (c *chaos) leftover() {
 	c.mu.Lock()
@@ -112,6 +129,9 @@ func (c *chaos) leftover() {
 	c.inHook = false
 	c.mu.Unlock()
 }
+
+// settle waits for the actions that were started inside a save.
+func (c *chaos) settle() { c.wg.Wait() }
 
 // done makes the process dead when this was the call it crashes at.
 func (c *chaos) done(cur int) error {
@@ -138,12 +158,29 @@ func (cp *chaosPersist) Save(ctx context.Context, recs []session.Record) error {
 	if err := cp.p.Save(ctx, recs); err != nil {
 		return err
 	}
+	if f := cp.c.takeInSave(); f != nil {
+		f()
+	}
 	return cp.c.done(cur)
 }
 
 type chaosLedger struct {
 	triggers.Ledger
-	c *chaos
+	c        *chaos
+	onDecide func(state string) // asked when a decision is about to be written
+	panicGet bool               // the first Get of this process panics (a deterministic fault of the code on this event)
+	gets     int
+}
+
+func (l *chaosLedger) Get(ctx context.Context, agent, key string) (*triggers.Row, error) {
+	l.c.mu.Lock()
+	l.gets++
+	first := l.gets == 1
+	l.c.mu.Unlock()
+	if l.panicGet && first {
+		panic("a deterministic fault")
+	}
+	return l.Ledger.Get(ctx, agent, key)
 }
 
 func (l *chaosLedger) Claim(ctx context.Context, agent, key, via, ev string, now, stale time.Time) (bool, error) {
@@ -173,6 +210,9 @@ func (l *chaosLedger) Decide(ctx context.Context, agent, key, state, sid, run st
 	if err != nil {
 		return err
 	}
+	if l.onDecide != nil {
+		l.onDecide(state)
+	}
 	e := l.Ledger.Decide(ctx, agent, key, state, sid, run)
 	if d := l.c.done(cur); d != nil {
 		return d
@@ -194,12 +234,13 @@ func (l *chaosLedger) Advance(ctx context.Context, source, lastID string) error 
 
 // fakeRuns is the run backend's state: the runs that exist, and every create that was ever committed.
 type fakeRuns struct {
-	mu      sync.Mutex
-	live    map[string]bool
-	created []string
-	late    []string
-	landed  map[string]bool // runs that landed after their create's answer was lost: the sweep's, not a decision's
-	down    bool
+	mu        sync.Mutex
+	live      map[string]bool
+	created   []string
+	late      []string
+	conflicts int             // creates answered 409
+	landed    map[string]bool // runs that landed after their create's answer was lost: the sweep's, not a decision's
+	down      bool
 }
 
 func newFakeRuns() *fakeRuns { return &fakeRuns{live: map[string]bool{}, landed: map[string]bool{}} }
@@ -314,6 +355,7 @@ func (r *chaosRuns) Create(_ context.Context, m map[string]any) error {
 			return &runs.Error{Msg: "API server 422 creating AgentRun " + name}
 		}
 		if r.f.live[name] {
+			r.f.conflicts++
 			return &alreadyExists{name}
 		}
 		r.f.live[name] = true
@@ -335,6 +377,8 @@ func (r *chaosRuns) Delete(_ context.Context, name string) error {
 		case "delete-after-commit":
 			delete(r.f.live, name)
 			return &couldNotTell{"timeout"}
+		case "delete-noop":
+			return nil // answered 200 and the run is still there (a finalizer): only a GET says so
 		}
 		delete(r.f.live, name) // a 404 is a success
 		return nil
@@ -357,15 +401,44 @@ func (r *chaosRuns) Outcome(_ context.Context, name string) (string, error) {
 	return out, err
 }
 
+// holdGate is the holds' table whose reads can be made to fail (a database that is away).
+type holdGate struct {
+	*dispatch.MemoryHolds
+	mu   sync.Mutex
+	down bool
+}
+
+func (h *holdGate) isDown() bool { h.mu.Lock(); defer h.mu.Unlock(); return h.down }
+func (h *holdGate) setDown(v bool) {
+	h.mu.Lock()
+	h.down = v
+	h.mu.Unlock()
+}
+func (h *holdGate) All(c context.Context) ([]*dispatch.Hold, error) {
+	if h.isDown() {
+		return nil, errors.New("the hold store is away")
+	}
+	return h.MemoryHolds.All(c)
+}
+func (h *holdGate) Get(c context.Context, a string) (*dispatch.Hold, error) {
+	if h.isDown() {
+		return nil, errors.New("the hold store is away")
+	}
+	return h.MemoryHolds.Get(c, a)
+}
+
 // world is everything that survives a crash: the database, the ledger, the holds' table and the backend.
 type world struct {
-	p       *peopleRig
-	persist *memPersist
-	ledger  *triggers.MemoryLedger
-	holds   *dispatch.MemoryHolds
-	runs    *fakeRuns
-	clock   time.Time
-	resume  bool // the event arrives through the bridge's catch-up (Resume), and the cursor is part of what is checked
+	p          *peopleRig
+	persist    *memPersist
+	ledger     *triggers.MemoryLedger
+	holds      *holdGate
+	runs       *fakeRuns
+	clock      time.Time
+	panicGet   bool
+	decideViol []string
+	dmu        sync.Mutex
+	resume     bool // the event arrives through the bridge's catch-up (Resume), and the cursor is part of what is checked
 }
 
 type proc struct {
@@ -399,10 +472,21 @@ func (w *world) newProc(t *testing.T, c *chaos, plan *fault) *proc {
 	g.Fingerprint = dispatch.Fingerprint
 	img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
 	g.Defs["triage-agent"].Image = &img
-	if err := g.ReloadHolds(ctx); err != nil {
+	if err := g.ReloadHolds(ctx); err != nil && !w.holds.isDown() {
 		t.Fatal(err)
 	}
-	led := &chaosLedger{Ledger: w.ledger, c: c}
+	led := &chaosLedger{Ledger: w.ledger, c: c, panicGet: w.panicGet}
+	// the claim the code makes when it writes a decision other than `launched` is that no run it made is live: asked of the backend at
+	// that moment (a run that landed late after its create's answer was lost is the sweep's, and is not counted)
+	led.onDecide = func(state string) {
+		if state != "launched" {
+			if l := w.runs.liveNotLate(); len(l) > 0 {
+				w.dmu.Lock()
+				w.decideViol = append(w.decideViol, fmt.Sprintf("a decision %q was written while the run %v is live", state, l))
+				w.dmu.Unlock()
+			}
+		}
+	}
 	cfg := triggers.BridgeConfig{BaseURL: "http://glidepath.invalid", AllowHTTP: true, TokenFile: "/dev/null", Now: func() time.Time { return w.clock }}
 	if w.resume {
 		cfg.BaseURL, cfg.TokenFile = harnessURL, harnessToken
@@ -462,12 +546,16 @@ type scenario struct {
 	fault    *fault
 	down     bool
 	resume   bool
+	inSave   bool // the person's action lands inside the save it is set before
 }
 
 func (s scenario) String() string {
 	out := fmt.Sprintf("crash@%d", s.crashAt)
 	if s.action != "" {
 		out += fmt.Sprintf(" %s@%d", s.action, s.actionAt)
+		if s.inSave {
+			out += "(inside the save)"
+		}
 	}
 	if s.fault != nil {
 		out += fmt.Sprintf(" %s@backend-call-%d", s.fault.class, s.fault.idx)
@@ -489,7 +577,8 @@ type result struct {
 func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 	t.Helper()
 	viol := func(format string, a ...any) { res.violations = append(res.violations, fmt.Sprintf(format, a...)) }
-	w := &world{p: p, persist: newPersist(), ledger: &triggers.MemoryLedger{}, holds: &dispatch.MemoryHolds{}, runs: newFakeRuns(), clock: t0, resume: sc.resume}
+	w := &world{p: p, persist: newPersist(), ledger: &triggers.MemoryLedger{}, holds: &holdGate{MemoryHolds: &dispatch.MemoryHolds{}}, runs: newFakeRuns(), clock: t0, resume: sc.resume}
+	defer p.fc.Down.Store(false)
 	if sc.resume {
 		_, _ = w.ledger.Cursor(ctx, triggers.Source, t0.Add(-time.Hour))
 		_ = w.ledger.Advance(ctx, triggers.Source, harnessCursorID)
@@ -513,7 +602,7 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 			viol("%s: the cursor moved past the event while its trigger is undecided: %+v", when, r)
 		}
 	}
-	applied, decidedAtApply, createdAtApply := false, false, 0
+	applied, decidedAtApply, createdAtApply, snapped := false, false, 0, false
 
 	apply := func(pr *proc, kind string) {
 		var sid string
@@ -543,6 +632,21 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 			if _, err := pr.g.FreezeSession(ctx, p.person(adminID), sid, "stop", ""); err != nil {
 				return
 			}
+		case "coredown":
+			p.fc.Down.Store(true) // the core cannot be reached from here until the takeover: the run.launch record cannot be written
+		}
+		if sc.action == "end" || sc.action == "freeze" {
+			// an action acknowledged by a process that died before its write was durable never happened
+			recs, _ := w.persist.Load(ctx)
+			durable := false
+			for _, r := range recs {
+				if r.ID == sid && ((sc.action == "end" && r.Closed) || (sc.action == "freeze" && r.Tripped)) {
+					durable = true
+				}
+			}
+			if !durable {
+				return
+			}
 		}
 		applied = true
 		// A hold or an end that lands while the decision is being written, or after it, does not undo a launch that is past its last
@@ -552,9 +656,11 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 			decidedAtApply = true
 		}
 		w.runs.mu.Lock()
-		createdAtApply = len(w.runs.created)
-		if kind == "backend:create" {
-			createdAtApply++
+		if !snapped { // an action that lands inside a save took its count at the moment it landed
+			createdAtApply = len(w.runs.created)
+			if kind == "backend:create" {
+				createdAtApply++
+			}
 		}
 		w.runs.mu.Unlock()
 	}
@@ -562,11 +668,43 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 	// the first process
 	c1 := &chaos{crashAt: sc.crashAt}
 	p1 := w.newProc(t, c1, sc.fault)
-	if sc.action != "" && sc.actionAt > 0 {
+	if sc.action != "" && sc.actionAt > 0 && sc.inSave {
+		c1.hookAt = sc.actionAt
+		c1.inSave = func() {
+			c1.wg.Add(1)
+			go func() { defer c1.wg.Done(); apply(p1, "in-save") }()
+			// the action has landed when its effect is in the session's memory (its own write waits for this save to end)
+			for i := 0; i < 600; i++ {
+				seen := false
+				for _, s := range p1.g.Store.All() {
+					s.Lock()
+					seen = seen || (s.Agent == "triage-agent" && (s.Closed || s.Tripped))
+					s.Unlock()
+				}
+				if seen {
+					w.runs.mu.Lock()
+					createdAtApply, snapped = len(w.runs.created), true
+					w.runs.mu.Unlock()
+					return
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	} else if sc.action != "" && sc.actionAt > 0 {
 		c1.hookAt, c1.hook = sc.actionAt, func(kind string) { apply(p1, kind) }
 	}
-	runBounded(t, sc, func() { _ = deliver(p1, "stream"); c1.leftover() })
+	runBounded(t, sc, func() { _ = deliver(p1, "stream"); c1.leftover(); c1.settle() })
 	cursorOK("the first process")
+	// the 409 path: a create whose answer was lost and which lands before the next one is met with a 409, which is the run: decided
+	// launched by the same process, with no takeover
+	if sc.fault != nil && sc.fault.class == "create-late" && sc.crashAt == 0 && sc.action == "" {
+		// (the calls are exactly create, a GET that says gone, and a create that is answered 409: the 409 is the run, with no further
+		// GET to find it)
+		if r, _ := w.ledger.Get(ctx, "triage-agent", harnessKey); r == nil || r.State != "launched" || w.runs.conflicts < 1 ||
+			strings.Join(*p1.cr.calls, ",") != "create,get,create" {
+			viol("the 409 path was not taken or did not decide launched at once: %+v conflicts=%d calls=%v", r, w.runs.conflicts, *p1.cr.calls)
+		}
+	}
 	res.ops, res.base, res.calls = c1.n, c1.base, *p1.cr.calls
 	res.log = append([]string(nil), c1.log...)
 	w.runs.settle()
@@ -577,6 +715,7 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 		w.runs.mu.Lock()
 		w.runs.down = down
 		w.runs.mu.Unlock()
+		p.fc.Down.Store(false)
 		c2 := &chaos{}
 		p2 := w.newProc(t, c2, nil)
 		if sc.action != "" && sc.actionAt == -1 && !applied {
@@ -627,6 +766,22 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 	}
 	noRunUnderDecision("takeover")
 
+	// a run that was marked removed (a hold, a close, a record that could not be made) is not live, and its trigger is not `launched`
+	for _, sr := range sessionRows() {
+		if sr.RunRemoved != nil {
+			if w.runs.live[runs.RunName(sr.ID)] && !w.runs.landed[runs.RunName(sr.ID)] {
+				viol("the run of %s is live after it was marked removed (%s)", sr.ID, sr.RunRemoved.Reason)
+			}
+			if r != nil && r.State == "launched" && r.Session != nil && *r.Session == sr.ID {
+				viol("the trigger is launched though the run of %s was marked removed (%s)", sr.ID, sr.RunRemoved.Reason)
+			}
+		}
+	}
+	w.dmu.Lock()
+	for _, v := range w.decideViol {
+		viol("%s", v)
+	}
+	w.dmu.Unlock()
 	// at most one run ever
 	if n := len(w.runs.created); n > 1 {
 		viol("%d runs were created for one key: %v", n, w.runs.created)
@@ -648,7 +803,7 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 		}
 	}
 	// a person's action
-	if applied {
+	if applied && sc.action != "coredown" {
 		w.runs.mu.Lock()
 		after := len(w.runs.created) - createdAtApply
 		if len(w.runs.landed) > 0 {
@@ -727,6 +882,29 @@ func TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe(t *testing.T) {
 				}
 			}
 		}
+		// a person's end or freeze that lands INSIDE each save of the clean run (after its record is written, before the code that follows
+		// it reads the session again), with a crash at each call after it
+		for _, action := range []string{"end", "freeze"} {
+			for k, kind := range plain.log {
+				if kind != "save" {
+					continue
+				}
+				clean := run(scenario{action: action, actionAt: k + 1, inSave: true})
+				add(scenario{action: action, actionAt: k + 1, inSave: true})
+				for n := 1; n <= clean.ops; n++ {
+					add(scenario{crashAt: n, action: action, actionAt: k + 1, inSave: true})
+				}
+			}
+		}
+		// the core becomes unreachable before each call (the launch's record cannot be written: the run is taken away, marked first),
+		// with a crash at each call after it
+		for k := 1; k <= plain.base; k++ {
+			clean := run(scenario{action: "coredown", actionAt: k})
+			add(scenario{action: "coredown", actionAt: k})
+			for n := 1; n <= clean.ops; n++ {
+				add(scenario{crashAt: n, action: "coredown", actionAt: k})
+			}
+		}
 		// every class of backend answer at every backend call of the clean run
 		classes := map[string][]string{"create": {"create-before-commit", "create-after-commit", "create-late", "create-refused"},
 			"delete": {"delete-before-commit", "delete-after-commit"}, "get": {"get-timeout"}}
@@ -742,9 +920,9 @@ func TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe(t *testing.T) {
 		}
 		// a hold that lands between the create and its record makes the launch delete the run: every class of answer to that delete,
 		// and to the create it races with
-		for _, class := range classes["delete"] {
+		for _, class := range append(append([]string{}, classes["delete"]...), "delete-noop", "get-timeout") {
 			for at := 1; at <= plain.base; at++ {
-				for idx := 1; idx <= len(plain.calls)+2; idx++ {
+				for idx := 1; idx <= len(plain.calls)+3; idx++ {
 					add(scenario{action: "hold", actionAt: at, fault: &fault{idx: idx, class: class}})
 				}
 			}
@@ -781,8 +959,14 @@ func TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe(t *testing.T) {
 
 func invariantOf(v string) string {
 	switch {
+	case strings.Contains(v, "was written while the run"):
+		return "a decision was written while the run it says was not made is live"
 	case strings.Contains(v, "decided") && strings.Contains(v, "is live"):
 		return "a decision was written while a run is live"
+	case strings.Contains(v, "marked removed"):
+		return "a run marked removed is live, or its trigger is launched"
+	case strings.Contains(v, "409 path"):
+		return "the 409 path is not exercised"
 	case strings.Contains(v, "runs were created"):
 		return "more than one run for one key"
 	case strings.Contains(v, "after the sweep"):
@@ -799,4 +983,123 @@ func invariantOf(v string) string {
 		return "a key left undecided after a clean takeover"
 	}
 	return v
+}
+
+// The multi-delivery faults: a trigger that is delivered again and again. "poison-before": the code panics on this event on every
+// delivery before anything is made; "poison-after-launch": the run was made and recorded, the process died before the decision, and the
+// code panics on this event on every delivery after that; "holds-down": the same, but the hold store is away for 30 simulated minutes
+// (an outage, not the event's fault). With the bound lowered to 3 failures over 10 minutes, assert: at most one run; a run that was
+// recorded launched is never deleted because the event kept failing (it is decided `launched`); an outage is never counted, never
+// decided and never reaped; the poison before a launch is decided `launch-failed` with no run live.
+func runDeliveries(t *testing.T, p *peopleRig, kind string, resume bool) (violations []string) {
+	t.Helper()
+	viol := func(format string, a ...any) {
+		violations = append(violations, fmt.Sprintf("%s (resume=%v): ", kind, resume)+fmt.Sprintf(format, a...))
+	}
+	oldA, oldT, oldQ := triggers.PoisonAttempts, triggers.PoisonAfter, triggers.PoisonQuiet
+	triggers.PoisonAttempts, triggers.PoisonAfter, triggers.PoisonQuiet = 3, 10*time.Minute, time.Hour
+	defer func() { triggers.PoisonAttempts, triggers.PoisonAfter, triggers.PoisonQuiet = oldA, oldT, oldQ }()
+	w := &world{p: p, persist: newPersist(), ledger: &triggers.MemoryLedger{}, holds: &holdGate{MemoryHolds: &dispatch.MemoryHolds{}}, runs: newFakeRuns(), clock: t0, resume: resume}
+	if resume {
+		_, _ = w.ledger.Cursor(ctx, triggers.Source, t0.Add(-time.Hour))
+		_ = w.ledger.Advance(ctx, triggers.Source, harnessCursorID)
+	}
+	sc := scenario{resume: resume}
+	deliver := func(pr *proc) error {
+		if resume {
+			_, err := pr.b.Resume(ctx)
+			return err
+		}
+		_, err := pr.b.Handle(ctx, harnessEvent(), "stream")
+		return err
+	}
+	row := func() *triggers.Row { r, _ := w.ledger.Get(ctx, "triage-agent", harnessKey); return r }
+	decided := func() bool { r := row(); return r != nil && r.State != "claimed" }
+	// the first delivery: clean for poison-after-launch and holds-down up to the decision, which it does not reach
+	crashAt := 0
+	if kind != "poison-before" {
+		plain := runScenario(t, p, scenario{resume: resume})
+		for i, k := range plain.log {
+			if k == "decide" {
+				crashAt = i // the call before the decision: the run is recorded, the decision is not
+			}
+		}
+		if crashAt == 0 {
+			t.Fatal("no decide in the clean run")
+		}
+	}
+	w.panicGet = kind == "poison-before"
+	c1 := &chaos{crashAt: crashAt}
+	p1 := w.newProc(t, c1, nil)
+	runBounded(t, sc, func() { _ = deliver(p1); c1.leftover(); c1.settle() })
+	if kind != "poison-before" && len(w.runs.liveNames()) != 1 {
+		viol("the first delivery should have left one live run: %v", w.runs.liveNames())
+	}
+	// the later deliveries, 5 minutes apart, each a new process
+	w.panicGet = kind != "holds-down"
+	if kind == "poison-after-launch" {
+		w.panicGet = true
+	}
+	for n := 1; n <= 8; n++ {
+		w.clock = t0.Add(time.Duration(5*n) * time.Minute)
+		outage := kind == "holds-down" && n <= 6 // 30 simulated minutes; the session's own deadline (20 minutes) falls inside it
+		w.holds.setDown(outage)
+		c := &chaos{}
+		pr := w.newProc(t, c, nil)
+		runBounded(t, sc, func() { _ = deliver(pr); c.leftover(); c.settle() })
+		if kind == "holds-down" {
+			if outage && n <= 3 { // inside the session's deadline: nothing is decided, counted, closed or deleted
+
+				if decided() {
+					viol("delivery %d decided during the outage: %+v", n, row())
+				}
+				if r := row(); r != nil && r.Failures != 0 {
+					viol("an outage was counted as a failure: %+v", r)
+				}
+				if len(w.runs.liveNames()) != 1 {
+					viol("delivery %d: the launched run was lost during the outage: %v", n, w.runs.liveNames())
+				}
+			}
+		}
+	}
+	w.holds.setDown(false)
+	r := row()
+	if r == nil || r.State == "claimed" {
+		viol("never decided: %+v", r)
+		return
+	}
+	if n := len(w.runs.created); n > 1 {
+		viol("%d runs were created: %v", n, w.runs.created)
+	}
+	switch kind {
+	case "poison-before":
+		if r.State != "launch-failed" || len(w.runs.liveNames()) != 0 {
+			viol("a poison event before any launch must be decided launch-failed with no run: %+v live=%v", r, w.runs.liveNames())
+		}
+	case "poison-after-launch":
+		if r.State != "launched" || len(w.runs.liveNames()) != 1 {
+			viol("a run that was recorded launched must stay and be decided launched: %+v live=%v", r, w.runs.liveNames())
+		}
+	default:
+		// the outage outlasted the session (20 minutes): past its deadline the recorded launch is decided `launched` without any hold read,
+		// and the run, which its own deadline ends, is not what is asserted
+		if r.State != "launched" {
+			viol("a run that was recorded launched must be decided launched: %+v", r)
+		}
+	}
+	return
+}
+
+func TestAPoisonEventAndAnOutageNeverCostALaunchedRun(t *testing.T) {
+	triggers.RetryWaits = []time.Duration{time.Microsecond}
+	dispatch.HoldReadWaits = []time.Duration{time.Microsecond}
+	startHarnessAPI(t)
+	p := newPeopleRig(t)
+	for _, resume := range []bool{false, true} {
+		for _, kind := range []string{"poison-before", "poison-after-launch", "holds-down"} {
+			for _, v := range runDeliveries(t, p, kind, resume) {
+				t.Error(v)
+			}
+		}
+	}
 }

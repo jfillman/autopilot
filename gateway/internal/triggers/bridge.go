@@ -389,22 +389,28 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 	return done, nil
 }
 
-// PoisonAttempts and PoisonAfter bound an event that cannot be carried out (a panic on every delivery, a "could not tell" that never
-// clears): after PoisonAttempts failed attempts over at least PoisonAfter (counted on the ledger row, so a restart does not start
-// again) its trigger is decided launch-failed, so the cursor can move on and the events behind it are not blocked forever. Until then the
+// PoisonAttempts, PoisonAfter and PoisonQuiet bound an event that cannot be carried out (a panic on every delivery). The rule: the
+// trigger is decided when PoisonAttempts failures have been counted, each within PoisonQuiet of the one before (a longer quiet gap
+// starts the count again, so a failure from hours ago is not part of it), and the first and the last are at least PoisonAfter apart.
+// The count is on the ledger row, so a restart does not start it again. Its trigger is then decided so the cursor can move on and the
+// events behind it are not blocked forever. Until then the
 // event's attempts (metric Stuck) and the cursor's lag (metric CursorTime) are what an operator sees: alert when the cursor lags by
 // more than 15 minutes, or an event has failed more than 3 times.
 var (
 	PoisonAttempts = 8
 	PoisonAfter    = 10 * time.Minute
+	PoisonQuiet    = time.Hour
 )
 
 // stuckError is a failure of one trigger that is not the ledger's: a panic. A ResumableError is the other kind. Both are counted.
 type stuckError struct{ error }
 
+// isStuck says whether a failure counts toward the poison bound: only a panic does (a failure of the code on this event, which a retry
+// will meet again). A "could not tell" (a backend, a hold store or any dependency that did not answer) is an outage, not the event's
+// fault: it never counts, never leads to a decision and never to a reap, however long it lasts.
 func isStuck(err error) bool {
 	var se *stuckError
-	return errors.As(err, &se) || dispatch.IsResumable(err)
+	return errors.As(err, &se)
 }
 
 // poison counts a failed attempt of a trigger that is neither decided nor failing on the ledger, and when the bound is reached it
@@ -415,7 +421,7 @@ func (b *Bridge) poison(ctx context.Context, m Match, key, via string, ferr erro
 		return Outcome{}, false // the ledger's failure: the database is away, not the event's fault
 	}
 	cctx, cancel := b.dbCtx(ctx)
-	n, first, err := b.ledger.Failed(cctx, m.Agent, key, b.Now())
+	n, first, err := b.ledger.Failed(cctx, m.Agent, key, b.Now(), PoisonQuiet)
 	cancel()
 	if err != nil {
 		return Outcome{}, false
@@ -435,6 +441,14 @@ func (b *Bridge) poison(ctx context.Context, m Match, key, via string, ferr erro
 		sid = b.gw.SessionOfTask(m.Agent, EventTaskID(m.Agent, key))
 	}
 	if sid != "" {
+		if st := b.gw.TriggerSessionState(sid); st.Launched && st.Removed == "" {
+			// A run was made and recorded: the event is poison after a launch. It is decided from what is recorded (launched) and the
+			// run is left to its session; it is never deleted because the event kept failing.
+			b.log.Error("an event that kept failing had launched its run: decided launched from the record", "agent", m.Agent, "key", key, "attempts", n)
+			b.metrics.Poisoned(m.Agent)
+			b.metrics.Stuck(m.Agent, 0)
+			return Outcome{Agent: m.Agent, Result: "launched", Via: via, New: true, Session: sid, Run: st.Run, Rule: "CT-POISON"}, true
+		}
 		if rerr := b.gw.ReapRun(ctx, sid); rerr != nil {
 			b.log.Error("an event that keeps failing could not be decided: its run could not be resolved", "agent", m.Agent, "attempts", n, "err", errKind(rerr))
 			return Outcome{}, false

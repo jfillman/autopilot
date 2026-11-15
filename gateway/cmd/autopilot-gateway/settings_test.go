@@ -159,7 +159,7 @@ func TestDelegateGlobsWindowAndHTTPSettings(t *testing.T) {
 		}
 	}
 	ev := map[string]string{"EVENTS_ENABLED": "1"}
-	for url, ok := range map[string]bool{"https://glidepath-api.example": true, "http://127.0.0.1:8080": true, "http://[::1]:8080": true, "http://localhost:8080": false,
+	for url, ok := range map[string]bool{"https://glidepath-api.example": true, "http://127.0.0.1:8080": false, "http://[::1]:8080": false, "http://localhost:8080": false,
 		"http://glidepath-api.local": false, "http://glidepath-api": false, "http://10.0.0.5": false} {
 		env := map[string]string{"GLIDEPATH_API_URL": url}
 		for k, v := range ev {

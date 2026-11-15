@@ -18,10 +18,10 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/session"
 )
 
-// goSchema is what only the Go gateway adds to the shared schema: two columns on the trigger ledger that count the failed attempts of a
+// goSchema is what only the Go gateway adds to the shared schema: three columns on the trigger ledger that count the failed attempts of a
 // claimed row (see triggers.Row.Failures). They have defaults, so the Python gateway's own statements are unaffected.
 const goSchema = `ALTER TABLE gateway_trigger_launches ADD COLUMN IF NOT EXISTS failures integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS first_failed_at timestamptz`
+  ADD COLUMN IF NOT EXISTS first_failed_at timestamptz, ADD COLUMN IF NOT EXISTS last_failed_at timestamptz`
 
 //go:embed schema.sql
 var schema string

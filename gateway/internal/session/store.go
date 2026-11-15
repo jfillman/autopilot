@@ -370,7 +370,12 @@ func (st *Store) Flush(ctx context.Context, sessions ...*Session) error {
 		if i > 0 && ordered[i-1] == s {
 			continue
 		}
-		s.flushMu.Lock()
+		if err := s.flushMu.Lock(ctx); err != nil {
+			for _, h := range held {
+				h.flushMu.Unlock()
+			}
+			return err
+		}
 		held = append(held, s)
 	}
 	defer func() {

@@ -277,22 +277,27 @@ func TestTheLedgerKeepsTheFailedAttemptsOfAClaimedRow(t *testing.T) {
 	if ok, err := l.Claim(ctx, "triage-agent", "kf", "stream", "e1", t0, t0); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	n, first, err := l.Failed(ctx, "triage-agent", "kf", t0.Add(time.Second))
+	n, first, err := l.Failed(ctx, "triage-agent", "kf", t0.Add(time.Second), time.Hour)
 	if err != nil || n != 1 || !first.Equal(t0.Add(time.Second)) {
 		t.Fatalf("%d %v %v", n, first, err)
 	}
 	if ok, _ := l.Claim(ctx, "triage-agent", "kf", "recent", "e1", t0.Add(time.Hour), t0.Add(time.Hour)); !ok {
 		t.Fatal("takeover")
 	}
-	n, first, err = l.Failed(ctx, "triage-agent", "kf", t0.Add(2*time.Hour))
+	n, first, err = l.Failed(ctx, "triage-agent", "kf", t0.Add(30*time.Minute), time.Hour)
 	if err != nil || n != 2 || !first.Equal(t0.Add(time.Second)) {
 		t.Fatalf("the count did not survive the takeover: %d %v %v", n, first, err)
 	}
 	if row, _ := l.Get(ctx, "triage-agent", "kf"); row.Failures != 2 {
 		t.Fatalf("%+v", row)
 	}
+	// a failure more than the quiet period after the last starts the count again
+	n, first, err = l.Failed(ctx, "triage-agent", "kf", t0.Add(5*time.Hour), time.Hour)
+	if err != nil || n != 1 || !first.Equal(t0.Add(5*time.Hour)) {
+		t.Fatalf("the count was not started again after a quiet gap: %d %v %v", n, first, err)
+	}
 	_ = l.Decide(ctx, "triage-agent", "kf", "launch-failed", "", "")
-	if _, _, err := l.Failed(ctx, "triage-agent", "kf", t0); err == nil {
+	if _, _, err := l.Failed(ctx, "triage-agent", "kf", t0, time.Hour); err == nil {
 		t.Fatal("a decided row took a failure")
 	}
 }

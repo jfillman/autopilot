@@ -295,11 +295,15 @@ func (t *Triggers) Decide(ctx context.Context, agent, key, state, session, run s
 
 // Failed is Ledger.Failed: the count and the first failure's time are columns the Go gateway adds to the row (pgstate.goSchema); the
 // Python gateway never reads them and its own writes leave them as they are.
-func (t *Triggers) Failed(ctx context.Context, agent, key string, now time.Time) (int, time.Time, error) {
+func (t *Triggers) Failed(ctx context.Context, agent, key string, now time.Time, quiet time.Duration) (int, time.Time, error) {
 	var n int
 	var first time.Time
-	err := t.st.Pool.QueryRow(ctx, "UPDATE gateway_trigger_launches SET failures = failures + 1, first_failed_at = COALESCE(first_failed_at, $3), updated_at = now() "+
-		"WHERE agent = $1 AND key = $2 AND state = 'claimed' RETURNING failures, first_failed_at", agent, key, now).Scan(&n, &first)
+	// A failure more than `quiet` after the previous one starts the count again (all the right-hand sides read the old row).
+	err := t.st.Pool.QueryRow(ctx, "UPDATE gateway_trigger_launches SET "+
+		"failures = CASE WHEN failures = 0 OR (last_failed_at IS NOT NULL AND $3::timestamptz - last_failed_at > make_interval(secs => $4)) THEN 1 ELSE failures + 1 END, "+
+		"first_failed_at = CASE WHEN failures = 0 OR first_failed_at IS NULL OR (last_failed_at IS NOT NULL AND $3::timestamptz - last_failed_at > make_interval(secs => $4)) THEN $3::timestamptz ELSE first_failed_at END, "+
+		"last_failed_at = $3::timestamptz, updated_at = now() "+
+		"WHERE agent = $1 AND key = $2 AND state = 'claimed' RETURNING failures, first_failed_at", agent, key, now, quiet.Seconds()).Scan(&n, &first)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, time.Time{}, triggers.ErrNotClaimed
 	}

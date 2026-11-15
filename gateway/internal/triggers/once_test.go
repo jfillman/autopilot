@@ -282,72 +282,104 @@ func TestASlotIsNotFiredUntilItsRowIsDecided(t *testing.T) {
 	}
 }
 
-// An event that fails on every delivery does not hold the cursor forever: after PoisonAttempts attempts over PoisonAfter (counted on
-// the ledger row, so a restart does not start again) its trigger is decided launch-failed (CT-POISON), but only once any run it may have
-// made is resolved through the backend.
-func TestAnEventThatKeepsFailingIsDecidedAfterABoundAndNotBefore(t *testing.T) {
+// An event that panics on every delivery does not hold the cursor forever: after PoisonAttempts counted failures, each within
+// PoisonQuiet of the one before and the first and last PoisonAfter apart (counted on the ledger row, so a restart does not start again),
+// its trigger is decided launch-failed (CT-POISON), after any run it may have made is resolved through the backend. A "could not tell"
+// (an outage of a dependency) is not counted, however long it lasts. A session whose run is recorded launched is decided launched.
+func TestAnEventThatKeepsPanickingIsDecidedAfterABoundAndAnOutageIsNeverCounted(t *testing.T) {
 	ctx := context.Background()
-	oldA, oldT := triggers.PoisonAttempts, triggers.PoisonAfter
-	triggers.PoisonAttempts, triggers.PoisonAfter = 3, 3*time.Minute
-	defer func() { triggers.PoisonAttempts, triggers.PoisonAfter = oldA, oldT }()
-	for _, how := range []string{"panic", "could-not-tell"} {
+	oldA, oldT, oldQ := triggers.PoisonAttempts, triggers.PoisonAfter, triggers.PoisonQuiet
+	triggers.PoisonAttempts, triggers.PoisonAfter, triggers.PoisonQuiet = 3, 3*time.Minute, time.Hour
+	defer func() { triggers.PoisonAttempts, triggers.PoisonAfter, triggers.PoisonQuiet = oldA, oldT, oldQ }()
+	deliver := func(r *rig, at time.Duration) ([]triggers.Outcome, error) {
+		r.now = t0.Add(at)
+		return r.bridge("").Handle(ctx, finished("e1", "pr-1", "failure"), "stream") // every delivery is a new process: the count lives on the row
+	}
+	// 1. a panic: not decided under the bound, decided at it
+	{
 		gw := newGW(triage(nil, 0))
 		r := newRig(t, gw, "")
-		if how == "panic" {
-			gw.panicOn["triage-agent"] = true
-		} else {
-			gw.existsErr = errors.New("api server unreachable")
-			gw.reserved["s-1"] = true
-		}
-		task := triggers.EventTaskID("triage-agent", key1)
-		if how == "could-not-tell" {
-			gw.sessions["triage-agent/"+task] = "s-1"
-			gw.closed["s-1"], gw.closeCtl["s-1"] = true, "deadline"
-		}
-		deliver := func(n int) ([]triggers.Outcome, error) {
-			r.now = t0.Add(time.Duration(n) * time.Minute)
-			// every delivery is a new process: the count lives on the row
-			return r.bridge("").Handle(ctx, finished("e1", "pr-1", "failure"), "stream")
-		}
+		gw.panicOn["triage-agent"] = true
 		for n := 1; n <= 3; n++ {
-			// the third attempt is at the count but the first failure is only 2 minutes old
-			if got, err := deliver(n); err == nil {
-				t.Fatalf("%s #%d: a stuck event was decided early: %+v", how, n, got)
+			if got, err := deliver(r, time.Duration(n)*time.Minute); err == nil {
+				t.Fatalf("#%d: a stuck event was decided early: %+v", n, got)
 			}
 		}
-		row, _ := r.ledger.Get(ctx, "triage-agent", key1)
-		if row.State != "claimed" || row.Failures != 3 {
-			t.Fatalf("%s: %+v", how, row)
+		if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row.State != "claimed" || row.Failures != 3 {
+			t.Fatalf("%+v", row)
 		}
-		got, err := deliver(4) // the 4th attempt, 3 minutes after the first failure: over the bound
-		if how == "could-not-tell" {
-			// its run cannot be resolved through the backend: not decided while a run may exist, however often it fails
-			if err == nil {
-				t.Fatalf("%s: decided with a run that could not be resolved: %+v", how, got)
-			}
-			if row, _ = r.ledger.Get(ctx, "triage-agent", key1); row.State != "claimed" {
-				t.Fatalf("%s: %+v", how, row)
-			}
-			gw.mu.Lock()
-			gw.existsErr = nil
-			gw.mu.Unlock()
-			if got, err = deliver(5); err != nil || len(got) != 1 || got[0].Result == "" {
-				t.Fatalf("%s: with the backend back it is carried out: %+v %v", how, got, err)
-			}
-			continue
-		}
+		got, err := deliver(r, 4*time.Minute)
 		if err != nil || len(got) != 1 || got[0].Result != "launch-failed" || got[0].Rule != "CT-POISON" || !got[0].New {
-			t.Fatalf("%s: %+v %v", how, got, err)
-		}
-		if row, _ = r.ledger.Get(ctx, "triage-agent", key1); row.State != "launch-failed" {
-			t.Fatalf("%s: %+v", how, row)
+			t.Fatalf("%+v %v", got, err)
 		}
 		if r.m.C["poisoned/triage-agent"] != 1 {
-			t.Fatalf("%s: no distinct metric: %v", how, r.m.C)
+			t.Fatalf("no distinct metric: %v", r.m.C)
 		}
-		// decided: a replay is a dedupe, and the panic does not happen again
-		if again, _ := deliver(6); len(again) != 1 || again[0].New {
-			t.Fatalf("%s: %+v", how, again)
+		if again, _ := deliver(r, 5*time.Minute); len(again) != 1 || again[0].New {
+			t.Fatalf("%+v", again)
+		}
+	}
+	// 2. the rule's window: a failure from hours ago is not part of the count (a quiet gap starts it again); 3 failures within the
+	// quiet window and 3 minutes apart decide it
+	{
+		gw := newGW(triage(nil, 0))
+		r := newRig(t, gw, "")
+		gw.panicOn["triage-agent"] = true
+		for _, at := range []time.Duration{time.Minute, 2 * time.Minute} { // two failures, then silence
+			_, _ = deliver(r, at)
+		}
+		got, err := deliver(r, 5*time.Hour) // the third is hours later: the count starts again at 1
+		if err == nil {
+			t.Fatalf("a failure hours after the others made it poison: %+v", got)
+		}
+		if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row.Failures != 1 || !row.FirstFailed.Equal(t0.Add(5*time.Hour)) {
+			t.Fatalf("the count was not started again: %+v", row)
+		}
+		_, _ = deliver(r, 5*time.Hour+2*time.Minute)
+		if got, err = deliver(r, 5*time.Hour+4*time.Minute); err != nil || len(got) != 1 || got[0].Rule != "CT-POISON" {
+			t.Fatalf("%+v %v", got, err)
+		}
+	}
+	// 3. an outage ("could not tell", a hold store down, a backend down) is never counted: hours of it decide nothing and reap nothing
+	{
+		gw := newGW(triage(nil, 0))
+		r := newRig(t, gw, "")
+		task := triggers.EventTaskID("triage-agent", key1)
+		gw.sessions["triage-agent/"+task] = "s-1"
+		gw.hasRun["s-1"], gw.launched["s-1"] = true, true
+		gw.closed["s-1"], gw.closeCtl["s-1"] = true, "finish" // a closed session names a run: the backend is asked, and it is down
+		gw.existsErr = errors.New("api server unreachable")
+		for n := 1; n <= 20; n++ {
+			if got, err := deliver(r, time.Duration(n)*10*time.Minute); err == nil {
+				t.Fatalf("#%d: decided during an outage: %+v", n, got)
+			}
+		}
+		if row, _ := r.ledger.Get(ctx, "triage-agent", key1); row.State != "claimed" || row.Failures != 0 || len(gw.reaped) != 0 || !gw.hasRun["s-1"] {
+			t.Fatalf("an outage was counted or its run reaped: %+v reaped=%v", row, gw.reaped)
+		}
+	}
+	// 4. poison after a launch: decided from the record (launched), the run left to its session
+	{
+		gw := newGW(triage(nil, 0))
+		r := newRig(t, gw, "")
+		task := triggers.EventTaskID("triage-agent", key1)
+		gw.sessions["triage-agent/"+task] = "s-1"
+		gw.hasRun["s-1"], gw.launched["s-1"] = true, true
+		if ok, _ := r.ledger.Claim(ctx, "triage-agent", key1, "stream", "e1", t0, t0); !ok {
+			t.Fatal("claim")
+		}
+		_ = r.ledger.Opened(ctx, "triage-agent", key1, "s-1")
+		gw.beforeLaunch = func() { panic("boom") } // the launch of the recorded session panics on every delivery
+		var got []triggers.Outcome
+		var err error
+		for n := 1; n <= 4; n++ {
+			got, err = deliver(r, time.Duration(n)*time.Minute)
+		}
+		if err != nil || len(got) != 1 || got[0].Result != "launched" || got[0].Rule != "CT-POISON" || got[0].Session != "s-1" {
+			t.Fatalf("%+v %v", got, err)
+		}
+		if len(gw.reaped) != 0 || !gw.hasRun["s-1"] {
+			t.Fatalf("a launched run was deleted because the event kept failing: %v", gw.reaped)
 		}
 	}
 }
