@@ -132,7 +132,12 @@ func TestTheReadOnlyRoleFileMakesARoleTheAPIStartsWith(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+	// stop ends the process and returns what it logged: stderr is copied by a goroutine until Wait returns, so it is read only after it.
+	stop := func() string {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return out.String()
+	}
 	ok := false
 	for i := 0; i < 100 && !ok; i++ {
 		time.Sleep(200 * time.Millisecond)
@@ -142,11 +147,12 @@ func TestTheReadOnlyRoleFileMakesARoleTheAPIStartsWith(t *testing.T) {
 			_ = r.Body.Close()
 		}
 	}
+	logged := stop()
 	if !ok {
-		t.Fatalf("the api did not become ready as the read-only role:\n%s", out.String())
+		t.Fatalf("the api did not become ready as the read-only role:\n%s", logged)
 	}
-	if strings.Contains(out.String(), "lacks indexes") {
-		t.Errorf("the migrated database was said to lack indexes:\n%s", out.String())
+	if strings.Contains(logged, "lacks indexes") {
+		t.Errorf("the migrated database was said to lack indexes:\n%s", logged)
 	}
 }
 

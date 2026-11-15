@@ -208,7 +208,8 @@ def test_no_manifest_turns_it_on():
     for p in ROOT.rglob("*"):
         if (p.is_file() and ".git" not in p.parts and ".venv" not in p.parts
                 and (p.suffix in (".yaml", ".yml", ".json") or p.name.startswith("Dockerfile"))
-                and p != ROOT / ".github" / "workflows" / "test.yaml"):
+                and p != ROOT / ".github" / "workflows" / "test.yaml"
+                and p != ROOT / "gateway" / "envtable.json"):   # the environment table names it (and says it is test-only and off)
             try:
                 if cf.ENABLE_ENV in p.read_text(errors="ignore"):
                     hits.append(str(p.relative_to(ROOT)))
