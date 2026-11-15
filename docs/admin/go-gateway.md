@@ -1,8 +1,9 @@
 # The Go AI gateway (A-9)
 
-**Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2, 2026-11-14) and the read backends (A-9 S5a:
-`catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put`, `artifact.get`) are in, on top of the first slice and the
-catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
+**Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2, 2026-11-14), the read backends (A-9 S5a:
+`catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put`, `artifact.get`) and the Glidepath and repository tools (A-9 S5b:
+every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`, `repo.pr.open_upper`, `argo.sync.lower`) are in, on top of the first
+slice and the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
 the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
 Python one, how it is kept equal ([the drift guard](#the-drift-guard)), and exactly what is left.
@@ -76,7 +77,7 @@ Python changes since the first slice that belong to a later slice, and are there
 | S3 people and triggers | the Preflight routes `/v1/preflight/cases` and `/v1/preflight/score` and `document` and `budget` on `POST /v1/agents/{agent}/runs` (`engine/server.py`, `Gateway.preflight_*`) |
 | S4 definitions | publishing the bundled definitions with the pins (`Core.publish_definitions(bundled=)`, `bundled_version`, the retry without the field against a core that predates it, `Definitions.bundled_set`, `AgentDefinition.doc`, `DefinitionsPublisher` at start), and the schema's `profile.airframe.proposeFlight` |
 | S5a read backends | **done in S5a, below**: `ReadError` for catalog and app API reads as a `BackendError`, with the handlers behind it |
-| S5b Glidepath and repo tools | `GitHubError`'s agent message and evidence and the resumable `ensure_pr` (`github_pr.py`), `GlidepathError` naming a connection failure's cause, `ArgoSyncError`'s evidence without the response body, `glidepath.cicd.propose` for the `propose` scope class (`cicd_propose.py`). The Go dispatch already tells an agent an error's agent message and records its evidence; these backends only have to offer them |
+| S5b Glidepath and repo tools | **done in S5b, below**: `GitHubError`'s agent message and evidence and the resumable `ensure_pr` (`github_pr.py`), `GlidepathError` naming a connection failure's cause, `ArgoSyncError`'s evidence without the response body, `glidepath.cicd.propose` for the `propose` scope class (`cicd_propose.py`) |
 | S5c Airframe tools | `airframe.apply` (`airframe_apply.py`), `airframe.capabilities` and `airframe.plan` descriptions (already in the generated registry), `AirframeError` as a `BackendError` |
 | S6 `api`, metrics, logs | the setting renames in `api_serve.py` (the retired names are refused there too) |
 
@@ -329,9 +330,239 @@ other one `URLError` (as for Prometheus), and a JSON object's keys come back in 
 are passed through as written. A put is its own database transaction; Python's joins the call's, which commits with the session
 (the same difference as the run results').
 
+## What S5b carries: the Glidepath and repository tools (2026-11-14)
+
+These are the write paths of the gateway: they ask glidepath-api to start or cancel runs, open pull requests as the agents' GitHub
+App, and ask Argo CD for a sync. Each tool has the Python behaviour for the same inputs (arguments, result shapes and clipping,
+refusals, error class and text, settings and defaults), its own HTTP client with its own timeout and pool, and a fake. Where Go
+differs on purpose it is listed [below](#where-go-differs-from-python-on-purpose-s5b), and each such case is pinned in the fixtures
+with a `why`. The sources are `glidepath_api.py`, `glidepath_live.py`, `github_pr.py`, `argo_sync.py`, `cicd_propose.py` and the
+handler part of `gateway.py`.
+
+| Tools | Do | Settings (Python's names and defaults) | Pinned by |
+|---|---|---|---|
+| `glidepath.runs.list`, `run.get`, `logs.get`, `explain`, `releases.get`, `contract`, `releaseRun.get`, `evidence.get`, `tests.list`, `tests.report`, `events.recent`, `previews.list`, `environments.list`, `environments.rollbackPlan`, `live.list`, `live.logs.get` | reads through glidepath-api (plain HTTP): the gateway's own token in `Authorization` and `X-Glidepath-Authorization`, the session's principal in `X-Glidepath-On-Behalf-Of` when configured; a 400 or 404 with a rule is an answer, a 401 or 403 a denial, a 422 a denial with the write hint, anything else a `GlidepathError` | `GLIDEPATH_API_URL` (off when unset), `GLIDEPATH_TOKEN_FILE` (the projected service account token), `GLIDEPATH_ON_BEHALF_OF` (off) | `TestWriteToolsEqualPython` (the glidepath cases), `FuzzGlidepathURL` |
+| `glidepath.live.watch` | the live stream as one bounded call: the stream's snapshot and changes until the run finishes or `timeoutSeconds` (1 to 120, default 60) pass, then polling every 3 s; its own in-flight limit (8) so a stream never holds the short reads' share | the same | the watch cases (a fake clock, the stream and the polling paths, a lagging or dropping stream) |
+| `glidepath.run.rerun`, `glidepath.run.cancel` | T1 writes: a re-run (a copy of the PipelineRun's spec) carries the `Idempotency-Key` `clearance.<sha256 of session/app/pipelinerun>`, so a retry starts no second run | the same | the rerun and cancel cases, `TestARerunWhoseAnswerIsLost...` |
+| `glidepath.promote`, `glidepath.rollback` | T2 propose-only writes: each only starts the app's release run, whose PR a person merges; the key is the session, the app, the target environment and cluster and what it promotes from (or rolls back to), `X-Glidepath-Dry-Run` carries `dryRun` | the same | the promote and rollback cases |
+| `glidepath.cicd.validate`, `glidepath.cicd.propose` | validate is the verdict glidepath-api gives a cicd.yaml merge patch (a read); propose asks the same, refuses with its GP rule on an error problem, and opens one commit of the resulting `cicd.yaml` as a pull request with the verdict in its body; a change of the `propose` class is marked for a person (`Hangar-Merge: person`, `merge`, `needsPerson`) | the same and the repository ones | the cicd cases (31), the effect comparison |
+| `repo.file.get` | one file's text, or a directory's entries, at a ref | `GITHUB_PR_ENABLED` (off), `AGENT_TOKEN_FILE` (`/var/run/clearance/agent-installation-token`), `BROKER_URL` (**required in Go**, below), `GITHUB_OWNERS` (**Go only**) | the repo cases, `FuzzGitHubRequestTarget` |
+| `repo.pr.open`, `repo.pr.open_upper` | a pull request built with the Git data API on a new branch, as the agents' App; when the files carry the app's own root `cicd.yaml`, glidepath-api's verdict comes first (`check_files`) | the same | the repo and refusal cases, the crash tests, `TestTheGitHubRequestsAreTheClosedList` |
+| `argo.sync.lower` | one merge PATCH of a lower Application's `operation`, after the Application is read and checked | `ARGO_SYNC_ENABLED` (off; **needs `ARGO_ENABLED`** in Go), `ARGO_APP_NAMESPACES` | the argo cases, `TestASyncWhoseAnswerIsLost...` |
+| (no tool yet) `GitHub.EnsurePR`, `FindPR` | the resumable pull request and the lookup `airframe.apply` uses; built and tested here so S5c only has to call them (with its own scope check) | | the ensure and find cases, `TestEnsurePRResumes...` |
+
+The equivalence fixture (`gateway/internal/backends/testdata/writes.json`, generated by `tools/gen_gateway_writes.py`, called
+by `tools/gen_gateway_registry.py`; `tests/test_gateway_go.py` fails when it is stale) drives the Python handlers
+(`gateway.hangar_handlers` over the real adapters with a fake transport) over canned answers and records, for 320 cases, each request
+(method, target, the headers that matter, the JSON body) and what the call returned, refused or raised, with the receipt the
+outcome would carry (`dispatch._effect`). The Go test serves the same answers and requires the same requests, result, refusal or
+error (class, outcome text and the text the agent is told) and the same receipt. 63 cases carry `go` and `why` and 53 more carry the exact list of reads only Go makes (`go_requests`): the places Go differs.
+
+### The scope of every write
+
+The core decides every call before a handler runs, from the session's grant and the agent's definition. The gateway decides
+again, itself, from the session's own grant and the agent's own definition, before any request is built (`scope` in
+`backends/hangar.go`, `backends/scope.go`); it does not rely on the core or on GitHub to refuse. The rule ids are the core's, so a
+refusal reads the same either way.
+
+| Rule | Decided from | Refusal |
+|---|---|---|
+| the agent has a definition | the definition set | `R003` |
+| the tool is in the session's grant | `Session.Limits.Tools` | `R006` |
+| the tool's tier is within the session's ceiling (a propose-only tool is allowed to a ceiling of T1 and above) | `Session.Limits.TierCeiling` and the registry | `R007` |
+| the repository is on the allowlist | the definition's `repos.allow`, matched as the core does (`*` does not cross `/`, exactly one `/`), **without case, on one canonical spelling**: owner and name are lower-cased once (ASCII letters, digits, `.`, `_`, `-` only; a `.git` suffix and every other variant is refused, nothing is trimmed) and that one value is used for the allowlist, the `gitops-` rule, the app the broker is asked about, the URL and the receipt (GitHub resolves names without case, so `o/GITOPS-x` is `o/gitops-x`) | `R014`, `GH-REPO` |
+| a tool for lower environments (`repo.pr.open`, `glidepath.cicd.propose`) does not write to a release repository | the canonical name starts with `gitops-`; Go reads only the name, never an argument such as `env` or `project` | `R012` |
+| the glidepath app is on the allowlist (every `glidepath.*` tool) | the definition's `profile.glidepath.apps`, `fnmatch` globs | `R022` |
+| a file is not a protected path | the definition's deny paths with the baseline (`.tekton`, `CODEOWNERS`, `.github`, AppProject and release files), on the normalised path and again in lower case (so `Codeowners` or `.GitHub` do not slip past) | `GH-PATH` |
+| the owner is one the deployment names | `GITHUB_OWNERS`: no argument chooses the owner, the installation or the URL; the owner is built from the setting's spelling | `GH-OWNER` |
+| the Application is in a `-lower` project, named exactly, with no operation in flight | the Application as read just before the patch | `ARGO-PROJECT`, `ARGO-BUSY` |
+| the Application's app is one the definition names (`argo.sync.lower`) | `profile.glidepath.apps`: the app of the `<app>-lower` project, and the Application's `hangar.io/app` label when it has one, both before anything is patched (the definition has no field of its own for Argo CD) | `R022` |
+| the base is the repository's default branch | `GET /repos/{owner}/{repo}` `default_branch`; `base` may be left out or be that branch (the definition has no field that allows another) | `GH-BASE` |
+| a file does not take a directory's place, and nothing is written under a file | no proper ancestor of a path may itself be denied (`CODEOWNERS/x` would replace `CODEOWNERS` with a tree); for each file the base commit's contents are read at the path and at each ancestor (the `contents` request of the list, each path once, at most 200 reads in all, past that `GH-FILES`): a directory at the path, or a file at an ancestor, refuses the file whatever the deny list says; a path that is a proper ancestor of what a deny pattern names by its literal leading directories (`deploy` for `deploy/prod/values.yaml`) is refused without a read; names a file system reads as another (a trailing space or dot, `GITHUB~1`, `:`) are refused; the contents answer must be a listing (a directory) or `type: file`: a symlink, a submodule or an unknown type at the path or an ancestor refuses the file. Residual, exact: a symlink to a directory is answered as that directory's listing, so it is read as a directory, and a file written at its name replaces the symlink entry (the target's files are untouched, nothing is written through it); telling it apart needs the tree entry's mode, a tenth request (`GET git/trees/{sha}`) the closed list does not have | `GH-PATH`, `GH-FILES` |
+| a branch or pull request that is resumed (`EnsurePR`) is this session's own | the head commit's message is exactly one subject line, a blank line and the trailers the gateway writes for this call's metadata (agent, run, session, task), in order and nothing else; a title that starts like a `Hangar-` trailer is refused (`GH-TITLE`); a pull request found for the branch must also hold the files asked for, read at its head commit | `APPLY-BRANCH-FOREIGN`, `APPLY-BRANCH-DIVERGED` |
+| the Application has an app | its `hangar.io/app` label must be there (and on the definition's apps) | `ARGO-UNLABELLED`, `R022` |
+
+What stays with the core and glidepath-api and is not decided again here: the budgets (calls, GitHub calls, open PRs), the
+`repos.fieldDeny` and `fieldAllow` field scope of a file's YAML (it needs the file's content before the change), and Glidepath's own
+cicd.yaml scope rules (`GP-SCOPE-*`), which glidepath-api judges for `cicd.validate`, `cicd.propose` and for a `cicd.yaml` among a
+pull request's files.
+
+A branch the agent creates must be in the gateway's own namespace (`agent/`, with a name after it: an agent cannot squat on or build
+on a person's branch), must be new (`refs` is never updated, only created: a 422 is `GH-BRANCH-EXISTS`), must not be under
+`refs/`, must not be a line of release (`main`, `master`, `develop`, `trunk`, `production`, `staging`, `release`, `gh-pages`, `HEAD`,
+in any case), and must not be the base. The base is the repository's default branch (above). Names are checked against git's own rules (no
+leading `-`, `..`, `@{`, `//`, a trailing `.`, a component that starts with `.` or ends in `.lock`, nor a space, `~`, `^`, `:`, `?`,
+`*`, `[`, a backslash or a control character); a test holds the checker against `git check-ref-format`. A title is one line of 1 to 200
+characters (a line break would let it forge the commit's `Hangar-` trailers). A pull request carries 1 to 50 files, each at most 1 MiB
+of valid UTF-8 and 8 MiB in all, each a normal repository-relative path (no `.` or `..` component, no `.git` component, no duplicate
+in any case), as plain files (mode 100644: no symlink, no executable bit, no submodule).
+
+### The closed lists of requests
+
+The whole of what the gateway can send, by backend. Each is built from a fixed template and arguments that matched their pattern,
+percent-escaped one segment at a time; the built URL is parsed again and refused unless it is the configured scheme, host and base
+path, with no userinfo, no fragment and no dot segment. A test records every request over all the attack inputs and holds it to the
+list; the fuzz targets read each finished URL back the way a server would.
+
+**GitHub** (`https://api.github.com`, the installation token as `Authorization`; only `GET` and `POST` exist in the client; nine requests):
+
+| Request | For |
+|---|---|
+| `POST {BROKER_URL}/agent-installation-token` (body: owner, repo, app; the gateway's projected token) | the installation token for this one repository |
+| `GET /repos/{owner}/{repo}/git/ref/heads/{branch}` | the base commit; whether a branch exists |
+| `GET /repos/{owner}/{repo}/git/commits/{sha}` | the base commit's tree |
+| `POST /repos/{owner}/{repo}/git/trees` | the files, on the base tree (plain blobs) |
+| `POST /repos/{owner}/{repo}/git/commits` | one commit, its message carrying the agent, task, session and run |
+| `POST /repos/{owner}/{repo}/git/refs` (body: `refs/heads/<a new branch>` and the commit this call made) | the branch; a 422 (it exists) is refused, never forced |
+| `POST /repos/{owner}/{repo}/pulls` | the pull request |
+| `GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state={all or open}&per_page={5 or 10}` | the pull request a branch already has |
+| `GET /repos/{owner}/{repo}/contents/{path}?ref={ref}` | `repo.file.get`, the files check of `ensure_pr`, and (with the base commit as the ref) whether a file would take a directory's place |
+| `GET /repos/{owner}/{repo}` | the default branch, the one base a pull request has |
+
+There is no merge, review, approval, `PATCH`, `PUT` or `DELETE`, no branch protection, ruleset, workflow, label, comment or issue
+endpoint, and no way to move or delete a ref: so by no combination of calls can the gateway merge, approve, force-push, delete a
+branch, change protection, or write to an existing or default branch. The ref body is checked at the client: it must be
+`refs/heads/` and a branch that passes the new-branch rule, with a commit id. A test asserts that no endpoint of the list contains a
+merge, review, branch, protection or workflow path.
+
+**glidepath-api** (`GLIDEPATH_API_URL`, the token in `Authorization` and `X-Glidepath-Authorization`): `GET /v1/contract`,
+`GET /v1/events/recent`, `GET /v1/apps/{app}/` `runs`, `runs/{result}`, `runs/{result}/logs/{taskRun}`, `runs/{result}/explain`,
+`releases`, `releases/{chainId}`, `releases/runs/{name}`, `live`, `live/stream`, `live/taskruns/{taskRun}/logs/{container}`,
+`evidence`, `tests`, `tests/{id}/report`, `previews`, `environments`, `environments/{env}/rollback-plan`; and `POST /v1/apps/{app}/`
+`pipelineruns/{pipelinerun}/rerun`, `pipelineruns/{pipelinerun}/cancel`, `environments/{env}/promote`, `environments/{env}/rollback`,
+`cicd/validations`. (`backends.AllowedGlidepathRequests` is the list.) Every argument matches the Hangar policy bundle's argument
+check for its name (`app`, `result`, `taskRun`, `pipelinerun`, `chainId`, `env`, `cluster`, `container`, `name`, `image`, `id`, `type`,
+`since`, `targetReleaseId`, the integers `sinceHours`, `limit` and `timeoutSeconds` in their ranges), anchored at both ends; none can
+be `.` or `..`.
+
+**Kubernetes** (the in-cluster API server, the pod's token and CA): the S5a reads of Applications, and one more request:
+`PATCH /apis/argoproj.io/v1alpha1/namespaces/{ns}/applications/{name}` (`application/merge-patch+json`: `metadata.resourceVersion`
+and `operation` only). The namespace is one of `ARGO_APP_NAMESPACES` (DNS labels, checked at start) and the name a DNS name.
+
+### Credentials
+
+- The **glidepath-api token** and the **Kubernetes token** are the gateway's own projected service account tokens, re-read from
+  their files on every call (`TestTokensAreReadOnEveryCallAndNeverEscape`) and sent only to the configured host. Nothing keeps one.
+- The **GitHub App key** is not here and never was: Python does not hold it either. For each call the gateway asks Glidepath's
+  broker for an installation token (`POST /agent-installation-token`, as its own identity with a projected token for the
+  broker's audience, `AGENT_TOKEN_FILE`, re-read on every call). The broker checks that the repository is an onboarded app's own
+  and down-scopes the token to that one repository (contents and pull requests write, never workflows); the gateway asks for one
+  repository and no permission set of its own choosing, and Go is the same as Python here. The token is **minted per call**: it is a
+  local variable of one call, used for that call's requests and dropped; never cached, logged, written to disk, put in an error,
+  a record or a result.
+- An upstream that echoes the credential it was given (an error message with the `Authorization` header in it) cannot put it back:
+  every answer is read with the token taken out (`[redacted]`) before any text of it is used (Python repeats it).
+- A redirect is never followed, by any of the four clients (`TestAWriteBackendsRedirectIsNeverFollowed...` serves a second host
+  and requires it saw nothing); the `Authorization` header goes to the configured host only. The token is never in a URL.
+- A token with a line break, one shorter than 12 characters, or an installation token with a character outside `A-Za-z0-9._~+/=-`, is
+  refused rather than sent; `serve` does not start with a token file whose token is shorter than 12 characters. Redaction takes a token
+  out of an answer whatever its length.
+- `GLIDEPATH_API_URL`, `BROKER_URL` and the GitHub API URL must be `https` unless the deployment says otherwise:
+  `GLIDEPATH_API_ALLOW_HTTP=1` and `BROKER_ALLOW_HTTP=1` (both Go only, off by default; the lab render turns them on) allow plain
+  http, and `serve` then logs a warning. No host name is treated as special.
+
+### When the answer is lost, or the process dies
+
+There are three places a write can stop: before the remote system did it, after it did and before the gateway knew, and after the
+gateway knew and before the outcome record is written. The core already holds the allow decision (written before the handler
+runs); the outcome is the one record that follows.
+
+| Write | Answer lost after the write (a timeout, a reset) | The process dies after the write, before the outcome is posted |
+|---|---|---|
+| `glidepath.run.rerun`, `promote`, `rollback` | the outcome reads `error:GlidepathError: glidepath-api unreachable: TimeoutError (the request was sent and no answer came: the write may have been made)` and the agent is told the same, plus that asking again with the same arguments is safe: the key is the session, the app and the run (or the promotion), so glidepath-api replays its first answer and starts one run (`TestARerunWhoseAnswerIsLost...`) | the decision has no outcome in the chain; the run exists; the agent's retry (or a replayed call) carries the same key and starts no second run |
+| `glidepath.run.cancel` | the same text; cancelling twice is harmless | the same |
+| `repo.pr.open`, `repo.pr.open_upper`, `glidepath.cicd.propose` | each POST that was sent and not answered is looked into once with a GET before anything is said: a lost ref answer is a branch that holds the commit this call made (the call goes on to the pull request); a lost pull request answer is found by its branch and returned. Only if the look also fails does the call say `GitHubError: ... (the request was sent and no answer came: the change may have been made)`, in the outcome and to the agent. A lost tree or commit answer leaves objects nothing points at, no branch and no pull request | a branch with no pull request (the PR step never ran), or a pull request the gateway never reported. A repeat of the same call is refused `GH-BRANCH-EXISTS` and opens nothing; **never a second pull request**. `EnsurePR` (what `airframe.apply` will use) resumes: it returns the pull request the branch has, or opens it once the branch's files are checked to be the ones asked for. The pull request then has no receipt (no `effect` on an outcome that was never posted), so the agent gates cannot vouch for it and a person looks at it: the same as Python |
+| `argo.sync.lower` | `error:ArgoSyncError: API server unreachable (the request was sent and no answer came, so the sync may have been requested)`, and the agent is told to read `argo.app.get` before asking again. The patch carries the resourceVersion that was read and a marker with the session id; a second call that finds an operation in flight with its own session's marker answers `requested: true, replayed: true` (one sync, `TestASyncWhoseAnswerIsLost...`); another session meets `ARGO-BUSY` | the operation is in flight; a repeat is as in the left column |
+
+A retry that comes after the first sync finished is a new sync: nothing can tell it from a deliberate second call. A call whose
+time runs out after its write finished is reported as finished, not as a timeout (`dispatch.Gateway.KeepAnswer`, set by `serve`
+to `backends.RemoteWrites`); Python's timeout never applies to a handler. Nothing is retried that writes: a write is sent once, and
+only a read that is answered 429, 502, 503 or 504 (or a 403 that says it is a rate limit) is tried again, up to twice with a growing wait
+that honours `Retry-After` and GitHub's `x-ratelimit-reset` and is never longer than 5 s or past the call's deadline.
+
+### The receipt, and the replay's `effect.repo is owner/name`
+
+The effect a write's outcome carries (`repo`, `paths`, `merge`, `needsPerson`, `pr`, `commit`, `branch`) is made by `dispatch.Effect`
+from the call's arguments and its result, and the equivalence test holds it equal to Python's `_effect` for every case that returns. The
+values are validated ones: a result's `repo` is the validated `owner/name`, its paths are normal paths, its branch passed the branch
+rule, its commit is a hex id. The marks of the propose class are made here from glidepath-api's verdict and from nothing the agent
+says.
+
+The replay logs one `clearance core refused recordOutcome: HTTP 400: effect.repo is owner/name`. Its cause: the corpus has allowed
+calls whose `repo` argument is not ASCII (`jfillman/ας`, `jfillman/İx`; the core's glob allows them and Python's tests used a fake
+git that accepted anything), the replay's stub handler reports success for any call, and `dispatch.effect` writes the **argument**
+lowercased into the receipt, where the core requires `owner/name` of letters, digits, `.`, `_` and `-`. It is the stub, not the
+gateway: with these handlers such a repository is refused (`GH-REPO`) before any request, so a success always carries a valid
+repository. The line stays in the log because the corpus is not edited.
+
+### Where Go differs from Python on purpose (S5b)
+
+Each is a case in the fixture with `go` and `why`, or a test named here.
+
+| Input | Python | Go |
+|---|---|---|
+| `BROKER_URL`, `GLIDEPATH_API_URL` | any http(s) URL; `BROKER_URL` defaults to a lab Service name | `BROKER_URL` has no default; both must be https unless `BROKER_ALLOW_HTTP` or `GLIDEPATH_API_ALLOW_HTTP` is set; a token under 12 characters is refused |
+| a repository's spelling | whatever the argument says, checked as written | one lower-case canonical spelling for every check, request and receipt, so a result's `repo` and the receipt carry the lower-cased name (a canary difference for a repository written with capitals); the definition's `repos.allow` patterns are matched without case; `.git` suffixes refused |
+| the default branch name of a `cicd.yaml` proposal | `agent/cicd-<task>` | `agent/cicd-<task>-<8 hex of the session's id>`: the same session's retry finds its own branch, another session cannot make it first |
+| the check of a `cicd.yaml` among a pull request's files | asked before the broker, about `main` | asked after the base is known, about the repository's default branch (one broker token per call) |
+| the GitHub API URL and the Kubernetes API URL | any http(s) URL | https only; `BROKER_ALLOW_HTTP` does not reach the GitHub API URL (it has no setting: github.com), and the in-cluster API server is https, so the lab render needs nothing more than `BROKER_ALLOW_HTTP` and `GLIDEPATH_API_ALLOW_HTTP` for its plain-http services |
+| an Application with no `hangar.io/app` label | synced | refused |
+| the base branch, the head branch | any valid ref as base; any new valid name as head | the default branch only as base; heads under `agent/` only |
+| a file at a directory's path, or an ancestor of a protected path | sent (a blob then replaces the directory) | refused: the base commit's contents are read first; literal-prefix ancestors of the deny patterns are refused |
+| `EnsurePR` on a branch that exists | any branch whose files match is resumed | only one whose head commit carries this session's `Hangar-Session` trailer |
+| pull request text | `@mentions` and links as written | an `@name` (also after a backtick), `#12` and `owner/repo#12`, and a closing keyword that points at one (or at an address or `GH-n`, after any Unicode space) get a zero-width space; the pull request title and the commit's subject get the same, and a title whose sent form is empty or over 200 characters is refused before anything is written; HTML comments are removed, `<` escaped, images broken; the 60,000-character cap is applied after |
+| `argo.sync.lower` | the project and the Application only | also the definition's apps (`R022`) |
+| the repository's owner | whatever the argument says (the core's allowlist and the broker bound it) | must be one of `GITHUB_OWNERS` (Go only, required with `GITHUB_PR_ENABLED`) |
+| `GITHUB_PR_ENABLED` | also turns the pinned definitions (`AGENT_XRS_ENABLED`) and `xr.request` (`XR_REQUEST_ENABLED`) on | needs both said to be `0` (the Go gateway carries neither yet), and refuses `1` |
+| `ARGO_SYNC_ENABLED` with `ARGO_ENABLED=0` | no syncer, silently | refused at start |
+| the scope of a write | decided by the core only | decided again by the gateway (the table above); a repository's `gitops-` prefix is read from the name alone (the core also reads `env` and `project` arguments, so an extra argument can make it call a release repository lower) |
+| a repository, branch, base, ref, path, title | the regexes of `github_pr.py` (whose `$` also matches before a trailing newline) | the git ref rules, no reserved or `refs/` branch, a one-line title of at most 200 characters, normal and unprotected paths, at most 8 MiB, plain blobs; each refused before any request (`GH-BRANCH`, `GH-REF`, `GH-PATH`, `GH-FILES`, `GH-TITLE`, `GH-OWNER`) |
+| a path that starts with `/` in `repo.file.get` | the slash is dropped | refused (`GH-PATH`; the core refuses it too) |
+| a file path that is a protected directory itself (`.github`, `.tekton`, `a/.tekton`), or is not valid UTF-8 | passes the core's globs (`.github/**` needs something under it) | refused: a blob written at a path replaces the tree that is there, so the file `.github` would delete the workflows from the new tree (found by `FuzzFilePaths`); and the bytes sent must be the bytes checked |
+| a message in a refusal | repeats an argument whole | at most 100 characters of it |
+| what glidepath-api or GitHub says in an error | used as it is | a glidepath `rule` only when it is 1 to 64 of `A-Za-z0-9._-`; `rule`, `error` and `hint` only when strings, cut at 1,000 characters; GitHub's reason with control characters turned to `?`; every credential taken out |
+| a pull request's text | the agent's reason is copied into the body | an `@name` that GitHub would read as a mention gets a zero-width space after the `@`, in the body (the agent's reason and glidepath-api's text); a backtick in a table cell is an apostrophe |
+| a write whose answer was lost | `unreachable`, which reads as a failure | says the write may have been made, and for a pull request looks once for it (above) |
+| a sync that finds its own session's operation in flight | `ARGO-BUSY` | `requested: true, replayed: true` |
+| an Application with no `resourceVersion` | patched without the condition | refused (`ArgoSyncError`) |
+| a connection failure | `URLError` or `TimeoutError`; glidepath-api names the cause (`URLError(ConnectionRefusedError)`) | the same names, from the network error: `ConnectionRefusedError`, `gaierror`, `TimeoutError`, `ConnectionResetError`, `RemoteDisconnected`, a connect failure is a `URLError`, a failure after the request went out is the error itself, as urllib raises them |
+| a 409 body that is not JSON | `JSONDecodeError` | the same (a 4xx body that is not JSON is an empty answer, as in Python) |
+| `glidepath.live.watch` longer than the call's deadline | the call has no deadline | the wait is cut to leave the call's deadline 2 s (`GATEWAY_CALL_TIMEOUT_SECONDS`, 60 by default, so a 120 s watch needs it raised) |
+| a request answered 429, 502, 503 or 504 (a read) | an error at once | up to two more tries (the fixtures run with retries off; `TestRetriesAreBounded...` pins the policy) |
+| `glidepath.cicd.propose` without a Git backend | the handler exists and fails | no handler: refused as having no backend |
+| a `gitops-infra-<app>` repository for `glidepath.cicd.propose` | reaches GitHub if the core let it (the core calls the repository an upper one and refuses the lower tool) | refused `R012`, as the core does |
+| a pull request body or a title with a line break, a title over 200 characters | sent | refused |
+
+### Limits
+
+Each backend has its own client, pool, timeout (30 s; the watch stream 120 s at most) and limit on requests in flight: glidepath-api
+16 (8 for streams), GitHub's API 16, the broker 8, Kubernetes 8, so a slow backend holds its own share and no other
+(`TestABackendThatIsSlowHoldsOnlyItsOwnShare...`). An answer is read to a cap while it is read: 8 MiB for a good one and 64 KiB for any
+other (Python's), 256 KiB tail for logs and reports, a stream line 4 MiB and a stream 32 MiB. A request body is at most 300 KiB for
+glidepath-api and 8 MiB of files for a pull request. A retry never repeats a write.
+
+### What the proof ran (S5b)
+
+- `TestWriteToolsEqualPython`: 320 cases (above), run with retries off.
+- The attack tables: `TestEveryWriteIsRefusedOutsideTheSessionsGrantAndTheDefinitionsScope` (each write, each rule),
+  `TestRepositoryWriteAttacksAreRefusedBeforeAnyRequest` (about 200 inputs: ref injection, traversal, protected paths in any case,
+  forged trailers, owners, repositories), `TestGlidepathArgumentsNeverReachTheURLUnlessTheyMatchTheirPattern` (every glidepath
+  argument against 38 attack values), `TestAGlidepathWriteCannotChooseItsKeyItsBodyOrItsHeaders`.
+- The review's tests (`review_fixes_test.go`): every case variant of a release repository, a file where the base has a directory, the base and head rules, a resumed branch that is another session's, text for a pull request, plain http, a short credential, and an Application outside the agent's apps.
+- The crash tests (`writes_crash_test.go`, with the fakes in `backends/fakes`: a GitHub with the broker, a glidepath-api that keeps its
+  keys, and a Kubernetes API with an Application, each able to do the write and drop the answer).
+- Fuzz targets, each with an oracle that does not use the builder's rule, 60 s each locally: `FuzzGlidepathURL` 517,272 executions, `FuzzGitHubRequestTarget` 1,449,298, `FuzzBranchNames` 5,109,863, `FuzzFilePaths` 499,976, `FuzzDefang` 2,154,891, `FuzzSplitRepo` 3,543,521 and `FuzzGlidepathBodies` 1,098,775. After the independent review the changed parsers were fuzzed again: `FuzzCanonicalRepo` (new) 3,395,383, `FuzzFilePaths` 276,342, `FuzzBranchNames` 5,807,708, `FuzzDefang` 2,709,069, `FuzzGitHubRequestTarget` 1,334,762 and `FuzzSplitRepo` 4,894,721. Three findings in the first draft, each fixed and kept as a seed in `testdata/fuzz`: a path that is not valid UTF-8 (the bytes sent were not the bytes checked), an owner of `.` (a dot segment) and a path that is a protected directory itself (the replace-a-tree case above).
+
+### Settings now carried, and what `serve` still refuses
+
+Carried (S5b): `GLIDEPATH_API_ALLOW_HTTP` and `BROKER_ALLOW_HTTP` (Go only, off), `GLIDEPATH_API_URL`, `GLIDEPATH_TOKEN_FILE`, `GLIDEPATH_ON_BEHALF_OF`, `GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`,
+`BROKER_URL` (required with `GITHUB_PR_ENABLED`), `GITHUB_OWNERS` (Go only, required with `GITHUB_PR_ENABLED`), `ARGO_SYNC_ENABLED`.
+`GLIDEPATH_API_URL` is also what the trigger bridge will read (S3); `EVENTS_ENABLED` is still refused. `AGENT_XRS_ENABLED` and
+`XR_REQUEST_ENABLED` are refused when `1` and must be `0` when `GITHUB_PR_ENABLED` is on.
+
 ## The drift guard
 
-`gateway/PORTED.json` lists every Python file the Go gateway ports (27 of them), the Go paths that carry it, what of it
+`gateway/PORTED.json` lists every Python file the Go gateway ports (32 of them), the Go paths that carry it, what of it
 the Go gateway carries, what is left in it for a later slice, and the SHA-256 the file had when the Go code was last
 brought level with it. `tests/test_gateway_go.py` fails when a listed file's hash differs. A hash cannot tell whether a
 change matters to the port, so the failure asks the author to read it and do one of two things: port the change to Go in
@@ -459,6 +690,10 @@ is accepted and none panics.
    backends required to agree, and the cases where they deliberately do not marked with a reason. The replay is unchanged: no
    corpus line was skipped for want of a read backend (these tools' decisions are the core's, which the replay already took),
    so none became takeable.
+5. **The S5b fixtures** (above): the Python handlers driven over 320 canned cases, the requests, results, refusals, errors and
+   receipts compared. The replay is unchanged again: its stub handlers do not need the new backends, and no line it skips was
+   skipped for want of one, so none became takeable; it still shows zero differences against clearance v0.44.0 (342 tool calls,
+   261 session opens, 35 session spawns, 49 model calls; 372 spends, 648 records and 265 grants compared).
 
 ### What the replay does not cover (and why)
 
@@ -470,12 +705,13 @@ is accepted and none panics.
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
 
-## What is not carried (after S5a)
+## What is not carried (after S5b)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`GITHUB_PR_ENABLED`, `AGENT_XRS_ENABLED`, `EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `ARGO_SYNC_ENABLED`,
-`AUTOPILOT_EPHEMERAL`), so nobody believes a feature is live when it is not. (`BACKSTAGE_URL` and `APP_API_SERVICES` left this
-list in S5a: they are read, and a bad value stops the start.)
+does not (`EVENTS_ENABLED`, `AGENT_XRS_ENABLED` or `XR_REQUEST_ENABLED` set to `1`, `AUTOPILOT_EPHEMERAL`), so nobody believes a
+feature is live when it is not. (`BACKSTAGE_URL` and `APP_API_SERVICES` left this list in S5a: they are read, and a bad value stops the
+start. `GITHUB_PR_ENABLED`, `GLIDEPATH_API_URL` and `ARGO_SYNC_ENABLED` left it in S5b; `GITHUB_PR_ENABLED` also needs
+`AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0`, because Python turns both on with it.)
 
 Not ported, and still the Python gateway's:
 
@@ -496,10 +732,13 @@ Not ported, and still the Python gateway's:
   bundled `agents/` and the pinned set the Python loader keeps in `gateway_definitions`, and publishes nothing. It does
   not validate definitions against the JSON schema (the loader that wrote the set did).
 - **Backends**: `metrics.query`, `logs.query`, `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put` and `artifact.get`
-  are ported with per-backend timeouts and pools. The rest have no handler, so a call to them is refused as having no backend,
-  as in a Python gateway that does not configure them: `argo.sync.lower`, `repo.*` and `glidepath.*` (S5b); `xr.request`
-  and `airframe.*` (S5c); `chat.*` (Python has none either). Python's read API also uses `BackstageDirectory` and
-  `BackstageOwnership` (S6).
+  are ported with per-backend timeouts and pools; S5b adds every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`,
+  `repo.pr.open_upper` and `argo.sync.lower`. The rest have no handler, so a call to them is refused as having no backend,
+  as in a Python gateway that does not configure them: `xr.request` and `airframe.*` (S5c); `chat.*` (Python has none either).
+  Python's read API also uses `BackstageDirectory` and `BackstageOwnership` (S6). Also left for S5c in `github_pr.py`:
+  `commit_xr`, `pr_paths`, `repo_ready` and `onboarding_prs`; `ensure_pr` and `find_pr` are built here but no tool calls them yet.
+- **The field scope of a file's YAML** (`repos.fieldDeny`, `fieldAllow`, AF-9a) is the core's: it needs the file as it was before.
+  The gateway decides the repository and the path again, not the fields.
 - **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), Prometheus metrics on `METRICS_PORT`,
   OTLP logs, and a `held` outbox reason (since clearance v0.28.0 the core takes every kind the gateway writes).
 - **Release plumbing**: no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
@@ -521,13 +760,19 @@ It reads the variables the Python gateway reads, for the part it carries: `PORT`
 `AUTOPILOT_OIDC_ISSUER`, `AUTOPILOT_OIDC_AUDIENCE`, `AUTOPILOT_OIDC_ALLOWED_USERS`, `AUTOPILOT_OIDC_JWKS_URL`, `AUTOPILOT_OIDC_USER_CLAIM`, `TOWER_ISSUER`, `TOWER_CLUSTER`, `TOWER_SERVICE_ACCOUNTS`, `TOWER_JWKS_URL`, `AUTOPILOT_JWKS_ALLOW_HTTP` (Go only),
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
 `AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`,
-`APP_API_SERVICES`, `ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, `LOG_LEVEL`; and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
+`APP_API_SERVICES`, `ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, `GLIDEPATH_API_URL`, `GLIDEPATH_TOKEN_FILE`, `GLIDEPATH_ON_BEHALF_OF`,
+`GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`, `BROKER_URL`, `ARGO_SYNC_ENABLED`, `LOG_LEVEL`; `GITHUB_OWNERS` is Go's own too (it is required with
+`GITHUB_PR_ENABLED`, and `AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0` must be said); and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.
 
 `serve` reads the S5a variables as Python does (`BACKSTAGE_URL` and `APP_API_SERVICES` switch their tool on; `argo.app.get` is on by
 default, in `argocd`, and needs the Role on Applications the Python gateway has; `ARGO_ENABLED=0` switches it off); the
 catalog's token is the projected service-account token for the `backstage` audience, as before.
+
+`serve` reads the S5b variables as Python does, except the three Go differences in the table above (`BROKER_URL` has no default,
+`GITHUB_OWNERS`, the two flags that must be 0). The scope of every write is decided from the agent's definition (`Gateway.Def`),
+looked up per call.
 
 `serve` needs no new variable for runs: the run backend is the in-cluster Kubernetes API (as the Python gateway always uses it),
 so the gateway's identity needs the Role on AgentRuns in `autopilot-runs` it already has.

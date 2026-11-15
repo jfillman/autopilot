@@ -49,6 +49,7 @@ type config struct {
 	pgConns                 int32
 	auth                    authConfig
 	reads                   readSettings
+	hangar                  hangarSettings
 }
 
 type configError string
@@ -89,8 +90,7 @@ func number(env func(string) string, k string, d float64) (float64, error) {
 
 // unported are variables of the Python gateway whose features this slice does not carry. Starting with one set would
 // mean running without something the operator asked for, so the gateway refuses (docs/admin/go-gateway.md).
-var unported = []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED",
-	"GLIDEPATH_API_URL", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
+var unported = []string{"EVENTS_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"}
 
 func configFromEnv(env func(string) string) (*config, error) {
 	var stale []string
@@ -178,6 +178,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 	if c.reads, err = readBackends(env); err != nil {
 		return nil, err
 	}
+	if c.hangar, err = hangarFromEnv(env, len(c.reads.argoNamespaces) > 0); err != nil {
+		return nil, err
+	}
 	c.modelRoutes = map[string]string{}
 	for _, pair := range strings.Split(env("MODEL_ROUTES"), ",") {
 		if pair = strings.TrimSpace(pair); pair != "" {
@@ -253,9 +256,17 @@ func serve(_ []string) int {
 		}
 	}
 	artifacts := pgstate.NewArtifacts(st)
+	// The Glidepath, repository and Argo CD sync tools decide a call's scope from the agent's definition; the gateway is built
+	// after the handlers, so the lookup is made late.
+	var gw *dispatch.Gateway
+	hangar, err := hangarConfig(cfg.hangar, cfg.reads.argoNamespaces, reg, func(agent string) *definitions.Definition { return gw.Def(agent) })
+	if err != nil {
+		log.Error("configuration: " + err.Error())
+		return 2
+	}
 	handlers, err := backends.NewHandlers(backends.Config{PrometheusURL: cfg.prometheusURL, LokiURL: cfg.lokiURL,
 		BackstageURL: cfg.reads.backstageURL, BackstageTokenFile: cfg.reads.backstageTokenFile, AppAPIServices: cfg.reads.appAPIServices,
-		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: artifacts})
+		ArgoNamespaces: cfg.reads.argoNamespaces, Artifacts: artifacts, Hangar: hangar})
 	if err != nil {
 		log.Error("configuration: " + err.Error())
 		return 2
@@ -271,7 +282,12 @@ func serve(_ []string) int {
 		log.Error(err.Error())
 		return 2
 	}
+	gw = g
 	g.CallTimeout = cfg.callTimeout
+	g.KeepAnswer = map[string]bool{}
+	for _, t := range backends.RemoteWrites {
+		g.KeepAnswer[t] = true
+	}
 	// Runs are AgentRun XRs in the run namespace, as the gateway's own in-cluster identity (Python: KubeAgentRuns(), always);
 	// a finished run's answer is kept in the gateway database; the pinned model version a run's records carry is the
 	// alias's upstream model.

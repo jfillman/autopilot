@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "d028b63f8f71fda2fd9008296bd02f08c170a5b4",
+ "level_with": "b0fba3defeb97244b8010e1ce7157468c8ea58b6",
  "ported": {
   "src/autopilot/airframe_api.py": {
    "sha256": "40cd31162304091b4d75b7822adb18a64e0769332a60bf518c2fd818849f0a95",
@@ -9,6 +9,22 @@
    ],
    "carries": "S5a: KubeReader's GET and list of Argo CD Applications (the path allowlist, the token and CA read on every call, AirframeError, argo_path)",
    "left_for_later_slices": "S5c the XR kinds and Rollouts the airframe.* tools read through it"
+  },
+  "src/autopilot/argo_sync.py": {
+   "sha256": "b72e0fedac9768b9c51ba25905bfe6954dfc2329e7cd565cdaa7dd0f4389011d",
+   "go": [
+    "gateway/internal/backends"
+   ],
+   "carries": "ArgoSync (argo.sync.lower): the lower-project and Application checks, the one merge PATCH, ArgoSyncError and its evidence",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/cicd_propose.py": {
+   "sha256": "20b3bc16672b6beb14925b9a29ac168c6d7f78d35f5fe6210745a83fa9f5f82c",
+   "go": [
+    "gateway/internal/backends"
+   ],
+   "carries": "validate, propose, check_files (the cicd.yaml check on repo.pr.open), pr_body, branch_for, needs_person",
+   "left_for_later_slices": ""
   },
   "src/autopilot/conformance.py": {
    "sha256": "3b2bb62ff595c982ea2d95468ab85b209f450b59edfb0936c3e03f89471b05bc",
@@ -34,7 +50,7 @@
     "gateway/internal/backends"
    ],
    "carries": "BackendError (evidence, agent message), Handler, RunBackend (and a fake), core_handlers for catalog.read, argo.app.get, app.api.get and artifact.put/get (S5a)",
-   "left_for_later_slices": "S3/S5b/S5c the core tools' other handlers (repo.*, argo.sync.lower, xr.request, human.request, chat)"
+   "left_for_later_slices": "(S5b: the repo.* handlers and argo.sync.lower) S3/S5c the core tools' other handlers (xr.request, human.request, chat)"
   },
   "src/autopilot/engine/control.py": {
    "sha256": "32cd12bba4e646d49131ea2384783c0084f074c73e0a40b0a4ea8f92cdfbc55c",
@@ -121,10 +137,11 @@
   "src/autopilot/engine/scope.py": {
    "sha256": "39910c51096008cd718595d04aedc40ba3e0b0a4a199420466646d40db37e522",
    "go": [
-    "gateway/internal/dispatch"
+    "gateway/internal/dispatch",
+    "gateway/internal/backends"
    ],
-   "carries": "normalize (repository-relative paths)",
-   "left_for_later_slices": ""
+   "carries": "normalize (repository-relative paths); S5b: glob_to_regex, repo_allowed and the path deny match, which the write tools decide again from the agent's definition (backends/scope.go)",
+   "left_for_later_slices": "the AF-9a field scope (diff_pointers, field_violations), which stays the core's"
   },
   "src/autopilot/engine/server.py": {
    "sha256": "728c02206d150d19ec6176042fba3eeb7e5abc96e5fef50b78d7690329c06320",
@@ -158,8 +175,32 @@
     "gateway/internal/runs",
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, artifact.put/get, run.spawn, run.close), AgentRunBackend (the run's name, its identity, how it ended)",
-   "left_for_later_slices": "S5b/S5c the other handlers"
+   "carries": "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, artifact.put/get, run.spawn, run.close; S5b: every glidepath.* tool, repo.file.get, repo.pr.open, repo.pr.open_upper, argo.sync.lower), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend (the run's name, its identity, how it ended)",
+   "left_for_later_slices": "S5c the airframe.* handlers and xr.request"
+  },
+  "src/autopilot/github_pr.py": {
+   "sha256": "fa3355f282a6987308d6e81eea8520e27970e7f76a34418e1ff4c3163200a753",
+   "go": [
+    "gateway/internal/backends"
+   ],
+   "carries": "GitHubPRs: the per-call broker token, open_pr over the Git data API, ensure_pr, find_pr, read_file (repo.file.get), GitHubError with its agent message and evidence, app_of",
+   "left_for_later_slices": "S5c commit_xr, pr_paths, repo_ready, onboarding_prs"
+  },
+  "src/autopilot/glidepath_api.py": {
+   "sha256": "86ae9adcdf914554f62fbfde0d2cc64b6f7341ac81175c2b2dc247b0be74da55",
+   "go": [
+    "gateway/internal/backends"
+   ],
+   "carries": "GlidepathAPI: every glidepath.* read and write over HTTP (runs, run, log, explain, releases, contract, live, live log, watch, release run, evidence, tests, test report, events, previews, environments, rollback plan, rerun, cancel, promote, rollback, validate_cicd), the bearer token read per call, X-Glidepath-Authorization and the on-behalf-of header, the Idempotency-Key and dry-run headers, _refusal (denials and answers as data), GlidepathError and its cause, the 256 KiB tail",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/glidepath_live.py": {
+   "sha256": "206046eae6d5189fef9e872a2c45307f80dd6d64bbbbfdb617e7e6c1efaa087e",
+   "go": [
+    "gateway/internal/backends"
+   ],
+   "carries": "summarize, the SSE reader, Watch and the polling fallback (glidepath.live.list and glidepath.live.watch)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/hangar_tools.py": {
    "sha256": "713ab697c5c9740a31950c096f30b5970222ae7f3698487f223ba305d4877a8f",
@@ -190,16 +231,16 @@
    "go": [
     "gateway/internal/backends"
    ],
-   "carries": "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), ReadError",
-   "left_for_later_slices": "S6 BackstageDirectory and BackstageOwnership (the read API); S5b KubeArgo.sync"
+   "carries": "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), ReadError; S5b: KubeArgo.sync (argo.sync.lower, over backends.ArgoSync)",
+   "left_for_later_slices": "S6 BackstageDirectory and BackstageOwnership (the read API)"
   },
   "src/autopilot/serve.py": {
    "sha256": "f979bdff9a71dc7193440eef4417fcaf27e79efcac1e5017f27d6e3acb867c7d",
    "go": [
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, ARGO_APP_NAMESPACES",
-   "left_for_later_slices": "S3/S4/S5b/S6 the settings and loops of what is not ported"
+   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED",
+   "left_for_later_slices": "S3/S4/S5c/S6 the settings and loops of what is not ported (EVENTS_ENABLED, AGENT_XRS_ENABLED, XR_REQUEST_ENABLED)"
   },
   "src/autopilot/settings.py": {
    "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",
@@ -232,16 +273,11 @@
   "src/autopilot/airframe_plan.py": "S5c",
   "src/autopilot/airframe_tools.py": "S5c",
   "src/autopilot/api_serve.py": "S6",
-  "src/autopilot/argo_sync.py": "S5b",
-  "src/autopilot/cicd_propose.py": "S5b",
   "src/autopilot/engine/events.py": "S3",
   "src/autopilot/engine/inbox.py": "S3",
   "src/autopilot/engine/runtimes.py": "S6",
   "src/autopilot/engine/trigger_ledger.py": "S3",
   "src/autopilot/event_bridge.py": "S3",
-  "src/autopilot/github_pr.py": "S5b",
-  "src/autopilot/glidepath_api.py": "S5b",
-  "src/autopilot/glidepath_live.py": "S5b",
   "src/autopilot/metrics.py": "S6",
   "src/autopilot/otlp_logs.py": "S6",
   "src/autopilot/preflight.py": "S3",

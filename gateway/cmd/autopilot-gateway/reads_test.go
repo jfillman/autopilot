@@ -57,12 +57,13 @@ func TestBadReadBackendSettingsStopTheStart(t *testing.T) {
 }
 
 func TestWhatIsStillNotCarriedIsStillRefused(t *testing.T) {
-	for _, k := range []string{"GITHUB_PR_ENABLED", "AGENT_XRS_ENABLED", "EVENTS_ENABLED", "GLIDEPATH_API_URL", "ARGO_SYNC_ENABLED", "AUTOPILOT_EPHEMERAL"} {
+	// GITHUB_PR_ENABLED, GLIDEPATH_API_URL and ARGO_SYNC_ENABLED are carried since S5b (hangar_test.go); what remains is refused.
+	for _, k := range []string{"EVENTS_ENABLED", "AUTOPILOT_EPHEMERAL", "CLEARANCE_EPHEMERAL"} {
 		if _, err := configFromEnv(envOf(base(map[string]string{k: "1"}))); err == nil || !strings.Contains(err.Error(), k) {
 			t.Errorf("%s must still stop the start: %v", k, err)
 		}
 	}
-	for _, k := range []string{"BACKSTAGE_URL", "APP_API_SERVICES"} {
+	for _, k := range []string{"BACKSTAGE_URL", "APP_API_SERVICES", "GITHUB_PR_ENABLED", "GLIDEPATH_API_URL", "ARGO_SYNC_ENABLED"} {
 		if slices.Contains(unported, k) {
 			t.Errorf("%s is carried now", k)
 		}
