@@ -194,7 +194,11 @@ func cicdCheck(gp *Glidepath, principal string, repo any, files any) func(ctx co
 		if err != nil {
 			return err
 		}
-		vm, _ := verdict.(map[string]any)
+		vm, isMap := verdict.(map[string]any)
+		if !isMap {
+			// an answer that is not a verdict is no verdict: the pull request does not go ahead on it
+			return &dispatchKind{"AttributeError", "the verdict is not an object"}
+		}
 		if e, isErr := vm["error"]; isErr {
 			em := obj(e)
 			if em["rule"] == "GP-API-404" {

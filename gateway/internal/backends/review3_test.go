@@ -3,6 +3,8 @@ package backends
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -86,5 +88,24 @@ func TestTheTitleAsItGoesOutIsCheckedBeforeAnyWrite(t *testing.T) {
 	a["title"] = strings.Repeat("<", 50)
 	if _, err := e.call("repo.pr.open", a); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAVerdictThatIsNotAnObjectStopsThePullRequest(t *testing.T) {
+	list := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("[1,2]"))
+	}))
+	defer list.Close()
+	gp, err := NewGlidepath(list.URL, writeTemp(t, "a-token-value-1"), false, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := cicdCheck(gp, "p", "o/gate-api", []any{map[string]any{"path": "cicd.yaml", "content": "a: 1\n"}})
+	if check == nil {
+		t.Fatal("no check")
+	}
+	if err := check(context.Background(), "main"); err == nil {
+		t.Fatal("a verdict that is a list let the pull request through")
 	}
 }
