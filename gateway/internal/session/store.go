@@ -214,6 +214,21 @@ func (st *Store) AdoptChild(g *client.Grant, sp client.Spend, callerID, wantID, 
 	return s, s.serial.Unlock, nil
 }
 
+// FindLive is the live top-level session of an agent for a task, or nil (Python: SessionStore.find_live): not closed, not past
+// its deadline, no parent. A trigger's task id is a hash of the agent and the trigger's key, so a live session found here is the
+// run an earlier firing of the same trigger started.
+func (st *Store) FindLive(agent, taskID string, now time.Time) *Session {
+	for _, s := range st.All() {
+		s.Lock()
+		hit := s.Agent == agent && s.TaskID == taskID && !s.Expired(now) && s.ParentID == nil
+		s.Unlock()
+		if hit {
+			return s
+		}
+	}
+	return nil
+}
+
 // Charge applies the spend the core's decision names to the session the request named (internal/decide doc.go): add
 // the counters to used, count a denial, trip the breaker with Trip, and trip the session and every descendant with
 // TripTree. A spawn's Children and Reserve are the parent's, applied by Adopt. Caller holds s's lock.
@@ -251,10 +266,40 @@ func (st *Store) TripTree(id, reason string) {
 // Close ends a session and its children, returning the reserved budget to the parent with what was used.
 func (st *Store) Close(id string) { st.CloseTouched(id) }
 
+// closeHook, when set (tests), runs in CloseTouched between the snapshot of a session's children and the closing of its children.
+var closeHook func(id string)
+
+func containsID(a []string, x string) bool {
+	for _, y := range a {
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
 // CloseTouched is Close, and returns every session it changed (the ones it closed and the parents that took their
 // budget back), so the caller can save them together: a parent whose budget came back must not be left saved with it
 // still reserved against a child that is saved closed.
 func (st *Store) CloseTouched(id string) []*Session {
+	return st.CloseTouchedBy(id, CloseReason{Control: CloseOther})
+}
+
+// parentBy is what a child's close reason says it was closed by: whoever closed its parent (a person, "frozen"), or, when the parent's
+// close names nobody, the parent's own control (the sweep's "deadline", a run's "finish").
+func parentBy(parent CloseReason) string {
+	if parent.By != "" {
+		return parent.By
+	}
+	return parent.Control
+}
+
+// CloseTouchedBy is CloseTouched with the reason, written on every session it closes in the same step that closes it (the sessions
+// below it are closed by their parent's close). A session that is already closed keeps the reason it has.
+func (st *Store) CloseTouchedBy(id string, why CloseReason) []*Session {
+	if why.At.IsZero() {
+		why.At = time.Now().UTC()
+	}
 	s := st.Get(id)
 	if s == nil {
 		return nil
@@ -266,9 +311,12 @@ func (st *Store) CloseTouched(id string) []*Session {
 	}
 	kids := append([]string(nil), s.Children...)
 	s.Unlock()
+	if closeHook != nil {
+		closeHook(id)
+	}
 	var touched []*Session
 	for _, c := range kids {
-		touched = append(touched, st.CloseTouched(c)...)
+		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: parentBy(why), At: why.At})...)
 	}
 	s.Lock()
 	if s.Closed { // closed by another caller while its children were
@@ -276,8 +324,23 @@ func (st *Store) CloseTouched(id string) []*Session {
 		return touched
 	}
 	s.Closed = true
+	reason := why
+	s.CloseReason = &reason
 	parent, limits, used := s.ParentID, s.Limits, s.Used
+	// A spawn that landed after the snapshot above and before this close adopted its child under a parent that was still open
+	// (AdoptChild refuses a closed parent, and only now is it closed). It appended itself to Children under the lock, so the
+	// children are read again: nothing can be added after Closed is set, and what was added in the window is closed here, so no
+	// live child is left under a closed parent until its ttl.
+	var late []string
+	for _, c := range s.Children {
+		if !containsID(kids, c) {
+			late = append(late, c)
+		}
+	}
 	s.Unlock()
+	for _, c := range late {
+		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: parentBy(why), At: why.At})...)
+	}
 	touched = append(touched, s)
 	if parent != nil {
 		if p := st.Get(*parent); p != nil {
@@ -303,10 +366,33 @@ func (st *Store) Flush(ctx context.Context, sessions ...*Session) error {
 	}
 	var recs []Record
 	var blobs []string
+	// The saves of one session are ordered (see Session.flushMu): taken in id order, so two flushes of overlapping sets cannot deadlock.
+	var ordered []*Session
 	for _, s := range sessions {
-		if s == nil {
+		if s != nil {
+			ordered = append(ordered, s)
+		}
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	var held []*Session
+	for i, s := range ordered {
+		if i > 0 && ordered[i-1] == s {
 			continue
 		}
+		if err := s.flushMu.Lock(ctx); err != nil {
+			for _, h := range held {
+				h.flushMu.Unlock()
+			}
+			return err
+		}
+		held = append(held, s)
+	}
+	defer func() {
+		for _, s := range held {
+			s.flushMu.Unlock()
+		}
+	}()
+	for _, s := range ordered {
 		s.Lock()
 		r := s.ToRecord()
 		s.Unlock()
@@ -353,7 +439,7 @@ func (st *Store) Sweep(now time.Time) []string {
 		}
 	}
 	for _, id := range gone {
-		st.Close(id)
+		st.CloseTouchedBy(id, CloseReason{Control: CloseDeadline, At: now})
 	}
 	return gone
 }

@@ -4,6 +4,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -85,7 +86,33 @@ type DeleteFail struct {
 // Session is one agent run's authority. Call Lock around any read or write of its fields; Serial serializes whole
 // operations on one session (a call's decision, spend and outcome), so a session never overspends by racing itself,
 // while different sessions run in parallel.
+// flushLock is a mutex whose waiters give up when their context ends, so a save that hangs cannot hold every later save (and with them
+// a person's end or freeze) forever.
+type flushLock struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (l *flushLock) init() { l.once.Do(func() { l.ch = make(chan struct{}, 1) }) }
+
+// Lock takes the lock, or returns the context's error.
+func (l *flushLock) Lock(ctx context.Context) error {
+	l.init()
+	select {
+	case l.ch <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Unlock releases it.
+func (l *flushLock) Unlock() { <-l.ch }
+
 type Session struct {
+	// flushMu orders the saves of this session: a save builds its record and writes it under it, so a record built before a later
+	// change can never be written after the later one (a stale open overwriting a person's end).
+	flushMu  flushLock
 	mu       sync.Mutex
 	serial   sync.Mutex
 	runEpoch uint64
@@ -116,6 +143,14 @@ type Session struct {
 	Signals map[string]any
 	// DeleteFail is the state of a delete that keeps failing, or nil.
 	DeleteFail *DeleteFail
+	// LaunchedAt is when the session's run was created (nil: never). The write-ahead name in Run says a run may exist; this says one did.
+	// It is the Go gateway's own key (the Python gateway reads a row by the keys it knows, so it ignores it, and drops it at its next
+	// save of the session).
+	LaunchedAt *time.Time
+	// CloseReason says how the session was closed, written in the same step that closes it (nil: it is open, or it was closed by a path
+	// that records nothing, which a trigger treats as "do not launch"). RunRemoved says why a run that was made was taken away again.
+	CloseReason *CloseReason
+	RunRemoved  *RunRemoved
 }
 
 // Lock guards the session's fields.
@@ -241,6 +276,11 @@ type Record struct {
 	Signals    map[string]any   `json:"signals"`
 	// DeleteFail is the Go gateway's own key (see DeleteFail); absent for a row the Python gateway wrote.
 	DeleteFail *DeleteFail `json:"delete_failure,omitempty"`
+	// LaunchedAt is the Go gateway's own key (see Session.LaunchedAt); absent for a row the Python gateway wrote.
+	LaunchedAt *time.Time `json:"launched_at,omitempty"`
+	// CloseReason and RunRemoved are the Go gateway's own keys (see Session); absent for a row the Python gateway wrote.
+	CloseReason *CloseReason `json:"close_reason,omitempty"`
+	RunRemoved  *RunRemoved  `json:"run_removed,omitempty"`
 }
 
 // IsoFormat is Python's datetime.isoformat for an aware UTC time.
@@ -278,7 +318,7 @@ func (s *Session) ToRecord() Record {
 		CreatedAt: s.CreatedAt.UTC().Format(IsoFormat), ExpiresAt: s.ExpiresAt.UTC().Format(IsoFormat),
 		ParentID: s.ParentID, Depth: s.Depth, TaskID: s.TaskID, Used: budgetsMap(&s.Used), Reserved: budgetsMap(&s.Reserved),
 		Children: nonNil(s.Children), Tripped: s.Tripped, TripReason: s.TripReason, Denials: s.Denials, Closed: s.Closed,
-		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail)}
+		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail), LaunchedAt: copyTime(s.LaunchedAt), CloseReason: copyCR(s.CloseReason), RunRemoved: copyRR(s.RunRemoved)}
 }
 
 // FromRecord is the inverse of ToRecord, for a row either gateway wrote.
@@ -302,7 +342,7 @@ func FromRecord(r Record) (*Session, error) {
 	return &Session{ID: r.ID, Principal: r.Principal, Agent: r.Agent, Limits: r.Limits, CreatedAt: created, ExpiresAt: expires,
 		ParentID: r.ParentID, Depth: r.Depth, TaskID: r.TaskID, Used: budgetsFrom(r.Used), Reserved: budgetsFrom(r.Reserved),
 		Children: r.Children, Tripped: r.Tripped, TripReason: r.TripReason, Denials: r.Denials, Closed: r.Closed, Run: r.Run,
-		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail)}, nil
+		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail), LaunchedAt: copyTime(r.LaunchedAt), CloseReason: copyCR(r.CloseReason), RunRemoved: copyRR(r.RunRemoved)}, nil
 }
 
 func parseTime(v string) (time.Time, error) {
@@ -312,6 +352,62 @@ func parseTime(v string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, &time.ParseError{Value: v, Message: ": not an ISO 8601 time"}
+}
+
+// The controls a session can be closed by, as CloseReason.Control says.
+const (
+	CloseDeadline   = "deadline"   // its deadline passed (the sweep); the only reason a trigger may open a fresh session after
+	CloseEnd        = "end"        // a person ended it
+	CloseUnrecorded = "unrecorded" // a trigger's session that could not be tied to its ledger row: closed, never launched, safe to replace
+	CloseAbandon    = "abandon"    // the gateway closed a session it could not launch
+	CloseOwner      = "close"      // its owner closed it (session_close, run.close)
+	CloseParent     = "parent"     // its parent was closed
+	CloseFinish     = "finish"     // its run handed back its result
+	CloseOther      = "other"      // a path that says nothing more
+)
+
+// CloseReason is who closed a session, how and when: durable, in the write that closes it.
+type CloseReason struct {
+	Control string    `json:"control"`
+	By      string    `json:"by,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// The reasons a run that was made was taken away again (RunRemoved.Reason).
+const (
+	RemovedHold     = "hold"          // a hold was saved while it was being made
+	RemovedClosed   = "closed"        // the session was closed while it was being made
+	RemovedNoRecord = "record-failed" // the launch record could not be written (fail closed)
+)
+
+// RunRemoved is the durable fact that the run of a session was made and taken away again, and why.
+type RunRemoved struct {
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
+}
+
+func copyCR(c *CloseReason) *CloseReason {
+	if c == nil {
+		return nil
+	}
+	x := *c
+	return &x
+}
+
+func copyRR(r *RunRemoved) *RunRemoved {
+	if r == nil {
+		return nil
+	}
+	x := *r
+	return &x
+}
+
+func copyTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
 }
 
 func copyDF(d *DeleteFail) *DeleteFail {

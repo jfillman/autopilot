@@ -5,6 +5,60 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S3: the human inbox, person controls and triggers in the Go gateway)
+- The Go gateway (`gateway/`, still off by default and not deployed) carries the human inbox (`human.request`, the pending list,
+  answering, expiry), the person controls (freeze, end, hold, release) and a person's run behind the `/v1` routes, with Preflight's
+  cases and scoring, as the Python gateway does: only a person acts (a user, or a listed delegate naming one), never a run,
+  and each control is an evidence record. The trigger scheduler, the event bridge (the stream, the catch-up from the saved cursor
+  with `Last-Event-ID`, the storm brake, the history) and the reconciliation sweep run when `SCHEDULES_ENABLED` and `EVENTS_ENABLED`
+  are set, over a ledger in the gateway database that makes a trigger fire once across restarts, replays and a crash between the
+  claim and the session. `serve` no longer refuses `EVENTS_ENABLED`; it reads `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`,
+  `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA` and `PREFLIGHT_CASES_DIR`. The replay now takes the 31
+  triggered `session.open` lines. A candidate definition `document` is refused (501) until the definition schema is carried (S4).
+- Beyond Python, on purpose: the gateway checks the grant the core makes for a trigger or a person's run, authenticates before it
+  answers anything, makes a hold cover the open and the launch without ever waiting for the core, rate limits holds and runs, bounds the event bridge's client (no
+  redirect, capped answers and lines, bounded backoff) and its topic matcher, repairs a session a trigger opened and never launched,
+  and closes a session whose launch failed. `docs/admin/go-gateway.md` lists each difference, who may do what and the trigger crash points.
+- `tools/gen_gateway_registry.py` also writes fixtures for the inbox, the controls, the rows they write and the triggers (matcher, keys,
+  the bridge and the scheduler driven over a fake gateway), generated from the Python code.
+
+- Round-6 review fixes of S3 (Go gateway only): an outage is no longer counted as poison (only a panic is; a hold store or a backend that is away for hours decides nothing and deletes nothing), a poison event whose run is recorded launched is decided `launched` and its run left alone, and the bound has a stated window (8 failures, each within an hour of the one before, the first and last 10 minutes apart; a third column `last_failed_at`). The saves of a session wait with their context (a hung save cannot block a person's end forever). The crash harness gained the faults it was missing (a person's end or freeze inside each save, the core unreachable, a delete that leaves the run, a 409, poison, a hold store down for 30 minutes, a check at every decision) and two real-goroutine `-race` tests (two deliveries of one key, an end racing the launch's save); ten mutations of the code were run against it and each is killed.
+- Round-5 review fixes of S3 (Go gateway only): the crash-window test now drives the real code over a fault-injecting store, ledger and a
+  stateful run backend (every durable call crashed at, for a plain launch, a hold, an end, a freeze and each class of backend answer,
+  through the stream and through the catch-up). It found, and these fix: a run that outlived its `run_removed` marker (a takeover now
+  closes the session, deletes the run and confirms it gone before deciding); a hold not read before a resumed create; create errors
+  treated as final (a 409 on the session's own name is the run, a timeout or 5xx is resumable and deletes nothing, only a 4xx releases
+  the name); a session a person ended before it was tied to its ledger row being followed by a fresh one; a stale save overwriting a later
+  one (saves of a session are ordered); a holds reload overlapping a hold write (one lock with context-aware waiters, store calls bounded);
+  a poison event blocking the cursor forever (decided `launch-failed`/`CT-POISON` after 8 attempts over 10 minutes, counted on the row, run
+  resolved first). Go-only: two columns on the trigger ledger (`failures`, `first_failed_at`), with defaults. The rollback note is in
+  `docs/admin/go-gateway.md`.
+- Round-4 review fixes of S3 (Go gateway only): a trigger's takeover decides only from facts recorded durably when they happened, never from
+  the clock or a missing field: a person's end is written with the close (who, when, which control), a session closed with no reason is
+  never launched, the run's name is saved before the run is made and "created" right after, a run a hold took away is recorded as removed
+  (with the reason) before the row is decided, and a run backend that cannot be asked leaves the trigger resumable instead of closing the
+  session of a run that may exist. The holds copy is loaded at start and every triggered open and launch fails closed while it is not.
+  Difference from Python: a session row carries three Go-only keys (`launched_at`, `close_reason`, `run_removed`), omitted when empty;
+  Python ignores them and drops them at its next save of the session. The doc's crash-point table is written from the code and walked by a test.
+- Review fixes of S3 (Go gateway only): a trigger records the session it opened in its ledger row before it launches, so a stale claim can
+  never launch a second run; a trigger dedupes only onto a session it opened; a frozen session and a held agent start no run; freeze and end
+  answer one 404 for an unknown and a foreign session; delegates are named by where they run (no `*`, no wildcard namespace, never a run, a
+  header with one clean `user:` name); every `/v1` route checks the token before the body; `RECONCILE_WINDOW_HOURS` is at most 696;
+  `GLIDEPATH_API_URL` is https unless `GLIDEPATH_API_ALLOW_HTTP=1`; a child spawned while its parent is being closed is closed too.
+
+- Second review round (Go gateway only): a claim that is still `claimed` is taken over at once and resumed (never answered as a duplicate), so a
+  trigger is neither dropped nor fired twice in any crash window; a taken-over session that names a run that was never made gets its run; a
+  session records when its run was made (`launched_at`); an outcome that could not be written is written as it was; a hold is kept in memory
+  so a stuck database cannot stall opens and launches; a workload definition with no service account is refused as a trigger.
+
+### Changed (A-9 S3 hardening of S2: a candidate's image and a run's pod)
+- A Preflight candidate's runtime image must end in `@sha256:` and 64 lowercase hex digits, an empty allow-list refuses every
+  candidate (the Python gateway allows any registry) and a glob matches the whole image, so a bare prefix no longer matches across a
+  path boundary (Go gateway only).
+- A caller acts as a run's session only with a token bound to the run's pod: `auth.Workload` carries the token review's
+  `authentication.kubernetes.io/pod-name` and the run's pod must be the composition's Sandbox name (`agent`). A token minted for the
+  bare service account is that service account and nothing more. A token without a pod binding still authenticates (Go gateway only).
+
 ### Added (A-9 S5b: the Glidepath and repository tools in the Go gateway)
 - The Go gateway (`gateway/`, still off by default and not deployed) now has handlers for every `glidepath.*` tool (reads, the
   live watch, `run.rerun`, `run.cancel`, `promote`, `rollback`, `cicd.validate`, `cicd.propose`), `repo.file.get`, `repo.pr.open`,

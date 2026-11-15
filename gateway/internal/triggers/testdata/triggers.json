@@ -1,0 +1,2587 @@
+{
+ "amqp": [
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": true,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a.b",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "gate-api.pipelinerun.finished"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": true,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a.b",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "*.pipelinerun.finished"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": true,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a.b",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "x.finished",
+   "match": true,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "#.finished"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a.b.c",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "x.finished",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a.c.c",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "a..b",
+   "match": true,
+   "pattern": "#"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.#"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a.b.c",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a.c.c",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "a..b",
+   "match": true,
+   "pattern": "a.#"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": true,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "a..b",
+   "match": true,
+   "pattern": "a.#.b"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "a.*"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "",
+   "match": true,
+   "pattern": "*"
+  },
+  {
+   "key": "a",
+   "match": true,
+   "pattern": "*"
+  },
+  {
+   "key": "a.b",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "*"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "",
+   "match": true,
+   "pattern": ""
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "a.b",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": ""
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "a.b"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a.b",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a.b.c",
+   "match": true,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a.c.c",
+   "match": true,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "a.*.c"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a.b.c",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "x.finished",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a.c.c",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "a..b",
+   "match": true,
+   "pattern": "#.#.#"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a.b.c",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a.c.c",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "a..b",
+   "match": true,
+   "pattern": "#.a.#"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": true,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "a..b",
+   "match": true,
+   "pattern": "a.#.#.b"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a.b.c",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "x.finished",
+   "match": true,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "*.*"
+  },
+  {
+   "key": "gate-api.pipelinerun.finished",
+   "match": false,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "",
+   "match": false,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a",
+   "match": false,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a.b",
+   "match": true,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a.x.y.b",
+   "match": false,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a.b.c",
+   "match": true,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "x.finished",
+   "match": false,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a.c.c",
+   "match": false,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a.b.b.b",
+   "match": true,
+   "pattern": "a.b.#"
+  },
+  {
+   "key": "a..b",
+   "match": false,
+   "pattern": "a.b.#"
+  }
+ ],
+ "bridge": {
+  "counters": {
+   "missed": {},
+   "outcomes": {
+    "any-agent/recent/launched": 1.0,
+    "any-agent/reconcile/deduped": 1.0,
+    "any-agent/stream/braked": 1.0,
+    "any-agent/stream/held": 1.0,
+    "any-agent/stream/launched": 5.0,
+    "strict-agent/recent/launched": 1.0,
+    "strict-agent/reconcile/deduped": 1.0,
+    "strict-agent/stream/braked": 3.0,
+    "strict-agent/stream/launched": 2.0,
+    "triage-agent/recent/launched": 1.0,
+    "triage-agent/reconcile/deduped": 1.0,
+    "triage-agent/stream/braked": 1.0,
+    "triage-agent/stream/launched": 4.0
+   }
+  },
+  "events": [
+   {
+    "app": "gate-api",
+    "id": "e1",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "launched",
+      "run": "r-000001",
+      "session": "s-000001",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "result": "launched",
+      "run": "r-000002",
+      "session": "s-000002",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "result": "launched",
+      "run": "r-000003",
+      "session": "s-000003",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-1"
+    },
+    "type": "t"
+   },
+   {
+    "app": "gate-api",
+    "id": "e2",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "launched",
+      "run": "r-000004",
+      "session": "s-000004",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "success"
+     },
+     "id": "pr-2"
+    },
+    "type": "t"
+   },
+   {
+    "app": "gate-api",
+    "id": "e3",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "launched",
+      "run": "r-000005",
+      "session": "s-000005",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "result": "launched",
+      "run": "r-000006",
+      "session": "s-000006",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "result": "launched",
+      "run": "r-000007",
+      "session": "s-000007",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-3"
+    },
+    "type": "t"
+   },
+   {
+    "app": "gate-api",
+    "id": "e4",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "launched",
+      "run": "r-000008",
+      "session": "s-000008",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "result": "launched",
+      "run": "r-000009",
+      "session": "s-000009",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-4"
+    },
+    "type": "t"
+   },
+   {
+    "app": "other",
+    "id": "e5",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "launched",
+      "run": "r-000010",
+      "session": "s-000010",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "other.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-5"
+    },
+    "type": "t"
+   },
+   {
+    "app": "gate-api",
+    "id": "e6",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "held",
+      "rule": "R024",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "result": "launched",
+      "run": "r-000011",
+      "session": "s-000011",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-6"
+    },
+    "type": "t"
+   },
+   {
+    "app": "gate-api",
+    "id": "e7",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "result": "braked",
+      "via": "stream"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-7"
+    },
+    "type": "t"
+   },
+   {
+    "app": "gate-api",
+    "id": "e8",
+    "outcomes": [
+     {
+      "agent": "any-agent",
+      "result": "launched",
+      "run": "r-000012",
+      "session": "s-000012",
+      "via": "recent"
+     },
+     {
+      "agent": "strict-agent",
+      "result": "launched",
+      "run": "r-000013",
+      "session": "s-000013",
+      "via": "recent"
+     },
+     {
+      "agent": "triage-agent",
+      "result": "launched",
+      "run": "r-000014",
+      "session": "s-000014",
+      "via": "recent"
+     }
+    ],
+    "received_at": "2026-09-26T11:59:00+00:00",
+    "routing_key": "gate-api.pipelinerun.finished",
+    "source": "glidepath",
+    "subject": {
+     "content": {
+      "outcome": "failure"
+     },
+     "id": "pr-8"
+    },
+    "type": "t"
+   },
+   {
+    "app": null,
+    "id": "e9",
+    "outcomes": [],
+    "received_at": "2026-09-26T12:00:00+00:00",
+    "routing_key": "x.y.z",
+    "source": "glidepath",
+    "subject": {
+     "content": {},
+     "id": null
+    },
+    "type": null
+   }
+  ],
+  "launches": [
+   "s-000001",
+   "s-000002",
+   "s-000003",
+   "s-000004",
+   "s-000005",
+   "s-000006",
+   "s-000007",
+   "s-000008",
+   "s-000009",
+   "s-000010",
+   "s-000011",
+   "s-000012",
+   "s-000013",
+   "s-000014"
+  ],
+  "opens": [
+   [
+    "any-agent",
+    "glidepath:e1",
+    "t-5b3c629b5ad8"
+   ],
+   [
+    "strict-agent",
+    "glidepath:e1",
+    "t-dd1178c0ea8e"
+   ],
+   [
+    "triage-agent",
+    "glidepath:e1",
+    "t-d513502ac95b"
+   ],
+   [
+    "any-agent",
+    "glidepath:e2",
+    "t-3f6217bde031"
+   ],
+   [
+    "any-agent",
+    "glidepath:e3",
+    "t-182f20d5b192"
+   ],
+   [
+    "strict-agent",
+    "glidepath:e3",
+    "t-2575dd138181"
+   ],
+   [
+    "triage-agent",
+    "glidepath:e3",
+    "t-31316abd4526"
+   ],
+   [
+    "any-agent",
+    "glidepath:e4",
+    "t-8903d5b915c2"
+   ],
+   [
+    "triage-agent",
+    "glidepath:e4",
+    "t-4d522a08fabc"
+   ],
+   [
+    "any-agent",
+    "glidepath:e5",
+    "t-c3151c20b468"
+   ],
+   [
+    "any-agent",
+    "glidepath:e6",
+    "t-0fb56d97706c"
+   ],
+   [
+    "triage-agent",
+    "glidepath:e6",
+    "t-6e4e19a7b0a4"
+   ],
+   [
+    "any-agent",
+    "glidepath:e8",
+    "t-96ee6dbdd48c"
+   ],
+   [
+    "strict-agent",
+    "glidepath:e8",
+    "t-ca0db2fe35f5"
+   ],
+   [
+    "triage-agent",
+    "glidepath:e8",
+    "t-93c3176ac1b7"
+   ]
+  ],
+  "rows": [
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:00+00:00",
+    "event_id": "e1",
+    "key": "gate-api.pipelinerun.finished/pr-1",
+    "run": "r-000001",
+    "session": "s-000001",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:01+00:00",
+    "event_id": "e2",
+    "key": "gate-api.pipelinerun.finished/pr-2",
+    "run": "r-000004",
+    "session": "s-000004",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:02+00:00",
+    "event_id": "e3",
+    "key": "gate-api.pipelinerun.finished/pr-3",
+    "run": "r-000005",
+    "session": "s-000005",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:03+00:00",
+    "event_id": "e4",
+    "key": "gate-api.pipelinerun.finished/pr-4",
+    "run": "r-000008",
+    "session": "s-000008",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:06+00:00",
+    "event_id": "e6",
+    "key": "gate-api.pipelinerun.finished/pr-6",
+    "run": null,
+    "session": null,
+    "state": "held",
+    "via": "stream"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:07+00:00",
+    "event_id": "e7",
+    "key": "gate-api.pipelinerun.finished/pr-7",
+    "run": null,
+    "session": null,
+    "state": "braked",
+    "via": "stream"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T13:01:40+00:00",
+    "event_id": "e8",
+    "key": "gate-api.pipelinerun.finished/pr-8",
+    "run": "r-000012",
+    "session": "s-000012",
+    "state": "launched",
+    "via": "recent"
+   },
+   {
+    "agent": "any-agent",
+    "claimed_at": "2026-09-26T12:00:05+00:00",
+    "event_id": "e5",
+    "key": "other.pipelinerun.finished/pr-5",
+    "run": "r-000010",
+    "session": "s-000010",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "strict-agent",
+    "claimed_at": "2026-09-26T12:00:00+00:00",
+    "event_id": "e1",
+    "key": "gate-api.pipelinerun.finished/pr-1",
+    "run": "r-000002",
+    "session": "s-000002",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "strict-agent",
+    "claimed_at": "2026-09-26T12:00:02+00:00",
+    "event_id": "e3",
+    "key": "gate-api.pipelinerun.finished/pr-3",
+    "run": "r-000006",
+    "session": "s-000006",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "strict-agent",
+    "claimed_at": "2026-09-26T12:00:03+00:00",
+    "event_id": "e4",
+    "key": "gate-api.pipelinerun.finished/pr-4",
+    "run": null,
+    "session": null,
+    "state": "braked",
+    "via": "stream"
+   },
+   {
+    "agent": "strict-agent",
+    "claimed_at": "2026-09-26T12:00:06+00:00",
+    "event_id": "e6",
+    "key": "gate-api.pipelinerun.finished/pr-6",
+    "run": null,
+    "session": null,
+    "state": "braked",
+    "via": "stream"
+   },
+   {
+    "agent": "strict-agent",
+    "claimed_at": "2026-09-26T12:00:07+00:00",
+    "event_id": "e7",
+    "key": "gate-api.pipelinerun.finished/pr-7",
+    "run": null,
+    "session": null,
+    "state": "braked",
+    "via": "stream"
+   },
+   {
+    "agent": "strict-agent",
+    "claimed_at": "2026-09-26T13:01:40+00:00",
+    "event_id": "e8",
+    "key": "gate-api.pipelinerun.finished/pr-8",
+    "run": "r-000013",
+    "session": "s-000013",
+    "state": "launched",
+    "via": "recent"
+   },
+   {
+    "agent": "triage-agent",
+    "claimed_at": "2026-09-26T12:00:00+00:00",
+    "event_id": "e1",
+    "key": "gate-api.pipelinerun.finished/pr-1",
+    "run": "r-000003",
+    "session": "s-000003",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "triage-agent",
+    "claimed_at": "2026-09-26T12:00:02+00:00",
+    "event_id": "e3",
+    "key": "gate-api.pipelinerun.finished/pr-3",
+    "run": "r-000007",
+    "session": "s-000007",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "triage-agent",
+    "claimed_at": "2026-09-26T12:00:03+00:00",
+    "event_id": "e4",
+    "key": "gate-api.pipelinerun.finished/pr-4",
+    "run": "r-000009",
+    "session": "s-000009",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "triage-agent",
+    "claimed_at": "2026-09-26T12:00:06+00:00",
+    "event_id": "e6",
+    "key": "gate-api.pipelinerun.finished/pr-6",
+    "run": "r-000011",
+    "session": "s-000011",
+    "state": "launched",
+    "via": "stream"
+   },
+   {
+    "agent": "triage-agent",
+    "claimed_at": "2026-09-26T12:00:07+00:00",
+    "event_id": "e7",
+    "key": "gate-api.pipelinerun.finished/pr-7",
+    "run": null,
+    "session": null,
+    "state": "braked",
+    "via": "stream"
+   },
+   {
+    "agent": "triage-agent",
+    "claimed_at": "2026-09-26T13:01:40+00:00",
+    "event_id": "e8",
+    "key": "gate-api.pipelinerun.finished/pr-8",
+    "run": "r-000014",
+    "session": "s-000014",
+    "state": "launched",
+    "via": "recent"
+   }
+  ],
+  "steps": [
+   {
+    "at": 0,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000001",
+      "session": "s-000001",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000002",
+      "session": "s-000002",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000003",
+      "session": "s-000003",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-1"
+      }
+     },
+     "id": "e1",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 0,
+    "done": [],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-1"
+      }
+     },
+     "id": "e1",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 1,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000004",
+      "session": "s-000004",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "success"
+       },
+       "id": "pr-2"
+      }
+     },
+     "id": "e2",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 2,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000005",
+      "session": "s-000005",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000006",
+      "session": "s-000006",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000007",
+      "session": "s-000007",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-3"
+      }
+     },
+     "id": "e3",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 3,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000008",
+      "session": "s-000008",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "new": true,
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000009",
+      "session": "s-000009",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-4"
+      }
+     },
+     "id": "e4",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 4,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": false,
+      "replay": false,
+      "result": "deduped",
+      "run": "r-000001",
+      "session": "s-000001",
+      "via": "reconcile"
+     },
+     {
+      "agent": "strict-agent",
+      "new": false,
+      "replay": false,
+      "result": "deduped",
+      "run": "r-000002",
+      "session": "s-000002",
+      "via": "reconcile"
+     },
+     {
+      "agent": "triage-agent",
+      "new": false,
+      "replay": false,
+      "result": "deduped",
+      "run": "r-000003",
+      "session": "s-000003",
+      "via": "reconcile"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-1"
+      }
+     },
+     "id": "reconcile:gate-api/pr-1",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "reconcile"
+   },
+   {
+    "at": 5,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000010",
+      "session": "s-000010",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "other",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-5"
+      }
+     },
+     "id": "e5",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "other.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 6,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "held",
+      "rule": "R024",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "new": true,
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000011",
+      "session": "s-000011",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-6"
+      }
+     },
+     "id": "e6",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 7,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "strict-agent",
+      "new": true,
+      "result": "braked",
+      "via": "stream"
+     },
+     {
+      "agent": "triage-agent",
+      "new": true,
+      "result": "braked",
+      "via": "stream"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-7"
+      }
+     },
+     "id": "e7",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "stream"
+   },
+   {
+    "at": 3700,
+    "done": [
+     {
+      "agent": "any-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000012",
+      "session": "s-000012",
+      "via": "recent"
+     },
+     {
+      "agent": "strict-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000013",
+      "session": "s-000013",
+      "via": "recent"
+     },
+     {
+      "agent": "triage-agent",
+      "new": true,
+      "result": "launched",
+      "run": "r-000014",
+      "session": "s-000014",
+      "via": "recent"
+     }
+    ],
+    "envelope": {
+     "app": "gate-api",
+     "event": {
+      "context": {
+       "type": "t"
+      },
+      "subject": {
+       "content": {
+        "outcome": "failure"
+       },
+       "id": "pr-8"
+      }
+     },
+     "id": "e8",
+     "receivedAt": "2026-09-26T11:59:00Z",
+     "routingKey": "gate-api.pipelinerun.finished"
+    },
+    "via": "recent"
+   },
+   {
+    "at": 3701,
+    "done": [],
+    "envelope": {
+     "id": "e9",
+     "routingKey": "x.y.z"
+    },
+    "via": "stream"
+   }
+  ]
+ },
+ "id_times": [
+  {
+   "id": "1794000000000000-ab",
+   "time": "2026-11-06T21:20:00+00:00"
+  },
+  {
+   "id": "17940000000000-ab",
+   "time": null
+  },
+  {
+   "id": "1794000000000000",
+   "time": null
+  },
+  {
+   "id": "x-y",
+   "time": null
+  },
+  {
+   "id": "",
+   "time": null
+  },
+  {
+   "id": null,
+   "time": null
+  },
+  {
+   "id": "179400000000000a-bb",
+   "time": null
+  }
+ ],
+ "keys": [
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "subject": {
+      "id": "pr-1"
+     }
+    },
+    "id": "e1",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "key": "gate-api.pipelinerun.finished/pr-1"
+  },
+  {
+   "envelope": {
+    "app": "other",
+    "event": {
+     "subject": {
+      "id": "pr-1"
+     }
+    },
+    "id": "e2",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "key": "event:e2"
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "subject": {
+      "id": "pr-1"
+     }
+    },
+    "id": "e3",
+    "routingKey": "gate-api.pipelinerun.started"
+   },
+   "key": "gate-api.pipelinerun.started/pr-1"
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "subject": {}
+    },
+    "id": "e4",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "key": "event:e4"
+  },
+  {
+   "envelope": {
+    "app": "",
+    "id": "e5",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "key": "event:e5"
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "subject": {
+      "id": "p"
+     }
+    },
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "key": "gate-api.pipelinerun.finished/p"
+  },
+  {
+   "envelope": {
+    "id": "",
+    "routingKey": "x"
+   },
+   "key": null
+  },
+  {
+   "envelope": {
+    "id": 5
+   },
+   "key": null
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": "x",
+    "id": "e6",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "key": "event:e6"
+  }
+ ],
+ "run_envelopes": [
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "source": "/glidepath/ns/pr-1",
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "content": {
+       "outcome": "failure",
+       "pipelineName": "build"
+      },
+      "id": "pr-1",
+      "type": "pipelineRun"
+     }
+    },
+    "id": "reconcile:gate-api/pr-1",
+    "receivedAt": "2026-09-26T11:50:00.123456789Z",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "row": {
+    "app": "gate-api",
+    "endTime": "2026-09-26T11:50:00.123456789Z",
+    "name": "pr-1",
+    "namespace": "ns",
+    "pipeline": "build",
+    "status": "failed"
+   }
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "source": null,
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "content": {
+       "outcome": "success"
+      },
+      "id": "pr-2",
+      "type": "pipelineRun"
+     }
+    },
+    "id": "reconcile:gate-api/pr-2",
+    "receivedAt": null,
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "row": {
+    "app": "gate-api",
+    "name": "pr-2",
+    "status": "succeeded"
+   }
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "source": null,
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "content": {
+       "outcome": "cancel"
+      },
+      "id": "pr-3",
+      "type": "pipelineRun"
+     }
+    },
+    "id": "reconcile:gate-api/pr-3",
+    "receivedAt": null,
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "row": {
+    "app": "gate-api",
+    "name": "pr-3",
+    "pipeline": "",
+    "status": "cancelled"
+   }
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "source": null,
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "content": {
+       "outcome": "error"
+      },
+      "id": "pr-4",
+      "type": "pipelineRun"
+     }
+    },
+    "id": "reconcile:gate-api/pr-4",
+    "receivedAt": null,
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "row": {
+    "app": "gate-api",
+    "name": "pr-4",
+    "status": "weird"
+   }
+  },
+  {
+   "envelope": null,
+   "row": {
+    "app": "gate-api"
+   }
+  },
+  {
+   "envelope": null,
+   "row": {
+    "name": "pr-5"
+   }
+  }
+ ],
+ "scheduler": {
+  "counters": {
+   "launches": {
+    "nightly-reviewer/launched": 3.0
+   },
+   "missed": {
+    "nightly-reviewer": 5.0
+   }
+  },
+  "opens": [
+   [
+    "nightly-reviewer",
+    "interval:24h",
+    "t-738c0f7e7f36"
+   ],
+   [
+    "nightly-reviewer",
+    "interval:24h",
+    "t-df4b6f471dae"
+   ],
+   [
+    "nightly-reviewer",
+    "interval:24h",
+    "t-0c6f7bc38a50"
+   ]
+  ],
+  "rows": [
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-14T00:02:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20768",
+    "run": null,
+    "session": null,
+    "state": "missed",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-14T00:02:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20769",
+    "run": null,
+    "session": null,
+    "state": "missed",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-14T00:02:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20770",
+    "run": null,
+    "session": null,
+    "state": "missed",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-14T00:02:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20771",
+    "run": "r-000001",
+    "session": "s-000001",
+    "state": "launched",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-15T00:01:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20772",
+    "run": "r-000002",
+    "session": "s-000002",
+    "state": "launched",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-17T03:00:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20773",
+    "run": null,
+    "session": null,
+    "state": "missed",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-17T03:00:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20774",
+    "run": null,
+    "session": null,
+    "state": "missed",
+    "via": "schedule"
+   },
+   {
+    "agent": "nightly-reviewer",
+    "claimed_at": "2026-11-18T00:05:00+00:00",
+    "event_id": null,
+    "key": "slot:24h:20775",
+    "run": "r-000003",
+    "session": "s-000003",
+    "state": "launched",
+    "via": "schedule"
+   }
+  ],
+  "ticks": [
+   {
+    "at": "2026-11-14T00:02:00+00:00",
+    "done": [
+     {
+      "agent": "nightly-reviewer",
+      "result": "missed",
+      "slot": 20770
+     },
+     {
+      "agent": "nightly-reviewer",
+      "result": "missed",
+      "slot": 20769
+     },
+     {
+      "agent": "nightly-reviewer",
+      "result": "missed",
+      "slot": 20768
+     },
+     {
+      "agent": "nightly-reviewer",
+      "result": "launched",
+      "run": "r-000001",
+      "session": "s-000001",
+      "slot": 20771
+     }
+    ],
+    "label": "first"
+   },
+   {
+    "at": "2026-11-14T00:02:30+00:00",
+    "done": [],
+    "label": "again"
+   },
+   {
+    "at": "2026-11-14T00:11:00+00:00",
+    "done": [],
+    "label": "after grace"
+   },
+   {
+    "at": "2026-11-15T00:01:00+00:00",
+    "done": [
+     {
+      "agent": "nightly-reviewer",
+      "result": "launched",
+      "run": "r-000002",
+      "session": "s-000002",
+      "slot": 20772
+     }
+    ],
+    "label": "next day"
+   },
+   {
+    "at": "2026-11-17T03:00:00+00:00",
+    "done": [
+     {
+      "agent": "nightly-reviewer",
+      "result": "missed",
+      "slot": 20774
+     },
+     {
+      "agent": "nightly-reviewer",
+      "result": "missed",
+      "slot": 20773
+     }
+    ],
+    "label": "two days later"
+   },
+   {
+    "at": "2026-11-18T00:05:00+00:00",
+    "done": [
+     {
+      "agent": "nightly-reviewer",
+      "result": "launched",
+      "run": "r-000003",
+      "session": "s-000003",
+      "slot": 20775
+     }
+    ],
+    "label": "the day after"
+   }
+  ]
+ },
+ "slots": [
+  {
+   "every": "30m",
+   "now": "2026-09-26T12:00:00+00:00",
+   "slot": 994680,
+   "start": "2026-09-26T12:00:00+00:00"
+  },
+  {
+   "every": "1h",
+   "now": "2026-09-26T12:00:00+00:00",
+   "slot": 497340,
+   "start": "2026-09-26T12:00:00+00:00"
+  },
+  {
+   "every": "6h",
+   "now": "2026-09-26T12:00:00+00:00",
+   "slot": 82890,
+   "start": "2026-09-26T12:00:00+00:00"
+  },
+  {
+   "every": "24h",
+   "now": "2026-09-26T12:00:00+00:00",
+   "slot": 20722,
+   "start": "2026-09-26T00:00:00+00:00"
+  },
+  {
+   "every": "30m",
+   "now": "2026-09-26T17:03:00+00:00",
+   "slot": 994690,
+   "start": "2026-09-26T17:00:00+00:00"
+  },
+  {
+   "every": "1h",
+   "now": "2026-09-26T17:03:00+00:00",
+   "slot": 497345,
+   "start": "2026-09-26T17:00:00+00:00"
+  },
+  {
+   "every": "6h",
+   "now": "2026-09-26T17:03:00+00:00",
+   "slot": 82890,
+   "start": "2026-09-26T12:00:00+00:00"
+  },
+  {
+   "every": "24h",
+   "now": "2026-09-26T17:03:00+00:00",
+   "slot": 20722,
+   "start": "2026-09-26T00:00:00+00:00"
+  },
+  {
+   "every": "30m",
+   "now": "2026-11-14T00:00:00+00:00",
+   "slot": 997008,
+   "start": "2026-11-14T00:00:00+00:00"
+  },
+  {
+   "every": "1h",
+   "now": "2026-11-14T00:00:00+00:00",
+   "slot": 498504,
+   "start": "2026-11-14T00:00:00+00:00"
+  },
+  {
+   "every": "6h",
+   "now": "2026-11-14T00:00:00+00:00",
+   "slot": 83084,
+   "start": "2026-11-14T00:00:00+00:00"
+  },
+  {
+   "every": "24h",
+   "now": "2026-11-14T00:00:00+00:00",
+   "slot": 20771,
+   "start": "2026-11-14T00:00:00+00:00"
+  },
+  {
+   "every": "30m",
+   "now": "2026-11-14T23:59:59+00:00",
+   "slot": 997055,
+   "start": "2026-11-14T23:30:00+00:00"
+  },
+  {
+   "every": "1h",
+   "now": "2026-11-14T23:59:59+00:00",
+   "slot": 498527,
+   "start": "2026-11-14T23:00:00+00:00"
+  },
+  {
+   "every": "6h",
+   "now": "2026-11-14T23:59:59+00:00",
+   "slot": 83087,
+   "start": "2026-11-14T18:00:00+00:00"
+  },
+  {
+   "every": "24h",
+   "now": "2026-11-14T23:59:59+00:00",
+   "slot": 20771,
+   "start": "2026-11-14T00:00:00+00:00"
+  }
+ ],
+ "summaries": [
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "content": {
+       "b": true,
+       "f": 1.5,
+       "long": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+       "n": 3,
+       "nested": {
+        "a": 1
+       },
+       "outcome": "failure",
+       "pipelineName": "build"
+      },
+      "id": "pr-1"
+     }
+    },
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "summary": {
+    "app": "gate-api",
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished",
+    "subject": {
+     "content": {
+      "b": true,
+      "f": 1.5,
+      "n": 3,
+      "outcome": "failure",
+      "pipelineName": "build"
+     },
+     "id": "pr-1"
+    },
+    "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+   }
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "content": {},
+      "id": "pr-2"
+     }
+    },
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "summary": {
+    "app": "gate-api",
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished",
+    "subject": {
+     "content": {},
+     "id": "pr-2"
+    },
+    "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+   }
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {
+      "id": "pr-3"
+     }
+    },
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "summary": {
+    "app": "gate-api",
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished",
+    "subject": {
+     "content": {},
+     "id": "pr-3"
+    },
+    "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+   }
+  },
+  {
+   "envelope": {
+    "app": "gate-api",
+    "event": {
+     "context": {
+      "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+     },
+     "subject": {}
+    },
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished"
+   },
+   "summary": {
+    "app": "gate-api",
+    "id": "e1",
+    "receivedAt": "2026-09-26T11:59:00Z",
+    "routingKey": "gate-api.pipelinerun.finished",
+    "subject": {
+     "content": {},
+     "id": null
+    },
+    "type": "dev.cdevents.pipelinerun.finished.0.3.0"
+   }
+  }
+ ],
+ "task_ids": [
+  {
+   "agent": "triage-agent",
+   "id": "t-d513502ac95b",
+   "key": "gate-api.pipelinerun.finished/pr-1"
+  },
+  {
+   "agent": "triage-agent",
+   "id": "t-ca7ff135b932",
+   "key": "event:e1"
+  },
+  {
+   "agent": "x",
+   "id": "t-3d637b2f42e9",
+   "key": "gate-api.pipelinerun.finished/pr-1"
+  },
+  {
+   "agent": "x",
+   "id": "t-91dd64263710",
+   "key": "event:e1"
+  },
+  {
+   "agent": "nightly-reviewer",
+   "id": "t-7e823e43f5c8",
+   "slot": 0
+  },
+  {
+   "agent": "nightly-reviewer",
+   "id": "t-a11ce405216f",
+   "slot": 1
+  },
+  {
+   "agent": "nightly-reviewer",
+   "id": "t-0c8c479eba1f",
+   "slot": 20406
+  },
+  {
+   "agent": "nightly-reviewer",
+   "id": "t-bfc2eba6c27c",
+   "slot": 99999
+  },
+  {
+   "agent": "x",
+   "id": "t-9f055d057090",
+   "slot": 0
+  },
+  {
+   "agent": "x",
+   "id": "t-2ecd90c12bc8",
+   "slot": 1
+  },
+  {
+   "agent": "x",
+   "id": "t-bf4741390fd4",
+   "slot": 20406
+  },
+  {
+   "agent": "x",
+   "id": "t-22ad8b669631",
+   "slot": 99999
+  }
+ ],
+ "times": [
+  {
+   "s": "2026-09-26T11:50:00.123456789Z",
+   "time": "2026-09-26T11:50:00.123456+00:00"
+  },
+  {
+   "s": "2026-09-26T11:50:00Z",
+   "time": "2026-09-26T11:50:00+00:00"
+  },
+  {
+   "s": "2026-09-26T11:50:00+02:00",
+   "time": "2026-09-26T11:50:00+02:00"
+  },
+  {
+   "s": "x",
+   "time": null
+  },
+  {
+   "s": "",
+   "time": null
+  },
+  {
+   "s": null,
+   "time": null
+  },
+  {
+   "s": "2026-09-26T11:50:00.5Z",
+   "time": "2026-09-26T11:50:00.500000+00:00"
+  }
+ ],
+ "watched": [
+  {
+   "apps": [
+    "gate-api"
+   ],
+   "found": true,
+   "set": "triage"
+  },
+  {
+   "apps": [
+    "gate-api"
+   ],
+   "found": true,
+   "set": "strict"
+  },
+  {
+   "apps": [],
+   "found": true,
+   "set": "wild"
+  },
+  {
+   "apps": [],
+   "found": false,
+   "set": "none"
+  }
+ ]
+}

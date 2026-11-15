@@ -13,6 +13,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
+	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"github.com/jfillman/clearance/client"
@@ -84,7 +85,7 @@ func finalRows(t testing.TB, r *runRig, ids ...string) map[string]any {
 		s.Lock()
 		rec := s.ToRecord()
 		s.Unlock()
-		rec.DeleteFail = nil // the Go gateway's own key for a delete that keeps failing; the Python row has none
+		rec.DeleteFail, rec.LaunchedAt, rec.CloseReason, rec.RunRemoved = nil, nil, nil, nil // the Go gateway's own key for a delete that keeps failing; the Python row has none
 		out[id] = norm(t, rec)
 	}
 	return out
@@ -330,6 +331,7 @@ func TestExpireEqualsPython(t *testing.T) {
 	}
 	for _, id := range ids {
 		row, _ := r.persist.row(id)
+		row.DeleteFail, row.LaunchedAt, row.CloseReason, row.RunRemoved = nil, nil, nil, nil
 		if !reflect.DeepEqual(norm(t, row), finalRows(t, r, id)[id]) {
 			t.Errorf("%s: the saved row is not the session", id)
 		}
@@ -381,7 +383,7 @@ func TestActingEqualsPython(t *testing.T) {
 	acts, stricter := 0, 0
 	for _, c := range cases {
 		s, _ := session.FromRecord(sessionRow("s-0000a1", c.SessionPrincipal, "orchestrator", "", func(rec *session.Record) { rec.Run = c.Run }))
-		got := r.g.Acting(s, &dispatch.Principal{ID: c.Caller, Kind: c.Kind})
+		got := r.g.Acting(s, &dispatch.Principal{ID: c.Caller, Kind: c.Kind, Pod: runs.PodName})
 		if got != c.Go {
 			t.Errorf("run %v caller %q (%s): go %q want %q (python %q)", c.Run, c.Caller, c.Kind, got, c.Go, c.Python)
 		}

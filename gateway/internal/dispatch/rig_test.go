@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -140,7 +141,11 @@ func newRunRig(t *testing.T, opts ...rigOpt) *runRig {
 // who registers a caller and returns its token.
 func (r *runRig) who(id, kind string) string {
 	tok := "tok:" + kind + ":" + id
-	r.tokens[tok] = &dispatch.Principal{ID: id, Kind: kind, TierCeiling: 1}
+	p := &dispatch.Principal{ID: id, Kind: kind, TierCeiling: 1}
+	if kind == "workload" && strings.HasPrefix(id, "agent-r-") && strings.HasSuffix(id, "/run") {
+		p.Pod = runs.PodName // a run's pod: its token is bound to the pod the composition creates
+	}
+	r.tokens[tok] = p
 	return tok
 }
 

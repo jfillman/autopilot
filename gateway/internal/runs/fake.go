@@ -119,6 +119,14 @@ func (f *Fake) Principal(run string) string {
 	return Principal(run)
 }
 
+// PodName is the pod a run's workload runs in.
+func (f *Fake) PodName(run string) string {
+	if f.NoPrincipal || !ValidRunName(run) {
+		return ""
+	}
+	return PodName
+}
+
 // Set changes what the fake does, under its lock.
 func (f *Fake) Set(fn func(*Fake)) {
 	f.mu.Lock()
@@ -148,6 +156,9 @@ type FakeStore struct {
 	Err       error
 	// FailDelete names the runs whose delete fails (an API server error), until it is emptied.
 	FailDelete map[string]bool
+	// GoneWhenAbsent makes Outcome answer "Gone" for a run that has no manifest (the real API server's 404), where it otherwise answers
+	// what the test set ("" while it runs).
+	GoneWhenAbsent bool
 	// DeleteCalls counts delete attempts by run name, failed or not.
 	DeleteCalls map[string]int
 }
@@ -190,6 +201,9 @@ func (f *FakeStore) Outcome(_ context.Context, name string) (string, error) {
 	defer f.mu.Unlock()
 	if f.Err != nil {
 		return "", f.Err
+	}
+	if _, there := f.Manifests[name]; !there && f.GoneWhenAbsent && f.Outcomes[name] == "" {
+		return "Gone", nil
 	}
 	return f.Outcomes[name], nil
 }

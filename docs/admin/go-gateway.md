@@ -1,6 +1,6 @@
 # The Go AI gateway (A-9)
 
-**Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2, 2026-11-14), the read backends (A-9 S5a:
+**Status: people and Tower sign-in (A-9 S1), runs and the run tree (A-9 S2, 2026-11-14), the human inbox, person controls and triggers (A-9 S3), the read backends (A-9 S5a:
 `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put`, `artifact.get`) and the Glidepath and repository tools (A-9 S5b:
 every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`, `repo.pr.open_upper`, `argo.sync.lower`) are in, on top of the first
 slice and the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
@@ -15,7 +15,7 @@ Clearance's image, `gateway/Dockerfile`):
 
 | Subcommand | Does |
 |---|---|
-| `serve` | the MCP server (`PORT`, default 8080), the model proxy (`MODEL_PORT`, default 8081, only with `MODEL_KEY_FILE`), the expiry sweep (close, delete runs, backstop outcomes) and the outbox drain |
+| `serve` | the MCP server (`PORT`, default 8080) with the person-facing routes beside it (`/v1/...`, S3), the model proxy (`MODEL_PORT`, default 8081, only with `MODEL_KEY_FILE`), the expiry sweep (close, delete runs, backstop outcomes) and the outbox drain, and, when asked, the interval scheduler (`SCHEDULES_ENABLED`), the event bridge (`EVENTS_ENABLED`) and the reconciliation sweep |
 | `conformance-control` | the test-only conformance control interface; off unless `GATEWAY_CONFORMANCE_CONTROL=1`, loopback only |
 | `api` | **not ported**: exits 2 and says so. The read API is still the Python `autopilot-gateway api` |
 | `version` | the image's version (`AUTOPILOT_GATEWAY_VERSION`, else the build's) |
@@ -101,10 +101,11 @@ and the run parts of `server.py` and `serve.py`.
 
 ### The run's identity, in plain words
 
-A caller acts as a session only when it IS that session's run. The gateway decides that from three things, all of which it
+A caller acts as a session only when it IS that session's run. The gateway decides that from four things, all of which it
 holds itself: the session has a run (a name the gateway wrote when it created the run, never taken from a caller), the caller
-is a workload token that the Kubernetes token review verified, and the caller's verified identity (`namespace/serviceaccount`)
-is exactly `agent-<run>/run` for that run, a name of `r-` and 6 to 32 hex digits. Then the gateway tells the core "this caller
+is a workload token that the Kubernetes token review verified, the caller's verified identity (`namespace/serviceaccount`)
+is exactly `agent-<run>/run` for that run, a name of `r-` and 6 to 32 hex digits, and (S3, [the pod binding](#the-pod-binding-a-9-s3))
+the token is bound to the run's pod. Then the gateway tells the core "this caller
 acts as the session's principal", and the core decides as it would for the person. Nothing the caller sends is read: not an
 argument, a header, a label or a name.
 
@@ -114,8 +115,8 @@ own namespace with another service account, a person whose id looks like a run's
 deleted), and a replayed token after `run.close`. Each is a test (`TestARunActsOnlyAsItsOwnSession`,
 `TestAReplayedRunTokenActsAsNothingAfterItsRunIsGone`, `TestAClosedSessionWhoseRunWasNotDeletedStillAllowsNothing`).
 
-Stricter than Python, deliberately: the caller must be a `workload` (Python only compares ids), and the run's name must be a
-real run name. `acting.json` records Python's answer and Go's for each case; the two differ only for a user whose id is a run's
+Stricter than Python, deliberately: the caller must be a `workload` (Python only compares ids), the run's name must be a
+real run name, and the token must be bound to the run's pod. `acting.json` records Python's answer and Go's for each case; the two differ only for a user whose id is a run's
 and for a run name no run has.
 
 ### What is deliberately not the same as Python
@@ -204,12 +205,332 @@ gateway's RBAC, the chart and the cluster's admission policy must keep namespace
 composition's identity, and nobody else may hold `create` on namespaces. The gateway does not read Kubernetes on the hot path to
 check it.
 
-Nothing the token review already returns binds a token to a run more tightly at no cost, that the gateway can know at create
-time: the pod name and uid in the response's `user.extra`, and the service account's uid, belong to a pod and an account that
-do not exist yet when the AgentRun is created, and the create response does not carry them. Proposed, not built: the sandbox's
-pod name is fixed by the composition (`agent`), so `auth.Workload` could pass `authentication.kubernetes.io/pod-name` on the
-principal and the acting rule could require it to be that name, which rules out a token minted for a bare service account
-(not a pod); and the sweep's read of the AgentRun (`status`) could one day carry the pod uid to compare.
+### The pod binding (A-9 S3)
+
+The identity above is a namespace and a service account, and a token for the bare service account is that identity. Anyone who may
+create tokens for `agent-<run>/run` (the TokenRequest API) can mint one, bound to no object or to any other. So a caller acts as a run
+only if its token is also **bound to the run's pod**: the token review's `status.user.extra` carries the bound pod's name under
+`authentication.kubernetes.io/pod-name` (and its uid, and the node's name and uid, and a credential id), and `auth.Workload` puts that
+name on the principal (`Principal.Pod`). `Gateway.Acting` then requires it to be `agent`, the name the composition gives a run's pod.
+
+What this relies on, stated plainly:
+
+- **Kubernetes** ("Bound service account tokens", service accounts admin guide, read through the documentation tool on 2026-11-14): a token
+  bound to a Pod carries the pod's `metadata.name` and `metadata.uid` as private claims; the API server's service-account authenticator
+  verifies them (and that the pod still exists) and returns them as the `authentication.kubernetes.io/pod-name` and `/pod-uid` extras of a
+  token review. The node name and uid in the JWT are not verified by the API server and are not read here. A token bound to a Secret or a
+  Node, or to nothing, has no pod-name extra.
+- **The pod's name** is not set by the composition directly. The composition (`vendor/agentrun_compose.py`, `SANDBOX_NAME`) creates one
+  Sandbox named `agent` per run, with no warm pool and no claim, and the agent-sandbox controller names the pod after its Sandbox (its
+  documentation: "the backing pod name matches the sandbox name", with a Sandbox `agent` and a pod `agent` in its network-policy example). So
+  the rule holds as long as the composition and the controller keep that naming. `TestPodNameIsTheCompositionsSandbox` fails if the vendored
+  composition renames the Sandbox; a controller that changed its naming would show as every run being refused (fail closed), which a live
+  check on a deployed cluster would catch (owed, as everything that needs a cluster is).
+- A missing key is **not** a failure of ordinary authentication: a workload token without a pod binding still authenticates (the run's
+  own gateway-side checks, Tower's backend and every other workload do not need one); it simply cannot act as a run. Several values, an empty
+  one or a name that is not a DNS name count as no binding.
+
+Tests (`TestARunActsOnlyWithATokenBoundToItsPod`, `TestTheBoundPodIsCarriedOnTheWorkloadPrincipal`): the right pod; the right identity with
+another pod name, with a suffixed one, and with none; a foreign-cluster principal that carries the run's identity and a pod name; a person
+(with and without a pod); another run's pod; and the same rule for `run_finish`, `session_close` and `session_tools`.
+
+## What S3 carries: the human inbox, person controls and triggers (2026-11-14)
+
+The sources are `engine/inbox.py`, `control.py`, `events.py`, `trigger_ledger.py`, `preflight.py`, `scheduler.py`, `triggers.py`,
+`event_bridge.py`, `reconcile.py`, the person-facing parts of `engine/dispatch.py` and `engine/server.py` and the trigger parts of
+`serve.py` and `settings.py`. The Go code is `dispatch/` (`inbox.go`, `people.go`, `triggered.go`, `events.go`, `preflightcases.go`,
+`grant.go`), `triggers/` (`ledger.go`, `match.go`, `bridge.go`, `scheduler.go`, `reconcile.go`, `metrics.go`), `mcpserver/people.go`
+and `pgstate/people.go`. Each part has the test that pins it, and where the Python gateway can be driven the same way the test
+compares answers, sessions, rows and records with Python's (`testdata/people.json` and `triggers.json`, generated by
+`tools/gen_gateway_registry.py`).
+
+| Operation | Go | Pinned by |
+|---|---|---|
+| `human.request` and `human.request.get` from an agent, the pending list, answering, expiry with the session | `Gateway.SetInbox`, `HumanRequests`, `HumanAnswer`; the rows are `gateway_human_requests`, read and written either way | `TestInboxChecksEqualPython`, `TestInboxHandlersEqualPython`, `TestRowsEqualPython`, `TestHumanRequestAndAnswer`, `TestHumanRequestLimitsAndExpiry`, `pgstate` `TestTheInboxRoundTripsAndKeepsItsLimits` |
+| Person controls: freeze, end, hold, release | `FreezeSession`, `EndSession`, `HoldTriggers`, `ReleaseTriggers`; routes `POST /v1/sessions/{id}/freeze`, `/end`, `POST` and `DELETE /v1/agents/{agent}/hold` | `TestPersonOperationsEqualPython` (70 operations: answers, sessions, records and holds equal Python's), `TestControlSequencesEqualPython`, `TestThePeopleRoutes` |
+| A person's run: `POST /v1/agents/{agent}/runs`, with `document` and `budget` for a Preflight candidate | `Gateway.RunAgent`, then `RunAgentAs` (S2) | `TestRunAgentByThePersonRouteChecksWhoAndWhat`, `TestRunAgentRefusesAGrantForSomeoneElseOrWider`, `TestACandidateIsRefusedUntilTheSchemaIsCarriedThenRunsClamped` |
+| Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger | `TestPreflightCasesAndScore` |
+| `open_triggered`: a triggered run's session, with the agent's hold and any live session of the task in the evaluation | `Gateway.OpenTriggered`, `TriggeredRequest` | the replay's 31 triggered `session.open` lines against the real core, `TestOpenTriggeredOpensDedupesAndChecksTheGrant`, `TestOpenTriggeredRefusesWhatTheCoreShouldNotHaveGranted` |
+| The trigger ledger and the event cursor; a trigger fires once | `triggers.Ledger` on `gateway_trigger_launches` and `gateway_event_cursors` | `TestTheBridgeEqualsPython`, `TestACrashAtEachPointLeavesATriggerThatFiresOnce`, `TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe`, `TestTriggersThroughTheRealGateway`, `pgstate` `TestTheLedgerClaimIsWonOnce` |
+| The event bridge: the stream, the catch-up from the cursor with `Last-Event-ID`, the storm brake, the history | `triggers.Bridge` | `TestTheStreamResumesFromTheCursorAndHandlesWhatItCarries`, `TestTheCursorOnlyFollowsIDsItCanTrust`, `TestMalformedAndOversizedEventsAreDroppedAndCounted`, `TestTheBridgeNeverFollowsARedirect`, `TestTheReconnectBackoffIsBounded` |
+| The interval scheduler, with its missed-slot record | `triggers.Scheduler` | `TestTheSchedulerEqualsPython`, `TestTheSchedulerFiresASlotOnceAcrossRestartsAndRecordsWhatWasMissed` |
+| The reconciliation sweep | `triggers.Reconciler` | `TestTheSweepLaunchesWhatNoEventDeliveredOnceAndOnlyWithinItsBounds` |
+| Metric hooks as far as Python has them | `triggers.Metrics` (an interface; `Nop` in `serve`, `Recorder` in tests). The Prometheus endpoint is S6 | the counters `TestTheBridgeEqualsPython` and `TestTheSchedulerEqualsPython` compare |
+
+### Who may do what
+
+Person controls are for people. The rule is Python's (`control.py`, `Gateway._person`, `_manager`), with nothing looser:
+
+- **Who is a person.** A caller whose kind is `user` (their own sign-in), or a *delegate* naming one: a caller whose id matches a glob of
+  `AUTOPILOT_DELEGATES` and who sends `X-Hangar-On-Behalf-Of: user:<name>`. Nothing else is: a run, a service account that is not
+  a listed delegate, Tower's backend with no name or a bad one, and every other cluster's workload are refused (`HR-PERSON` 403, or
+  `HR-DELEGATE` 403 when they name someone); a non-delegate that sends the header is refused, not ignored. A delegate is named by where
+  it runs: the list is refused at start if an entry is `*`, starts with a wildcard, or has a wildcard in its namespace (or cluster):
+  `namespace/name` for this cluster, `cluster/namespace/name` for another, every segment but the name literal. A glob never crosses a
+  `/` (the match is segment by segment), another cluster's principal needs a three-segment glob, a run (`agent-<run>/run`) is never a
+  delegate even if a glob would match it, and a person-kind caller is never one. The name in the header is `user:<name>` of at most 200
+  bytes, valid UTF-8, with no control character (a tab, ESC, newline), no format character (a zero-width or direction mark) and no
+  U+2028 or U+2029; a request that carries the header more than once is refused. Python takes any glob and any string. A run is a workload that is not in the delegates list (the list is the deployment's), so
+  **a run can never answer its own `human.request`, release its own hold, freeze, end or run anything, and has no way to raise its
+  own budget** (a run's budget is cut by the core at open; nothing in this slice changes one).
+- **Who may act on what.** The agent's owner group (the definition's `owner`, resolved by a Directory), a platform admin
+  (`AUTOPILOT_ADMINS`, globs), and, for a session only, the person whose session it is. Holds, releases, a run and a Preflight score are
+  the agent's, so the session's person alone is not enough for them. Answering an inbox request is its owner's (the session's person)
+  and the agent's owner group: an admin is not an answerer.
+- **Without a Directory** only the session's own person and the admins act. The Go gateway has no Directory yet: S5a brought the catalog
+  client, but the group lookup (`BackstageDirectory`) is not wired, so an owner group is not resolved until then.
+- **`human.request.get` is bound to the asking session's task, not to the session**: a child or a sibling session of the same run tree
+  (they share the task) can read the question and the answer of a request any of them asked, as in Python. The request is the session's
+  owner's to answer, and the owner group's; the run tree is one person's.
+- Each control is an evidence record naming the person and the delegate. A refused call writes nothing and changes nothing.
+
+Each of these is a test (`TestPersonControlsAreForPeopleOnly`: 6 controls against 19 callers, each either allowed by the rule or
+refused with no record and no change; `TestWhoIsAPerson`; `TestThePeopleRoutes`, which sends a run's token to every route with
+and without an on-behalf-of header; `TestAnUnauthenticatedCallerLearnsNothing`): another person, a workload, a run bound to its
+pod, a service account bound to no pod, a foreign-cluster principal that is not a delegate, a delegate naming nobody, a delegate
+naming a person who may not, an unlisted workload naming an admin, a person whose id looks like a run's, and a person naming
+someone on behalf.
+
+### The trigger rule
+
+No trigger source is trusted to choose the principal, the agent, the budget or the tools. The agent is the one whose definition's
+trigger matched. The core decides the open as `trigger:<name>` (a workload at tier 1) and cuts the limits from the definition. The
+gateway then checks the grant itself (`checkOpenGrant`): for the agent asked, no parent, depth 0, the definition's own service
+account as the principal when it names one, no limit, tool, model, tier, network or compute above the definition's, a deadline no
+later than the definition's ttl, the session id the gateway named, the task it sent. Anything else is refused (`CORE-REFUSED`) and
+nothing is created. A dedupe is accepted only for the live session the gateway itself showed the core. A person's run gets the same
+check against the person. An event is untrusted input: its id, routing key, app, received time and subject id have the forms and
+lengths glidepath-api gives them (an id is `[A-Za-z0-9:._/@+=-]` and at most 200 characters; the others at most 256), its `event` is
+an object, and it is dropped and counted (`oversize`, `malformed`, `bad-id`, `bad-key`) otherwise. What reaches a run is a summary
+of it, never the event.
+
+A triggered session's principal is the definition's service account (the core: `d.ServiceAccount`, or "" when it names none; the replay corpus's
+31 triggered opens all carry it). The schema requires a service account of a workload definition, and the Go gateway does not validate
+definitions (S4), so a workload definition without one is refused **up front** (R008, "no service account", the core is not asked): there is no
+identity a triggered run could have, and the dedupe rule (compare with that principal) could never accept it.
+
+### The event bridge as a network client
+
+It has an HTTP client of its own (10 s to connect, 10 s for TLS, 30 s for the answer's headers, 60 s for a JSON read), follows no
+redirect (the gateway's token travels in two headers, and a redirect is the one way it could reach another host), reads at most 8 MiB
+of a JSON answer, at most 64 KiB of a stream line and 256 KiB of one event (a larger one is dropped, the stream goes on), drops a stream
+that is silent for 90 s (pings count), reconnects after 5 s doubling to 60 s with jitter (a stream that delivered or stayed up 30 s starts
+it over), and names no token or URL in an error or a log line. It runs on goroutines of its own, handles one event at a time, gives each
+event 2 minutes at most, and every call into the gateway has its context, so it cannot stall a tool call. The cursor follows only ids of
+the form glidepath-api's are (16 digits of receive time in microseconds, a dash, a hash) that are not in the future, and never moves
+backward; a ledger failure ends the stream and leaves the cursor at the last event that was fully handled, so the resume sees the failed
+one again.
+
+### Crash points of the triggers
+
+What the database holds if the process dies at each point, and what the next gateway does. A trigger is one row, `(agent, key)`, claimed
+before anything opens and decided after.
+
+**The rule.** Handling in one process is serialized and the gateway is the only writer of its database (the writer lock), so when a claim is
+taken no other claim is in flight: a row that is still `claimed` is an orphan (a crash, or a write that gave up), never a live handling, and
+the claim is taken over at once (a cut-off of "now"; Python's five minutes are gone). A delivery is reported `deduped` only when the row is
+**decided**. The session is written to the row (`Ledger.Opened`) right after the open and before the launch, and kept when the claim is taken
+over.
+
+What a takeover does depends on **facts the session recorded**, never on the clock or on a field's absence. The session records, each in its
+own durable write at the moment it happens: its `run` name (reserved before the run is created); `launched_at` (the run was created, its own
+write right after); `close_reason` (`control`, `by`, `at`: written in the same step as the close: `end` by a person, `deadline` by the sweep,
+`abandon`, `unrecorded`, `close`, `parent`, `finish`, `other`); and `run_removed` (`reason`, `at`: `hold`, `closed`, `record-failed`: written
+before a run is deleted). A takeover reads those, and the backend, and nothing else:
+
+- **removed** (`run_removed`): a marker is not a deletion. The takeover closes the session (recorded reason), deletes the run, and confirms
+  through the backend (a GET by name: 404) that it is gone; only then is the row decided from the reason (`hold` is `held`, `record-failed` is
+  `launch-failed`, `closed` is `refused`). A delete that fails, or a GET that cannot answer, leaves the key resumable, never decided;
+- **closed with a run named**: the backend is asked. A run that is there is deleted and its absence confirmed before anything is decided
+  (a closed session leaves no live run); an answer that cannot be had is resumable. Then: `launched_at` recorded or a run that was there and
+  a recorded `deadline` is `launched`; frozen is `refused`/`CT-FROZEN`; a person's end is `refused`/`CT-ENDED`; any other reason, or none
+  recorded, is `refused`/`CT-CLOSED` (never launched, never reopened); a recorded `deadline` or `unrecorded` with no run is replaced by a
+  fresh session while the trigger is valid (an event: 24 hours; a slot: its 10 minutes of grace), else `missed`;
+- **live**: launched. A hold is read immediately before **every** create, a resumed one included, and the session's own state (closed,
+  frozen) again with it; a hold read again after the run exists takes the run away (marker first). A frozen live session keeps the run it
+  has and makes none; a session ended in the same window is closed (above);
+- a **create** is classified: a 409 on the session's own reserved name (unique to it) is the run, made by an attempt whose answer was lost;
+  a refusal that proves nothing was made (a 4xx) releases the name and is `launch-failed`; anything else (a transport error, a timeout, a
+  cancelled context, a 5xx, a panic) **could not be told**: nothing is deleted, the name is never cleared (a delete's 404 does not prove a
+  late create cannot land), and the key stays resumable; the next holder asks the backend by name;
+- **no session recorded in the row**: the session this agent's own workload identity opened for the trigger's task (live or closed) is
+  found by its task id and accounted for, so a session a person ended in the window before `Opened` is not followed by a fresh one. A session
+  that could not be tied to the row is closed `unrecorded` and is replaced;
+- a session this gateway no longer knows: `deduped`; none found: the trigger starts from the beginning (the same validity).
+
+A **poison event** is one on which the code itself fails on every delivery (a panic). Only that counts; a "could not tell" (a backend,
+the hold store, any dependency that did not answer) is an outage, never counted, never decided and never a reason to delete a run,
+however long it lasts. The rule: each failed attempt is counted on the ledger row (`failures`, `first_failed_at`, `last_failed_at`, three
+columns the Go gateway adds; they survive a restart), a failure more than an hour (`triggers.PoisonQuiet`) after the one before starts the
+count again (a failure from hours ago is not part of it), and when 8 are counted (`PoisonAttempts`) with the first and the last at least 10
+minutes apart (`PoisonAfter`) the trigger is decided. If its session's run is recorded launched, it is decided `launched` from the record
+and the run is left to its session (never deleted because the event kept failing); otherwise the session's run, if any, is deleted and its
+absence confirmed through the backend first (one that cannot be confirmed keeps the key undecided), and the trigger is decided
+`launch-failed`. Either way rule `CT-POISON` is in the event history, with a log line and the metric `poisoned`, and the cursor moves on.
+Until then the metric `stuck` (attempts of the failing trigger) and the cursor's lag (`cursor_time`) are exposed; alert when the cursor
+lags more than 15 minutes, or `stuck` is above 3. The scheduler has no cursor to block and does not poison a slot.
+
+The catch-up (`Resume`) moves the cursor only past events whose triggers were all decided; a catch-up that ends early (an error, the
+context) reports `failed` and is run again from the saved cursor on the next stream, instead of being counted as done.
+
+**How this table is made.** `TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe` (gateway/internal/dispatch) drives the real
+code (the bridge's takeover, `LaunchTriggered`, `launch`, the person controls, the sweep) over the real session store, with a fault
+injector in place of the session database, the ledger and the run backend, and a run backend that keeps state (the runs that exist, every
+create ever committed). A crash is the Nth durable call of the first process: it completes, and every later call of that process fails
+without effect; fresh objects then take over. A clean run counts its calls, and each one is crashed at, for a plain launch, for a hold, an
+end and a freeze placed before each call (and at the start of the takeover), and for each class of backend answer (timeout before the
+commit, timeout after it, a create whose answer is lost and which lands later, a refusal) at each backend call, with the first takeover
+also run against a backend that is down. The event arrives once by the stream and once by the catch-up (`Resume`, with the cursor). After
+the takeover and after the deadline's sweep it asserts, against the backend's state: at most one run is ever created for the key; no
+`launched` row without a run that was made (and a live session's run is live); no run is live under a decision other than `launched`; no run
+is created after a hold, an end or a freeze, and none is live after a hold or an end that came before the decision, and at the moment a decision other than `launched` is written (the code's own claim: asked of the backend then); nothing is left live that
+no session names; the cursor is never past an undecided trigger; every key ends decided after a clean takeover. A person's end or freeze is also made to land inside each save (after its record is written, while the save is still in progress), the core is made unreachable before each call, a delete that answers 200 and leaves the run is a fault class (only a GET says so), and poison and hold-store outages run as multi-delivery faults. The windows in which a run may be live although a hold or an end was placed are exactly three: a hold or an end that lands inside the create call itself (the check after the create undoes it before the decision), one that lands while the decision is being written or after it (the launch is past its last check; the sweep ends the run at its deadline), and a run whose create's answer was lost and which lands later (the name is kept, so the sweep deletes it).
+
+The clean run's durable calls are the windows (the same list with the catch-up's cursor write after the decision):
+
+| Window | Durable call it follows | The database and backend hold | Takeover outcome |
+|---|---|---|---|
+| 1 | the claim | the row `claimed`, no session | the session of the task is looked for; none, so the trigger runs from the start (`missed` when no longer valid): one run |
+| 2 | the session is saved | a session of the task; the row `claimed` without it | found by its task id and recorded (`Opened`); launched: one run. A person's end or freeze here is read from the session: `refused`, no run |
+| 3 | `Opened` | the row `claimed` with the session | launched (a hold stops it: `held`, session closed): one run |
+| 4 | the run name is reserved | the session names a run; no `launched_at` | the backend is asked: absent, so created under the reserved name after the hold is read again; present, so it is the run; cannot tell, so resumable |
+| 5 | the create (committed; the answer lost or not) | the run exists, no `launched_at` | a 409 or the backend's answer: the run is the session's own; the hold is read again after it and takes it away if one came (marker, close, delete, confirmed) |
+| 6 | `launched_at` | the run exists and is recorded | decided `launched`; a hold placed since takes the run away first |
+| 7 | the decision | the row decided | the replay is `deduped`; nothing opens (a hold, end or freeze now does not undo the launch; the sweep ends the run at its deadline) |
+| 8 | the cursor (catch-up) | the cursor past a decided key | nothing to do |
+| a | `run_removed` written (hold race, closed while made, record failed) | session live or closed, the run exists | closed, deleted, absence confirmed, then `held` / `refused` / `launch-failed`; a failed delete leaves the key resumable |
+| b | a person's end, before or after any window above | closed `end` | the run, if there, is deleted and confirmed; `refused`/`CT-ENDED`; no create after it |
+| c | the backend answers could-not-tell to a create | the name reserved; the run may exist or land later | nothing deleted, the name kept, the key resumable; resolved by the backend on the next takeover; a late landing run is ended by the sweep |
+| d | the backend answers could-not-tell to a delete | `run_removed`, the run may exist | resumable until the delete is confirmed |
+| e | the backend is down at the takeover | as at the crash | nothing is decided on a run that may exist; decided when the backend answers |
+
+Other rows: `Decide` that cannot be written keeps the determined outcome in memory (bounded to 1000, the oldest evicted, dropped when the claim is
+lost) and writes it as it was at the next claim; a ledger that cannot be read or written at the claim ends the stream and the cursor stays; a
+hold that cannot be read before or after the run is retried (50 ms, 250 ms, 1 s) and then left undecided, never "no hold" and never
+`launch-failed`; the holds copy is loaded at start, fails closed while it is not (or a write to the store errored), and a reload never overlaps
+a hold write (one lock, whose waiters give up with their context, and each store call is bounded to 10 s); a trigger that panics is not
+decided and the cursor does not move (it counts toward the poison bound above); an inbox request added before the call's session is saved
+stays pending (counts toward the 5 a session may have) and the retry adds another; a human answer whose record is written before the process
+dies is answered again and a second `human.answer` record is written (Python the same).
+
+The ledger's `state` column is a closed set that Python's schema checks (`launched`, `deduped`, `braked`, `held`, `refused`, `launch-failed`,
+`missed`), so no new value was added: a freeze or an end before the launch is recorded `refused` with the rule in the event history's outcome
+(`CT-FROZEN`, `CT-ENDED`), a poison event `launch-failed` with `CT-POISON`, and a session whose launch is known to have happened is `launched`.
+The read API and Tower read `state`, the session and the run, so nothing they know changed meaning.
+
+The saves of one session are ordered (a record is built and written under one per-session lock), so a stale record can no longer overwrite a
+later one (a person's end, written while an open was being saved); the harness found it.
+
+The ledger change for the session needs no column: the row's existing `session` column is written while the row is still `claimed`, and Go's
+takeover keeps it where it used to clear it. Python's claim clears `session` and `run` when it takes a `claimed` row over and never reads the
+session of a claimed row, so Python is unchanged. A row Python wrote `claimed` has no session, and Go runs it from the start. A session row
+carries three new keys in its JSON document, all Go-only and omitted when empty: `launched_at` (when its run was created), `close_reason`
+(`control`, `by`, `at`) and `run_removed` (`reason`, `at`). Python reads a row by the keys it knows, so it ignores them and drops them at its
+next save of that session (as with `delete_failure`).
+
+**Rollback note.** After a roll back to the Python gateway and forward again to Go, the three Go-only facts (`launched_at`, `close_reason`,
+`run_removed`) are gone from every session Python saved in between. Go then fails closed, with no relaunch and no double run: a session
+read with no recorded close reason is `refused`/`CT-CLOSED`, so a deadline-close that was reopenable becomes a refused trigger, and a run
+that was launched can be reported `refused` when its session is closed and its `launched_at` is gone (the run, if still live, is deleted by the
+takeover like any run under a closed session). Before cutting back to Python an operator checks that no trigger row is `claimed` (the
+ledger's `claimed` count is 0), that the event cursor has caught up, and that no `run_removed` is outstanding (no session whose run still
+exists was marked removed): decided rows and their runs are unaffected, undecided ones are what the missing facts change.
+
+A person's run (`RunAgent`): a crash after the core's open and before the session is saved leaves nothing (the core has the allow
+record); after the save and before the launch, a live session with no run which the sweep closes at its deadline; a run that cannot be
+launched is closed at once (Python leaves its session live). A freeze that crashes before its save leaves the session unfrozen and the
+person freezes again; an End likewise (the sweep closes at the deadline in any case).
+
+### What is deliberately not the same as Python (S3)
+
+All of these leave the answer for ordinary inputs unchanged.
+
+- **Authenticate first.** Python answers `404` for an unknown session or agent, and "not held" to a release, before it looks at the
+  token or at who asks; an unauthenticated caller could learn which sessions exist and which agents are held. Go authenticates before
+  anything, and tells a person who may not manage an agent nothing about it (a release is `CT-FORBIDDEN`, not `CT-NOHOLD`).
+  An authenticated person still learns from `404` against `403` whether a session id exists (Python the same; the ids are random and
+  the person is on the allow-list).
+- **A delegate naming `user:`** (no name) is refused (400); Python goes on to ask whether a person with no name may manage the agent,
+  which an admin glob such as `user:*` answers yes to. `hours` as a string of non-ASCII digits is refused; Python's `int()` reads it.
+- **Freeze does not wait for a call in flight** on the session; the check that the session is live and not yet frozen and the trip are one
+  step under the session's lock, so two freezes give one freeze and one `CT-TRIPPED`. Two Ends give one End and one `CT-CLOSED`, and one
+  record. Two answers to one request give one answer, one record and `HR-ANSWERED`.
+- **The holds are also kept in memory** (loaded at the first use, the store stays the source of truth at start): a hold or a release writes the store
+  first and then, under the gate, the copy, one at a time. The gate is never held across a database call, so a stuck database stalls the person
+  who is holding, never the opens and launches behind a pending hold. The `/v1` routes authenticate the caller once and hand the principal to the
+  operation.
+- **A hold is not delayed by a slow core, and it covers the launch as well as the open.** The hold gate is taken only to read the hold, and
+  is never held across the core's decision, a save or a launch, so the emergency brake never waits behind them. A trigger's open (and a
+  person's run) reads the hold before it asks the core and again, under the gate, right before it adopts the session: a hold saved
+  meanwhile refuses the open (R024) and adopts nothing. A trigger's launch reads the hold before it starts and again after the run was
+  made: a session opened before a hold, and launched after it, does not run (the session is closed and the trigger recorded `held`); a
+  run that the hold overtook while it was being made is deleted again at once. So after the hold is acknowledged no session is adopted,
+  and a run that began before it is at most briefly alive, never kept. Python gets this from its one lock. An expired hold is dropped by the
+  sweep, not by the read that finds it.
+- **A frozen session starts no run**: `Launch` of a tripped session closes it and refuses (R004). This applies to a person's `run_agent` too.
+  (Python launches a run for it that can only be refused.) A canary comparison of the two gateways sees a frozen-then-launched session close in
+  Go and run in Python.
+- **A trigger dedupes only onto a session it opened**: the task id is a hash anyone can compute, so the live session the core names must be
+  this agent's, for this task, with no parent, and its principal must be the definition's own service account (Python records no marker on
+  a triggered session; the principal is what marks one, since a person's session is `user:...`). Anything else is refused (`CORE-REFUSED`),
+  nothing is launched, nothing is made.
+- **Freeze and end answer one `404` ("no such session", no agent named) for a session that does not exist and one that is not the person's to
+  manage**; Python answers 403 and names the agent. The route cannot be used to find which session ids exist or whose they are
+  (`TestFreezeAndEndDoNotTellAnUnknownSessionFromAForeignOne`; the Python-equivalence test pins the difference).
+- **The caller is checked before the body**: every `/v1` route verifies the bearer token before it reads or parses the body (a bad token is a
+  401, never a 400 or a 413), and before an inbox answers "this deployment has no human inbox".
+- **The inbox listing is filtered by the store**, on the owner and group fields Python writes, with the limit (5,000) per person.
+- **The event history's retention key is clamped** to [now - retention, now + 5 minutes]; the stored event keeps the time it carried. A
+  far-future `receivedAt` would otherwise never age out and, with the size cap, push real history out.
+- **`RECONCILE_WINDOW_HOURS` is at most 696** (the ledger keeps its rows 720 hours; the window stays a day shorter, so a finished run whose
+  row was pruned is never in the window and launched again). Python allows 744. A larger value stops the start.
+- **The event bridge's URL is https** (`GLIDEPATH_API_URL`), unless `GLIDEPATH_API_ALLOW_HTTP=1` (Go only, default off, one warning at start
+  naming the host) or the host is a loopback IP address (127.0.0.0/8, ::1; tests and local runs). No host name is special (not `localhost`,
+  not `.local`). The client uses no proxy from the environment (Python's urllib does), so the gateway's token goes only to the host named in the
+  URL (a redirect is never followed either): the token is in the `Authorization` and `X-Glidepath-Authorization` headers of requests to
+  that host and no other (`TestTheBridgeNeverFollowsARedirect`). The saved cursor can be moved by the stream at most 5 minutes ahead of the
+  gateway's clock (an id from further ahead is handled but does not move it): a source that sends ids up to 5 minutes in the future makes a
+  resume start that far ahead, so events glidepath-api stamps inside that margin between the real time and the id's time are not replayed
+  from the cursor (the ledger, not the cursor, is what keeps a trigger once, and the sweep recovers a missed `pipelinerun.finished`).
+- **The repeatable writes are rate limited**: a person (or a delegate naming one) may make 30 holds and 30 runs a minute (`CT-RATE`, 429),
+  checked after the person has been, so nobody's allowance is spent by a caller who was refused. Python has no limit.
+- **Old human requests are pruned** (30 days after they expired; Python keeps them for ever), and the event history is also bounded by
+  size (the newest 200,000 rows; Python bounds it by age alone).
+- **A person's run that cannot be launched leaves no live session**; a trigger whose launch failed closes its session; and a candidate
+  that was refused leaves nothing in the candidate table (Python keeps what it was asked to run until later runs age it out).
+- **A candidate's runtime image** must end in `@sha256:` and exactly 64 lowercase hex digits (never all zeros), an empty
+  `RuntimeImages` allow-list refuses every candidate (Python allows any registry), and a glob must match the whole image: the bare-prefix
+  fallback Python adds is gone, so `ghcr.io/team` no longer admits `ghcr.io/team-evil/x` (`TestCandidateImageCheck`). `RUNTIME_IMAGES_EXTRA` fills
+  the list.
+- **`score` takes at most 50 sessions a case** (Python: only the body's 64 KiB).
+- **The grants are checked** (see the trigger rule); Python adopts the core's.
+- **The bridge** reconnects with a bounded, jittered backoff (Python: a fixed 5 s), has the limits above, does not move its cursor past an
+  event whose ledger write failed, ignores an id the cursor must not follow, remembers the last 5,000 event ids as Python does, and keeps a
+  brake per agent that follows a change of `maxPerHour` (Python keeps the first it saw). The topic matcher is a table, not Python's
+  recursion, which is exponential in the number of `#` words and whose input is an event's routing key. An event whose id is not in the form
+  ids have is dropped (Python accepts any string). A stream that ends in the middle of an event does not deliver it (as Python's parser).
+- **The Preflight fingerprint** is Go's own digest of the parsed definition (Python hashes its dataclass); the two gateways keep separate
+  ledgers, so nothing compares them.
+- **The summary's overflow** drops the largest value first (Python: the last inserted); the bound is the same.
+- **A run's identity needs its pod** (the pod-binding rule, below), which Python does not check.
+
+### What still refuses at the boundaries S3 leaves
+
+- **The ledger change for the session**: no column was added. The row's existing `session` column is written while the row is still `claimed`
+  (`Ledger.Opened`), and Go's claim takeover keeps it where it used to clear it. What Python does with it: Python's claim clears `session` and `run`
+  when it takes a claimed row over and never reads the session of a `claimed` row, so Python is unchanged and will, if it ever shares the
+  database with a Go-written claimed row, behave as it did (it does not see the session, so it can open another); and a row Python wrote
+  `claimed` has no session, so Go opens as before (the live session of the task is still found by the core's dedupe). Both read the decided
+  rows alike.
+- **A candidate `document`** on `POST /v1/agents/{agent}/runs` answers `CT-NOTCARRIED` (501), after the person has been checked and before
+  anything is opened. S3 supplies the fingerprint, the image rule, the clamp, the person's rule, the grant check and the candidate table;
+  the validated parse of a definition document is S4's (the JSON schema), and `Gateway.CandidateParse` stays nil in `serve` until S4 sets it.
+- **The Backstage directory** (`BackstageDirectory`): S5a brought `BACKSTAGE_URL` and the catalog client, but no group lookup is wired. Until it
+  is, an agent's owner group resolves to nobody (see above).
+- **The Prometheus endpoint and the trigger counters' names on it** (`METRICS_PORT`) are S6; the counters are counted behind `triggers.Metrics`
+  and dropped. `serve` warns when `METRICS_PORT` is set.
+- **Alert and RabbitMQ event triggers** are in the schema and have no reader in the Python gateway either (`EVENTS_RABBITMQ_ENABLED` refuses to
+  start there and here); `GLIDEPATH_API_URL` is accepted only with `EVENTS_ENABLED`, because the glidepath tools (S5b) are not carried.
 
 ## What S5a carries: the read backends (2026-11-14)
 
@@ -329,6 +650,14 @@ Two small differences are not stricter, only unavoidable: a Go transport failure
 other one `URLError` (as for Prometheus), and a JSON object's keys come back in sorted order (Go maps have none). Numbers
 are passed through as written. A put is its own database transaction; Python's joins the call's, which commits with the session
 (the same difference as the run results').
+
+### A spawn that lands while its parent is being closed (S2 code, looked at in S3)
+
+`CloseTouched` snapshots a session's children, closes them, then closes the parent. `AdoptChild` refuses a parent that is closed, but the
+parent is closed last, so a spawn landing between the snapshot and the close adopted a child under a parent that was still open and the
+child was left live under a closed parent until its ttl: a real gap. The close now sets the parent closed, then reads the children again
+(nothing can be added after that, `AdoptChild` refuses) and closes what was added in the window, returning those sessions to be saved
+(`TestAChildAdoptedWhileTheParentIsBeingClosedIsClosedToo`, which stops the close between the snapshot and the close with a hook).
 
 ## What S5b carries: the Glidepath and repository tools (2026-11-14)
 
@@ -562,7 +891,7 @@ Carried (S5b): `GLIDEPATH_API_ALLOW_HTTP` and `BROKER_ALLOW_HTTP` (Go only, off)
 
 ## The drift guard
 
-`gateway/PORTED.json` lists every Python file the Go gateway ports (32 of them), the Go paths that carry it, what of it
+`gateway/PORTED.json` lists every Python file the Go gateway ports, the Go paths that carry it, what of it
 the Go gateway carries, what is left in it for a later slice, and the SHA-256 the file had when the Go code was last
 brought level with it. `tests/test_gateway_go.py` fails when a listed file's hash differs. A hash cannot tell whether a
 change matters to the port, so the failure asks the author to read it and do one of two things: port the change to Go in
@@ -665,11 +994,15 @@ is accepted and none panics.
    line it can take, the evaluation the Go gateway builds equals the Python one field for field, the decision (allow,
    rule, name, message, hint, tier, problems) is identical, the spend leaves the session as the Python one did, the
    grant a `session.open` makes is identical, and the decision record the core writes has the corpus line's fields.
-   Against clearance v0.44.0 (the CI pin): 342 tool calls, 261 session opens, 35 session spawns, 49 model calls; 372
-   spends, 648 records and 265 grants compared; zero differences. (Before S2: 341 tool calls, 261 opens, 42 model calls,
-   329 spends, 605 records, 247 grants; the spawns and the runs acting as their sessions were skipped. The first slice ran
-   it against v0.31.0 and v0.35.0.) The 35 spawns go through the real `Gateway.Call` with the real core's grant, so the
-   gateway's own check of the grant (`session.AdoptChild`) is shown to accept everything the core makes. Five tool calls are listed as decided differently on purpose since the corpus was recorded: Glidepath's
+   Against clearance v0.44.0 (the CI pin): 342 tool calls, 292 session opens (261 a person's or a client's, 31 triggered), 35
+   session spawns, 49 model calls; 372 spends, 679 records and 290 grants compared; zero differences. (Before S3: 261 opens,
+   648 records, 265 grants; the 31 triggered opens were skipped. Before S2: 341 tool calls, 261 opens, 42 model calls, 329
+   spends, 605 records, 247 grants; the spawns and the runs acting as their sessions were skipped. The first slice ran it
+   against v0.31.0 and v0.35.0.) The 35 spawns go through the real `Gateway.Call` with the real core's grant, so the
+   gateway's own check of the grant (`session.AdoptChild`) is shown to accept everything the core makes; the 31 triggered opens go
+   through the real `Gateway.OpenTriggered` (the evaluation with the agent's hold and the live session of the task in it, the core's
+   decision, the session the grant makes or the live one a dedupe names, and the record), so the gateway's check of a triggered
+   grant (`checkOpenGrant`) is shown to accept everything the core makes too. Five tool calls are listed as decided differently on purpose since the corpus was recorded: Glidepath's
    contract v2 `propose` class changed the text of the Flight-environment refusals (`decidedDifferentlySince` in
    `replay_test.go`; the corpus is not edited). `TestReplayDetectsDrift` shows a changed field is noticed.
    The corpus is not edited; the lines the replay cannot take are listed below.
@@ -700,7 +1033,7 @@ is accepted and none panics.
 | Corpus lines | Why |
 |---|---|
 | nothing now: the 35 `session.spawn` lines and the 8 `tool.call` (1) and `model.call` (7) lines of a run acting as its session, skipped before S2 for want of the run backend, are compared like the others (request, decision, spend, the grant the child is created from, the record) | |
-| triggered `session.open` (31) | `open_triggered`, holds and the trigger ledger are not ported |
+| nothing more for S3: the 31 triggered `session.open` lines (holds, a live session of the task, dedupes) are compared like the others | |
 | `activation` and probe lines (the rest) | the core's own decision engine; they carry no gateway request |
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
@@ -708,29 +1041,25 @@ is accepted and none panics.
 ## What is not carried (after S5b)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
-does not (`EVENTS_ENABLED`, `AGENT_XRS_ENABLED` or `XR_REQUEST_ENABLED` set to `1`, `AUTOPILOT_EPHEMERAL`), so nobody believes a
+does not (`EVENTS_RABBITMQ_ENABLED`, `AGENT_XRS_ENABLED` or `XR_REQUEST_ENABLED` set to `1`, `AUTOPILOT_EPHEMERAL`), so nobody believes a
 feature is live when it is not. (`BACKSTAGE_URL` and `APP_API_SERVICES` left this list in S5a: they are read, and a bad value stops the
 start. `GITHUB_PR_ENABLED`, `GLIDEPATH_API_URL` and `ARGO_SYNC_ENABLED` left it in S5b; `GITHUB_PR_ENABLED` also needs
-`AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0`, because Python turns both on with it.)
+`AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0`, because Python turns both on with it. S3 removed `EVENTS_ENABLED`: the event bridge
+reads glidepath-api with the S5b settings, `GLIDEPATH_API_URL` (https unless `GLIDEPATH_API_ALLOW_HTTP=1`) and `GLIDEPATH_TOKEN_FILE`;
+`SCHEDULES_ENABLED`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`, `RUNTIME_IMAGES_EXTRA` and
+`PREFLIGHT_CASES_DIR` are read, with Python's checks.)
 
 Not ported, and still the Python gateway's:
 
-- **The person-facing side of runs (S3)**: `run_agent` as a route (who may run what, holds) and the Preflight routes
-  `/v1/preflight/cases` and `/v1/preflight/score`, with the cases, the scoring and the ledger (`preflight.py`). What a person's
-  run does once checked is here (`RunAgentAs`, `Candidate`). `Candidate` refuses (`ErrNotCarried`) until a validated parse and
-  a fingerprint are supplied: a candidate document is untrusted and the definition schema is S4's, so S3 must not call it
-  before S4 or supply both.
-- **The human inbox** (`human.request`), person controls (freeze, end, hold, release), the trigger scheduler, `open_triggered`,
-  the event bridge, the reconciliation sweep and the trigger ledger (S3). `session_close` here is the owner's tool; Tower's End
-  is S3's.
-- **A candidate's image check is Python's, and too loose to put behind a route** (`Candidate`, TODO in the code): an empty
-  `RuntimeImages` allows any registry, and the digest is matched as a substring of the image. S3 must tighten it (the digest
-  is `@sha256:` and 64 hex digits at the end of the image; an empty allow-list refuses) before any route calls it.
-- **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`): a candidate's image globs are
-  `Gateway.RuntimeImages`, which nothing sets yet (S6).
-- **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader: the Go gateway reads the
+- **A candidate's definition document** (S4): `POST /v1/agents/{agent}/runs` with `document` answers `CT-NOTCARRIED` (501) until the
+  definition schema is carried and `Gateway.CandidateParse` is set. Everything around it is in (see [S3](#what-s3-carries-the-human-inbox-person-controls-and-triggers-2026-11-14)).
+- **The Backstage directory** (`BackstageDirectory`, `reads.py`; S5a classified it S6): the catalog client exists (S5a) but no group lookup is wired, so an agent's owner group resolves to nobody and only a session's person and the admins act until it is.
+- **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`, S6): a candidate's image globs are
+  `Gateway.RuntimeImages`, filled from `RUNTIME_IMAGES_EXTRA` alone.
+- **Publishing the definition set** to the core (`PUT /v1/definitions`) and the Agent XR loader (S4): the Go gateway reads the
   bundled `agents/` and the pinned set the Python loader keeps in `gateway_definitions`, and publishes nothing. It does
-  not validate definitions against the JSON schema (the loader that wrote the set did).
+  not validate definitions against the JSON schema (the loader that wrote the set did). Triggers are read from the definition as it
+  is and an entry that does not have the schema's shape fires nothing.
 - **Backends**: `metrics.query`, `logs.query`, `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put` and `artifact.get`
   are ported with per-backend timeouts and pools; S5b adds every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`,
   `repo.pr.open_upper` and `argo.sync.lower`. The rest have no handler, so a call to them is refused as having no backend,
@@ -739,7 +1068,8 @@ Not ported, and still the Python gateway's:
   `commit_xr`, `pr_paths`, `repo_ready` and `onboarding_prs`; `ensure_pr` and `find_pr` are built here but no tool calls them yet.
 - **The field scope of a file's YAML** (`repos.fieldDeny`, `fieldAllow`, AF-9a) is the core's: it needs the file as it was before.
   The gateway decides the repository and the path again, not the fields.
-- **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), Prometheus metrics on `METRICS_PORT`,
+- **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), the Prometheus endpoint on `METRICS_PORT` (the
+  trigger counters are counted behind `triggers.Metrics` and not served),
   OTLP logs, and a `held` outbox reason (since clearance v0.28.0 the core takes every kind the gateway writes).
 - **Release plumbing**: no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
   `gateway-image.yaml` builds.
@@ -761,7 +1091,7 @@ It reads the variables the Python gateway reads, for the part it carries: `PORT`
 `AUTOPILOT_RESOURCE_URL`, `AUTOPILOT_EXPIRE_SECONDS`, `GATEWAY_OUTAGE_ALLOW_READS`, `MODEL_ROUTES`, `MODEL_KEY_FILE`,
 `AUTOPILOT_RUN_AUDIENCES`, `CLEARANCE_CORE_TIMEOUT`, `PROMETHEUS_URL`, `LOKI_URL`, `BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`,
 `APP_API_SERVICES`, `ARGO_ENABLED`, `ARGO_APP_NAMESPACES`, `GLIDEPATH_API_URL`, `GLIDEPATH_TOKEN_FILE`, `GLIDEPATH_ON_BEHALF_OF`,
-`GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`, `BROKER_URL`, `ARGO_SYNC_ENABLED`, `LOG_LEVEL`; `GITHUB_OWNERS` is Go's own too (it is required with
+`GITHUB_PR_ENABLED`, `AGENT_TOKEN_FILE`, `BROKER_URL`, `ARGO_SYNC_ENABLED`, `LOG_LEVEL`, and (S3) `AUTOPILOT_DELEGATES`, `AUTOPILOT_ADMINS`, `EVENTS_ENABLED`, `GLIDEPATH_API_ALLOW_HTTP` (Go only), `SCHEDULES_ENABLED`, `RECONCILE_SECONDS`, `RECONCILE_WINDOW_HOURS`, `RUNTIME_IMAGES_EXTRA`, `PREFLIGHT_CASES_DIR`; `GITHUB_OWNERS` is Go's own too (it is required with
 `GITHUB_PR_ENABLED`, and `AGENT_XRS_ENABLED=0` and `XR_REQUEST_ENABLED=0` must be said); and three of its own: `GATEWAY_CALL_TIMEOUT_SECONDS` (60),
 `MODEL_TIMEOUT_SECONDS` (300), `GATEWAY_PG_CONNS` (16). It takes the gateway database's writer lock, so it cannot run
 beside the Python gateway on the same database.

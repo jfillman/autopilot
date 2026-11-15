@@ -236,14 +236,16 @@ func TestKubeStatuses(t *testing.T) {
 	ctx := context.Background()
 	r.status.Store(409)
 	err := r.kube.Create(ctx, manifest())
-	var ke *runs.Error
-	if !errors.As(err, &ke) || !strings.Contains(err.Error(), "already exists") || ke.Kind() != "KubeRunError" {
+	var ke *runs.Exists
+	if !errors.As(err, &ke) || !strings.Contains(err.Error(), "already exists") || ke.Kind() != "KubeRunError" || runs.ClassifyCreate(err) != runs.CreateExists {
 		t.Fatalf("%v", err)
 	}
-	for _, s := range []int32{401, 403, 422, 500} {
+	// what a failed create says about the run: a 4xx proves nothing was made; a 5xx (and a timeout, below) could not be told
+	for s, want := range map[int32]runs.CreateClass{401: runs.CreateFinal, 403: runs.CreateFinal, 422: runs.CreateFinal, 500: runs.CreateUnknown, 503: runs.CreateUnknown, 429: runs.CreateUnknown} {
 		r.status.Store(s)
-		if err := r.kube.Create(ctx, manifest()); err == nil {
-			t.Errorf("create %d is an error", s)
+		err := r.kube.Create(ctx, manifest())
+		if err == nil || runs.ClassifyCreate(err) != want {
+			t.Errorf("create %d: %v is class %v, want %v", s, err, runs.ClassifyCreate(err), want)
 		}
 	}
 	for _, s := range []int32{200, 202, 404} {

@@ -205,7 +205,7 @@ def test_the_go_gateway_refuses_what_it_does_not_carry_yet(go_binary):
     assert r.returncode == 2 and "GITHUB_PR_ENABLED" in r.stderr, "it must not start without a feature it was asked for"
 
 
-def test_the_go_gateway_wants_the_settings_the_github_tools_need_and_still_refuses_the_trigger_bridge(go_binary):
+def test_the_go_gateway_wants_the_settings_the_github_tools_and_the_trigger_bridge_need(go_binary):
     base = {k: v for k, v in os.environ.items() if not k.startswith(("CLEARANCE_", "AUTOPILOT_", "GATEWAY_", "GITHUB_"))}
     env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1", "GITHUB_PR_ENABLED": "1",
            "AGENT_XRS_ENABLED": "0", "XR_REQUEST_ENABLED": "0"}
@@ -213,7 +213,11 @@ def test_the_go_gateway_wants_the_settings_the_github_tools_need_and_still_refus
     assert r.returncode == 2 and "BROKER_URL" in r.stderr, "the Python default is a lab Service name: the Go gateway has none"
     r = subprocess.run([str(go_binary), "serve"], env={**env, "BROKER_URL": "https://broker:8080"}, capture_output=True, text=True)
     assert r.returncode == 2 and "GITHUB_OWNERS" in r.stderr, "no argument chooses the owner: the deployment names them"
-    r = subprocess.run([str(go_binary), "serve"], env={**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1",
-                                                        "EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g:8080"},
+    # A-9 S3 carries EVENTS_ENABLED (the event bridge): it needs glidepath-api's URL, and the RabbitMQ source is refused as the Python
+    # gateway refuses it.
+    env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1"}
+    r = subprocess.run([str(go_binary), "serve"], env={**env, "EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g:8080", "EVENTS_RABBITMQ_ENABLED": "1"},
                        capture_output=True, text=True)
-    assert r.returncode == 2 and "EVENTS_ENABLED" in r.stderr, "the trigger bridge is S3's"
+    assert r.returncode == 2 and "EVENTS_RABBITMQ_ENABLED" in r.stderr
+    r = subprocess.run([str(go_binary), "serve"], env={**env, "EVENTS_ENABLED": "1"}, capture_output=True, text=True)
+    assert r.returncode == 2 and "needs GLIDEPATH_API_URL" in r.stderr

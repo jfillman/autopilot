@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -115,7 +116,8 @@ func (w *Workload) Authenticate(ctx context.Context, token string) (*dispatch.Pr
 			Authenticated bool     `json:"authenticated"`
 			Audiences     []string `json:"audiences"`
 			User          struct {
-				Username string `json:"username"`
+				Username string              `json:"username"`
+				Extra    map[string][]string `json:"extra"`
 			} `json:"user"`
 		} `json:"status"`
 	}
@@ -137,8 +139,28 @@ func (w *Workload) Authenticate(ctx context.Context, token string) (*dispatch.Pr
 		return nil, refuse("not a service-account token")
 	}
 	parts := strings.Split(strings.TrimPrefix(name, saPrefix), ":")
-	return &dispatch.Principal{ID: parts[0] + "/" + parts[1], Kind: "workload", TierCeiling: w.TierCeiling}, nil
+	return &dispatch.Principal{ID: parts[0] + "/" + parts[1], Kind: "workload", TierCeiling: w.TierCeiling, Pod: boundPod(st.User.Extra)}, nil
 }
+
+// PodNameExtra is the key the API server's token review puts a bound service-account token's pod name under in
+// status.user.extra (Kubernetes, "Bound service account tokens": the bound object's name and uid are private claims of the
+// JWT; the service-account authenticator verifies them, including that the pod still exists, and returns them as
+// authentication.kubernetes.io/pod-name and /pod-uid, with /node-name, /node-uid and /credential-id).
+const PodNameExtra = "authentication.kubernetes.io/pod-name"
+
+// boundPod is the pod name a token review returned, or "" when the token is bound to no pod. A token that is not bound to a
+// pod (a TokenRequest for the service account with no bound object, or bound to a Secret or a Node) has no such key, and that
+// is not a failure of authentication: it only means the caller cannot act as a run (Gateway.Acting). Exactly one well-formed
+// value counts; an absent key, an empty list, several values or a name that is not a DNS-1123 subdomain are "".
+func boundPod(extra map[string][]string) string {
+	v := extra[PodNameExtra]
+	if len(v) != 1 || len(v[0]) == 0 || len(v[0]) > 253 || !dns1123.MatchString(v[0]) {
+		return ""
+	}
+	return v[0]
+}
+
+var dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
 
 // Static maps tokens to principals (tests, and the conformance control interface's one caller).
 type Static map[string]*dispatch.Principal
