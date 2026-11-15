@@ -40,6 +40,8 @@ type Manager struct {
 	// every call, so a re-pin to a tighter definition applies to runs in flight.
 	SetDefs func(map[string]*Definition)
 	Log     *slog.Logger
+	// MaxBytes is the publish budget (MaxPublishBytes unless a test lowers it).
+	MaxBytes int
 
 	mu          sync.Mutex // the set and the unpublished flag
 	pubMu       sync.Mutex // one publish at a time
@@ -67,6 +69,7 @@ func NewManager(set *Set, store RowStore, c Publisher, setDefs func(map[string]*
 // whole set. It returns what changed.
 func (m *Manager) ApplyCluster(ctx context.Context, loaded []*Loaded, rejected []Rejected) Changes {
 	m.mu.Lock()
+	loaded, rejected = m.fit(loaded, rejected)
 	ch := m.Set.ReplaceCluster(loaded, rejected)
 	if ch.Any() {
 		if m.SetDefs != nil {
@@ -83,6 +86,62 @@ func (m *Manager) ApplyCluster(ctx context.Context, loaded []*Loaded, rejected [
 	m.mu.Unlock()
 	m.Publish(ctx)
 	return ch
+}
+
+// fit is the set that goes in: loaded and rejected as they are when everything fits the publish budget, else with the pins of the
+// namespace that takes the most dropped (each rejected with a reason), until it does. It runs BEFORE the live set is replaced, so the
+// gateway never runs a set the core cannot be given, and a tenant that fills the budget loses its own pins, not everybody's
+// revocations.
+func (m *Manager) fit(loaded []*Loaded, rejected []Rejected) ([]*Loaded, []Rejected) {
+	budget := m.MaxBytes
+	if budget <= 0 {
+		budget = MaxPublishBytes
+	}
+	size := func(v any) int { b, _ := json.Marshal(v); return len(b) }
+	base := size(m.Set.BundledSet())
+	for _, r := range rejected {
+		base += size(r) + 64
+	}
+	sizes := make([]int, len(loaded))
+	total := base
+	for i, l := range loaded {
+		sizes[i] = size(l.Doc) + size(l.Source.View()) + len(l.Owner) + 64
+		total += sizes[i]
+	}
+	dropped := map[string]bool{}
+	for total > budget {
+		per := map[string]int{}
+		for i, l := range loaded {
+			if ns := strOr(l.Source.Namespace, ""); !dropped[ns] {
+				per[ns] += sizes[i]
+			}
+		}
+		worst, most := "", 0
+		for ns, n := range per {
+			if n > most || (n == most && ns < worst) {
+				worst, most = ns, n
+			}
+		}
+		if most == 0 {
+			break
+		}
+		dropped[worst] = true
+		total -= most
+		m.Log.Error("the pins of one namespace do not fit the publish budget: none of them is loaded", "namespace", worst, "bytes", most, "budget", budget)
+	}
+	if len(dropped) == 0 {
+		return loaded, rejected
+	}
+	var keep []*Loaded
+	rej := append([]Rejected(nil), rejected...)
+	for _, l := range loaded {
+		if dropped[strOr(l.Source.Namespace, "")] {
+			rej = append(rej, Rejected{Name: l.Name(), Source: l.Source, Reason: "DF-BUDGET: this namespace's pins together do not fit what the core takes in one set; none of them is loaded"})
+		} else {
+			keep = append(keep, l)
+		}
+	}
+	return keep, rej
 }
 
 // Publish publishes the current set if the core does not have it yet, and reports whether the core now has it. One publish at a

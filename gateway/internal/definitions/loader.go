@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"sync"
 	"time"
 
@@ -78,8 +79,12 @@ var fullCommit = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 type cached struct {
 	doc    *OMap
-	reason string // set when the file cannot be a definition
+	reason string // set when the file cannot be a definition (published)
+	detail string // the same, whole, for the log
 	at     string
+	// expires is set for an answer that is about the repository's state and not the commit's (the broker's refusal, no such file):
+	// it is asked again after NegativeCacheLifetime, so a pin whose app is onboarded later, or whose file is pushed later, is read.
+	expires time.Time
 }
 
 // NewPoller is a poller; its Namespaces, Lister, Files, Sink, Set and Baseline are set by the caller.
@@ -211,6 +216,21 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 	}
 	var loaded []*Loaded
 	var rejected []Rejected
+	// A tenant's namespace holds at most MaxPinsPerNamespace pins (the first by name): one cannot fill the budget the others share.
+	perNS := map[string][]string{}
+	for _, xr := range items {
+		md := mapField(xr, "metadata")
+		perNS[strField(md, "namespace")] = append(perNS[strField(md, "namespace")], strField(md, "name"))
+	}
+	overQuota := map[string]bool{}
+	for ns, names := range perNS {
+		sort.Strings(names)
+		for i, n := range names {
+			if i >= MaxPinsPerNamespace {
+				overQuota[ns+"/"+n] = true
+			}
+		}
+	}
 	skipped := 0
 	skippedNames := map[string]bool{} // the pins whose file could not be read this poll: only these keep what was loaded for them
 	current := map[pinKey]bool{}
@@ -226,13 +246,28 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 			if n == "" {
 				n = "?"
 			}
-			rejected = append(rejected, Rejected{n, src, "the XR has no complete spec.source (repo, path, commit)"})
+			rejected = append(rejected, Rejected{Name: n, Source: src, Reason: "the XR has no complete spec.source (repo, path, commit)"})
+			continue
+		}
+		if overQuota[strField(meta, "namespace")+"/"+name] {
+			rejected = append(rejected, Rejected{Name: name, Source: src, Reason: fmt.Sprintf("DF-QUOTA: more than %d Agent XRs in this namespace", MaxPinsPerNamespace)})
+			continue
+		}
+		if err := p.Policy.CheckSource(strField(meta, "namespace"), repo); err != nil {
+			// Before anything is fetched: no token is minted for a repository this namespace's app does not own.
+			var pe *PolicyError
+			errors.As(err, &pe)
+			rej := Rejected{Name: name, Source: src, Reason: "DF-POLICY: " + pe.Path, Detail: err.Error()}
+			if p.Policy.Detailed {
+				rej.Reason = err.Error()
+			}
+			rejected = append(rejected, rej)
 			continue
 		}
 		if !fullCommit.MatchString(commit) {
 			// A pin is immutable only if it names a commit: a branch or a tag moves without the review the pin is for, and a cache that
 			// never fetches it again would hold whichever version it saw first.
-			rejected = append(rejected, Rejected{name, src, "spec.source.commit is not a full commit id (40 or 64 hex digits): a branch or a tag can move without the review a pin is for"})
+			rejected = append(rejected, Rejected{Name: name, Source: src, Reason: "spec.source.commit is not a full commit id (40 or 64 hex digits): a branch or a tag can move without the review a pin is for"})
 			continue
 		}
 		key := pinKey{repo, path, commit}
@@ -245,7 +280,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		}
 		src.LoadedAt = S(c.at)
 		if c.reason != "" {
-			rejected = append(rejected, Rejected{name, src, c.reason})
+			rejected = append(rejected, Rejected{Name: name, Source: src, Reason: c.reason, Detail: c.detail})
 			continue
 		}
 		l, rej := FromPin(c.doc, src, strField(spec, "owner"), reserved, p.Baseline, p.Policy)
@@ -285,6 +320,10 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		p.mu.Unlock()
 	}
 	ch := p.Sink.ApplyCluster(ctx, loaded, rejected)
+	for _, r := range ch.Rejected {
+		// The published reason carries no value out of the file; what the file said is here, in the gateway's log.
+		p.Log.Warn("agent pins: a pin was rejected", "agent", r.Name, "pin", r.Source.Pin(), "reason", r.Reason, "detail", r.Detail)
+	}
 	p.prune(current)
 	if ch.Any() {
 		p.Log.Info("agent pins: applied", "added", len(ch.Added), "changed", len(ch.Changed), "removed", len(ch.Removed),
@@ -312,7 +351,7 @@ func (p *Poller) prune(current map[pinKey]bool) {
 // fetch is the pin's file, once per (repo, path, commit): kept, whatever it said. A *skipPin error means this poll could not tell.
 func (p *Poller) fetch(ctx context.Context, s Source, key pinKey) (*cached, error) {
 	p.mu.Lock()
-	if c, ok := p.cache[key]; ok {
+	if c, ok := p.cache[key]; ok && (c.expires.IsZero() || p.Now().Before(c.expires)) {
 		p.mu.Unlock()
 		return c, nil
 	}
@@ -323,7 +362,10 @@ func (p *Poller) fetch(ctx context.Context, s Source, key pinKey) (*cached, erro
 	switch {
 	case errors.As(err, &denied):
 		// The broker's rule (not an onboarded app's own repository) or a malformed name: final for this pin.
-		out = &cached{reason: denied.Rule + ": " + denied.Message, at: p.iso()}
+		out = &cached{reason: key.path + ": " + denied.Rule, detail: denied.Rule + ": " + denied.Message, at: p.iso(), expires: p.Now().Add(NegativeCacheLifetime)}
+		if p.Policy.Detailed {
+			out.reason = out.detail
+		}
 	case err != nil:
 		p.Log.Warn("agent pins: a pinned file is unreachable this poll", "repo", key.repo, "commit", short(key.commit), "path", key.path, "err", err.Error())
 		return nil, &skipErr{err}
@@ -351,7 +393,7 @@ func (p *Poller) decide(r map[string]any, k pinKey) *cached {
 	at := p.iso()
 	where := fmt.Sprintf("%s in %s at %s", k.path, k.repo, short(k.commit))
 	if f, ok := r["found"].(bool); ok && !f {
-		return &cached{reason: fmt.Sprintf("no file %s in %s at %s", k.path, k.repo, short(k.commit)), at: at}
+		return &cached{reason: fmt.Sprintf("no file %s in %s at %s", k.path, k.repo, short(k.commit)), at: at, expires: p.Now().Add(NegativeCacheLifetime)}
 	}
 	if t, _ := r["type"].(string); t != "file" {
 		shown := "non-file"
@@ -371,9 +413,12 @@ func (p *Poller) decide(r map[string]any, k pinKey) *cached {
 		}
 		return &cached{reason: fmt.Sprintf("%s is %s", where, note), at: at}
 	}
-	doc, reason := ReadPinnedFile(k.path, content)
+	if len(content) > MaxPinDocBytes*2 {
+		return &cached{reason: k.path + ": DF-STRICT", detail: fmt.Sprintf("%s is larger than a pinned definition may be", k.path), at: at}
+	}
+	doc, reason, detail := ReadPinnedFile(k.path, content, p.Policy.Detailed)
 	if reason != "" {
-		return &cached{reason: reason, at: at}
+		return &cached{reason: reason, detail: detail, at: at}
 	}
 	return &cached{doc: doc, at: at}
 }

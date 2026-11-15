@@ -505,10 +505,57 @@ func ValidateSchema(doc *OMap) error {
 	if v, ok := doc.M["name"]; ok {
 		name = v
 	}
-	return &DefinitionError{Msg: fmt.Sprintf("%s: %s: %s", pyrepr.Text(name), path, best.msg)}
+	// Path is the same path with every name the schema does not itself list ("match" keys, say) taken out: it says where, never what.
+	safe := make([]string, 0, len(parts))
+	for i, p := range best.abs() {
+		switch x := p.(type) {
+		case string:
+			if schemaNames[x] {
+				safe = append(safe, x)
+			} else {
+				safe = append(safe, "*")
+			}
+		case int64:
+			safe = append(safe, parts[i])
+		}
+	}
+	sp := strings.Join(safe, "/")
+	if sp == "" {
+		sp = "<root>"
+	}
+	return &DefinitionError{Msg: fmt.Sprintf("%s: %s: %s", pyrepr.Text(name), path, best.msg), Path: sp}
 }
 
+// schemaNames are the property names the schema lists: the only names a published reason may carry.
+var schemaNames = func() map[string]bool {
+	m := map[string]bool{}
+	var walk func(s *OMap)
+	walk = func(s *OMap) {
+		if ps, ok := s.M["properties"].(*OMap); ok {
+			for _, k := range ps.Keys {
+				m[k] = true
+				walk(ps.M[k].(*OMap))
+			}
+		}
+		for _, k := range []string{"items", "then", "if", "propertyNames", "additionalProperties"} {
+			if o, ok := s.M[k].(*OMap); ok {
+				walk(o)
+			}
+		}
+		if l, ok := s.M["oneOf"].([]any); ok {
+			for _, e := range l {
+				walk(e.(*OMap))
+			}
+		}
+	}
+	walk(theSchema)
+	return m
+}()
+
 // DefinitionError is a document that does not parse as a definition (profile.DefinitionError).
-type DefinitionError struct{ Msg string }
+type DefinitionError struct {
+	Msg  string
+	Path string // where, in schema terms, with no name that came from the document
+}
 
 func (e *DefinitionError) Error() string { return e.Msg }

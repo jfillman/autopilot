@@ -143,26 +143,48 @@ func (s *Set) BundledSet() []BundledDoc {
 // ReplaceCluster makes loaded + rejected the cluster set. A name that appears twice in loaded (two XRs, two namespaces, one agent
 // name) is a rejection of both: Clearance will not guess; a pin of a bundled name is rejected. It returns what changed.
 func (s *Set) ReplaceCluster(loaded []*Loaded, rejected []Rejected) Changes {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	byName := map[string]*Loaded{}
-	dupes := map[string]bool{}
+	cands := map[string][]*Loaded{}
 	for _, l := range loaded {
-		if _, ok := byName[l.Name()]; ok {
-			dupes[l.Name()] = true
-		}
+		cands[l.Name()] = append(cands[l.Name()], l)
 		byName[l.Name()] = l
 	}
 	rej := append([]Rejected(nil), rejected...)
-	for _, l := range loaded {
-		if dupes[l.Name()] {
-			rej = append(rej, Rejected{l.Name(), l.Source, fmt.Sprintf("two pins name the agent %s; neither is loaded", pyrepr.Str(l.Name()))})
+	for n, ls := range cands {
+		if len(ls) < 2 {
+			continue
 		}
-	}
-	for n := range dupes {
-		delete(byName, n)
+		// An agent name is held by the namespace that has it. A pin of the same name from another namespace is the one that is
+		// refused, so nobody can take another team's agent away by creating an XR of its name. A name nobody holds yet that two
+		// namespaces ask for at once goes to neither (Python's rule for every duplicate), and the holder's own pin that is gone or
+		// broken lets go of the name.
+		var holder *Loaded
+		if cur, ok := s.cluster[n]; ok {
+			for _, l := range ls {
+				if samePtr(l.Source.Namespace, cur.Source.Namespace) {
+					holder = l
+				}
+			}
+		}
+		for _, l := range ls {
+			switch {
+			case holder == nil:
+				rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("two pins name the agent %s; neither is loaded", pyrepr.Str(n)), ""})
+			case l != holder:
+				rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("DF-NAME: another namespace holds the agent name %s", pyrepr.Str(n)), ""})
+			}
+		}
+		if holder != nil {
+			byName[n] = holder
+		} else {
+			delete(byName, n)
+		}
 	}
 	for n, l := range byName {
 		if _, ok := s.bundled[n]; ok {
-			rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("%s is a bundled platform definition; a pin cannot replace it", pyrepr.Str(n))})
+			rej = append(rej, Rejected{n, l.Source, fmt.Sprintf("%s is a bundled platform definition; a pin cannot replace it", pyrepr.Str(n)), ""})
 			delete(byName, n)
 		}
 	}
@@ -182,8 +204,6 @@ func (s *Set) ReplaceCluster(loaded []*Loaded, rejected []Rejected) Changes {
 		return rejT[i].Reason < rejT[j].Reason
 	})
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var ch Changes
 	names := make([]string, 0, len(byName))
 	for n := range byName {
@@ -266,12 +286,12 @@ func FromRecords(rows []Row, reserved map[string]*Definition, baseline *tools.Re
 			if reason == "" {
 				reason = "rejected"
 			}
-			rejected = append(rejected, Rejected{name, src, reason})
+			rejected = append(rejected, Rejected{name, src, reason, ""})
 			continue
 		}
 		doc, ok := FromPlain(r["doc"]).(*OMap)
 		if !ok {
-			rejected = append(rejected, Rejected{name, src, "stored definition no longer parses: the document is not an object"})
+			rejected = append(rejected, Rejected{name, src, "stored definition no longer parses: the document is not an object", ""})
 			continue
 		}
 		owner, _ := r["owner"].(string)
@@ -280,7 +300,7 @@ func FromRecords(rows []Row, reserved map[string]*Definition, baseline *tools.Re
 		}
 		l, rej := FromPin(doc, src, owner, reserved, baseline, policy)
 		if rej != nil {
-			rejected = append(rejected, Rejected{name, src, "stored definition no longer parses: " + rej.Reason})
+			rejected = append(rejected, Rejected{name, src, "stored definition no longer parses: " + rej.Reason, rej.Detail})
 			continue
 		}
 		loaded = append(loaded, l)

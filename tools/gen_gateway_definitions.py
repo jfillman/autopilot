@@ -44,6 +44,7 @@ OWNER = "group:default/team-gate"
 COMMIT = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"
 COMMIT2 = "b" * 40
 REPO = "acme/gate-api"
+OTHER = "acme/other"
 NS = "app-gate-api-cicd"
 NS2 = "app-other-cicd"
 IMG = "ghcr.io/acme/runtime@sha256:" + "a" * 64
@@ -65,6 +66,15 @@ def base(name="gate-triage", owner=OWNER) -> dict:
         "triggers": [{"type": "event", "source": "glidepath", "bindingKey": "gate-api.pipelinerun.finished",
                       "match": {"subject.content.outcome": "failure"}, "maxPerHour": 4}],
     }
+
+
+def base_for(name: str, app: str) -> dict:
+    """The base definition of an agent of another app (its repository, apps and event key are that app's)."""
+    d = base(name)
+    d["profile"]["glidepath"]["apps"] = [app]
+    d["profile"]["repos"]["allow"] = [f"acme/{app}"]
+    d["triggers"][0]["bindingKey"] = f"{app}.pipelinerun.finished"
+    return d
 
 
 def bundled_defs() -> dict[str, dict]:
@@ -310,6 +320,33 @@ def corpus() -> None:
     mutate("the file's service account is another's", put(["identity", "serviceAccount"], "autopilot-runs/other-agent"), group="pin")
     mutate("the file's service account is in another namespace", put(["identity", "serviceAccount"], "default/gate-triage"), group="pin")
     mutate("a delegated pin is fine", lambda d: d.update(identity={"type": "delegated"}), group="valid")
+    def pol(name, fn):
+        mutate(name, fn, group="policy")
+    pol("policy: a tool that promotes", lambda d: d["profile"]["tools"].append("glidepath.promote"))
+    pol("policy: a tool that rolls back", lambda d: d["profile"]["tools"].append("glidepath.rollback"))
+    pol("policy: a tool that syncs", lambda d: d["profile"]["tools"].append("argo.sync.lower"))
+    pol("policy: a tool that applies", lambda d: d["profile"]["tools"].append("airframe.apply"))
+    pol("policy: a tool that spawns", lambda d: d["profile"]["tools"].append("run.spawn"))
+    pol("policy: a tool that asks for an xr", lambda d: d["profile"]["tools"].append("xr.request"))
+    pol("policy: the upper pull request tool", lambda d: d["profile"]["tools"].append("repo.pr.open_upper"))
+    pol("policy: a delegated pin with a service account", lambda d: d.update(identity={"type": "delegated", "serviceAccount": "kube-system/admin"}))
+    pol("policy: a pin of another app's glidepath reads", put(["profile", "glidepath"], {"apps": ["billing"]}))
+    pol("policy: a pin of another app's repository", put(["profile", "repos", "allow"], ["acme/billing"]))
+    pol("policy: a pin of another app's gitops repository", put(["profile", "repos", "allow"], ["acme/gitops-billing"]))
+    pol("policy: a pin of its own gitops repository without the upper tool", put(["profile", "repos", "allow"], ["acme/gitops-gate-api"]))
+    pol("policy: a repository of an owner the gateway may not use", put(["profile", "repos", "allow"], ["evil/gate-api"]))
+    pol("policy: an event key for every event", put(["triggers"], [{"type": "event", "source": "glidepath", "bindingKey": "#"}]))
+    pol("policy: an event key of another app", put(["triggers"], [{"type": "event", "source": "glidepath", "bindingKey": "billing.pipelinerun.finished"}]))
+    pol("policy: an event key that is a wildcard of the app", put(["triggers"], [{"type": "event", "source": "glidepath", "bindingKey": "*.pipelinerun.finished"}]))
+    pol("policy: a runtime image that is not listed", put(["runtime", "image"], "ghcr.io/evil/runtime@sha256:" + "a" * 64))
+    pol("policy: a sidecar image that is not listed", put(["runtime", "sidecars"], [{"name": "xx", "image": "ghcr.io/evil/x@sha256:" + "a" * 64}]))
+    pol("policy: more tools than a pin may list", put(["profile", "tools"], [f"glidepath.runs.list{i}" for i in range(40)]))
+    pol("policy: more repository patterns than a pin may list", put(["profile", "repos", "allow"], [f"acme/gate-api-{i}" for i in range(40)]))
+    pol("policy: more deny paths than a pin may list", put(["profile", "repos", "denyPaths"], [f"p{i}/**" for i in range(40)]))
+    pol("policy: a deny path longer than a pin may write", put(["profile", "repos", "denyPaths"], ["x" * 300]))
+    pol("policy: a definition larger than a pin may be", lambda d: d["profile"]["repos"].update(
+        {"denyPaths": ["y" * 250 + f"{i:02d}" for i in range(32)], "fieldDeny": ["/" + "z" * 249 + f"{i:02d}" for i in range(32)]}))
+    mutate("policy: the default tools are allowed", put(["profile", "tools"], ["glidepath.runs.list", "repo.file.get", "repo.pr.open", "human.request", "artifact.put", "glidepath.cicd.propose"]), group="valid")
     # ---- breadth in what the profile grants (Go refuses for pins what the schema lets through; see the docs) ----
     # ---- YAML ----
     ok = dump(base())
@@ -532,6 +569,7 @@ def f(doc=None, **kw):
 def scenarios() -> list[dict]:
     A, B = "gate-triage", "gate-two"
     fa = {fkey(REPO, f"agents/{A}.yaml", COMMIT): f(base(A))}
+    fo = {fkey(OTHER, f"agents/{A}.yaml", COMMIT): f(base_for(A, "other"))}
     fa2 = {fkey(REPO, f"agents/{A}.yaml", COMMIT2): f({**base(A), "profile": {**base(A)["profile"], "tools": ["glidepath.runs.list"]}})}
     out = []
     out.append(scenario("load, hold, repin, remove", [
@@ -563,8 +601,8 @@ def scenarios() -> list[dict]:
          "files": {fkey(REPO, "agents/missing.yaml", COMMIT2): f(base("missing")), fkey(REPO, "agents/a-dir.yaml", COMMIT): {"dir": 1}}},
     ]))
     out.append(scenario("two pins of one name load neither", [
-        {"label": "the same agent in two namespaces", "at": at(0), "xrs": [xr(A, NS), xr(A, NS2)], "files": fa},
-        {"label": "one of them is removed", "at": at(1), "xrs": [xr(A, NS2)], "files": fa},
+        {"label": "the same agent in two namespaces", "at": at(0), "xrs": [xr(A, NS), xr(A, NS2, repo=OTHER)], "files": {**fa, **fo}},
+        {"label": "one of them is removed", "at": at(1), "xrs": [xr(A, NS2, repo=OTHER)], "files": fo},
     ]))
     out.append(scenario("a transient failure drops nothing", [
         {"label": "a pin loads", "at": at(0), "xrs": [xr(A)], "files": fa},
@@ -705,6 +743,15 @@ def deviations() -> None:
     go("glidepath.apps: *", {"rejected": "policy: profile/glidepath/apps: '*': an app pattern that is only wildcards names every app"}, apps)
     go("glidepath.apps: **", {"rejected": "policy: profile/glidepath/apps: '**': an app pattern that is only wildcards names every app"}, apps)
     go("airframe.apps: *", {"rejected": "policy: profile/airframe/apps: '*': an app pattern that is only wildcards names every app"}, apps)
+    appb = ("a pin is bound to its app (its namespace is app-<app>-cicd): its repository patterns are its own app's repositories written out, "
+            "its Glidepath and Airframe apps are its own app, its event keys start with its own app, its tools are the platform's list for pins "
+            "(the read tools and the propose-only lower ones unless AGENT_XRS_TOOLS says more), its images are the ones the platform lists; "
+            "an app team's namespace is where its XR lives, so the policy holds against the team. Python takes any of these")
+    for n in ("repos.allow: acme/gate-*", "repos.allow: a duplicate (allowed)", "repos.allow: gitops-*", "repos.allow: dots", "glidepath.apps: ok",
+              "glidepath.apps: *-*", "glidepath.apps: 63 characters", "yaml: n as an app glob", "airframe.proposeFlight: true", "airframe.proposeFlight: false",
+              "trigger: alert", "trigger: rabbitmq", "trigger: rabbitmq with brokerRef and rate", "trigger: glidepath minimal", "trigger: glidepath topic keys",
+              "trigger: glidepath maxPerHour 600") + tuple(c["name"] for c in CASES if c["group"] == "policy"):
+        go(n, {"rejected_prefix": "policy: "}, appb)
     strict = ("a definition is read strictly: what the reviewer read is what the schema sees. Python's safe_load is lenient YAML 1.1 "
               "(a repeated key is the last one, yes is a boolean, 0755 is octal, 1:30 is 90, an alias expands, a tag picks a type); "
               "here each of those is refused, so nothing is read differently by two readers")

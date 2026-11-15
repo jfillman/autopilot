@@ -132,16 +132,23 @@ func stubReserved(names []string) map[string]*definitions.Definition {
 	return m
 }
 
+// testPolicy is the policy `serve` builds, for the corpus's world: owner acme, the one runtime image the corpus uses, the default tools,
+// pins bound to their app by namespace, and Python's reasons (the corpus compares them; production publishes redacted ones).
+func testPolicy() definitions.PinPolicy {
+	return definitions.PinPolicy{Tools: tools.Default(), AllowTools: definitions.DefaultPinTools(tools.Default()), Owners: []string{"acme"},
+		ImageGlobs: []string{"ghcr.io/acme/runtime@sha256:*"}, BindApp: true, Detailed: true}
+}
+
 func decideGo(t *testing.T, c pyCase) pyOutcome {
 	t.Helper()
 	path := "agents/" + c.XR + ".yaml"
-	doc, reason := definitions.ReadPinnedFile(path, c.Text)
+	doc, reason, _ := definitions.ReadPinnedFile(path, c.Text, true)
 	if reason != "" {
 		return pyOutcome{Rejected: &reason}
 	}
 	src := definitions.Source{Kind: "cluster", Repo: definitions.S("acme/gate-api"), Path: definitions.S(path), Commit: definitions.S("1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"),
 		Namespace: definitions.S("app-gate-api-cicd"), XR: definitions.S(c.XR)}
-	l, rej := definitions.FromPin(doc, src, c.Owner, stubReserved(c.Reserved), tools.Default(), definitions.PinPolicy{Tools: tools.Default()})
+	l, rej := definitions.FromPin(doc, src, c.Owner, stubReserved(c.Reserved), tools.Default(), testPolicy())
 	if rej != nil {
 		return pyOutcome{Rejected: &rej.Reason}
 	}
@@ -209,7 +216,7 @@ func TestPinnedFilesDecideAsPythonDecidesThem(t *testing.T) {
 			rejected++
 		}
 	}
-	if loaded < 80 || rejected < 150 {
+	if loaded < 50 || rejected < 150 {
 		t.Fatalf("the corpus does not exercise both outcomes: %d loaded, %d rejected", loaded, rejected)
 	}
 	t.Logf("%d cases: %d loaded, %d rejected, %d deliberate differences (each with a why)", len(f.Cases), loaded, rejected, deviations)
@@ -436,7 +443,7 @@ func TestThePollerEqualsPythonStepByStep(t *testing.T) {
 				p := definitions.NewPoller()
 				p.Namespaces = []string{"app-gate-api-cicd", "app-other-cicd"}
 				p.Lister, p.Files, p.Sink, p.Set, p.Baseline = lister, files, mgr, set, tools.Default()
-				p.Policy = definitions.PinPolicy{Tools: tools.Default()}
+				p.Policy = testPolicy()
 				p.Now = func() time.Time { return now }
 				p.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 				return set, p

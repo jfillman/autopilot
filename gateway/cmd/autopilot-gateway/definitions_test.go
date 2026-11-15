@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"go.yaml.in/yaml/v3"
 )
@@ -119,5 +120,54 @@ func TestACandidateDocumentIsReadByTheSchema(t *testing.T) {
 		if _, err := parse(v); err == nil {
 			t.Errorf("%v was parsed", v)
 		}
+	}
+}
+
+// The pin policy `serve` builds is the strict one: bound to the app, to the gateway's owners, to the images the bundled agents run and
+// RUNTIME_IMAGES_EXTRA, and to the default tools unless AGENT_XRS_TOOLS says otherwise.
+func TestThePolicyServeBuildsIsTheStrictOne(t *testing.T) {
+	reg := tools.Default()
+	bundled, err := definitions.LoadDir(filepath.Join("..", "..", "..", "agents"), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_NAMESPACES": "app-gate-api-cicd", "GITHUB_OWNERS": "acme,other", "RUNTIME_IMAGES_EXTRA": "ghcr.io/acme/*"}))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := c.defs.policy(reg, c.hangar.githubOwners, c.runtimeImages, bundled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.BindApp || p.Detailed || len(p.Owners) != 2 || p.Tools == nil || p.MaxTier != "T2" {
+		t.Fatalf("%+v", p)
+	}
+	for _, bad := range []string{"glidepath.promote", "glidepath.rollback", "argo.sync.lower", "airframe.apply", "run.spawn", "xr.request", "repo.pr.open_upper", "glidepath.run.rerun"} {
+		if p.AllowTools[bad] {
+			t.Errorf("%s is a default tool of a pin", bad)
+		}
+	}
+	for _, good := range []string{"glidepath.runs.list", "repo.file.get", "repo.pr.open", "human.request", "catalog.read"} {
+		if !p.AllowTools[good] {
+			t.Errorf("%s is not a default tool of a pin", good)
+		}
+	}
+	hasImage, hasExtra := false, false
+	for _, g := range p.ImageGlobs {
+		hasImage = hasImage || strings.HasPrefix(g, "ghcr.io/jfillman/autopilot-agent-runtime@sha256:")
+		hasExtra = hasExtra || g == "ghcr.io/acme/*"
+	}
+	if !hasImage || !hasExtra {
+		t.Fatalf("%v", p.ImageGlobs)
+	}
+	// the platform can list more, and only what is a tool
+	c.defs.tools = []string{"repo.file.get", "argo.sync.lower"}
+	p, err = c.defs.policy(reg, nil, nil, bundled)
+	if err != nil || !p.AllowTools["argo.sync.lower"] || p.AllowTools["repo.pr.open"] {
+		t.Fatalf("%v %v", p.AllowTools, err)
+	}
+	c.defs.tools = []string{"no.such.tool"}
+	if _, err := c.defs.policy(reg, nil, nil, bundled); err == nil || !strings.Contains(err.Error(), "AGENT_XRS_TOOLS") {
+		t.Fatalf("%v", err)
 	}
 }

@@ -13,13 +13,18 @@ says what each gateway tag adds. The manager cuts the tags.
   atomic from the gateway's side, idempotent, never shrunk by a read error, logged with counts and a digest. `AGENT_XRS_ENABLED` and
   `AGENT_XRS_INTERVAL` are carried; a candidate's Preflight `document` is validated by the same schema (it answered 501 before).
 - Differences from Python, each pinned in `gateway/internal/definitions/testdata/definitions.json` with a `go` and a `why`
-  (`tools/gen_gateway_definitions.py` drives the Python loader over 301 definition files and 9 scenarios of its poll, 31 steps, 25 publish
+  (`tools/gen_gateway_definitions.py` drives the Python loader over 325 definition files and 9 scenarios of its poll, 31 steps, 25 publish
   requests): YAML is read strictly (a repeated key, an anchor or alias, a merge key, a tag, `yes`, `0755`, `1:30`, `1e3`, a date, a control character,
   a file over 64 KiB are refused); a pattern's `$` does not match before a final newline; `20.0` is not an integer; the loader reads only the namespaces
   in the new required `AGENT_XRS_NAMESPACES` (Python lists every namespace), a 404 on the list is an error, and an empty list is believed only when it is
   given twice, and a deleted pin is not kept alive by another pin's outage; a pin must name a full commit id (not a branch or a tag), may not name a tool the gateway lacks, a `*/*`, `acme/*` or upper-case repository pattern, an app pattern of only wildcards, or a tier
   above `AGENT_XRS_MAX_TIER` (default `T2`). `docs/admin/go-gateway.md` lists each, the sources and precedence of definitions, the bad-definition and
   failed-reload rules, the publish contract and the loader's crash points.
+- A pin is held to what an app team may have (the namespaces the loader lists are app teams' own): it may read only its own app's repository (checked before
+  anything is fetched), its Glidepath apps, repository patterns, event keys and service account are its own app's, its tools are the platform's list
+  (`AGENT_XRS_TOOLS`; default the read tools and the propose-only lower ones), its images the platform's; a published rejection reason names a rule and a place, never
+  the file's content; the namespace that holds an agent name keeps it; a tenant is capped (32 XRs, 12 KiB a definition, 32 entries a list) and the publish size is
+  checked before the live set changes. The live pin `gate-reader` is still accepted.
 - The Kubernetes reader's path allowlist gains one entry: a list of one namespace's Agent XRs (GET, no name, no cluster-wide list).
   `pgstate.ReplaceDefinitions` replaces the stored set in one transaction.
 

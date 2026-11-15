@@ -353,9 +353,14 @@ func serve(_ []string) int {
 	} else {
 		stored = rowsOf(rows)
 	}
+	pinPolicy, err := cfg.defs.policy(reg, cfg.hangar.githubOwners, cfg.runtimeImages, bundled)
+	if err != nil {
+		log.Error("configuration: " + err.Error())
+		return 2
+	}
 	switch {
 	case cfg.defs.enabled:
-		loadStored(set, stored, reg, cfg.defs.policy(reg), log)
+		loadStored(set, stored, reg, pinPolicy, log)
 	case len(stored) > 0:
 		// Stored pins nothing keeps up to date are not run: the bundled definitions only (as the Python gateway with the loader off).
 		log.Warn("the gateway database holds pinned definitions and the Agent XR loader is off (AGENT_XRS_ENABLED): they are not loaded", "rows", len(stored))
@@ -469,7 +474,7 @@ func serve(_ []string) int {
 		}
 		reader, files = kr, githubFiles{hangar.GitHub}
 	}
-	runDefinitions(ctx, defsWG, cfg.defs, mgr, set, reader, files, reg, stored, log)
+	runDefinitions(ctx, defsWG, cfg.defs, pinPolicy, mgr, set, reader, files, reg, stored, log)
 	loops, err := startTriggers(ctx, cfg, g, pgstate.NewTriggers(st), log)
 	if err != nil {
 		log.Error("triggers: " + err.Error())

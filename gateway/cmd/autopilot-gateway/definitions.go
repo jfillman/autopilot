@@ -25,11 +25,15 @@ import (
 //     XR anywhere else is never read. It is required when the loader is on, and it may not name a namespace an agent run or the platform
 //     controls (agent-*, autopilot-runs, kube-*).
 //   - AGENT_XRS_MAX_TIER (Go only, default T2, the schema's own highest): the highest tier ceiling a pinned definition may name.
+//   - AGENT_XRS_TOOLS (Go only): the tools a pinned definition may name, comma separated. The default is the read tools and the
+//     propose-only lower ones (definitions.DefaultPinTools); setting it replaces the default, so promote, rollback, sync, apply, spawn
+//     and the upper pull request tool are in a pin only when the platform lists them.
 type defsSettings struct {
 	enabled    bool
 	interval   time.Duration
 	namespaces []string
 	maxTier    string
+	tools      []string // nil: DefaultPinTools
 }
 
 var nsName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -61,6 +65,7 @@ func defsFromEnv(env func(string) string, githubPRs bool) (defsSettings, error) 
 	if d.maxTier != "T0" && d.maxTier != "T1" && d.maxTier != "T2" {
 		return d, configError("AGENT_XRS_MAX_TIER is T0, T1 or T2")
 	}
+	d.tools = list(env("AGENT_XRS_TOOLS"))
 	for _, ns := range list(env("AGENT_XRS_NAMESPACES")) {
 		switch {
 		case !nsName.MatchString(ns):
@@ -80,8 +85,32 @@ func defsFromEnv(env func(string) string, githubPRs bool) (defsSettings, error) 
 	return d, nil
 }
 
-func (d defsSettings) policy(reg *tools.Registry) definitions.PinPolicy {
-	return definitions.PinPolicy{Tools: reg, MaxTier: d.maxTier}
+// policy is the pin policy this deployment holds every pin to (at load, on every reload and on stored rows): bound to its app by the
+// namespace, the GitHub owners the gateway may use, the images the bundled definitions run and RUNTIME_IMAGES_EXTRA, and the tools above.
+func (d defsSettings) policy(reg *tools.Registry, owners, extraImages []string, bundled map[string]*definitions.Definition) (definitions.PinPolicy, error) {
+	allow := definitions.DefaultPinTools(reg)
+	if d.tools != nil {
+		allow = map[string]bool{}
+		for _, t := range d.tools {
+			if _, ok := reg.Get(t); !ok {
+				return definitions.PinPolicy{}, configError("AGENT_XRS_TOOLS names " + fmt.Sprintf("%q", t) + ", which is not a tool of this gateway")
+			}
+			allow[t] = true
+		}
+	}
+	images := []string{}
+	for _, g := range extraImages {
+		images = append(images, g)
+	}
+	for _, def := range bundled {
+		if def.Image != nil {
+			images = append(images, *def.Image)
+		}
+		for _, sc := range def.Sidecars {
+			images = append(images, sc["image"])
+		}
+	}
+	return definitions.PinPolicy{Tools: reg, AllowTools: allow, MaxTier: d.maxTier, Owners: append([]string{}, owners...), ImageGlobs: images, BindApp: true}, nil
 }
 
 // githubFiles is the pinned files' reader: repo.file.get's, through the agents' GitHub App.
@@ -117,12 +146,12 @@ func loadStored(set *definitions.Set, rows []definitions.Row, reg *tools.Registr
 
 // runDefinitions starts what keeps the definition set: the Agent XR loader, or, when it is off, the publish of the bundled set (until the
 // core has taken it). It ends with ctx; wg is waited for at shutdown.
-func runDefinitions(ctx context.Context, wg *sync.WaitGroup, cfg defsSettings, mgr *definitions.Manager, set *definitions.Set, reader definitions.XRLister,
+func runDefinitions(ctx context.Context, wg *sync.WaitGroup, cfg defsSettings, policy definitions.PinPolicy, mgr *definitions.Manager, set *definitions.Set, reader definitions.XRLister,
 	files definitions.FileReader, reg *tools.Registry, stored []definitions.Row, log *slog.Logger) {
 	if cfg.enabled {
 		p := definitions.NewPoller()
 		p.Namespaces, p.Lister, p.Files, p.Sink, p.Set, p.Baseline = cfg.namespaces, reader, files, mgr, set, reg
-		p.Policy, p.Interval, p.Log = cfg.policy(reg), cfg.interval, log
+		p.Policy, p.Interval, p.Log = policy, cfg.interval, log
 		p.Seed(stored)
 		log.Info("agent pins on", "namespaces", cfg.namespaces, "every", cfg.interval.String(), "max_tier", cfg.maxTier)
 		wg.Add(1)

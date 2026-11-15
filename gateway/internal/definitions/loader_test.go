@@ -95,7 +95,7 @@ func (f *fakePublisher) count() int { f.mu.Lock(); defer f.mu.Unlock(); return l
 func newRig(t *testing.T, namespaces ...string) *rig {
 	t.Helper()
 	if len(namespaces) == 0 {
-		namespaces = []string{"app-gate-cicd"}
+		namespaces = []string{"app-gate-api-cicd"}
 	}
 	r := &rig{t: t, lister: &fakeLister{}, files: &fakeFiles{files: map[string]map[string]any{}}, pub: &fakePublisher{}, store: &memStore{}, logs: &bytes.Buffer{}}
 	b := bundledSet(t, map[string]any{"researcher": defDoc("researcher", map[string]any{"owner": "group:default/team-platform"})})
@@ -105,7 +105,7 @@ func newRig(t *testing.T, namespaces ...string) *rig {
 	r.mgr = definitions.NewManager(r.set, r.store, r.pub, func(m map[string]*definitions.Definition) { r.defs = m }, log)
 	r.p = definitions.NewPoller()
 	r.p.Namespaces, r.p.Lister, r.p.Files, r.p.Sink, r.p.Set, r.p.Baseline = namespaces, r.lister, r.files, r.mgr, r.set, tools.Default()
-	r.p.Policy = definitions.PinPolicy{Tools: tools.Default()}
+	r.p.Policy = definitions.PinPolicy{Tools: tools.Default(), Detailed: true}
 	r.now = time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 	r.p.Now = func() time.Time { return r.now }
 	r.p.Log = log
@@ -124,8 +124,8 @@ func (r *rig) poll() definitions.Changes {
 
 // A namespace that is not listed is never read: an Agent XR there, whoever made it, defines no agent and is not even listed.
 func TestAnAgentXRInANamespaceThatWasNotNamedIsNeverRead(t *testing.T) {
-	r := newRig(t, "app-gate-cicd")
-	r.pin("good", "app-gate-cicd", defDoc("good", nil))
+	r := newRig(t, "app-gate-api-cicd")
+	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
 	r.pin("sneaky", "agent-r-0a1b2c", defDoc("sneaky", nil))
 	r.pin("other", "app-other-cicd", defDoc("other", nil))
 	ch := r.poll()
@@ -137,15 +137,15 @@ func TestAnAgentXRInANamespaceThatWasNotNamedIsNeverRead(t *testing.T) {
 			t.Fatalf("a file was fetched for an XR of a namespace that was not named: %v", r.files.calls)
 		}
 	}
-	if got := r.lister.listed(); len(got) != 1 || got[0] != "app-gate-cicd" {
+	if got := r.lister.listed(); len(got) != 1 || got[0] != "app-gate-api-cicd" {
 		t.Fatalf("exactly the named namespaces are listed, one namespaced list each: %v", got)
 	}
 }
 
 // An item whose own namespace is not the one that was listed (a lister that was fooled, a proxy that merged lists) is dropped.
 func TestAnItemThatIsNotInTheNamespaceThatWasListedIsDropped(t *testing.T) {
-	r := newRig(t, "app-gate-cicd")
-	r.lister.fixed = map[string][]map[string]any{"app-gate-cicd": {xrOf("liar", "agent-r-0a1b2c"), xrOf("fine", "app-gate-cicd")}}
+	r := newRig(t, "app-gate-api-cicd")
+	r.lister.fixed = map[string][]map[string]any{"app-gate-api-cicd": {xrOf("liar", "agent-r-0a1b2c"), xrOf("fine", "app-gate-api-cicd")}}
 	r.files.files[repo+"|agents/liar.yaml|"+commit] = map[string]any{"doc": defDoc("liar", nil)}
 	r.files.files[repo+"|agents/fine.yaml|"+commit] = map[string]any{"doc": defDoc("fine", nil)}
 	ch := r.poll()
@@ -160,8 +160,8 @@ func TestAnItemThatIsNotInTheNamespaceThatWasListedIsDropped(t *testing.T) {
 // A list that fails in any namespace is the whole list failing: nothing is applied, nothing is unloaded, the last good set stays, and
 // it is said so; an answer of zero items is a different answer.
 func TestAFailedListKeepsTheLastGoodSetAndAnEmptyOneIsNotTheSame(t *testing.T) {
-	r := newRig(t, "app-gate-cicd", "app-other-cicd")
-	r.pin("good", "app-gate-cicd", defDoc("good", nil))
+	r := newRig(t, "app-gate-api-cicd", "app-other-cicd")
+	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
 	r.poll()
 	if r.defs["good"] == nil || r.pub.count() != 1 {
 		t.Fatal("the pin loads and the set is published")
@@ -193,11 +193,11 @@ func TestAFailedListKeepsTheLastGoodSetAndAnEmptyOneIsNotTheSame(t *testing.T) {
 		t.Fatalf("two empty answers in a row are the answer: %+v", ch)
 	}
 	// and an answer that was not empty in between starts the count again
-	r.pin("good", "app-gate-cicd", defDoc("good", nil))
+	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
 	r.poll()
 	r.lister.items = nil
 	r.poll()
-	r.pin("good", "app-gate-cicd", defDoc("good", nil))
+	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
 	r.poll()
 	r.lister.items = nil
 	if ch := r.poll(); ch.Any() || r.defs["good"] == nil {
@@ -223,10 +223,10 @@ func TestTheFirstPollPublishesEvenWhenThereIsNothingPinned(t *testing.T) {
 // More Agent XRs than the core takes in one set is a list failure, not a set that is cut: no partial set reaches the core.
 func TestMoreXRsThanTheCoreTakesIsRefusedWhole(t *testing.T) {
 	r := newRig(t)
-	r.pin("good", "app-gate-cicd", defDoc("good", nil))
+	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
 	r.poll()
 	for i := 0; i <= definitions.MaxPins; i++ {
-		r.lister.items = append(r.lister.items, xrOf(fmt.Sprintf("a%d", i), "app-gate-cicd"))
+		r.lister.items = append(r.lister.items, xrOf(fmt.Sprintf("a%d", i), "app-gate-api-cicd"))
 	}
 	r.logs.Reset()
 	if ch := r.poll(); ch.Any() || r.defs["good"] == nil || r.pub.count() != 1 {
@@ -242,7 +242,7 @@ func TestMoreXRsThanTheCoreTakesIsRefusedWhole(t *testing.T) {
 func TestAPublishTheCoreDidNotTakeIsMadeAgainWholeAndASetThatChangedMidPublishIsNotMarkedPublished(t *testing.T) {
 	r := newRig(t)
 	r.pub.fail = true
-	r.pin("one", "app-gate-cicd", defDoc("one", nil))
+	r.pin("one", "app-gate-api-cicd", defDoc("one", nil))
 	r.poll()
 	if !r.mgr.Unpublished() || r.defs["one"] == nil {
 		t.Fatal("a publish the core did not take leaves the set applied locally and unpublished")
@@ -257,7 +257,7 @@ func TestAPublishTheCoreDidNotTakeIsMadeAgainWholeAndASetThatChangedMidPublishIs
 	}
 	// a change that lands while a publish is in flight
 	r.pub.gate, r.pub.entered = make(chan struct{}), make(chan struct{}, 4)
-	r.pin("two", "app-gate-cicd", defDoc("two", nil))
+	r.pin("two", "app-gate-api-cicd", defDoc("two", nil))
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); r.poll() }()
@@ -319,13 +319,13 @@ func TestConcurrentAppliesAndPublishesAreRaceFreeAndEveryPublishIsOneWholeSet(t 
 
 func pinSource(name string) definitions.Source {
 	return definitions.Source{Kind: "cluster", Repo: definitions.S(repo), Path: definitions.S("agents/" + name + ".yaml"), Commit: definitions.S(commit),
-		Namespace: definitions.S("app-gate-cicd"), XR: definitions.S(name)}
+		Namespace: definitions.S("app-gate-api-cicd"), XR: definitions.S(name)}
 }
 
 // What was published is recorded: how many of each and a digest, so two publishes of the same set can be seen to be the same.
 func TestWhatWasPublishedIsRecordedWithACountAndADigest(t *testing.T) {
 	r := newRig(t)
-	r.pin("one", "app-gate-cicd", defDoc("one", nil))
+	r.pin("one", "app-gate-api-cicd", defDoc("one", nil))
 	r.poll()
 	p := r.mgr.LastPublished()
 	if p.Pins != 1 || p.Bundled != 1 || p.Rejected != 0 || len(p.Digest) != 64 || p.Bytes == 0 {
@@ -354,7 +354,7 @@ func mustLoad(t *testing.T, name string) *definitions.Loaded {
 	return l
 }
 
-// A set larger than the core takes is not sent: the core keeps the set it has, and it is said.
+// A set larger than the core takes is cut before it is applied (and said), so the gateway never runs a set the core was not given.
 func TestASetLargerThanTheCoreTakesIsNotSent(t *testing.T) {
 	r := newRig(t)
 	var loaded []*definitions.Loaded
@@ -372,8 +372,9 @@ func TestASetLargerThanTheCoreTakesIsNotSent(t *testing.T) {
 		loaded = append(loaded, l)
 	}
 	r.mgr.ApplyCluster(context.Background(), loaded, nil)
-	if r.pub.count() != 0 || !strings.Contains(r.logs.String(), "larger than the core takes") {
-		t.Fatalf("a set over the core's limit must not be sent (%d publishes): %s", r.pub.count(), r.logs.String())
+	// the gateway never runs a set the core was not given: the pins of the namespace that does not fit are dropped before the swap
+	if r.pub.count() != 1 || len(r.pub.pins[0]) != 0 || len(r.pub.rej[0]) != 200 || r.defs["p0"] != nil || !strings.Contains(r.logs.String(), "do not fit the publish budget") {
+		t.Fatalf("a set over the core's limit is cut before it is applied (%d publishes): %s", r.pub.count(), r.logs.String())
 	}
 }
 
@@ -381,7 +382,7 @@ func TestASetLargerThanTheCoreTakesIsNotSent(t *testing.T) {
 func TestAStoreThatFailsDoesNotStopTheSet(t *testing.T) {
 	r := newRig(t)
 	r.mgr.Store = failingStore{}
-	r.pin("one", "app-gate-cicd", defDoc("one", nil))
+	r.pin("one", "app-gate-api-cicd", defDoc("one", nil))
 	r.poll()
 	if r.defs["one"] == nil || r.pub.count() != 1 || !strings.Contains(r.logs.String(), "could not be kept") {
 		t.Fatalf("%v %d %s", r.defs["one"], r.pub.count(), r.logs.String())
@@ -398,9 +399,9 @@ func (failingStore) ReplaceDefinitions(context.Context, []definitions.Row) error
 // both are published.
 func TestOneBadPinDoesNotTakeDownTheSetNorDropTheOthers(t *testing.T) {
 	r := newRig(t)
-	r.pin("good", "app-gate-cicd", defDoc("good", nil))
-	r.pin("bad", "app-gate-cicd", defDoc("bad", map[string]any{"kind": "daemon"}))
-	r.pin("also-good", "app-gate-cicd", defDoc("also-good", nil))
+	r.pin("good", "app-gate-api-cicd", defDoc("good", nil))
+	r.pin("bad", "app-gate-api-cicd", defDoc("bad", map[string]any{"kind": "daemon"}))
+	r.pin("also-good", "app-gate-api-cicd", defDoc("also-good", nil))
 	ch := r.poll()
 	if len(ch.Added) != 2 || len(ch.Rejected) != 1 || ch.Rejected[0].Name != "bad" || !strings.Contains(ch.Rejected[0].Reason, "'daemon' is not one of") {
 		t.Fatalf("%+v", ch)
@@ -416,6 +417,7 @@ func TestThePinPolicy(t *testing.T) {
 	reg := tools.Default()
 	load := func(over map[string]any, p definitions.PinPolicy) string {
 		d := definitions.FromPlain(defDoc("agent", over)).(*definitions.OMap)
+		p.Detailed = true
 		_, rej := definitions.FromPin(d, pinSource("agent"), owner, nil, reg, p)
 		if rej == nil {
 			return ""
@@ -509,7 +511,7 @@ func TestStoredRowsAreDecidedAgainAndABadOneIsARejectionNotASilentDrop(t *testin
 // What a poll found never changes what a reader holds: a snapshot is a map that is not written to again.
 func TestASnapshotIsNeverWrittenToAgain(t *testing.T) {
 	r := newRig(t)
-	r.pin("one", "app-gate-cicd", defDoc("one", nil))
+	r.pin("one", "app-gate-api-cicd", defDoc("one", nil))
 	before := r.set.Snapshot()
 	n := len(before)
 	r.poll()
@@ -534,7 +536,7 @@ func TestAPinMustNameAFullCommit(t *testing.T) {
 	for commit, ok := range map[string]bool{commit: true, strings.Repeat("a", 64): true, "main": false, "v1.0.0": false, "HEAD": false, strings.Repeat("a", 39): false,
 		strings.ToUpper(commit): false, commit + "0": false, "": false, "refs/heads/main": false} {
 		r := newRig(t)
-		x := xrOf("one", "app-gate-cicd")
+		x := xrOf("one", "app-gate-api-cicd")
 		x["spec"].(map[string]any)["source"].(map[string]any)["commit"] = commit
 		r.lister.items = []map[string]any{x}
 		r.files.files[repo+"|agents/one.yaml|"+commit] = map[string]any{"doc": defDoc("one", nil)}
