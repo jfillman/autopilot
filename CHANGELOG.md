@@ -5,6 +5,20 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S6: the read API, the Prometheus endpoint and the OTLP logs in the Go gateway)
+- `autopilot-gateway api` (Go, off by default, not deployed) is the read API: agents, sessions, a run's result, the run tree, the human inbox, the trigger history, the runtime catalog
+  and the contract, over a read-only connection that takes no writer lock and has no statement but `SELECT`. 939 recorded Python cases (17 callers: an admin, a session's own person,
+  a member of an owner group, an unrelated person, an unauthenticated and a bad-token caller, a workload, delegates acting for people, a notifier) are answered equal by the Go API over a real Postgres.
+- Who sees what is decided in one place and scoped in the query itself. A delegate may assert a person and nothing else may; the person must be a principal form. A person's groups come from
+  Tower's catalog (cached 60 s) and fail closed: an outage leaves a person with their own sessions (`X-Autopilot-Owners: unknown`), never an auditor's view and never a team's.
+  The same directory now resolves an agent's owner group for the inbox and person controls of `serve` (S3 left it as nobody).
+- Every list is bounded (limit, validated cursor, deterministic order, a branch per team agent so no query scans history), a request is bounded in size, time and concurrency, and answers carry
+  `Cache-Control: no-store`. `serve` creates six indexes at start (`gateway_sessions_*`, `gateway_events_*`) that the read API's queries use; each query's index is named in `docs/admin/go-gateway.md`.
+- `METRICS_PORT` serves the trigger counters (Python's twelve series, byte-equal exposition, plus four Go-only) and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` the logs (Python's request shape; https unless
+  `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1`; bounded queue; credentials, prompts and request bodies redacted before queueing).
+- After an independent review: a lossless `<time>|<id>` cursor (ties no longer vanish between pages), the C collation for every text time, `truncated` on a cut-off run tree and inbox, a cached `/readyz`, the role checked at start (a writer's DSN does not start), wider log redaction, auditor/notifier globs that cannot match everyone, run identities of both forms excluded from delegates, `BACKSTAGE_ALLOW_HTTP` (https by default).
+- `tools/gen_gateway_readapi.py` generates the fixtures; the drift guard watches `read_api.py`, `api_serve.py`, `metrics.py`, `otlp_logs.py` and `engine/runtimes.py`.
+
 ### Added (A-9 S5c: the Airframe tools in the Go gateway)
 - The Go gateway (`gateway/`, off by default, not deployed) carries `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify`, `apply` and `xr.request`
   (`airframe.validate` has no handler, as in the Python deployment). The planner, the contract tools and the state tools equal Python's over 284 and 169 recorded cases;

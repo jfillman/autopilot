@@ -18,4 +18,5 @@ func TestCancelledRequestDoesNotLockOutSignIn(t *testing.T) {
 	if _, err := o.Authenticate(context.Background(), good); err != nil {
 		t.Fatalf("a valid token was refused after a cancelled request: %v", err)
 	}
+	waitIdle(t, o.Keys) // no fetch outlives the test
 }

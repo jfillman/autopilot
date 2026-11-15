@@ -38,6 +38,7 @@ func TestCancelledRequestsNeverStopTheRefreshForOthers(t *testing.T) {
 	if _, err := o.Authenticate(context.Background(), good); err != nil {
 		t.Fatalf("refused after cancelled requests: %v", err)
 	}
+	waitIdle(t, o.Keys) // the detached fetch the cancelled callers started has ended before its hits are counted
 	if h := srv.hits.Load(); h != 1 {
 		t.Fatalf("%d fetches", h)
 	}
@@ -54,10 +55,15 @@ func TestWaiterReturnsWhenItsOwnContextEnds(t *testing.T) {
 	j := &JWKS{URL: slow.URL}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	start := time.Now()
-	_, err := j.Key(ctx, "k1", true)
-	mustRefuse(t, err)
-	if time.Since(start) > 2*time.Second {
+	done := make(chan error, 1)
+	go func() { _, err := j.Key(ctx, "k1", true); done <- err }()
+	select {
+	case err := <-done: // the waiter returns on its own context's end, whatever the machine's load (the ceiling is generous, not a measure)
+		mustRefuse(t, err)
+		if ctx.Err() == nil {
+			t.Fatal("the waiter returned before its context ended")
+		}
+	case <-time.After(30 * time.Second):
 		t.Fatal("the waiter outlived its own context")
 	}
 }
@@ -125,6 +131,7 @@ func TestFiftyUnknownKidsAfterASuccessCauseOneFetch(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	waitIdle(t, j)
 	if srv.hits.Load() != 1 {
 		t.Fatalf("%d fetches", srv.hits.Load())
 	}

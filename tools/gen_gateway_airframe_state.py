@@ -196,10 +196,16 @@ def run(world: World, tool: str, *args):
             return {"error": {"class": "AirframeError", "message": str(e)}}
 
 
+def _request_key(r):
+    """A recorded request's place in the fixture: the target and status, then the body (a stable serialisation), so requests the world
+    answered from several threads in a varying order are written in one."""
+    return (r["target"], r["status"], json.dumps(r.get("body"), sort_keys=True, separators=(",", ":")))
+
+
 def case(name, objects, tool, args, status=None, pages=None, go=None, why=None):
     w = World(objects, status, pages)
     out = run(w, tool, *args)
-    reqs = sorted(w.seen, key=lambda r: (r["target"], r["status"]))
+    reqs = sorted(w.seen, key=_request_key)
     d = {"name": name, "tool": tool, "args": list(args), "requests": reqs, **out}
     if status:
         d["status"] = {k: v for k, v in status.items()}
@@ -262,7 +268,7 @@ def go_env(cs, world, objects):
            "(never from a name joined from the argument, and never from an Application in a namespace a tenant writes), and answers an "
            "environment the app does not have")
     out, res = [], None
-    srt = lambda l: sorted(l, key=lambda r: (r["target"], r["status"]))
+    srt = lambda l: sorted(l, key=_request_key)
     unknown = {"result": {"error": {"rule": "AF-ENV-404", "message": f"{app} has no environment {env!r} on this cluster",
                                     "hint": "airframe.status {app} lists the app's environments; an environment is one the platform registered for the app."}}}
 

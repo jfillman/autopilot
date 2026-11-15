@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "4a405ae8bbd7a86b750fcd3047110e8e389b75f3",
+ "level_with": "6975636210f210c6a144bb044d71570e53789d72",
  "ported": {
   "src/autopilot/agent_xrs.py": {
    "sha256": "eb34c866e9bc1c95d150616620a273957aa21b569a095a874a1ae29fc9e04a50",
@@ -8,8 +8,8 @@
     "gateway/internal/definitions",
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "AgentXRs: the poll, the once-per-commit fetch, rejections with reasons, the transient-failure rules, the seed from the store; DefinitionsPublisher (the bundled set published at start until the core takes it)",
-   "left_for_later_slices": "S6 DefinitionsRefresher (the read API's)"
+   "carries": "AgentXRs: the poll, the once-per-commit fetch, rejections with reasons, the transient-failure rules, the seed from the store; DefinitionsPublisher (the bundled set published at start until the core takes it); S6: DefinitionsRefresher (readapi.Refresher)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/airframe_api.py": {
    "sha256": "40cd31162304091b4d75b7822adb18a64e0769332a60bf518c2fd818849f0a95",
@@ -42,6 +42,14 @@
     "gateway/internal/backends"
    ],
    "carries": "capabilities (every section and kind), explain, plan/changeset, status, describe, verify and normalise; no validate (the image carries no airframe-validate, so serve drops the tool)",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/api_serve.py": {
+   "sha256": "7208371bf981244d75ac3c0a126edddae2315753bae066f9d966ca99dd7a8cd7",
+   "go": [
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "`api`: GATEWAY_API_DSN, GATEWAY_API_TABLES (retired, `gateway` accepted), GATEWAY_API_POOL, GATEWAY_API_AUDITORS, GATEWAY_API_NOTIFIERS, GATEWAY_API_DEFINITIONS_INTERVAL, AUTOPILOT_DELEGATES, AUTOPILOT_AGENTS_DIR, AUTOPILOT_GATEWAY_URL, CLEARANCE_API_URL, RUNTIME_IMAGES_EXTRA, PORT, the auth and catalog settings; the build, the definitions refresher and the runtime catalog",
    "left_for_later_slices": ""
   },
   "src/autopilot/argo_sync.py": {
@@ -107,7 +115,7 @@
    "go": [
     "gateway/internal/definitions"
    ],
-   "carries": "Source, Loaded, Rejected, from_pin (the pin rules), Definitions (the live set: bundled names first and never shadowed, replace_cluster and its Changes, records, cluster_set, bundled_set); not apply_records (the read API's, S6)",
+   "carries": "Source, Loaded, Rejected, from_pin (the pin rules), Definitions (the live set: bundled names first and never shadowed, replace_cluster and its Changes, records, cluster_set, bundled_set); S6: apply_records, as the read API's refresher (readapi.Refresher: the rows through the same pin decision `serve` makes)",
    "left_for_later_slices": ""
   },
   "src/autopilot/engine/dispatch.py": {
@@ -182,6 +190,14 @@
     "gateway/internal/pgstate"
    ],
    "carries": "observe, warnings, clip_text, tool_call_summary, the result store (memory, and gateway_results) and its retention",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/runtimes.py": {
+   "sha256": "9aae68d0c56a9bbf860ff4504f98012adcd92fc38b5880c1422413f6ec0d1b90",
+   "go": [
+    "gateway/internal/readapi"
+   ],
+   "carries": "the catalog's parse (load) and Runtime.view for GET /v1/runtimes; allowed_images is the core's",
    "left_for_later_slices": ""
   },
   "src/autopilot/engine/schemas/agent-definition.schema.json": {
@@ -301,6 +317,22 @@
    "carries": "the AgentRun manifest and the run name",
    "left_for_later_slices": ""
   },
+  "src/autopilot/metrics.py": {
+   "sha256": "a312dc84f62cb1aa8392fcb5a27b108a94d408bc2a4a2e82079f8fe1b67de8e7",
+   "go": [
+    "gateway/internal/metrics"
+   ],
+   "carries": "the registry, counter and gauge, the exposition (text 0.0.4: names, help, labels, ordering, escaping, %g), TriggerMetrics' twelve series, GET /metrics on its own port",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/otlp_logs.py": {
+   "sha256": "17e4dca727fadf4b9318056590d7928c53925e357f707614771998ec4effb5bb",
+   "go": [
+    "gateway/internal/otlplogs"
+   ],
+   "carries": "the OTLP/HTTP JSON logs export: the resource attributes, scope, severity numbers, body, the bounded queue, batches and the drop-not-block rule",
+   "left_for_later_slices": ""
+  },
   "src/autopilot/preflight.py": {
    "sha256": "4272861e30fbb4cd5b0d4c29de8f2866fb09629c0ac3ec0b2a9e292eeb17619d",
    "go": [
@@ -309,13 +341,21 @@
    "carries": "the cases, the checks, the score, the ledger and the fingerprint (Go's own digest) behind the Preflight routes; the scripted-run harness is Python's local tooling",
    "left_for_later_slices": ""
   },
+  "src/autopilot/read_api.py": {
+   "sha256": "ae536b2865435f0e9e556f1f0c00452501615f78d55aab3190ce76a1cebadeec",
+   "go": [
+    "gateway/internal/readapi"
+   ],
+   "carries": "the whole read API: ROUTES (the embedded contract), Access.viewer and Viewer (auditor, person, delegate for a person, notifier), every route and its answers, PgReadStore's queries (scoped by the viewer in SQL, bounded), the read-only pool",
+   "left_for_later_slices": ""
+  },
   "src/autopilot/reads.py": {
    "sha256": "c98d29d269289ce3134648fd9a88a5c11f44432ea194e8175175125256796902",
    "go": [
     "gateway/internal/backends"
    ],
-   "carries": "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), ReadError; S5b: KubeArgo.sync (argo.sync.lower, over backends.ArgoSync)",
-   "left_for_later_slices": "S6 BackstageDirectory and BackstageOwnership (the read API)"
+   "carries": "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), ReadError; S5b: KubeArgo.sync (argo.sync.lower, over backends.ArgoSync); S6: BackstageDirectory and BackstageOwnership (gateway/internal/readapi Backstage: groups and apps from the catalog, cached, failing closed)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/reconcile.py": {
    "sha256": "f6891eab21a001a459d260ca74de37795c138c5899d240e69d0d888e21415bd2",
@@ -338,8 +378,8 @@
    "go": [
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S5c: AIRFRAME_ENABLED, AIRFRAME_CLUSTER, AIRFRAME_UPPER_CLUSTERS, AIRFRAME_TENANTS_REPO, XR_REQUEST_ENABLED (AIRFRAME_OWNER is Go's); S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler; S4: AGENT_XRS_ENABLED, AGENT_XRS_INTERVAL (and the Go-only AGENT_XRS_NAMESPACES and AGENT_XRS_MAX_TIER), the Agent XR loader and the bundled publish at start",
-   "left_for_later_slices": "S6 the settings and loops of what is not ported (the Backstage directory, the metrics port)"
+   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S5c: AIRFRAME_ENABLED, AIRFRAME_CLUSTER, AIRFRAME_UPPER_CLUSTERS, AIRFRAME_TENANTS_REPO, XR_REQUEST_ENABLED (AIRFRAME_OWNER is Go's); S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler; S4: AGENT_XRS_ENABLED, AGENT_XRS_INTERVAL (and the Go-only AGENT_XRS_NAMESPACES and AGENT_XRS_MAX_TIER), the Agent XR loader and the bundled publish at start; S6: METRICS_PORT and the trigger metrics endpoint, OTEL_EXPORTER_OTLP_LOGS_ENDPOINT (and Go's OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP), the Backstage directory the inbox reads (BACKSTAGE_URL)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/settings.py": {
    "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",
@@ -391,13 +431,7 @@
    "left_for_later_slices": ""
   }
  },
- "not_ported": {
-  "src/autopilot/api_serve.py": "S6",
-  "src/autopilot/engine/runtimes.py": "S6",
-  "src/autopilot/metrics.py": "S6",
-  "src/autopilot/otlp_logs.py": "S6",
-  "src/autopilot/read_api.py": "S6"
- },
+ "not_ported": {},
  "out_of_scope": {
   "src/autopilot/backends.py": "the test fakes (FakeGlidepath, Recorder): the Go gateway registers no fake",
   "src/autopilot/cli.py": "the Python command line (preflight, reads): not part of the gateway process"

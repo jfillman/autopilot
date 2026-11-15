@@ -6,7 +6,7 @@ import (
 )
 
 // Metrics are the counters and gauges the bridge, the sweep and the scheduler write (metrics.TriggerMetrics). The Prometheus
-// endpoint that serves them is a later slice (S6); until then nothing is behind the interface but Nop and the recorder tests use.
+// endpoint that serves them is S6's (internal/metrics.Trigger implements it); Nop is for a gateway with METRICS_PORT=0 and Recorder is what tests use.
 // Every label is from a closed set or an agent name, so a source cannot grow a series.
 type Metrics interface {
 	EventReceived(via string)
@@ -55,7 +55,7 @@ func (Nop) Stuck(string, int)              {}
 func (Nop) Poisoned(string)                {}
 func (Nop) Panicked()                      {}
 
-// Recorder is Metrics that keep what they were told (tests; S6's Prometheus registry replaces it).
+// Recorder is Metrics that keep what they were told (tests; internal/metrics.Trigger is the one that is served).
 type Recorder struct {
 	mu sync.Mutex
 	C  map[string]int

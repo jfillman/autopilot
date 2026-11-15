@@ -18,12 +18,12 @@ func TestReadBackendSettings(t *testing.T) {
 		t.Fatalf("the defaults: argo on in argocd, the rest off: %+v", c.reads)
 	}
 	c, err = configFromEnv(envOf(base(map[string]string{
-		"BACKSTAGE_URL": "http://backstage.backstage.svc:7007", "BACKSTAGE_TOKEN_FILE": "/tok",
+		"BACKSTAGE_URL": "https://backstage.backstage.svc:7007", "BACKSTAGE_TOKEN_FILE": "/tok",
 		"APP_API_SERVICES": `{"flight-api":"http://flight-api.app.svc:8080"}`, "ARGO_APP_NAMESPACES": "argocd, argocd-apps"})))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.reads.backstageURL != "http://backstage.backstage.svc:7007" || c.reads.backstageTokenFile != "/tok" ||
+	if c.reads.backstageURL != "https://backstage.backstage.svc:7007" || c.reads.backstageTokenFile != "/tok" ||
 		c.reads.appAPIServices["flight-api"] != "http://flight-api.app.svc:8080" || !slices.Equal(c.reads.argoNamespaces, []string{"argocd", "argocd-apps"}) {
 		t.Fatalf("%+v", c.reads)
 	}
@@ -38,6 +38,9 @@ func TestBadReadBackendSettingsStopTheStart(t *testing.T) {
 		"BACKSTAGE_URL=ftp://h":                    "BACKSTAGE_URL",
 		"BACKSTAGE_URL=http://u:p@h":               "BACKSTAGE_URL",
 		"BACKSTAGE_URL=http://h?x=1":               "BACKSTAGE_URL",
+		"BACKSTAGE_URL=http://backstage:7007":      "BACKSTAGE_URL must be an https URL",
+		"BACKSTAGE_URL=http://localhost:7007":      "BACKSTAGE_URL must be an https URL",
+		"BACKSTAGE_URL=http://127.0.0.1:7007":      "BACKSTAGE_URL must be an https URL",
 		"APP_API_SERVICES=[]":                      "APP_API_SERVICES is a JSON object",
 		"APP_API_SERVICES=nonsense":                "APP_API_SERVICES is a JSON object",
 		`APP_API_SERVICES={"Bad_Name":"http://h"}`: "APP_API_SERVICES",
@@ -67,5 +70,18 @@ func TestWhatIsStillNotCarriedIsStillRefused(t *testing.T) {
 		if slices.Contains(unported, k) {
 			t.Errorf("%s is carried now", k)
 		}
+	}
+}
+
+func TestPlainHTTPCatalogNeedsItsOwnSetting(t *testing.T) {
+	r, err := readBackends(envOf(map[string]string{"BACKSTAGE_URL": "http://backstage:7007", "BACKSTAGE_ALLOW_HTTP": "1"}))
+	if err != nil || r.backstageURL != "http://backstage:7007" || !r.backstageAllowHTTP {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := readBackends(envOf(map[string]string{"BACKSTAGE_URL": "http://backstage:7007", "BACKSTAGE_ALLOW_HTTP": "yes please"})); err == nil {
+		t.Fatal("a flag that is not one")
+	}
+	if _, err := readBackends(envOf(map[string]string{"BACKSTAGE_URL": "https://backstage:7007"})); err != nil {
+		t.Fatal(err)
 	}
 }

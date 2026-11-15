@@ -1,0 +1,187 @@
+{
+ "bridge": {
+  "calls": [
+   [
+    "events_received",
+    {
+     "via": "stream"
+    },
+    1
+   ],
+   [
+    "events_received",
+    {
+     "via": "stream"
+    },
+    1
+   ],
+   [
+    "events_received",
+    {
+     "via": "recent"
+    },
+    1
+   ],
+   [
+    "stream_connected",
+    {},
+    1
+   ],
+   [
+    "last_event",
+    {},
+    1731585600.0
+   ],
+   [
+    "cursor_time",
+    {},
+    1731585000.5
+   ],
+   [
+    "resumes",
+    {
+     "result": "caught-up"
+    },
+    1
+   ],
+   [
+    "resumes",
+    {
+     "result": "stale-cursor"
+    },
+    1
+   ],
+   [
+    "outcomes",
+    {
+     "agent": "triage-agent",
+     "result": "launched",
+     "via": "stream"
+    },
+    1
+   ],
+   [
+    "outcomes",
+    {
+     "agent": "triage-agent",
+     "result": "deduped",
+     "via": "stream"
+    },
+    1
+   ],
+   [
+    "outcomes",
+    {
+     "agent": "a\"b\\c\nd",
+     "result": "braked",
+     "via": "reconcile"
+    },
+    3
+   ],
+   [
+    "missed",
+    {
+     "agent": "triage-agent",
+     "result": "launched"
+    },
+    1
+   ],
+   [
+    "sweeps",
+    {
+     "result": "ok"
+    },
+    1
+   ],
+   [
+    "sweeps",
+    {
+     "result": "failed"
+    },
+    2
+   ],
+   [
+    "sweep_ok",
+    {},
+    1731585700.0
+   ]
+  ],
+  "exposition": "# HELP autopilot_events_received_total Glidepath events the trigger bridge handled, by how they arrived.\n# TYPE autopilot_events_received_total counter\nautopilot_events_received_total{via=\"recent\"} 1\nautopilot_events_received_total{via=\"stream\"} 2\n# HELP autopilot_events_stream_connected 1 while the bridge holds glidepath-api's event stream.\n# TYPE autopilot_events_stream_connected gauge\nautopilot_events_stream_connected 1\n# HELP autopilot_events_last_received_timestamp_seconds Unix time the bridge last handled an event.\n# TYPE autopilot_events_last_received_timestamp_seconds gauge\nautopilot_events_last_received_timestamp_seconds 1.73159e+09\n# HELP autopilot_events_cursor_timestamp_seconds Receive time carried by the bridge's saved cursor (the newest event id handled).\n# TYPE autopilot_events_cursor_timestamp_seconds gauge\nautopilot_events_cursor_timestamp_seconds 1.73159e+09\n# HELP autopilot_events_resume_total Catch-ups from the saved cursor at (re)connect, by result: caught-up, stale-cursor (older than glidepath-api's buffer: events may be gone), failed.\n# TYPE autopilot_events_resume_total counter\nautopilot_events_resume_total{result=\"caught-up\"} 1\nautopilot_events_resume_total{result=\"stale-cursor\"} 1\n# HELP autopilot_trigger_outcomes_total What a trigger firing became, per agent, by path and result.\n# TYPE autopilot_trigger_outcomes_total counter\nautopilot_trigger_outcomes_total{agent=\"a\\\"b\\\\c\\nd\",via=\"reconcile\",result=\"braked\"} 3\nautopilot_trigger_outcomes_total{agent=\"triage-agent\",via=\"stream\",result=\"deduped\"} 1\nautopilot_trigger_outcomes_total{agent=\"triage-agent\",via=\"stream\",result=\"launched\"} 1\n# HELP autopilot_trigger_missed_total Trigger firings no event delivered, found by the reconciliation sweep (the gap), by what the sweep decided: launched, or held, braked, refused, launch-failed.\n# TYPE autopilot_trigger_missed_total counter\nautopilot_trigger_missed_total{agent=\"triage-agent\",result=\"launched\"} 1\n# HELP autopilot_reconcile_sweeps_total Reconciliation sweeps, by result (ok, failed).\n# TYPE autopilot_reconcile_sweeps_total counter\nautopilot_reconcile_sweeps_total{result=\"failed\"} 2\nautopilot_reconcile_sweeps_total{result=\"ok\"} 1\n# HELP autopilot_reconcile_last_success_timestamp_seconds Unix time of the last reconciliation sweep that read glidepath-api's run records.\n# TYPE autopilot_reconcile_last_success_timestamp_seconds gauge\nautopilot_reconcile_last_success_timestamp_seconds 1.73159e+09\n# HELP autopilot_schedule_launches_total Interval slots fired, per agent, by result.\n# TYPE autopilot_schedule_launches_total counter\n# HELP autopilot_schedule_missed_total Interval slots whose grace window passed with no firing (the gateway was down).\n# TYPE autopilot_schedule_missed_total counter\n# HELP autopilot_schedule_lag_seconds Seconds between the start of an agent's last fired slot and its firing.\n# TYPE autopilot_schedule_lag_seconds gauge\n"
+ },
+ "empty": {
+  "calls": [],
+  "exposition": "# HELP autopilot_events_received_total Glidepath events the trigger bridge handled, by how they arrived.\n# TYPE autopilot_events_received_total counter\n# HELP autopilot_events_stream_connected 1 while the bridge holds glidepath-api's event stream.\n# TYPE autopilot_events_stream_connected gauge\n# HELP autopilot_events_last_received_timestamp_seconds Unix time the bridge last handled an event.\n# TYPE autopilot_events_last_received_timestamp_seconds gauge\n# HELP autopilot_events_cursor_timestamp_seconds Receive time carried by the bridge's saved cursor (the newest event id handled).\n# TYPE autopilot_events_cursor_timestamp_seconds gauge\n# HELP autopilot_events_resume_total Catch-ups from the saved cursor at (re)connect, by result: caught-up, stale-cursor (older than glidepath-api's buffer: events may be gone), failed.\n# TYPE autopilot_events_resume_total counter\n# HELP autopilot_trigger_outcomes_total What a trigger firing became, per agent, by path and result.\n# TYPE autopilot_trigger_outcomes_total counter\n# HELP autopilot_trigger_missed_total Trigger firings no event delivered, found by the reconciliation sweep (the gap), by what the sweep decided: launched, or held, braked, refused, launch-failed.\n# TYPE autopilot_trigger_missed_total counter\n# HELP autopilot_reconcile_sweeps_total Reconciliation sweeps, by result (ok, failed).\n# TYPE autopilot_reconcile_sweeps_total counter\n# HELP autopilot_reconcile_last_success_timestamp_seconds Unix time of the last reconciliation sweep that read glidepath-api's run records.\n# TYPE autopilot_reconcile_last_success_timestamp_seconds gauge\n# HELP autopilot_schedule_launches_total Interval slots fired, per agent, by result.\n# TYPE autopilot_schedule_launches_total counter\n# HELP autopilot_schedule_missed_total Interval slots whose grace window passed with no firing (the gateway was down).\n# TYPE autopilot_schedule_missed_total counter\n# HELP autopilot_schedule_lag_seconds Seconds between the start of an agent's last fired slot and its firing.\n# TYPE autopilot_schedule_lag_seconds gauge\n"
+ },
+ "gauge-reset": {
+  "calls": [
+   [
+    "stream_connected",
+    {},
+    1
+   ],
+   [
+    "stream_connected",
+    {},
+    0
+   ],
+   [
+    "slot_lag",
+    {
+     "agent": "a"
+    },
+    1e-07
+   ],
+   [
+    "slot_lag",
+    {
+     "agent": "b"
+    },
+    123456789.0
+   ]
+  ],
+  "exposition": "# HELP autopilot_events_received_total Glidepath events the trigger bridge handled, by how they arrived.\n# TYPE autopilot_events_received_total counter\n# HELP autopilot_events_stream_connected 1 while the bridge holds glidepath-api's event stream.\n# TYPE autopilot_events_stream_connected gauge\nautopilot_events_stream_connected 0\n# HELP autopilot_events_last_received_timestamp_seconds Unix time the bridge last handled an event.\n# TYPE autopilot_events_last_received_timestamp_seconds gauge\n# HELP autopilot_events_cursor_timestamp_seconds Receive time carried by the bridge's saved cursor (the newest event id handled).\n# TYPE autopilot_events_cursor_timestamp_seconds gauge\n# HELP autopilot_events_resume_total Catch-ups from the saved cursor at (re)connect, by result: caught-up, stale-cursor (older than glidepath-api's buffer: events may be gone), failed.\n# TYPE autopilot_events_resume_total counter\n# HELP autopilot_trigger_outcomes_total What a trigger firing became, per agent, by path and result.\n# TYPE autopilot_trigger_outcomes_total counter\n# HELP autopilot_trigger_missed_total Trigger firings no event delivered, found by the reconciliation sweep (the gap), by what the sweep decided: launched, or held, braked, refused, launch-failed.\n# TYPE autopilot_trigger_missed_total counter\n# HELP autopilot_reconcile_sweeps_total Reconciliation sweeps, by result (ok, failed).\n# TYPE autopilot_reconcile_sweeps_total counter\n# HELP autopilot_reconcile_last_success_timestamp_seconds Unix time of the last reconciliation sweep that read glidepath-api's run records.\n# TYPE autopilot_reconcile_last_success_timestamp_seconds gauge\n# HELP autopilot_schedule_launches_total Interval slots fired, per agent, by result.\n# TYPE autopilot_schedule_launches_total counter\n# HELP autopilot_schedule_missed_total Interval slots whose grace window passed with no firing (the gateway was down).\n# TYPE autopilot_schedule_missed_total counter\n# HELP autopilot_schedule_lag_seconds Seconds between the start of an agent's last fired slot and its firing.\n# TYPE autopilot_schedule_lag_seconds gauge\nautopilot_schedule_lag_seconds{agent=\"a\"} 1e-07\nautopilot_schedule_lag_seconds{agent=\"b\"} 1.23457e+08\n"
+ },
+ "scheduler": {
+  "calls": [
+   [
+    "slot_launches",
+    {
+     "agent": "nightly-reviewer",
+     "result": "launched"
+    },
+    1
+   ],
+   [
+    "slot_missed",
+    {
+     "agent": "nightly-reviewer"
+    },
+    2
+   ],
+   [
+    "slot_lag",
+    {
+     "agent": "nightly-reviewer"
+    },
+    0.25
+   ],
+   [
+    "slot_lag",
+    {
+     "agent": "researcher"
+    },
+    12.0
+   ],
+   [
+    "outcomes",
+    {
+     "agent": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "result": "launched",
+     "via": "schedule"
+    },
+    1
+   ]
+  ],
+  "exposition": "# HELP autopilot_events_received_total Glidepath events the trigger bridge handled, by how they arrived.\n# TYPE autopilot_events_received_total counter\n# HELP autopilot_events_stream_connected 1 while the bridge holds glidepath-api's event stream.\n# TYPE autopilot_events_stream_connected gauge\n# HELP autopilot_events_last_received_timestamp_seconds Unix time the bridge last handled an event.\n# TYPE autopilot_events_last_received_timestamp_seconds gauge\n# HELP autopilot_events_cursor_timestamp_seconds Receive time carried by the bridge's saved cursor (the newest event id handled).\n# TYPE autopilot_events_cursor_timestamp_seconds gauge\n# HELP autopilot_events_resume_total Catch-ups from the saved cursor at (re)connect, by result: caught-up, stale-cursor (older than glidepath-api's buffer: events may be gone), failed.\n# TYPE autopilot_events_resume_total counter\n# HELP autopilot_trigger_outcomes_total What a trigger firing became, per agent, by path and result.\n# TYPE autopilot_trigger_outcomes_total counter\nautopilot_trigger_outcomes_total{agent=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",via=\"schedule\",result=\"launched\"} 1\n# HELP autopilot_trigger_missed_total Trigger firings no event delivered, found by the reconciliation sweep (the gap), by what the sweep decided: launched, or held, braked, refused, launch-failed.\n# TYPE autopilot_trigger_missed_total counter\n# HELP autopilot_reconcile_sweeps_total Reconciliation sweeps, by result (ok, failed).\n# TYPE autopilot_reconcile_sweeps_total counter\n# HELP autopilot_reconcile_last_success_timestamp_seconds Unix time of the last reconciliation sweep that read glidepath-api's run records.\n# TYPE autopilot_reconcile_last_success_timestamp_seconds gauge\n# HELP autopilot_schedule_launches_total Interval slots fired, per agent, by result.\n# TYPE autopilot_schedule_launches_total counter\nautopilot_schedule_launches_total{agent=\"nightly-reviewer\",result=\"launched\"} 1\n# HELP autopilot_schedule_missed_total Interval slots whose grace window passed with no firing (the gateway was down).\n# TYPE autopilot_schedule_missed_total counter\nautopilot_schedule_missed_total{agent=\"nightly-reviewer\"} 2\n# HELP autopilot_schedule_lag_seconds Seconds between the start of an agent's last fired slot and its firing.\n# TYPE autopilot_schedule_lag_seconds gauge\nautopilot_schedule_lag_seconds{agent=\"nightly-reviewer\"} 0.25\nautopilot_schedule_lag_seconds{agent=\"researcher\"} 12\n"
+ }
+}

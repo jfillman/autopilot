@@ -272,3 +272,39 @@ func TestDefinitionsAreReplacedWhole(t *testing.T) {
 		t.Fatalf("an empty set left %d rows", len(got))
 	}
 }
+
+// The read API's queries are served by indexes the writer creates at start (pgstate.indexes); a second start finds them and changes nothing.
+func TestOpenCreatesTheReadAPIsIndexes(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"gateway_sessions_created", "gateway_sessions_principal", "gateway_sessions_agent", "gateway_sessions_task", "gateway_events_outcomes", "gateway_events_app_id"}
+	have := func() map[string]bool {
+		rows, err := st.Pool.Query(ctx, "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		m := map[string]bool{}
+		for rows.Next() {
+			var n string
+			_ = rows.Scan(&n)
+			m[n] = true
+		}
+		return m
+	}
+	for _, n := range want {
+		if !have()[n] {
+			t.Errorf("index %s was not created", n)
+		}
+	}
+	st.Close(ctx)
+	st, err = pgstate.Open(ctx, dsn, 2) // again: IF NOT EXISTS
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close(ctx)
+}
