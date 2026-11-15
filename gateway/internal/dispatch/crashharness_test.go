@@ -604,6 +604,7 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 	}
 	applied, decidedAtApply, createdAtApply, snapped := false, false, 0, false
 
+	isSnapped := func() bool { w.runs.mu.Lock(); defer w.runs.mu.Unlock(); return snapped }
 	apply := func(pr *proc, kind string) {
 		var sid string
 		for _, s := range pr.g.Store.All() {
@@ -652,7 +653,7 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 		// A hold or an end that lands while the decision is being written, or after it, does not undo a launch that is past its last
 		// check (the run is then the sweep's to end); and a create that is already in flight when the hold lands is undone by the
 		// check after it, not prevented.
-		if row, _ := w.ledger.Get(ctx, "triage-agent", harnessKey); (row != nil && row.State != "claimed") || kind == "decide" {
+		if row, _ := w.ledger.Get(ctx, "triage-agent", harnessKey); !isSnapped() && ((row != nil && row.State != "claimed") || kind == "decide") {
 			decidedAtApply = true
 		}
 		w.runs.mu.Lock()
@@ -685,6 +686,10 @@ func runScenario(t *testing.T, p *peopleRig, sc scenario) (res result) {
 					w.runs.mu.Lock()
 					createdAtApply, snapped = len(w.runs.created), true
 					w.runs.mu.Unlock()
+					// whether the key was decided is read when the action lands, not when its own goroutine gets to it
+					if row, _ := w.ledger.Get(ctx, "triage-agent", harnessKey); row != nil && row.State != "claimed" {
+						decidedAtApply = true
+					}
 					return
 				}
 				time.Sleep(5 * time.Millisecond)

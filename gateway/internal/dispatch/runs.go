@@ -617,6 +617,18 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 		v := core.OutageVerdict(un, nil)
 		return &Result{Decision: map[string]any{"allow": false, "rule": v.Rule}, Error: str(v.Message), Session: &s.ID}, nil
 	}
+	// Ended while the launch was being recorded (after the check right after the create): the run is taken away like any run made under a
+	// session that is closed, so none is live under an end that came before the decision.
+	s.Lock()
+	closedLate := s.Closed
+	s.Unlock()
+	if closedLate {
+		g.markRunRemoved(ctx, s, session.RemovedClosed)
+		if rerr := g.removeRun(ctx, s); rerr != nil {
+			return nil, rerr
+		}
+		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("no live session"), Session: &s.ID}, nil
+	}
 	return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"run": run, "session": s.ID}, AuditSeq: seq, Session: &s.ID}, nil
 }
 
