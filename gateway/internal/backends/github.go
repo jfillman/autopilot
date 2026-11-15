@@ -568,7 +568,8 @@ var (
 	htmlComment = regexp.MustCompile(`(?s)<!--.*?(?:-->|$)`)
 	crossRef    = regexp.MustCompile(`#([0-9])`)
 	// a closing keyword, only where it points at something: an issue number, an issue address or owner/repo#n
-	closing = regexp.MustCompile(`(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b([\s:]*)(#|https?://|[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#)`)
+	closing = regexp.MustCompile(`(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b([\s\p{Z}\x{85}:]*)(#|https?://|GH-|[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#)`)
+	ghRef   = regexp.MustCompile(`(?i)\b(GH-)([0-9])`)
 )
 
 // defang makes text that an agent (or glidepath-api, from the agent's patch) wrote safe to put in a pull request: nobody is
@@ -583,6 +584,7 @@ func defang(s string) string {
 	s = mention.ReplaceAllString(s, "$1@\u200b$2")
 	s = closing.ReplaceAllString(s, "$1\u200b$2$3")
 	s = crossRef.ReplaceAllString(s, "#\u200b$1")
+	s = ghRef.ReplaceAllString(s, "$1\u200b$2")
 	return clipRunes(s, maxPRBody)
 }
 
@@ -599,6 +601,10 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 	}
 	if reservedTitle.MatchString(in.Title) {
 		return "", "", nil, &core.Denied{Rule: "GH-TITLE", Message: "a title does not look like one of the gateway's trailers", Hint: "Give the pull request a plain one-line title."}
+	}
+	// The title is sent as defang makes it (a `<` grows to `&lt;`, a comment goes): that is what must fit, before anything is written.
+	if out := defang(in.Title); pyStrip(out) == "" || utf8.RuneCountInString(out) > maxTitle {
+		return "", "", nil, &core.Denied{Rule: "GH-TITLE", Message: "a title is one line of 1 to 200 characters", Hint: "Give the pull request a short one-line title."}
 	}
 	if t := pyStrip(in.Title); t == "" || utf8.RuneCountInString(in.Title) > maxTitle || strings.IndexFunc(in.Title, unicode.IsControl) >= 0 || !utf8.ValidString(in.Title) {
 		return "", "", nil, &core.Denied{Rule: "GH-TITLE", Message: "a title is one line of 1 to 200 characters", Hint: "Give the pull request a short one-line title."}
@@ -732,8 +738,12 @@ func (g *GitHub) refuseDirectories(ctx context.Context, token, owner, name, base
 		case status != 200:
 			return "", ghErrorOf("contents", status, doc, "message")
 		default:
+			// Only a directory (a listing) or a file is something the base can have here. A symlink, a submodule or a type this
+			// gateway does not know is refused: a tree or a blob written there would replace it.
 			if _, isDir := doc.([]any); isDir {
 				st = "tree"
+			} else if typ, _ := docMap(doc)["type"].(string); typ != "file" {
+				st = "other"
 			}
 		}
 		state[p] = st
@@ -748,6 +758,10 @@ func (g *GitHub) refuseDirectories(ctx context.Context, token, owner, name, base
 				return err
 			}
 			if k == len(segs) {
+				if st == "other" {
+					return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is not a plain file or directory in the base",
+						Hint: "A symlink or a submodule is a person's to change."}
+				}
 				if st == "tree" {
 					return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is a directory in the base",
 						Hint: "A file cannot take the place of a directory; name a file inside it."}
@@ -755,6 +769,9 @@ func (g *GitHub) refuseDirectories(ctx context.Context, token, owner, name, base
 				break
 			}
 			switch st {
+			case "other":
+				return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is at or under " + pyStrRepr(clipRunes(p, 100)) + ", which is not a plain file or directory in the base",
+					Hint: "A symlink or a submodule is a person's to change."}
 			case "none":
 				k = len(segs) // nothing below a path the base does not have
 			case "blob":
@@ -933,7 +950,7 @@ func (g *GitHub) openPR(ctx context.Context, token, owner, name string, in OpenP
 		return nil, badAnswer("tree")
 	}
 	status, nc, err := g.gh(ctx, token, ghReq{ep: epPostCommit, owner: owner, name: name,
-		body: map[string]any{"message": commitMessage(in.Title, in.Meta), "tree": treeSha, "parents": []string{baseSha}}})
+		body: map[string]any{"message": commitMessage(defang(in.Title), in.Meta), "tree": treeSha, "parents": []string{baseSha}}})
 	if err != nil {
 		return nil, err
 	}

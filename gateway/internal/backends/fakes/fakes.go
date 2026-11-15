@@ -75,6 +75,7 @@ type GitHub struct {
 	DropAfter func(key string, n int) bool
 	counts    map[string]int
 	defaults  map[string]string
+	special   map[string]string
 	Minted    int
 }
 
@@ -160,6 +161,16 @@ func (g *GitHub) SeedPR(repo, branch string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.PRs[repo] = append(g.PRs[repo], &PullRequest{Number: len(g.PRs[repo]) + 1, Head: branch, Base: "main", State: "open", CommitSHA: g.branches[repo][branch]})
+}
+
+// SeedEntry makes the contents answer for a path an object of this type (symlink, submodule) rather than a file.
+func (g *GitHub) SeedEntry(repo, path, typ string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.special == nil {
+		g.special = map[string]string{}
+	}
+	g.special[repo+"/"+path] = typ
 }
 
 // SeedBranch makes a branch of the commit a call would have made (a crash left it there): the commit holds these files and
@@ -333,6 +344,10 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 			if strings.HasPrefix(p, strings.TrimRight(m[2], "/")+"/") {
 				entries = append(entries, map[string]any{"name": p, "type": "file"})
 			}
+		}
+		if typ, ok := g.special[m[1]+"/"+strings.TrimRight(m[2], "/")]; ok {
+			reply(w, 200, map[string]any{"type": typ, "name": m[2]})
+			return
 		}
 		if len(entries) > 0 {
 			reply(w, 200, entries)
