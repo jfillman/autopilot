@@ -1,4 +1,4 @@
-// Command autopilot-gateway is the Hangar AI gateway in Go (A-9): one binary, subcommands serve, api,
+// Command autopilot-gateway is the Hangar AI gateway in Go (A-9): one binary, subcommands serve, api, migrate,
 // conformance-control and version. See docs/admin/go-gateway.md for what this build carries and what is still the
 // Python gateway's. The deployed image is still the Python one; nothing selects this binary until the managing
 // cutover does.
@@ -22,6 +22,8 @@ func main() {
 		code = serve(os.Args[2:])
 	case "api":
 		code = api(os.Args[2:])
+	case "migrate":
+		code = migrate(os.Args[2:])
 	case "conformance-control":
 		code = conformanceControl(os.Args[2:])
 	case "version", "--version":
@@ -34,7 +36,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: autopilot-gateway serve | api | conformance-control [--listen host:port] | version")
+	fmt.Fprintln(os.Stderr, "usage: autopilot-gateway serve | api | migrate [--check] | conformance-control [--listen host:port] | version")
 }
 
 // gatewayVersion is the image's own version (AUTOPILOT_GATEWAY_VERSION, as the Python gateway reports it), else the

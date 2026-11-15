@@ -76,6 +76,9 @@ func checkReaderGlob(setting, g string) error {
 }
 
 func apiConfigFromEnv(env func(string) string) (*apiConfig, error) {
+	if m := coreOnlySettings(env); m != "" {
+		return nil, configError(m)
+	}
 	if m := retiredSettings(env); m != "" {
 		return nil, configError(m)
 	}
@@ -215,6 +218,13 @@ func buildAPI(ctx context.Context, cfg *apiConfig, log *slog.Logger) (*http.Serv
 	if err := store.CheckRole(cctx); err != nil {
 		store.Close()
 		return nil, nil, err
+	}
+	// The six indexes are `migrate`'s: a missing one makes the lists slow (bounded by the statement timeout), not wrong, so it is said, loudly, and
+	// the api serves (the readiness probe is the database answering, not the schema's age).
+	if m, err := store.IndexProblems(cctx); err != nil {
+		log.Warn("the read API's indexes could not be checked", "err", err.Error())
+	} else if m != "" {
+		log.Error("the gateway database lacks indexes the read API needs: " + m)
 	}
 	a, err := readapi.New(&readapi.API{Access: access, Store: store, Defs: set, Runtimes: runtimes, CustomImages: cfg.runtimeImages,
 		GatewayURL: cfg.gatewayURL, ClearanceURL: cfg.clearanceURL})

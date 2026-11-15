@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jfillman/autopilot/gateway/internal/dbindex"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 )
@@ -25,8 +26,8 @@ const StatementTimeoutMS = 5000
 // and bounded by a statement timeout, whatever the role allows. The tables' names are constants, never caller input; every value is a
 // parameter.
 //
-// The index that serves each query (the migrations are the writer's, pgstate.indexes, run when `serve` starts; nothing here may create
-// one):
+// The index that serves each query (dbindex.Indexes, built by `autopilot-gateway migrate`, which the deployment runs before the gateway; nothing here may
+// create one):
 //
 //	Sessions, unscoped (auditor)     gateway_sessions_created   ((record->>'created_at') DESC, id DESC)
 //	Sessions, a person's scope       gateway_sessions_principal / gateway_sessions_agent, with created_at, a bitmap OR
@@ -378,6 +379,16 @@ func (s *PgStore) Definitions(ctx context.Context) ([]definitions.Row, error) {
 		}
 	}
 	return out, rows.Err()
+}
+
+// IndexProblems says which of the six Go-only indexes is missing or invalid, and what to run ("" when all are in place). The system catalogs
+// are readable by any role.
+func (s *PgStore) IndexProblems(ctx context.Context) (string, error) {
+	st, err := dbindex.Check(ctx, dbindex.Pgx(s.Pool))
+	if err != nil {
+		return "", err
+	}
+	return dbindex.Problems(st), nil
 }
 
 func (s *PgStore) Ping(ctx context.Context) error {

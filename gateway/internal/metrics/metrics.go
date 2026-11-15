@@ -42,6 +42,7 @@ type metric struct {
 	mu      sync.Mutex
 	values  map[string]*sample // by the label values joined with \x00
 	refused int
+	onDrop  func(metric string) // told of each sample refused at the cap (the registry's drop counter)
 }
 
 type sample struct {
@@ -73,6 +74,9 @@ func (m *metric) slot(values []string) *sample {
 				slog.Warn("a metric holds the most series it may: new label values are not recorded", "metric", m.name, "max", MaxSeries)
 			}
 			m.refused++
+			if m.onDrop != nil {
+				m.onDrop(m.name)
+			}
 			return nil
 		}
 		s = &sample{labels: cl}
@@ -211,12 +215,12 @@ func (r *Registry) Names() []string {
 }
 
 // Trigger is the series the bridge, the sweep and the scheduler write (metrics.TriggerMetrics), and it is triggers.Metrics. The first
-// twelve are Python's; the four after them are the Go gateway's own (the bridge drops, holds and poisons events Python has no counter
-// for), registered last so Python's block is a prefix of the exposition.
+// twelve are Python's; the five after them are the Go gateway's own (the bridge drops, holds and poisons events Python has no counter
+// for, and the cap on series drops samples), registered last so Python's block is a prefix of the exposition.
 type Trigger struct {
 	Registry                                                                                           *Registry
 	eventsReceived, streamConnected, lastEvent, cursorTime, resumes, outcomes, missed, sweeps, sweepOK *metric
-	slotLaunches, slotMissed, slotLag, dropped, stuck, poisoned, panics                                *metric
+	slotLaunches, slotMissed, slotLag, dropped, stuck, poisoned, panics, seriesDropped                 *metric
 }
 
 // NewTrigger registers the series.
@@ -240,6 +244,14 @@ func NewTrigger() *Trigger {
 	t.stuck = r.add("autopilot_trigger_stuck_attempts", "How many times in a row the handling of one agent's trigger failed without being decided (0 once decided).", gaugeKind, "agent")
 	t.poisoned = r.add("autopilot_trigger_poisoned_total", "Triggers decided launch-failed because they kept failing, per agent.", counterKind, "agent")
 	t.panics = r.add("autopilot_trigger_handler_panics_total", "Event handlers that panicked outside one agent's trigger.", counterKind)
+	// The cap's own counter: a metric at MaxSeries drops new label values silently otherwise. Labelled by the metric's name (a handful of
+	// values, so it can never reach the cap itself).
+	t.seriesDropped = r.add("autopilot_metric_series_dropped_total", "Samples not recorded because their metric already holds the most series it may (a label that grew without bound), by metric.", counterKind, "metric")
+	for _, m := range r.metrics {
+		if m != t.seriesDropped {
+			m.onDrop = func(name string) { t.seriesDropped.Inc(1, name) }
+		}
+	}
 	return t
 }
 

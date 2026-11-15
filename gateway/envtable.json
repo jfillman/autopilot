@@ -1,0 +1,959 @@
+{
+ "_": "Every environment variable the Python gateway and autopilot-api read, against the Go gateway's (docs/admin/go-gateway-env.md is generated from this file by tools/gen_gateway_env_table.py). class: same | new (Go only) | not_carried (Python reads, Go does not: say why) | refused (both refuse it) | retired (renamed, both refuse the old name) | kubelet (set on the pod, read by no process). python/go: the processes that read it (serve, api, migrate). deployed: the Python Deployment sets it today (apron templates/55-autopilot/gateway). example: a value the test gives it.",
+ "vars": [
+  {
+   "name": "GATEWAY_DSN",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "postgresql://autopilot:pw@autopilot-pg-rw:5432/autopilot",
+   "note": "The writer's DSN (the database owner's)."
+  },
+  {
+   "name": "CLEARANCE_CORE_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "http://clearance-core.clearance-system.svc:8080",
+   "note": "Plain http is accepted for the core (it is a Service on the cluster network)."
+  },
+  {
+   "name": "CLEARANCE_CORE_TOKEN_FILE",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": "Default /var/run/secrets/tokens/clearance."
+  },
+  {
+   "name": "CLEARANCE_CORE_TIMEOUT",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": "Seconds per attempt, 0.05 to 30."
+  },
+  {
+   "name": "CLEARANCE_API_URL",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "deployed": "api",
+   "example": "http://clearance-api.clearance-system.svc:8080",
+   "note": "Named in /v1/contract."
+  },
+  {
+   "name": "AUTOPILOT_AUDIENCE",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "clearance",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_RUN_AUDIENCES",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "note": "Default autopilot."
+  },
+  {
+   "name": "AUTOPILOT_RESOURCE_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "https://autopilot.example.test/mcp",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_ISSUER_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_EXPIRE_SECONDS",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_AGENTS_DIR",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "note": "Default /app/agents (the image carries them)."
+  },
+  {
+   "name": "AUTOPILOT_ADMINS",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "user:alice",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_DELEGATES",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "hangar-tower/backstage/backstage-ingestor",
+   "note": "Go refuses `*`, a leading wildcard and a wildcard namespace (stricter; Python takes any glob)."
+  },
+  {
+   "name": "AUTOPILOT_GATEWAY_URL",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "deployed": "api",
+   "example": "https://autopilot.example.test",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_GATEWAY_VERSION",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "same",
+   "via": "os.Getenv",
+   "note": "Set by the image (the release tag)."
+  },
+  {
+   "name": "AUTOPILOT_OIDC_ISSUER",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "http://dex.example.test/dex",
+   "note": "Go checks the issuer's key URL is https unless AUTOPILOT_JWKS_ALLOW_HTTP=1."
+  },
+  {
+   "name": "AUTOPILOT_OIDC_AUDIENCE",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "clearance",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_OIDC_JWKS_URL",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "http://people-dex.autopilot-system.svc:5556/dex/keys",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_OIDC_USER_CLAIM",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "preferred_username",
+   "note": ""
+  },
+  {
+   "name": "AUTOPILOT_OIDC_ALLOWED_USERS",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "alice",
+   "note": ""
+  },
+  {
+   "name": "TOWER_ISSUER",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "https://tower.example.test",
+   "note": ""
+  },
+  {
+   "name": "TOWER_CLUSTER",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "hangar-tower",
+   "note": ""
+  },
+  {
+   "name": "TOWER_SERVICE_ACCOUNTS",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "backstage/backstage-ingestor",
+   "note": ""
+  },
+  {
+   "name": "TOWER_JWKS_URL",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "BACKSTAGE_URL",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "http://backstage.example.test",
+   "note": "Go needs https unless BACKSTAGE_ALLOW_HTTP=1."
+  },
+  {
+   "name": "BACKSTAGE_TOKEN_FILE",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "/var/run/clearance/backstage-token",
+   "note": ""
+  },
+  {
+   "name": "RUNTIME_IMAGES_EXTRA",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "ghcr.io/acme/*@sha256:*",
+   "note": ""
+  },
+  {
+   "name": "APP_API_SERVICES",
+   "python": "serve",
+   "go": "serve,api",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "ARGO_APP_NAMESPACES",
+   "python": "serve",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve",
+   "example": "argocd,argocd-apps",
+   "note": ""
+  },
+  {
+   "name": "ARGO_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "ARGO_SYNC_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "1",
+   "note": "Go needs ARGO_ENABLED (Python ignores it when Argo reads are off)."
+  },
+  {
+   "name": "PROMETHEUS_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "http://thanos-query.observability.svc:9090",
+   "note": ""
+  },
+  {
+   "name": "LOKI_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "http://loki-gateway.observability.svc",
+   "note": ""
+  },
+  {
+   "name": "GLIDEPATH_API_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "http://glidepath-api.platform-system.svc:8080",
+   "note": "Go needs https unless GLIDEPATH_API_ALLOW_HTTP=1."
+  },
+  {
+   "name": "GLIDEPATH_TOKEN_FILE",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "GLIDEPATH_ON_BEHALF_OF",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "1",
+   "note": ""
+  },
+  {
+   "name": "GITHUB_PR_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "1",
+   "note": "Go also needs BROKER_URL, GITHUB_OWNERS and (it turns the Agent XR loader on) AGENT_XRS_NAMESPACES."
+  },
+  {
+   "name": "AGENT_TOKEN_FILE",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "/var/run/clearance/agent-installation-token",
+   "note": ""
+  },
+  {
+   "name": "BROKER_URL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "example": "https://broker.example.test",
+   "note": "Python's default names a lab Service; Go has no default and needs https unless BROKER_ALLOW_HTTP=1."
+  },
+  {
+   "name": "AGENT_XRS_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "AGENT_XRS_INTERVAL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "AIRFRAME_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "AIRFRAME_CLUSTER",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "hangar-dev",
+   "note": ""
+  },
+  {
+   "name": "AIRFRAME_TENANTS_REPO",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "tenants",
+   "note": ""
+  },
+  {
+   "name": "AIRFRAME_UPPER_CLUSTERS",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "example": "hangar-prod",
+   "note": "Python's default is hangar-prod."
+  },
+  {
+   "name": "XR_REQUEST_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "EVENTS_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "1",
+   "note": ""
+  },
+  {
+   "name": "SCHEDULES_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "1",
+   "note": ""
+  },
+  {
+   "name": "RECONCILE_SECONDS",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "RECONCILE_WINDOW_HOURS",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": "Go allows at most 720 (its ledger's retention); Python allows 744."
+  },
+  {
+   "name": "GATEWAY_OUTAGE_ALLOW_READS",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "MODEL_KEY_FILE",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "/etc/clearance-model/anthropic-api-key",
+   "note": ""
+  },
+  {
+   "name": "MODEL_ROUTES",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "deployed": "serve",
+   "example": "claude-sonnet-5-5=claude-sonnet-5-5",
+   "note": ""
+  },
+  {
+   "name": "MODEL_TOKEN_AUDIENCE",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "MODEL_PORT",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "PORT",
+   "python": "both",
+   "go": "serve,api",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "METRICS_PORT",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": "The api serves no metrics (Python's does not either)."
+  },
+  {
+   "name": "PREFLIGHT_CASES_DIR",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "LOG_LEVEL",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "same",
+   "via": "os.Getenv",
+   "note": ""
+  },
+  {
+   "name": "GATEWAY_API_DSN",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "deployed": "api",
+   "example": "postgresql://reader:pw@autopilot-pg-rw:5432/autopilot",
+   "note": "Go refuses to start on a role that could write (CheckRole)."
+  },
+  {
+   "name": "GATEWAY_API_AUDITORS",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "deployed": "api",
+   "example": "user:alice",
+   "note": "Go refuses a catch-all glob."
+  },
+  {
+   "name": "GATEWAY_API_NOTIFIERS",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "deployed": "api",
+   "example": "hangar-tower/backstage/backstage-ingestor",
+   "note": "Go refuses a catch-all glob."
+  },
+  {
+   "name": "GATEWAY_API_POOL",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "GATEWAY_API_DEFINITIONS_INTERVAL",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "note": ""
+  },
+  {
+   "name": "GATEWAY_API_TABLES",
+   "python": "api",
+   "go": "api",
+   "class": "same",
+   "note": "Retired at R-4 in both: only `gateway` is accepted."
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "http://otel-collector.observability.svc:4318/v1/logs",
+   "note": "Go needs https unless OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1."
+  },
+  {
+   "name": "OTEL_SERVICE_NAME",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "autopilot-gateway",
+   "note": ""
+  },
+  {
+   "name": "OTEL_RESOURCE_ATTRIBUTES",
+   "python": "serve,api",
+   "go": "serve,api",
+   "class": "same",
+   "deployed": "serve,api",
+   "example": "k8s.namespace.name=autopilot-system",
+   "note": ""
+  },
+  {
+   "name": "GATEWAY_CONFORMANCE_CONTROL",
+   "python": "serve",
+   "go": "serve",
+   "class": "same",
+   "note": "Test-only control interface; off unless set."
+  },
+  {
+   "name": "POD_NAMESPACE",
+   "python": "",
+   "go": "",
+   "class": "kubelet",
+   "deployed": "both",
+   "example": "autopilot-system",
+   "note": "Substituted by the kubelet into OTEL_RESOURCE_ATTRIBUTES ($(POD_NAMESPACE)); no process reads it."
+  },
+  {
+   "name": "POD_NAME",
+   "python": "",
+   "go": "",
+   "class": "kubelet",
+   "deployed": "both",
+   "example": "gw-0",
+   "note": "Substituted by the kubelet into OTEL_RESOURCE_ATTRIBUTES ($(POD_NAME)); no process reads it."
+  },
+  {
+   "name": "GITHUB_OWNERS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "example": "acme",
+   "note": "The GitHub owners the pull requests go to (no argument chooses one). Required with GITHUB_PR_ENABLED."
+  },
+  {
+   "name": "AIRFRAME_OWNER",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "example": "acme",
+   "note": "Owner of the tenants repository and the apps' repositories (Python assumes one lab user). One of GITHUB_OWNERS."
+  },
+  {
+   "name": "AGENT_XRS_NAMESPACES",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "example": "app-gate-api-cicd",
+   "note": "The namespaces whose Agent XRs may define agents. Required when the loader is on (Python reads every namespace)."
+  },
+  {
+   "name": "AGENT_XRS_NAMES",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "Agents whose names do not start with their app: name=namespace."
+  },
+  {
+   "name": "AGENT_XRS_TOOLS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "Tools a pin may hold beyond the default set."
+  },
+  {
+   "name": "AGENT_XRS_MAX_TIER",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "T0, T1 or T2 (default T2)."
+  },
+  {
+   "name": "GLIDEPATH_API_ALLOW_HTTP",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "example": "1",
+   "note": "Plain http to glidepath-api (default off)."
+  },
+  {
+   "name": "BROKER_ALLOW_HTTP",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "Plain http to the installation-token broker (default off)."
+  },
+  {
+   "name": "BACKSTAGE_ALLOW_HTTP",
+   "python": "",
+   "go": "serve,api",
+   "class": "new",
+   "example": "1",
+   "note": "Plain http to the catalog (default off)."
+  },
+  {
+   "name": "AUTOPILOT_JWKS_ALLOW_HTTP",
+   "python": "",
+   "go": "serve,api",
+   "class": "new",
+   "example": "1",
+   "note": "Plain http to an OIDC or Tower key set (default off)."
+  },
+  {
+   "name": "OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP",
+   "python": "",
+   "go": "serve,api",
+   "class": "new",
+   "example": "1",
+   "note": "Plain http to the log collector (default off)."
+  },
+  {
+   "name": "GATEWAY_CALL_TIMEOUT_SECONDS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": ""
+  },
+  {
+   "name": "GATEWAY_PG_CONNS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": ""
+  },
+  {
+   "name": "MODEL_TIMEOUT_SECONDS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": ""
+  },
+  {
+   "name": "XR_REGIONS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_VPC_CIDRS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_SLACK_CHANNELS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_SLO_LABELS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_DB_SIZES",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_MAX_DB_STORAGE_GIB",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_MAX_CONSUMERS",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_ALLOW_UNPROTECTED_DB",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "XR_ALLOW_EMPTY_ON_DELETE",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "note": "What xr.request may ask for (Python bounds nothing; each has a safe default)."
+  },
+  {
+   "name": "MIGRATE_LOCK_TIMEOUT_SECONDS",
+   "python": "",
+   "go": "migrate",
+   "class": "new",
+   "note": "`migrate` only (default 5)."
+  },
+  {
+   "name": "MIGRATE_STATEMENT_TIMEOUT_SECONDS",
+   "python": "",
+   "go": "migrate",
+   "class": "new",
+   "note": "`migrate` only (default 900)."
+  },
+  {
+   "name": "CLEARANCE_CORE_TOKEN",
+   "python": "serve",
+   "go": "",
+   "class": "not_carried",
+   "note": "A literal token for the local smoke tools (engine/core.py local_core): never a deployment. The Go gateway reads CLEARANCE_CORE_TOKEN_FILE only."
+  },
+  {
+   "name": "CLEARANCE_TOKEN",
+   "python": "serve",
+   "go": "",
+   "class": "not_carried",
+   "note": "The test MCP server's token provider (engine/server.py): never a deployment."
+  },
+  {
+   "name": "AUTOPILOT_EPHEMERAL",
+   "python": "serve",
+   "go": "serve",
+   "class": "refused",
+   "note": "An in-memory store, local runs only: Go refuses it (no memory store). Python's api sets it for its own config parse and ignores the environment's."
+  },
+  {
+   "name": "CLEARANCE_EPHEMERAL",
+   "python": "serve",
+   "go": "serve",
+   "class": "refused",
+   "note": "The old name of the above."
+  },
+  {
+   "name": "EVENTS_RABBITMQ_ENABLED",
+   "python": "serve",
+   "go": "serve",
+   "class": "refused",
+   "note": "Designed, not built: both refuse it."
+  },
+  {
+   "name": "CLEARANCE_DSN",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_VERIFIERS",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "AGENT_LOGINS",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_GITHUB_APP_ID",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_GITHUB_APP_KEY_FILE",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_GITHUB_APP_COMMENTS",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_GITHUB_OIDC_AUDIENCE",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_GITHUB_OIDC_ALLOWED",
+   "python": "both",
+   "go": "serve,api",
+   "class": "refused",
+   "note": "The Clearance core's setting (Python CORE_ONLY): both refuse it."
+  },
+  {
+   "name": "CLEARANCE_OIDC_ISSUER",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_OIDC_AUDIENCE",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_OIDC_ALLOWED_USERS",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_OIDC_JWKS_URL",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_OIDC_USER_CLAIM",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_AGENTS_DIR",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_AUDIENCE",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_RESOURCE_URL",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_ISSUER_URL",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_EXPIRE_SECONDS",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_DELEGATES",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_ADMINS",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  },
+  {
+   "name": "CLEARANCE_GATEWAY_URL",
+   "python": "both",
+   "go": "serve,api,migrate",
+   "class": "retired",
+   "note": "Renamed AUTOPILOT_* at R-10a; the old name is refused at start (R-10e) by both."
+  }
+ ]
+}

@@ -64,7 +64,7 @@ func TestTheExpositionEqualsPythons(t *testing.T) {
 			extra := strings.TrimPrefix(got, sc.Exposition)
 			for _, line := range strings.Split(strings.TrimSpace(extra), "\n") {
 				ok := false
-				for _, n := range []string{"autopilot_events_dropped_total", "autopilot_trigger_stuck_attempts", "autopilot_trigger_poisoned_total", "autopilot_trigger_handler_panics_total"} {
+				for _, n := range []string{"autopilot_events_dropped_total", "autopilot_trigger_stuck_attempts", "autopilot_trigger_poisoned_total", "autopilot_trigger_handler_panics_total", "autopilot_metric_series_dropped_total"} {
 					ok = ok || strings.Contains(line, n)
 				}
 				if !ok {
@@ -77,7 +77,7 @@ func TestTheExpositionEqualsPythons(t *testing.T) {
 
 func TestPythonsNamesAreThePrefixOfTheRegistry(t *testing.T) {
 	names := NewTrigger().Registry.Names()
-	if len(names) != len(PythonNames)+4 {
+	if len(names) != len(PythonNames)+5 {
 		t.Fatalf("%d series", len(names))
 	}
 	for i, n := range PythonNames {
@@ -122,6 +122,16 @@ func TestSeriesAreBounded(t *testing.T) {
 	m.Outcome("agent-xxxa0", "stream", "launched")
 	if v := m.outcomes.Value("agent-xxxa0", "stream", "launched"); v != 2 {
 		t.Fatalf("a held series stopped counting: %v", v)
+	}
+	// And the drops are counted, by metric, not silent: 500 new values were refused, and the one more held series is not a drop.
+	if v := m.seriesDropped.Value("autopilot_trigger_outcomes_total"); v != 500 {
+		t.Fatalf("%v drops counted, want 500", v)
+	}
+	if !strings.Contains(m.Registry.Render(), `autopilot_metric_series_dropped_total{metric="autopilot_trigger_outcomes_total"} 500`) {
+		t.Fatal("the drop counter is not exposed")
+	}
+	if v := m.seriesDropped.Value("autopilot_trigger_missed_total"); v != 0 {
+		t.Fatalf("a metric that dropped nothing has a drop count: %v", v)
 	}
 }
 

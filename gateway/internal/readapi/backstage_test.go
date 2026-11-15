@@ -192,3 +192,63 @@ func TestTheInboxsDirectoryFailsClosed(t *testing.T) {
 		t.Fatalf("%v", g)
 	}
 }
+
+// A person who owns more than one page of components sees all of them (the catalog's by-query is paged, 500 to a page, a cursor to the next).
+func TestAPersonsAppsAreReadPageByPageWithinABoundAndOverTheBoundFailsClosed(t *testing.T) {
+	var pages atomic.Int64
+	var cursors []string
+	endless := atomic.Bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/by-name/user/") {
+			_, _ = w.Write([]byte(`{"relations":[]}`))
+			return
+		}
+		pages.Add(1)
+		c := r.URL.Query().Get("cursor")
+		cursors = append(cursors, c)
+		switch {
+		case endless.Load():
+			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"a` + c + `"}}],"pageInfo":{"nextCursor":"` + c + `x"}}`))
+		case c == "":
+			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"app-one"}}],"pageInfo":{"nextCursor":"p2"}}`))
+		case c == "p2":
+			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"App-Two"}}],"pageInfo":{"nextCursor":"p3"}}`))
+		default:
+			_, _ = w.Write([]byte(`{"items":[{"metadata":{"name":"app-three"}}],"pageInfo":{}}`))
+		}
+	}))
+	defer srv.Close()
+	b := newTestBackstage(t, srv.URL)
+	apps, err := b.Apps(context.Background(), "user:jfillman")
+	if err != nil || len(apps) != 3 || !apps["app-one"] || !apps["app-two"] || !apps["app-three"] {
+		t.Fatalf("a paged catalog: %v %v", apps, err)
+	}
+	if strings.Join(cursors, ",") != ",p2,p3" {
+		t.Fatalf("cursors %v", cursors)
+	}
+	// A catalog that never stops paging: bounded, and the person is held to their own sessions (an error, as an outage is), not given a
+	// partial list of apps as if it were whole.
+	endless.Store(true)
+	pages.Store(0)
+	b2 := newTestBackstage(t, srv.URL)
+	b2.MaxPages = 4
+	apps, err = b2.Apps(context.Background(), "user:other")
+	if err == nil || !strings.Contains(err.Error(), "more than 4 pages") || len(apps) != 0 {
+		t.Fatalf("over the bound must fail closed: %v %v", apps, err)
+	}
+	if n := pages.Load(); n != 4 {
+		t.Fatalf("%d pages were fetched, want the bound (4)", n)
+	}
+	// A cursor that repeats is a loop, not a page.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/by-name/user/") {
+			_, _ = w.Write([]byte(`{"relations":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[],"pageInfo":{"nextCursor":"same"}}`))
+	}))
+	defer srv2.Close()
+	if apps, err = newTestBackstage(t, srv2.URL).Apps(context.Background(), "user:loop"); err == nil || len(apps) != 0 {
+		t.Fatalf("a cursor that repeats: %v %v", apps, err)
+	}
+}

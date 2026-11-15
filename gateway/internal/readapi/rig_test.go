@@ -49,6 +49,9 @@ func scratchLocale(t *testing.T, locale string) (dsn string, st *pgstate.State) 
 			a.Close(ctx)
 		}
 	})
+	if _, err = pgstate.Migrate(ctx, u.String(), pgstate.MigrateOptions{}); err != nil { // the indexes are `migrate`'s, not serve's start
+		t.Fatal(err)
+	}
 	st, err = pgstate.Open(ctx, u.String(), 4)
 	if err != nil {
 		t.Fatal(err)

@@ -115,6 +115,8 @@ def test_the_go_client_of_clearance_is_the_release_the_python_client_and_the_tes
     py = re.search(r"clearance@(v[\d.]+)#subdirectory=clients/python", (ROOT / "pyproject.toml").read_text()).group(1)
     go = re.search(r"github.com/jfillman/clearance (v[\d.]+)", (GATEWAY / "go.mod").read_text()).group(1)
     assert ci == py == go, f"CI core {ci}, Python client {py}, Go client {go}: bump the three together"
+    rel = re.search(r"^  CLEARANCE_REF: (\S+)", (ROOT / ".github" / "workflows" / "gateway-go-image.yaml").read_text(), re.M).group(1)
+    assert rel == ci, f"the Go image's release workflow tests against core {rel}, test.yaml against {ci}: bump both"
 
 
 def _clearance_src() -> str | None:
@@ -186,6 +188,74 @@ def test_the_go_gateway_passes_the_runtime_suite_of_the_core_image(go_control, t
     code, out, rep = _harness(go_control, report, image=os.environ["AUTOPILOT_CONFORMANCE_IMAGE"])
     _keep(report, "conformance-runtime-go-image.json")
     _assert_green(code, out, rep)
+
+
+GO_IMAGE = os.environ.get("AUTOPILOT_GATEWAY_GO_IMAGE")   # the image gateway-go-image.yaml just built (CI); unset locally
+
+
+def _docker(*args, **kw):
+    return subprocess.run(["docker", *args], capture_output=True, text=True, **kw)
+
+
+@pytest.fixture
+def go_image_control(tmp_path):
+    """The conformance control interface of the Go gateway IMAGE: the container as the cluster runs it (the distroless nonroot image,
+    read-only root filesystem, every capability dropped), on the host's loopback so the harness's core can reach it."""
+    port = _free_port()
+    name = f"apgw-conformance-{port}"
+    r = _docker("run", "-d", "--rm", "--name", name, "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "-e", "GATEWAY_CONFORMANCE_CONTROL=1", GO_IMAGE, "conformance-control", "--listen", f"127.0.0.1:{port}")
+    assert r.returncode == 0, r.stderr
+    url = f"http://127.0.0.1:{port}"
+    try:
+        _wait(url + "/conformance/v1/info")
+        yield url
+    finally:
+        logs = _docker("logs", name)
+        (tmp_path / "image.log").write_text(logs.stdout + logs.stderr)
+        _docker("rm", "-f", name)
+
+
+@pytest.mark.skipif(not (GO_IMAGE and os.environ.get("AUTOPILOT_CONFORMANCE_IMAGE")),
+                    reason="AUTOPILOT_GATEWAY_GO_IMAGE (the image under test) and AUTOPILOT_CONFORMANCE_IMAGE (the core image) are not set; CI sets them")
+def test_the_go_gateway_image_passes_the_runtime_suite_of_the_core_image(go_image_control, tmp_path):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    report = out_dir / "conformance-runtime.json"
+    code, out, rep = _harness(go_image_control, report, image=os.environ["AUTOPILOT_CONFORMANCE_IMAGE"])
+    _keep(report, "conformance-runtime-go-gateway-image.json")
+    _assert_green(code, out, rep)
+
+
+@pytest.mark.skipif(not GO_IMAGE, reason="AUTOPILOT_GATEWAY_GO_IMAGE (the image under test) is not set; CI sets it")
+def test_the_go_gateway_image_is_what_the_cluster_needs():
+    cfg = json.loads(_docker("image", "inspect", GO_IMAGE).stdout)[0]["Config"]
+    assert cfg["User"] == "65532:65532", cfg["User"]
+    assert cfg["Entrypoint"] == ["/autopilot-gateway"] and cfg["Cmd"] == ["serve"], (cfg["Entrypoint"], cfg["Cmd"])
+    # no shell, no package manager: nothing to run but the binary
+    assert _docker("run", "--rm", "--entrypoint", "/bin/sh", GO_IMAGE, "-c", "true").returncode != 0
+    ver = _docker("run", "--rm", "--read-only", GO_IMAGE, "version")
+    assert ver.returncode == 0 and ver.stdout.startswith("autopilot-gateway "), ver.stdout + ver.stderr
+    # the files the Go gateway reads next to agents/ are in the image: bundled agents, the runtime catalog, Preflight's cases. The image has
+    # no shell, so they are read through a throwaway copy.
+    cid = _docker("create", GO_IMAGE).stdout.strip()
+    try:
+        for path, minimum in (("/app/agents", 5), ("/app/preflight/cases", 5), ("/app/runtime/catalog.yaml", 1)):
+            cp = subprocess.run(["docker", "cp", f"{cid}:{path}", "-"], capture_output=True)
+            assert cp.returncode == 0 and len(cp.stdout) > minimum, f"{path} is not in the image"
+    finally:
+        _docker("rm", "-f", cid)
+    # `migrate` and `api` refuse a missing setting by name (they are in the image and start)
+    for sub, want in (("migrate", "GATEWAY_DSN is required"), ("api", "GATEWAY_API_DSN is required")):
+        r = _docker("run", "--rm", "--read-only", GO_IMAGE, sub)
+        assert r.returncode == 2 and want in r.stderr, (sub, r.returncode, r.stderr)
+
+
+def test_the_go_gateway_dockerfile_carries_what_the_go_gateway_reads():
+    text = (GATEWAY / "Dockerfile").read_text()
+    for needle in ("COPY agents/*.yaml /app/agents/", "COPY runtime/catalog.yaml /app/runtime/catalog.yaml",
+                   "COPY preflight/cases/ /app/preflight/cases/", "USER 65532:65532", 'ENTRYPOINT ["/autopilot-gateway"]', "static-debian12:nonroot@sha256:"):
+        assert needle in text, needle
 
 
 def test_the_go_control_interface_is_off_without_the_switch_and_loopback_only(go_binary):

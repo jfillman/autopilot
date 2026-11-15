@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
+	"github.com/jfillman/autopilot/gateway/internal/pgstate"
+	"github.com/jfillman/autopilot/gateway/internal/readapi"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"go.yaml.in/yaml/v3"
 )
@@ -194,5 +199,83 @@ func TestAgentXRSNamesIsTheExceptionMapForNamesThatDoNotFollowTheConvention(t *t
 	c.defs.names = map[string]string{"researcher": "app-gate-api-cicd"}
 	if _, err := c.defs.policy(tools.Default(), nil, nil, bundled); err == nil || !strings.Contains(err.Error(), "bundled") {
 		t.Fatalf("a bundled name cannot be listed: %v", err)
+	}
+}
+
+// The api must show what serve decided. serve holds every stored pin to the strict policy at start; a pin that no longer passes (a policy
+// tightened since the row was written) is rejected there, and the decision is STORED, so the api's refresher, which reads the store and
+// decides nothing, shows it as rejected too (it used to re-decide with a weaker policy and show it loaded).
+func TestTheAPIShowsThePinServeRejected(t *testing.T) {
+	dsn, _ := scratchDB(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	reg := tools.Default()
+	bundled, err := definitions.LoadDir(filepath.Join("..", "..", "..", "agents"), reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := func(name string, tool string) map[string]any {
+		return map[string]any{"name": name, "description": "d", "owner": "group:default/team-a", "kind": "task",
+			"identity": map[string]any{"type": "workload", "serviceAccount": "autopilot-runs/" + name},
+			"profile": map[string]any{"tierCeiling": "T1", "tools": []any{tool}, "repos": map[string]any{"allow": []any{"acme/gate-api"}},
+				"limits": map[string]any{"ttlMinutes": 20, "toolCalls": 1, "githubCalls": 1, "openPrs": 0, "modelTokens": 1, "children": 0}},
+			"runtime": map[string]any{"image": "ghcr.io/acme/agent@sha256:" + strings.Repeat("a", 64)}}
+	}
+	src := func(n string) map[string]any {
+		return map[string]any{"repo": "acme/gate-api", "path": "agents/" + n + ".yaml", "commit": strings.Repeat("c", 40), "namespace": "app-gate-api-cicd", "xr": n}
+	}
+	rows := []map[string]any{
+		{"name": "gate-api-fine", "state": "loaded", "source": src("gate-api-fine"), "doc": doc("gate-api-fine", "repo.file.get")},
+		// argo.sync.lower is not a tool a pin gets by default: the strict policy refuses it, whatever an older gateway stored.
+		{"name": "gate-api-risky", "state": "loaded", "source": src("gate-api-risky"), "doc": doc("gate-api-risky", "argo.sync.lower")},
+	}
+	if err := st.ReplaceDefinitions(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+	c, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_NAMESPACES": "app-gate-api-cicd", "GITHUB_OWNERS": "acme", "RUNTIME_IMAGES_EXTRA": "ghcr.io/acme/*"}))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := c.defs.policy(reg, c.hangar.githubOwners, c.runtimeImages, bundled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := st.Definitions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	serveSet := definitions.NewSet(bundled)
+	loadStored(ctx, serveSet, st, rowsOf(raw), reg, policy, log)
+	loaded, rejected, _ := serveSet.ClusterSet()
+	if len(loaded) != 1 || loaded[0].Name() != "gate-api-fine" || len(rejected) != 1 || rejected[0].Name != "gate-api-risky" {
+		t.Fatalf("serve decided: %d loaded, rejected %+v", len(loaded), rejected)
+	}
+
+	// The api, as its own process: it opens the database read-only and refreshes from the store.
+	apiStore, err := readapi.OpenPg(ctx, dsn, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer apiStore.Close()
+	apiSet := definitions.NewSet(bundled)
+	(&readapi.Refresher{Set: apiSet, Store: apiStore, Reg: reg, Every: time.Hour, Log: log}).Once(ctx)
+	loaded, rejected, _ = apiSet.ClusterSet()
+	if len(loaded) != 1 || loaded[0].Name() != "gate-api-fine" || len(rejected) != 1 || rejected[0].Name != "gate-api-risky" {
+		t.Fatalf("the api shows %d loaded, rejected %+v: it must show what serve decided", len(loaded), rejected)
+	}
+	if apiSet.Snapshot()["gate-api-risky"] != nil {
+		t.Fatal("the api would run an agent serve rejected")
+	}
+	// A restart that decides nothing new writes nothing: the store is not rewritten when serve agrees with it.
+	before, _ := st.Definitions(ctx)
+	loadStored(ctx, definitions.NewSet(bundled), st, rowsOf(before), reg, policy, log)
+	after, _ := st.Definitions(ctx)
+	if len(before) != len(after) {
+		t.Fatalf("%d rows became %d", len(before), len(after))
 	}
 }

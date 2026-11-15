@@ -23,22 +23,6 @@ import (
 const goSchema = `ALTER TABLE gateway_trigger_launches ADD COLUMN IF NOT EXISTS failures integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS first_failed_at timestamptz, ADD COLUMN IF NOT EXISTS last_failed_at timestamptz`
 
-// indexes are what the read API's queries (readapi.PgStore) need and the shared schema does not have: expression indexes on the session
-// record's fields, so no list of sessions or run tree scans the history, and a GIN index on an event's outcomes, so an agent's events are
-// found without reading every event. The text is ordered and compared in the C collation (a locale's ignores punctuation and misorders
-// an ISO time with a fraction against one without), and every index ends in the id, so a cursor of (time, id) is a row comparison the
-// index answers. Go only (Python's schema is the shared one); each is created once and never again (IF NOT EXISTS), by
-// the writer, at start, before it serves: a plain CREATE INDEX holds a lock that blocks writes to that table, not reads, for as long as
-// the build takes (a table of some thousands of rows: well under a second); the read API's role cannot create them and never tries.
-var indexes = []string{
-	`CREATE INDEX IF NOT EXISTS gateway_sessions_created ON gateway_sessions (((record->>'created_at') COLLATE "C") DESC, (id COLLATE "C") DESC)`,
-	`CREATE INDEX IF NOT EXISTS gateway_sessions_principal ON gateway_sessions ((record->>'principal'), ((record->>'created_at') COLLATE "C") DESC, (id COLLATE "C") DESC)`,
-	`CREATE INDEX IF NOT EXISTS gateway_sessions_agent ON gateway_sessions ((record->>'agent'), ((record->>'created_at') COLLATE "C") DESC, (id COLLATE "C") DESC)`,
-	`CREATE INDEX IF NOT EXISTS gateway_sessions_task ON gateway_sessions ((record->>'task_id'), ((record->>'created_at') COLLATE "C"), (id COLLATE "C"))`,
-	`CREATE INDEX IF NOT EXISTS gateway_events_app_id ON gateway_events (app, received_at DESC, (id COLLATE "C") DESC)`,
-	`CREATE INDEX IF NOT EXISTS gateway_events_outcomes ON gateway_events USING gin ((record->'outcomes') jsonb_path_ops)`,
-}
-
 //go:embed schema.sql
 var schema string
 
@@ -57,7 +41,7 @@ type State struct {
 	lock *pgx.Conn
 }
 
-// Open connects, takes the writer lock (failing if another gateway holds it) and creates the schema if missing.
+// Open connects, takes the writer lock (failing if another gateway holds it) and creates the schema if missing. It creates no index (Migrate does).
 func Open(ctx context.Context, dsn string, maxConns int32) (*State, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -95,12 +79,8 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*State, error) {
 		s.Close(ctx)
 		return nil, fmt.Errorf("schema: %w", err)
 	}
-	for _, ix := range indexes {
-		if _, err := pool.Exec(ctx, ix); err != nil {
-			s.Close(ctx)
-			return nil, fmt.Errorf("index: %w", err)
-		}
-	}
+	// The read API's indexes are not created here: a plain CREATE INDEX blocks the writes of a table for as long as it builds. They are
+	// made by `autopilot-gateway migrate` (Migrate), which the deployment runs before the gateway starts; serve checks them (dbindex).
 	return s, nil
 }
 

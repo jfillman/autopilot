@@ -10,7 +10,10 @@ import (
 )
 
 // Refresher keeps the pinned definitions current from the rows the gateway wrote (agent_xrs.DefinitionsRefresher): every Every it
-// rebuilds the cluster set from gateway_definitions. It fetches nothing and decides nothing; a failed refresh keeps the set it has.
+// rebuilds the cluster set from gateway_definitions. It fetches nothing and decides nothing: each row says loaded or rejected, as the writer
+// (`serve`) decided it against the deployment's strict pin policy and stored it (serve keeps its decision at start and on every poll), and
+// that is what is shown. The policy given to FromRecords below is only the floor a row must clear to be built into a definition at all. A
+// failed refresh keeps the set it has.
 type Refresher struct {
 	Set   *definitions.Set
 	Store interface {

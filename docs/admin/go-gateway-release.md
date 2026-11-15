@@ -1,0 +1,192 @@
+# The Go gateway: release, rollout and cutover (A-9 S7)
+
+What it takes to run the Go gateway (`gateway/`, [go-gateway.md](go-gateway.md)) on a cluster: the image and how it is released, the
+database steps, the settings, and the ordered cutover and rollback. **Nothing here deploys anything**: merging to `main` ships no image and
+changes no cluster. The Python gateway stays the deployed one and the rollback target until the cutover (S9) is done and accepted.
+
+## The image
+
+| | Python (today) | Go (S7) |
+|---|---|---|
+| Dockerfile | `Dockerfile` | `gateway/Dockerfile` |
+| Workflow | `.github/workflows/gateway-image.yaml` | `.github/workflows/gateway-go-image.yaml` |
+| Tag | `gateway-v*` (live: `gateway-v0.9.1`) | `gateway-go-v<major>.<minor>.<patch>` |
+| Package | `ghcr.io/jfillman/autopilot-gateway` | `ghcr.io/jfillman/autopilot-gateway-go` |
+
+The tag namespaces and packages are disjoint (`gateway-v*` does not match `gateway-go-v0.1.0` and the reverse), so a Go release cannot
+replace, or be mistaken for, a Python one, and the Python image is still there to roll back to.
+
+The Go image is one static binary on distroless static, nonroot (uid 65532), no shell, nothing written at runtime (a read-only root filesystem
+works), for `linux/amd64` and `linux/arm64`. The entrypoint is the binary and the default command is `serve`; the same image is the gateway
+(`serve`), the read API (`api`) and the migration (`migrate`). It carries what the Go gateway reads next to `agents/`: `runtime/catalog.yaml`
+(`GET /v1/runtimes`) and `preflight/cases/` (the Preflight score endpoint).
+
+### What the workflow gates on
+
+A pull request that touches the Go gateway runs every gate and **builds the image for both architectures without pushing it**. A
+`gateway-go-v*` tag runs the same gates and then pushes. Nothing is pushed unless all of these pass:
+
+1. the tag is `gateway-go-vMAJOR.MINOR.PATCH`;
+2. the generators are current: `gen_gateway_registry.py`, `gen_gateway_ported.py`, `gen_gateway_readapi.py`, `gen_gateway_env_table.py` (each `--check`);
+3. `go vet ./...` and `go test -race ./...` over a real Postgres (the database, read-only-role and migrate tests) and the real Clearance core binary;
+4. the replay of Clearance's golden corpus through the Go gateway (`TestCorpusReplaysThroughGateway`);
+5. the environment table matches the Python source (`tests/test_gateway_env_table.py`);
+6. the image, built for the runner (amd64) and loaded locally, passes **the released core image's runtime conformance suite run against the
+   container** (read-only root filesystem, no capabilities, `tests/test_gateway_go.py`) and the image checks: nonroot, no shell, the bundled
+   agents, runtime catalog and Preflight cases are in it, `version`, `migrate` and `api` start and refuse a missing setting by name;
+7. the multi-arch build (amd64 and arm64) succeeds; on a tag it is pushed and started on both architectures.
+
+The supply-chain steps are the Python workflow's, copied: actions by version tag (that workflow does not pin by SHA either), QEMU and buildx,
+the `GITHUB_TOKEN` to ghcr.io, `provenance: false`; there is no SBOM and no signature on either image. A new ghcr.io package is private:
+make it public once, or give the cluster a pull secret. Pin the deployment by tag **and digest** (the digest is in the run's summary).
+
+## The database
+
+The Go gateway uses the Python gateway's database (`autopilot-pg`, the `gateway_*` tables): same tables, same advisory lock, either implementation
+reads the other's rows. Three things are Go's own, all additive:
+
+- three columns on `gateway_trigger_launches` (`failures`, `first_failed_at`, `last_failed_at`), added by `serve` and `migrate`
+  (`ADD COLUMN IF NOT EXISTS`, with defaults, so Python's statements are unaffected);
+- six indexes the read API's queries need (below);
+- a read-only role for `api`.
+
+### `autopilot-gateway migrate`
+
+`serve` **no longer creates indexes** (a plain `CREATE INDEX` blocks the table's writes for as long as it builds). They are made by an explicit
+step, the same image with the command `migrate`:
+
+```
+autopilot-gateway migrate            create what is missing (the schema, then each index)
+autopilot-gateway migrate --check    change nothing; exit 1 if an index is missing or invalid
+```
+
+- **`CREATE INDEX CONCURRENTLY IF NOT EXISTS`**, one statement per index, so no write to a gateway table waits for a build. It may run while
+  the Python or the Go gateway is writing.
+- **Idempotent and repairable**: a valid index is left alone; an `INVALID` one (what an interrupted concurrent build leaves) is dropped
+  (`DROP INDEX CONCURRENTLY`) and built again. A failure leaves nothing a second run does not repair.
+- **Lock and statement timeouts**: `lock_timeout` 5 s (`MIGRATE_LOCK_TIMEOUT_SECONDS`) so a statement never queues behind a long transaction (it
+  fails, and a re-run completes it; the concurrent build waits only for transactions older than itself); `statement_timeout` 15 minutes
+  (`MIGRATE_STATEMENT_TIMEOUT_SECONDS`) per index (the tables are some thousands of rows and build in a second; a table far past that wants a decision,
+  not a wait).
+- **One at a time**: its own advisory lock (`apg1`; the writer's is `apg0`), so two migrates do not race, and it does not need the writer's lock.
+- It uses `GATEWAY_DSN` (the owner's DSN: it creates indexes). Exit 0 done, 1 failed or missing (`--check`), 2 configuration.
+- **`serve` and `api` check at start** that the six exist and are valid (they only read the system catalogs) and, when one is not, log an
+  error that names it and says to run `autopilot-gateway migrate`. They start anyway: a missing index slows the read API's lists (bounded by
+  its 5 s statement timeout), it does not make an answer wrong.
+
+**Deployment choice, and why**: `migrate` is a **manual step in the cutover runbook**, not a pre-sync Job (yet). A Job against the database
+every sync would need the owner's DSN in another pod, and a failing Job would block every sync of the Autopilot Application. The runbook runs
+it once, as a one-off Job (`kubectl create job --from` the rendered template, or the Job the render emits when
+`autopilot.gateway.go.migrateJob` is true), then `migrate --check` is a gate before the switch. Moving it to a PreSync hook is a decision for
+after the first cutover, when its run time is known.
+
+### The read-only role (`GATEWAY_API_DSN`)
+
+`gateway/sql/gateway-api-reader.sql` makes the NOLOGIN group role `gateway_api_reader` (`SELECT` on every `gateway_*` table, and nothing else:
+no write, no sequence, no `CREATE`, no membership of a role that can write). The owner then makes a login role in it and keeps the password in
+Infisical (never in this repository):
+
+```
+psql "$OWNER_DSN" -v ON_ERROR_STOP=1 -f gateway/sql/gateway-api-reader.sql
+psql "$OWNER_DSN" -c "CREATE ROLE autopilot_reader LOGIN PASSWORD '<from Infisical>' IN ROLE gateway_api_reader"
+```
+
+`api` refuses to start on a role that could write (`CheckRole`: superuser, `pg_write_all_data`, owner or writer of any table, `CREATE` anywhere, or
+a membership that can become one). `TestTheReadOnlyRoleFileMakesARoleTheAPIStartsWith` runs the real binary against Postgres: it starts and
+answers `/readyz` as this role, and exits 2 on the writer's DSN.
+
+**The existing role already passes.** The Python deployment's CNPG-managed role `autopilot_reader` (`pg_read_all_data`, password from an ESO
+generator, `autopilot-pg-reader`, key `uri`) is read-only and passes the same check, so the Apron switch **defaults to that secret**: the cutover needs no
+new role and no new secret. Use the SQL file and an Infisical-held password when you want the narrower grant (only `gateway_*` tables
+readable); point `autopilot.gateway.go.readerSecret` at the secret that holds its DSN under the key `uri`.
+
+## Settings the Go gateway refuses, and what changed
+
+Every refusal in `serve` and `api` was read against the Python gateway. Result:
+
+| Setting | Go | Why |
+|---|---|---|
+| `EVENTS_RABBITMQ_ENABLED` | still refused | the source is designed, not built; Python refuses it too |
+| `AUTOPILOT_EPHEMERAL`, `CLEARANCE_EPHEMERAL` | still refused | an in-memory store for local runs; Go has no memory store (Python's `api` ignores them; so does Go's) |
+| the Clearance core's nine settings (`CLEARANCE_DSN`, `CLEARANCE_VERIFIERS`, `AGENT_LOGINS`, `CLEARANCE_GITHUB_*`) | **now refused** (`serve` and `api`) | Python refuses them (`CORE_ONLY`); Go ignored them silently |
+| the thirteen retired `CLEARANCE_*` names | refused (as before) | renamed `AUTOPILOT_*` at R-10a, fallbacks removed at R-10e |
+| `GATEWAY_API_TABLES` other than `gateway` | refused (as before) | retired at R-4 |
+| the settings S3 to S6 carried (`EVENTS_ENABLED`, `GLIDEPATH_API_URL`, `SCHEDULES_ENABLED`, `AGENT_XRS_*`, `XR_*`, `METRICS_PORT`, ...) | no longer refused | carried and tested in their slices; `unported` lists only the three above |
+
+The full environment table (Python against Go, every variable) is generated: [go-gateway-env.md](go-gateway-env.md) (123 variables: 69 the same,
+25 new in Go, 25 refused by both, 2 kubelet-only, **2 not carried**: `CLEARANCE_CORE_TOKEN` and `CLEARANCE_TOKEN`, dev-only tokens of the Python
+smoke tools). `TestEveryVariableThePythonDeploymentSetsIsReadByGo` fails the build when a variable the Python Deployment sets would be silently
+ignored by Go.
+
+## Fixes made for the release
+
+- **The read API shows what `serve` decided.** `serve` holds every stored pin to the strict policy at start; a pin it rejects is now written back
+  as rejected (it was only dropped in memory), and `readapi.Refresher` shows the stored decision instead of deciding with a weaker policy.
+- **The catalog read is paged** (500 to a page, a cursor, at most 20 pages): a person with more, or a catalog that does not stop paging, is an
+  error and is held to their own sessions (as an outage is), never given a partial list as if it were whole.
+- **Dropped metric series are counted**: `autopilot_metric_series_dropped_total{metric}` (Go only, after Python's twelve).
+
+## The cutover (S9) on hangar-dev, in order
+
+Owner decisions that bind it: hard cutover on hangar-dev, the Go gateway replaces the Python one on the **same database**, the Python image is kept for
+rollback; no hostname-based exceptions in code, only explicit settings, off by default. hangar-dev is a small lab VM: nothing below is run in a loop, and
+the replay and conformance runs happen in CI against the release image, not on the cluster.
+
+Before: a `gateway-go-v*` tag was pushed by the owner and the workflow is green; its digest is in the summary.
+
+1. **Record the baseline** (Python live): `GET /v1/agents`, the last 20 sessions' records for each live agent, the trigger history, the metrics
+   exposition, the Clearance core's last 50 records for the gateway. Keep them: step 9 compares against them.
+2. **[owner] Prepare the cluster values** in the cluster's `cluster.yaml` (the apron `autopilot.gateway.*` keys): `implementation: python` still; the Go
+   image tag and digest; `go.brokerUrl`, `go.githubOwners`, `go.airframeOwner`, `go.agentXRs.namespaces` and `.names` (`gate-reader=app-gate-api-cicd`),
+   `go.allowPlainHttp` for what this lab serves over http (glidepath-api, the log collector, the catalog, the issuer's keys). Render (apron, the
+   default is byte-identical). No change to the cluster yet.
+3. **[owner] The reader secret**: nothing to do with the default (`autopilot-pg-reader`); for the narrower grant, run the SQL file and put the DSN in
+   Infisical (the owner creates it, no one pastes it).
+4. **Migrate**: apply the one-off migrate Job (or `autopilot-gateway migrate` from a pod with `GATEWAY_DSN`); read its log; `migrate --check` exits 0.
+   Python keeps serving throughout (the build is concurrent).
+5. **Set the switch**: `autopilot.gateway.implementation: go`; render; read the diff (the Python Deployments are replaced by the Go ones,
+   same Service names and ports); open the gitops PR; the owner merges.
+6. **Sync**. The gateway Deployment is `Recreate`, so the Python pod stops (releasing the writer lock) before the Go pod starts; the read API rolls (two
+   replicas, `minAvailable: 1`). Runs in flight: sessions are rows, the Go gateway loads the live ones at start; a run pod that calls while it is down
+   retries.
+7. **Verify** (live, not assumed): `serve` start line (version, agents, loader on, metrics port), `/healthz` and `/readyz` of both Deployments;
+   `GET /v1/agents` against the baseline (same agents, same holds, the same rejected pins); `autopilot-gateway migrate --check` from the pod; a person
+   signs in through Tower and sees their sessions; the metrics endpoint answers on the metrics port and Prometheus scrapes it; the log lines reach Loki;
+   `kubectl get clusterrolebinding` shows the namespace-read binding; the definitions publish reached the core (`GET /v1/definitions` on the core).
+8. **Open the canary run**: one scheduled agent and one event-triggered agent fire on the Go gateway; each finishes; their sessions, results and the core's
+   records carry the same fields as the baseline's (the replay proves the shapes; this proves the wiring).
+9. **Record the comparison** for the first runs after the switch against the step-1 baseline (decisions, outcome records, run results, trigger ledger
+   states), and attach it to the S9 report. Differences are explained or the cutover is rolled back.
+10. **Close**: keep `implementation: go`; the Python image tag stays in the values (the rollback). Removing the Python gateway and its workflow is a later
+    change, not this one.
+
+### Rollback
+
+Set `autopilot.gateway.implementation: python`, render, merge, sync. The Python image is still pinned in the same values, and nothing about
+the database has to be undone. What the Go gateway may have written that the Python one must tolerate, and why it does:
+
+| Go-written state | Python tolerance |
+|---|---|
+| three extra columns on `gateway_trigger_launches` | they have defaults and Python names its columns (`INSERT ... (agent, key, via, event_id, state, claimed_at)`, `SELECT agent, key, ...`): never `SELECT *`, so extra columns are not seen |
+| six extra indexes | invisible to Python's statements; they cost a little on writes, and can be dropped (`DROP INDEX CONCURRENTLY`) if they are unwanted |
+| `gateway_sessions`, `gateway_results`, `gateway_inbox`, holds, events | the Go gateway writes Python's record shapes (the replay and the read-API equivalence tests hold that); a session open at the switch is a row Python loads at start |
+| `gateway_definitions` rows (loaded and rejected pins) | Python's shape `{name, state, source, doc \| reason}`, read by `Definitions.apply_records` |
+| `gateway_outbox` rows the core has not taken | the same `op`/`kind`/`body` columns; Python's sweep posts them |
+| `claimed` trigger rows | Python's claim expiry re-claims them |
+| the writer advisory lock `apg0` | released when the Go pod stops (`Recreate`), before Python starts |
+
+This is argued from the schemas and Python's SQL, not tested against a database that a Go gateway has written for a day; the first rollback rehearsal
+belongs to the canary. **Unverified until then.** Pins the Go policy rejected stay rejected in the table; Python's loader re-decides them on its next poll.
+
+## Open owner decisions
+
+- **The coding agent's `airframe.apps: ["*"]`** (`agents/coding-agent.yaml`, [go-gateway.md](go-gateway.md) S5c): the Go gateway scopes `xr.request` by
+  `profile.airframe.apps`, so `["*"]` equals Python's unscoped behaviour for that tool (the core never scoped it by app). It is the owner's call whether the
+  coding agent keeps `*` at the cutover or is narrowed to named apps first; the cutover does not change it.
+- **Three known defects of the Python code that the Go gateway carries unchanged** are left as they are, by the owner's rule (a bug that exists identically
+  in Python is not fixed in Go during the port, so the replay and the comparison stay meaningful). They are tracked in the A-9 owner digest, not here; fix them
+  in one change after the cutover, in Go, once Python is gone.
+- **`migrate` as a PreSync Job** instead of a manual step (above): after the first cutover.
+- **Narrow the gateway's cluster-wide read RBAC**: the Go gateway needs `get` on `namespaces` (added by the Go render) and today still rides the Python
+  ClusterRole that lists every `catalog.hangar.io` kind; a Role per `AGENT_XRS_NAMESPACES` entry is the least-privilege shape (go-gateway.md, S4).
+- **SBOM and signature** for both images, together.

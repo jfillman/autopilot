@@ -1,0 +1,185 @@
+name: gateway-go-image
+# The Go autopilot-gateway image (gateway/Dockerfile, A-9): the binary with subcommands serve | api | migrate | version, on distroless
+# static nonroot. Its own tag namespace, gateway-go-v*, and its own package, ghcr.io/jfillman/autopilot-gateway-go: it neither collides with
+# nor replaces the Python image (gateway-image.yaml, gateway-v* tags, ghcr.io/jfillman/autopilot-gateway), which stays the deployed one and
+# the rollback until the cutover (docs/admin/go-gateway-release.md). A new ghcr.io package is private: make it public once (or give the
+# cluster a pull secret). Pin the deployment by tag and digest.
+#
+#   pull request touching the Go gateway: every gate below, and the image BUILT (linux/amd64 and linux/arm64), not pushed.
+#   gateway-go-v* tag: the same gates, then the image is pushed. Nothing is pushed unless every gate has passed.
+#
+# Same supply-chain steps as gateway-image.yaml: actions by version tag (that workflow does not pin them by SHA either), buildx and QEMU for
+# the two architectures, the GITHUB_TOKEN to ghcr.io, provenance: false (no attestation manifest, so the index digest is the one image's),
+# no SBOM and no signature (it has none; adding them is a decision for both images together).
+on:
+  push:
+    tags: ["gateway-go-v*"]
+  pull_request:
+    paths:
+      - "gateway/**"
+      - "agents/**"
+      - "runtime/catalog.yaml"
+      - "preflight/cases/**"
+      - "schemas/**"
+      - "tools/gen_gateway_*.py"
+      - "tests/test_gateway_go.py"
+      - "tests/test_gateway_env_table.py"
+      - ".github/workflows/gateway-go-image.yaml"
+env:
+  # The Clearance core the gateway is replayed and conformance-tested against: the release gateway/go.mod and pyproject.toml pin and
+  # test.yaml runs. tests/test_gateway_go.py fails if this and test.yaml differ.
+  CLEARANCE_REF: v0.44.0
+  GLIDEPATH_REF: main
+  IMAGE: ghcr.io/jfillman/autopilot-gateway-go
+permissions:
+  contents: read
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # postgres:17, multi-arch index, pinned like test.yaml's (tests/test_definitions_backed.py).
+        image: postgres:17@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
+        env:
+          POSTGRES_PASSWORD: pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - name: The tag is a Go image tag
+        if: github.ref_type == 'tag'
+        run: |
+          case "$GITHUB_REF_NAME" in
+            gateway-go-v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::$GITHUB_REF_NAME is not gateway-go-vMAJOR.MINOR.PATCH"; exit 1 ;;
+          esac
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: jfillman/airframe
+          path: tech/airframe
+      - uses: actions/checkout@v4
+        with:
+          repository: jfillman/glidepath
+          ref: ${{ env.GLIDEPATH_REF }}
+          path: tech/glidepath
+      - uses: actions/checkout@v4
+        with:
+          repository: jfillman/clearance
+          ref: ${{ env.CLEARANCE_REF }}
+          path: tech/clearance
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[test]"
+      # The generated files the Go gateway holds to the Python one, its drift guard, the read API's fixtures and the environment table.
+      - name: Generators are current
+        run: |
+          python tools/gen_gateway_registry.py --check
+          python tools/gen_gateway_ported.py --check
+          python tools/gen_gateway_readapi.py --check
+          python tools/gen_gateway_env_table.py --check
+        env:
+          HANGAR_TECH: ${{ github.workspace }}/tech
+      - name: The Clearance core binary (the replay's and the tests' cores)
+        run: go build -o "$RUNNER_TEMP/clearance-core" ./cmd/clearance
+        working-directory: tech/clearance
+      - name: go vet
+        run: go vet ./...
+        working-directory: gateway
+      - name: Go tests (with the race detector, and Postgres for the database, read-only-role and migrate tests)
+        run: go test -race -count=1 ./...
+        working-directory: gateway
+        env:
+          CGO_ENABLED: "1"
+          CLEARANCE_CORE_BIN: ${{ runner.temp }}/clearance-core
+          CLEARANCE_SRC: ${{ github.workspace }}/tech/clearance
+          HANGAR_TECH: ${{ github.workspace }}/tech
+          AUTOPILOT_TEST_PG: postgresql://postgres:pw@127.0.0.1:5432/postgres
+      - name: Replay of Clearance's golden corpus through the Go gateway
+        run: |
+          go test -count=1 -v -run TestCorpusReplaysThroughGateway ./internal/replay | tee "$RUNNER_TEMP/replay.txt"
+          grep -q -e '--- PASS: TestCorpusReplaysThroughGateway' "$RUNNER_TEMP/replay.txt"
+        working-directory: gateway
+        env:
+          CLEARANCE_CORE_BIN: ${{ runner.temp }}/clearance-core
+          CLEARANCE_SRC: ${{ github.workspace }}/tech/clearance
+      - name: The environment table matches the Python source
+        run: pytest -q --noconftest tests/test_gateway_env_table.py
+  image:
+    needs: gates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[test]"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"; else echo "version=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"; fi
+      # The image under test is the one built here, for the runner's architecture, loaded into the local Docker (no registry in between).
+      - name: Build the image (linux/amd64, loaded)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: gateway/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: autopilot-gateway-go:ci
+          build-args: VERSION=${{ steps.v.outputs.version }}
+          provenance: false
+      # The runtime conformance suite of the released core image, run against THIS image's control interface (the container, read-only root
+      # filesystem, no capabilities), and the checks of what the cluster needs of it: nonroot, no shell, the files it reads, `migrate` and `api` start.
+      - name: Conformance and image checks against the built image
+        run: pytest -q --noconftest tests/test_gateway_go.py -k "go_gateway_image or go_gateway_dockerfile"
+        env:
+          AUTOPILOT_GATEWAY_GO_IMAGE: autopilot-gateway-go:ci
+          AUTOPILOT_CONFORMANCE_IMAGE: ghcr.io/jfillman/clearance:${{ env.CLEARANCE_REF }}
+          CONFORMANCE_REPORT_DIR: ${{ runner.temp }}/conformance
+      - name: Conformance report
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, pathlib
+          d = pathlib.Path(os.environ["RUNNER_TEMP"], "conformance")
+          for p in sorted(d.glob("*.json")) if d.is_dir() else []:
+              r = json.loads(p.read_text())
+              print(f"### {p.stem}: {'PASS' if r['pass'] else 'FAIL'} ({r['suite']}, {r['provider'].get('name')} {r['provider'].get('version')})")
+              for a in r["assertions"]:
+                  print(f"- {'PASS' if a['pass'] else 'FAIL'} `{a['id']}`: {a.get('detail', '')}")
+          PY
+      # A pull request builds both architectures and stops. A tag pushes them.
+      - uses: docker/login-action@v3
+        if: github.ref_type == 'tag'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        name: Build (linux/amd64 + linux/arm64), pushed only on a tag
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: gateway/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref_type == 'tag' }}
+          tags: ${{ env.IMAGE }}:${{ steps.v.outputs.version }}
+          build-args: VERSION=${{ steps.v.outputs.version }}
+          provenance: false
+      - name: The pushed image starts on both architectures
+        if: github.ref_type == 'tag'
+        run: |
+          for arch in amd64 arm64; do
+            docker run --rm --platform "linux/$arch" --read-only "$IMAGE:$GITHUB_REF_NAME@${{ steps.build.outputs.digest }}" version
+          done
+          echo "$IMAGE:$GITHUB_REF_NAME@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
