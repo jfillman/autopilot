@@ -65,6 +65,7 @@ type config struct {
 	runtimeImages        []string
 	preflightCasesDir    string
 	hangar               hangarSettings
+	defs                 defsSettings // the definition set: the Agent XR loader (A-9 S4)
 }
 
 type configError string
@@ -269,6 +270,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 	if c.hangar, err = hangarFromEnv(env, len(c.reads.argoNamespaces) > 0); err != nil {
 		return nil, err
 	}
+	if c.defs, err = defsFromEnv(env, c.hangar.githubPRs); err != nil {
+		return nil, err
+	}
 	if c.eventsEnabled {
 		// The event bridge reads glidepath-api's stream with the same URL, token file and plain-http switch the glidepath.* tools use
 		// (S5b parsed and checked them: an https URL unless GLIDEPATH_API_ALLOW_HTTP=1).
@@ -337,20 +341,26 @@ func serve(_ []string) int {
 	}
 	c := core.New(cl, pgstate.NewOutbox(st), cfg.allowReads)
 
-	defs, err := definitions.LoadDir(cfg.agentsDir, reg)
+	bundled, err := definitions.LoadDir(cfg.agentsDir, reg)
 	if err != nil {
 		log.Error("agent definitions: " + err.Error())
 		return 2
 	}
-	if rows, err := st.Definitions(ctx); err == nil {
-		cluster, skipped := definitions.FromRecords(rows, reg)
-		for n, d := range cluster {
-			defs[n] = d
-		}
-		for _, s := range skipped {
-			log.Warn("a pinned definition was not loaded", "why", s)
-		}
+	set := definitions.NewSet(bundled)
+	var stored []definitions.Row
+	if rows, err := st.Definitions(ctx); err != nil {
+		log.Warn("the stored pinned definitions could not be read: the loader starts from nothing", "err", err.Error())
+	} else {
+		stored = rowsOf(rows)
 	}
+	switch {
+	case cfg.defs.enabled:
+		loadStored(set, stored, reg, cfg.defs.policy(reg), log)
+	case len(stored) > 0:
+		// Stored pins nothing keeps up to date are not run: the bundled definitions only (as the Python gateway with the loader off).
+		log.Warn("the gateway database holds pinned definitions and the Agent XR loader is off (AGENT_XRS_ENABLED): they are not loaded", "rows", len(stored))
+	}
+	defs := set.Snapshot()
 	artifacts := pgstate.NewArtifacts(st)
 	// The Glidepath, repository and Argo CD sync tools decide a call's scope from the agent's definition; the gateway is built
 	// after the handlers, so the lookup is made late.
@@ -379,6 +389,16 @@ func serve(_ []string) int {
 		return 2
 	}
 	gw = g
+	dcl, err := client.New(core.DefinitionsClientOptions(cfg.coreURL, client.FileToken(cfg.coreTokenFile)))
+	if err != nil {
+		log.Error("clearance client: " + err.Error())
+		return 2
+	}
+	c.SetDefinitionsClient(dcl, clip64(gatewayVersion()))
+	mgr := definitions.NewManager(set, st, c, g.SetDefs, log)
+	// A candidate definition (Preflight's `document`) is read like any definition: the schema, strictly. It is not held to the pin
+	// policy: it is a pull request's version of a live agent, which may be a bundled one, and it is clamped before it runs.
+	g.CandidateParse = candidateParser(reg)
 	g.CallTimeout = cfg.callTimeout
 	g.KeepAnswer = map[string]bool{}
 	for _, t := range backends.RemoteWrites {
@@ -391,8 +411,7 @@ func serve(_ []string) int {
 	g.Results = pgstate.NewResults(st)
 	g.ModelVersions = cfg.modelRoutes
 	// The people's side: the human inbox, the holds, the event history and Preflight. There is no Directory yet (the Backstage
-	// client is a later slice), so a session's owner and the platform admins are who may act; a candidate definition is refused
-	// until the definition schema is carried (CandidateParse stays nil).
+	// client is a later slice), so a session's owner and the platform admins are who may act.
 	g.SetInbox(pgstate.NewInbox(st), nil, cfg.delegates)
 	g.Admins = cfg.admins
 	g.Holds = pgstate.NewHolds(st)
@@ -439,6 +458,18 @@ func serve(_ []string) int {
 		"model_proxy", cfg.modelKeyFile != "")
 
 	go sweep(ctx, g, cfg.expireEvery, artifacts.Purge)
+	defsWG := &sync.WaitGroup{}
+	var reader definitions.XRLister
+	var files definitions.FileReader
+	if cfg.defs.enabled {
+		kr := backends.NewKubeReader()
+		if err := kr.Validate(); err != nil {
+			log.Error("configuration: " + err.Error())
+			return 2
+		}
+		reader, files = kr, githubFiles{hangar.GitHub}
+	}
+	runDefinitions(ctx, defsWG, cfg.defs, mgr, set, reader, files, reg, stored, log)
 	loops, err := startTriggers(ctx, cfg, g, pgstate.NewTriggers(st), log)
 	if err != nil {
 		log.Error("triggers: " + err.Error())
@@ -462,6 +493,7 @@ func serve(_ []string) int {
 		_ = s.Shutdown(sctx)
 	}
 	waitFor(loops, 20*time.Second)
+	waitFor(defsWG, 20*time.Second)
 	return 0
 }
 
@@ -551,4 +583,11 @@ func levelFromEnv() slog.Level {
 		return slog.LevelError
 	}
 	return slog.LevelInfo
+}
+
+func clip64(s string) string {
+	if len(s) > 64 {
+		return s[:64]
+	}
+	return s
 }

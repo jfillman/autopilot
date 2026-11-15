@@ -62,7 +62,10 @@ type Result struct {
 
 // Gateway is the dispatch core.
 type Gateway struct {
+	// Defs is every agent definition by name. The definition loader replaces it whole (SetDefs) when a pin changes, so nothing
+	// but SetDefs, def and Definitions may touch it once the gateway serves; a map handed to SetDefs is never written to again.
 	Defs     map[string]*definitions.Definition
+	defsMu   sync.RWMutex
 	Store    *session.Store
 	Core     *core.Core
 	Auth     Authenticator
@@ -161,9 +164,25 @@ func New(defs map[string]*definitions.Definition, st *session.Store, c *core.Cor
 		OnPersistError: func(err error) { slog.Error("sessions not saved", "err", err.Error()) }}, nil
 }
 
+// SetDefs replaces the definition set: a session resolves its definition by name on every call, so a re-pin to a tighter
+// definition applies to runs in flight, and a pin that was removed stops being an agent at once. The map is the gateway's from
+// here on and must not be written to.
+func (g *Gateway) SetDefs(m map[string]*definitions.Definition) {
+	g.defsMu.Lock()
+	g.Defs = m
+	g.defsMu.Unlock()
+}
+
+// def is the live definition of a name (nil when there is none).
+func (g *Gateway) def(name string) *definitions.Definition {
+	g.defsMu.RLock()
+	defer g.defsMu.RUnlock()
+	return g.Defs[name]
+}
+
 // Def is a live definition, else a candidate under Preflight, by its run name (Python: Gateway._def).
 func (g *Gateway) Def(name string) *definitions.Definition {
-	if d := g.Defs[name]; d != nil {
+	if d := g.def(name); d != nil {
 		return d
 	}
 	g.cmu.Lock()
@@ -835,14 +854,15 @@ func (g *Gateway) Agents(ctx context.Context, token string) ([]AgentInfo, error)
 	if _, err := g.Auth.Authenticate(ctx, token); err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(g.Defs))
-	for n := range g.Defs {
+	defs := g.Definitions()
+	names := make([]string, 0, len(defs))
+	for n := range defs {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	out := make([]AgentInfo, 0, len(names))
 	for _, n := range names {
-		d := g.Defs[n]
+		d := defs[n]
 		out = append(out, AgentInfo{Name: d.Name, Description: d.Description, Kind: d.Kind, Identity: d.IdentityType, RunsIn: d.RunsIn(),
 			TierCeiling: d.Limits.TierCeiling, Tools: d.Limits.Tools, CanOpenSession: d.IdentityType == "delegated"})
 	}

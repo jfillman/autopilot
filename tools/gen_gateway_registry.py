@@ -16,7 +16,8 @@ close_session, expire, _spawn) and the Preflight candidate clamp (gateway/intern
 S3 slice's: the human inbox, the person controls and the rows they write (gateway/internal/dispatch/testdata/people.json:
 engine/inbox.py, control.py, events.py, Gateway.freeze_session, end_session, hold_triggers, release_triggers, human_answer) and
 the triggers (gateway/internal/triggers/testdata/triggers.json: triggers.py, trigger_ledger.py, event_bridge.py, reconcile.py,
-scheduler.py driven over a fake gateway and the in-memory ledger).
+scheduler.py driven over a fake gateway and the in-memory ledger) and the S4 slice's: the definition loader and the set it publishes
+(gateway/internal/definitions/testdata/definitions.json and agent-definition.schema.json: tools/gen_gateway_definitions.py).
 
 tests/test_gateway_go.py fails when the committed file differs from what this prints, so the two
 implementations cannot drift while both exist.   python tools/gen_gateway_registry.py [--check]
@@ -813,6 +814,8 @@ if __name__ == "__main__":
     runs.update(gen_gateway_reads.outputs())
     import gen_gateway_writes   # the S5b Glidepath and repository tools' fixtures (tools/gen_gateway_writes.py)
     runs.update(gen_gateway_writes.outputs())
+    import gen_gateway_definitions   # the S4 definitions' fixtures and the schema copy (tools/gen_gateway_definitions.py)
+    runs.update(gen_gateway_definitions.outputs())
     if "--check" in sys.argv:
         ok = (OUT.read_text() == text and SCHEMA_OUT.read_text() == pg.SCHEMA and AGENTS_OUT.read_text() == ag
               and ROWS_OUT.is_file() and ROWS_OUT.read_text() == rw

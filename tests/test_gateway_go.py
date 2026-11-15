@@ -221,3 +221,25 @@ def test_the_go_gateway_wants_the_settings_the_github_tools_and_the_trigger_brid
     assert r.returncode == 2 and "EVENTS_RABBITMQ_ENABLED" in r.stderr
     r = subprocess.run([str(go_binary), "serve"], env={**env, "EVENTS_ENABLED": "1"}, capture_output=True, text=True)
     assert r.returncode == 2 and "needs GLIDEPATH_API_URL" in r.stderr
+
+
+def test_the_go_gateway_will_not_run_the_agent_xr_loader_without_being_told_where_to_read(go_binary):
+    # A-9 S4: Python lists the Agent XRs of every namespace; the Go gateway reads only the namespaces it is given.
+    base = {k: v for k, v in os.environ.items() if not k.startswith(("CLEARANCE_", "AUTOPILOT_", "GATEWAY_", "GITHUB_", "AGENT_", "XR_"))}
+    env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1", "GITHUB_PR_ENABLED": "1",
+           "XR_REQUEST_ENABLED": "0", "BROKER_URL": "https://broker:8080", "GITHUB_OWNERS": "acme"}
+    r = subprocess.run([str(go_binary), "serve"], env=env, capture_output=True, text=True)
+    assert r.returncode == 2 and "AGENT_XRS_NAMESPACES" in r.stderr, "the loader is on with GitHub: it must be told where to read"
+    r = subprocess.run([str(go_binary), "serve"], env={**env, "AGENT_XRS_NAMESPACES": "agent-r-0a1b2c"}, capture_output=True, text=True)
+    assert r.returncode == 2 and "agent runs and the platform control it" in r.stderr, "a namespace a run controls may not define agents"
+    r = subprocess.run([str(go_binary), "serve"], env={**env, "AGENT_XRS_NAMESPACES": "app-*"}, capture_output=True, text=True)
+    assert r.returncode == 2 and "not a namespace name" in r.stderr
+
+
+def test_the_definition_fixtures_carry_a_why_for_every_difference_and_the_schema_copy_is_python_s():
+    doc = json.loads((GATEWAY / "internal" / "definitions" / "testdata" / "definitions.json").read_text())
+    differing = [c for c in doc["cases"] if "go" in c] + [s for sc in doc["scenarios"] for s in sc["steps"] if "go" in s]
+    assert len(differing) >= 30 and all(len(x.get("why", "")) >= 40 for x in differing), "every deliberate difference says why"
+    assert not [c for c in doc["cases"] if "why" in c and "go" not in c], "a why without a go"
+    assert (GATEWAY / "internal" / "definitions" / "agent-definition.schema.json").read_bytes() == \
+        (ROOT / "src" / "autopilot" / "engine" / "schemas" / "agent-definition.schema.json").read_bytes()

@@ -39,8 +39,10 @@ const (
 var (
 	nsPattern  = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	segPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
-	// allowedPath is the whole allowlist: Applications of one namespace, listed or read by name.
-	allowedPath  = regexp.MustCompile(`^/apis/argoproj\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/applications(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?$`)
+	// allowedPath is the whole allowlist: Applications of one namespace, listed or read by name; and (A-9 S4, the Agent XR loader)
+	// the Agent XRs of one namespace, listed (never read by name, never across namespaces).
+	allowedPath = regexp.MustCompile(`^(?:/apis/argoproj\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/applications(/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)?` +
+		`|/apis/catalog\.hangar\.io/v1alpha1/namespaces/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/agents)$`)
 	allowedQuery = map[string]bool{"labelSelector": true, "limit": true, "continue": true}
 )
 
@@ -190,8 +192,33 @@ func (k *KubeReader) Get(ctx context.Context, path string, query []kv) (any, boo
 	return nil, false, &AirframeError{Msg: fmt.Sprintf("API server %d", status)}
 }
 
-// List is every item of a list, following continue (bounded).
+// Validate refuses a reader that would send its token in the clear: an API server URL must be https unless the reader was told
+// otherwise (a test).
+func (k *KubeReader) Validate() error {
+	return requireHTTPS("the Kubernetes API URL", strings.TrimRight(k.Server, "/"), k.AllowHTTP)
+}
+
+// AgentsPath is the path of a namespace's Agent XRs.
+func AgentsPath(namespace string) string {
+	return "/apis/catalog.hangar.io/v1alpha1/namespaces/" + segEscape(namespace) + "/agents"
+}
+
+// ListAgents is the Agent XRs of one namespace (the definition loader's read): a list, GET only, through the same allowlist and
+// the same token-per-call rules as every read here. Unlike List, a 404 is an error: "the kind is not served" (a CRD that is gone,
+// a wrong path) is not "no definitions", and the loader must not read it as the instruction to unload every pin.
+func (k *KubeReader) ListAgents(ctx context.Context, namespace string) ([]map[string]any, error) {
+	if !nsPattern.MatchString(namespace) {
+		return nil, refusedPath(AgentsPath(namespace))
+	}
+	return k.list(ctx, AgentsPath(namespace), "", true)
+}
+
+// List is every item of a list, following continue (bounded). A list that is not there (404) is an empty one.
 func (k *KubeReader) List(ctx context.Context, path, labelSelector string) ([]map[string]any, error) {
+	return k.list(ctx, path, labelSelector, false)
+}
+
+func (k *KubeReader) list(ctx context.Context, path, labelSelector string, strict bool) ([]map[string]any, error) {
 	var items []map[string]any
 	cont := ""
 	for i := 0; i < maxPages; i++ {
@@ -208,6 +235,9 @@ func (k *KubeReader) List(ctx context.Context, path, labelSelector string) ([]ma
 			return nil, err
 		}
 		if !found {
+			if strict {
+				return nil, &AirframeError{Msg: "the list is not served (404)"}
+			}
 			return items, nil
 		}
 		pm := obj(page)

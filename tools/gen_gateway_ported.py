@@ -38,14 +38,15 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on; S3: _person, "
         "_manager, freeze_session, end_session, hold_triggers, release_triggers, hold_for, human_requests, human_answer and the "
         "inbox's handlers, open_triggered, record_event, run_agent (the route's checks, holds, Preflight candidates as far as "
-        "Candidate goes), preflight_case_list and preflight_score",
-        "S4 publish_definitions, apply_cluster_definitions and the schema validation a candidate document needs (a `document` is "
-        "refused until then)"),
+        "Candidate goes), preflight_case_list and preflight_score; S4: apply_cluster_definitions and publish_definitions "
+        "(gateway/internal/definitions Manager), the live definition set (SetDefs) and the validated parse of a candidate document",
+        ""),
     "src/autopilot/engine/core.py": (
         ("gateway/internal/core",),
         "the decision path: evaluation, outcome, records, outbox, outage policy, canonical JSON, the client's timeout "
-        "(DECISION_TIMEOUT), retries and breaker",
-        "S4 publish_definitions (and the bundled definitions)"),
+        "(DECISION_TIMEOUT), retries and breaker; S4: publish_definitions (PUT /v1/definitions on its own client with "
+        "DEFINITIONS_TIMEOUT, the bundled definitions with the pins, the retry without the field against a core that predates it)",
+        ""),
     "src/autopilot/engine/outbox.py": (("gateway/internal/core", "gateway/internal/pgstate"), "the outbox", ""),
     "src/autopilot/engine/session.py": (
         ("gateway/internal/session",), "the session record (every field, signals included), budgets, breaker, expiry, the run "
@@ -81,10 +82,18 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         ("gateway/internal/pgstate",), "the tables, the writer lock, sessions, run results, artifacts (PgArtifacts), the outbox, the inbox, holds, the event history "
         "and the trigger ledger and cursors (schema.sql is generated)", ""),
     "src/autopilot/engine/definitions.py": (
-        ("gateway/internal/definitions",), "reading the bundled set and the pinned set",
-        "S4 publishing the set, bundled_set, the Agent XR loader"),
+        ("gateway/internal/definitions",), "Source, Loaded, Rejected, from_pin (the pin rules), Definitions (the live set: bundled "
+        "names first and never shadowed, replace_cluster and its Changes, records, cluster_set, bundled_set); not apply_records "
+        "(the read API's, S6)", ""),
     "src/autopilot/engine/profile.py": (
-        ("gateway/internal/definitions",), "parse: scope, agent, runs_in, the interval and Glidepath event triggers", "S4 JSON-schema validation"),
+        ("gateway/internal/definitions",), "parse: the JSON-schema validation in Python's words and order (best_match), the "
+        "placeholder digest, scope, agent, runs_in, the interval and Glidepath event triggers, load_dir, the baseline deny lists", ""),
+    "src/autopilot/engine/schemas/agent-definition.schema.json": (
+        ("gateway/internal/definitions/agent-definition.schema.json",), "the schema the Go validator embeds (a generated copy)", ""),
+    "src/autopilot/agent_xrs.py": (
+        ("gateway/internal/definitions", "gateway/cmd/autopilot-gateway"), "AgentXRs: the poll, the once-per-commit fetch, rejections with "
+        "reasons, the transient-failure rules, the seed from the store; DefinitionsPublisher (the bundled set published at start until "
+        "the core takes it)", "S6 DefinitionsRefresher (the read API's)"),
     "src/autopilot/engine/scope.py": (("gateway/internal/dispatch", "gateway/internal/backends"),
                                       "normalize (repository-relative paths); S5b: glob_to_regex, repo_allowed and the path deny match, "
                                       "which the write tools decide again from the agent's definition (backends/scope.go)",
@@ -125,8 +134,10 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
                                "ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, "
                                "AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), "
                                "SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, "
-                               "RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler",
-                               "S4/S5c/S6 the settings and loops of what is not ported (AGENT_XRS_ENABLED, XR_REQUEST_ENABLED, the Backstage directory, the metrics port)"),
+                               "RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler; S4: AGENT_XRS_ENABLED, "
+                               "AGENT_XRS_INTERVAL (and the Go-only AGENT_XRS_NAMESPACES and AGENT_XRS_MAX_TIER), the Agent XR loader and the "
+                               "bundled publish at start",
+                               "S5c/S6 the settings and loops of what is not ported (XR_REQUEST_ENABLED, the Backstage directory, the metrics port)"),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     # S5b: the Glidepath and repository tools
     "src/autopilot/glidepath_api.py": (
@@ -153,7 +164,6 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
 # moves it to PORTED.
 NOT_PORTED: dict[str, str] = {
     "src/autopilot/engine/runtimes.py": "S6",      # the catalog file and GET /v1/runtimes; a candidate's image globs are Gateway.RuntimeImages
-    "src/autopilot/agent_xrs.py": "S4",
     "src/autopilot/airframe_apply.py": "S5c", "src/autopilot/airframe_plan.py": "S5c",
     "src/autopilot/airframe_tools.py": "S5c", "src/autopilot/xr_request.py": "S5c",
     "src/autopilot/vendor/airframe_sidecars.py": "S5c",

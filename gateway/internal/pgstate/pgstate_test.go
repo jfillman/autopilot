@@ -228,3 +228,47 @@ func TestResultsAreKeptByTheSessionUntilTheyExpire(t *testing.T) {
 		t.Fatal("a record with no session or expiry is refused")
 	}
 }
+
+// The pinned set is replaced whole in one transaction and read back as it was written: a smaller set leaves nothing of the larger
+// one, a failed replace leaves the old set, and two rejections of one name do not fail the replace (the Python gateway's would).
+func TestDefinitionsAreReplacedWhole(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	rows := []map[string]any{
+		{"name": "a", "state": "loaded", "source": map[string]any{"kind": "cluster"}, "doc": map[string]any{"name": "a"}},
+		{"name": "b", "state": "rejected", "source": map[string]any{"kind": "cluster"}, "reason": "one"},
+		{"name": "b", "state": "rejected", "source": map[string]any{"kind": "cluster"}, "reason": "two"},
+	}
+	if err := st.ReplaceDefinitions(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Definitions(ctx)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("%d rows, %v: want the loaded one and the first rejection", len(got), err)
+	}
+	if err := st.ReplaceDefinitions(ctx, rows[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = st.Definitions(ctx); len(got) != 1 {
+		t.Fatalf("a smaller set left %d rows", len(got))
+	}
+	// a row that cannot be stored rolls the whole replace back
+	bad := []map[string]any{{"name": "z", "state": "loaded", "doc": map[string]any{"x": make(chan int)}}}
+	if err := st.ReplaceDefinitions(ctx, bad); err == nil {
+		t.Fatal("an unencodable row must fail the replace")
+	}
+	if got, _ = st.Definitions(ctx); len(got) != 1 {
+		t.Fatalf("a failed replace changed the set: %d rows", len(got))
+	}
+	if err := st.ReplaceDefinitions(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = st.Definitions(ctx); len(got) != 0 {
+		t.Fatalf("an empty set left %d rows", len(got))
+	}
+}

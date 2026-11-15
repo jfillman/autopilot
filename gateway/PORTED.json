@@ -1,7 +1,16 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "ca8ccef88ecac875d19010b92ee0845dfa7d0c3e",
+ "level_with": "692eb3cc810513a537784421f511c0ec20d272dc",
  "ported": {
+  "src/autopilot/agent_xrs.py": {
+   "sha256": "eb34c866e9bc1c95d150616620a273957aa21b569a095a874a1ae29fc9e04a50",
+   "go": [
+    "gateway/internal/definitions",
+    "gateway/cmd/autopilot-gateway"
+   ],
+   "carries": "AgentXRs: the poll, the once-per-commit fetch, rejections with reasons, the transient-failure rules, the seed from the store; DefinitionsPublisher (the bundled set published at start until the core takes it)",
+   "left_for_later_slices": "S6 DefinitionsRefresher (the read API's)"
+  },
   "src/autopilot/airframe_api.py": {
    "sha256": "40cd31162304091b4d75b7822adb18a64e0769332a60bf518c2fd818849f0a95",
    "go": [
@@ -65,24 +74,24 @@
    "go": [
     "gateway/internal/core"
    ],
-   "carries": "the decision path: evaluation, outcome, records, outbox, outage policy, canonical JSON, the client's timeout (DECISION_TIMEOUT), retries and breaker",
-   "left_for_later_slices": "S4 publish_definitions (and the bundled definitions)"
+   "carries": "the decision path: evaluation, outcome, records, outbox, outage policy, canonical JSON, the client's timeout (DECISION_TIMEOUT), retries and breaker; S4: publish_definitions (PUT /v1/definitions on its own client with DEFINITIONS_TIMEOUT, the bundled definitions with the pins, the retry without the field against a core that predates it)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/definitions.py": {
    "sha256": "9e714bb19a537eca872af6b30447adf95118bd4ca565cc12173d8323b0bbccff",
    "go": [
     "gateway/internal/definitions"
    ],
-   "carries": "reading the bundled set and the pinned set",
-   "left_for_later_slices": "S4 publishing the set, bundled_set, the Agent XR loader"
+   "carries": "Source, Loaded, Rejected, from_pin (the pin rules), Definitions (the live set: bundled names first and never shadowed, replace_cluster and its Changes, records, cluster_set, bundled_set); not apply_records (the read API's, S6)",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/dispatch.py": {
    "sha256": "1a6142ae040243b132a19c298d4740aade1660a5213f3a861004ec470e6c10a0",
    "go": [
     "gateway/internal/dispatch"
    ],
-   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on; S3: _person, _manager, freeze_session, end_session, hold_triggers, release_triggers, hold_for, human_requests, human_answer and the inbox's handlers, open_triggered, record_event, run_agent (the route's checks, holds, Preflight candidates as far as Candidate goes), preflight_case_list and preflight_score",
-   "left_for_later_slices": "S4 publish_definitions, apply_cluster_definitions and the schema validation a candidate document needs (a `document` is refused until then)"
+   "carries": "Gateway.call (decision, charge, handler, outcome, backend-failure text and evidence), open_session, the outage path, tools_list, agents_for; the run tree: launch, _spawn (the child is the core's grant, checked), run.close, finish_run, close_session, expire and _backstop_outcomes, _delete_runs, _acting (a run acts as its session), _record and the flight recorder's fields, _def, _candidate's clamp and run_agent from the person's own session on; S3: _person, _manager, freeze_session, end_session, hold_triggers, release_triggers, hold_for, human_requests, human_answer and the inbox's handlers, open_triggered, record_event, run_agent (the route's checks, holds, Preflight candidates as far as Candidate goes), preflight_case_list and preflight_score; S4: apply_cluster_definitions and publish_definitions (gateway/internal/definitions Manager), the live definition set (SetDefs) and the validated parse of a candidate document",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/events.py": {
    "sha256": "1d6b17b44cb2b1485091f844920587711a2ed456b62f7b3124845b80b701e0ae",
@@ -138,8 +147,8 @@
    "go": [
     "gateway/internal/definitions"
    ],
-   "carries": "parse: scope, agent, runs_in, the interval and Glidepath event triggers",
-   "left_for_later_slices": "S4 JSON-schema validation"
+   "carries": "parse: the JSON-schema validation in Python's words and order (best_match), the placeholder digest, scope, agent, runs_in, the interval and Glidepath event triggers, load_dir, the baseline deny lists",
+   "left_for_later_slices": ""
   },
   "src/autopilot/engine/results.py": {
    "sha256": "d438e78093c384fdf8a50b31047518f679ae58a6704a27903e3f78138b728cf3",
@@ -148,6 +157,14 @@
     "gateway/internal/pgstate"
    ],
    "carries": "observe, warnings, clip_text, tool_call_summary, the result store (memory, and gateway_results) and its retention",
+   "left_for_later_slices": ""
+  },
+  "src/autopilot/engine/schemas/agent-definition.schema.json": {
+   "sha256": "4ad3228fc336d12ad35da8f4bd2f62efb7ef57ee48a96b465e0b3390e9c9a4da",
+   "go": [
+    "gateway/internal/definitions/agent-definition.schema.json"
+   ],
+   "carries": "the schema the Go validator embeds (a generated copy)",
    "left_for_later_slices": ""
   },
   "src/autopilot/engine/scope.py": {
@@ -296,8 +313,8 @@
    "go": [
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler",
-   "left_for_later_slices": "S4/S5c/S6 the settings and loops of what is not ported (AGENT_XRS_ENABLED, XR_REQUEST_ENABLED, the Backstage directory, the metrics port)"
+   "carries": "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the authenticator chain), start-up, the expiry sweep (closing, deleting runs, the backstop outcomes), the outbox drain, the run backend and result store; S5a: BACKSTAGE_URL, BACKSTAGE_TOKEN_FILE, APP_API_SERVICES, ARGO_ENABLED, ARGO_APP_NAMESPACES; S5b: GLIDEPATH_API_URL, GLIDEPATH_TOKEN_FILE, GLIDEPATH_ON_BEHALF_OF, GITHUB_PR_ENABLED, AGENT_TOKEN_FILE, BROKER_URL (no default in Go), ARGO_SYNC_ENABLED; S3: EVENTS_ENABLED (with GLIDEPATH_API_URL), SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler; S4: AGENT_XRS_ENABLED, AGENT_XRS_INTERVAL (and the Go-only AGENT_XRS_NAMESPACES and AGENT_XRS_MAX_TIER), the Agent XR loader and the bundled publish at start",
+   "left_for_later_slices": "S5c/S6 the settings and loops of what is not ported (XR_REQUEST_ENABLED, the Backstage directory, the metrics port)"
   },
   "src/autopilot/settings.py": {
    "sha256": "02a122703a86895d01f26a8d1628856596100a5993abe28d6b11694cdea3cf5b",
@@ -334,7 +351,6 @@
   }
  },
  "not_ported": {
-  "src/autopilot/agent_xrs.py": "S4",
   "src/autopilot/airframe_apply.py": "S5c",
   "src/autopilot/airframe_plan.py": "S5c",
   "src/autopilot/airframe_tools.py": "S5c",

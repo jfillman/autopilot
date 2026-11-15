@@ -1,7 +1,8 @@
 // Package definitions parses agent definitions (autopilot.engine.profile.parse) into what the gateway reads of them:
 // the limits a session is cut from, and the scope every call is decided against. It reads the cluster-pinned set the
-// Python gateway's loader keeps in gateway_definitions (or a directory of YAML converted to JSON by the caller). It
-// does not validate against the JSON schema: the loader that wrote the set did, and the core decides every pin again.
+// Python gateway's loader keeps in gateway_definitions and the directory of bundled YAML. Every document is validated against
+// the definition schema (schema.go) and read strictly (value.go) first; pin.go decides which pins become definitions, set.go keeps
+// the live set, loader.go reads the Agent XRs and manifest.go publishes the set to the core.
 package definitions
 
 import (
@@ -9,12 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/jfillman/autopilot/gateway/internal/pyrepr"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 	"github.com/jfillman/clearance/client"
-	"go.yaml.in/yaml/v3"
 )
 
 // Definition is one agent definition.
@@ -39,6 +41,9 @@ type Definition struct {
 	RawProfile     json.RawMessage
 	// Triggers are what starts the agent (see Trigger); a definition that names none has one manual trigger.
 	Triggers []Trigger
+	// Doc is the document as it was read (Python: AgentDefinition.doc): what the gateway publishes to the core for a bundled
+	// definition and for a pin.
+	Doc map[string]any
 }
 
 // RunsIn is where the agent's loop runs: "cluster" when the definition names a runtime image, else "client".
@@ -97,8 +102,51 @@ type profile struct {
 var networks = map[string]string{"NONE": "none", "CLEARANCE": "clearance", "CLEARANCE_MODEL": "clearance+model", "ALLOWLIST": "allowlist"}
 var computes = map[string]bool{"small": true, "medium": true, "large": true, "gpu": true}
 
-// Parse reads one definition document. baseline is the registry that carries the baseline deny lists.
+// Parse reads one definition document as JSON, validates it against the definition schema and builds the definition
+// (engine/profile.py parse). baseline is the registry that carries the baseline deny lists. The error is a *DefinitionError
+// with Python's text ("<name>: <path>: <message>") for a document the schema refuses, a *StrictError for one that is not
+// written strictly (a repeated key, a number that is not whole).
 func Parse(raw []byte, baseline *tools.Registry) (*Definition, error) {
+	v, err := DecodeJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	doc, ok := v.(*OMap)
+	if !ok {
+		return nil, &DefinitionError{Msg: "?: <root>: " + pyrepr.Value(v) + " is not of type 'object'"}
+	}
+	return ParseDoc(doc, baseline)
+}
+
+var placeholderDigest = regexp.MustCompile(`@sha256:0{64}$`)
+
+// ParseDoc is Parse for a document already read: the schema (jsonschema.validate), the placeholder digest check, then the
+// definition. Nothing reads a field before the schema has said it is there and what type it is.
+func ParseDoc(doc *OMap, baseline *tools.Registry) (*Definition, error) {
+	if err := ValidateSchema(doc); err != nil {
+		return nil, err
+	}
+	if rt, ok := doc.M["runtime"].(*OMap); ok {
+		if img, ok := rt.M["image"].(string); ok && placeholderDigest.MatchString(img) {
+			return nil, &DefinitionError{Msg: fmt.Sprintf("%s: runtime/image: %s is a placeholder digest (all zeros); name a real runtime image, "+
+				"or leave runtime.image out for an agent that runs in a person's client", doc.M["name"], img)}
+		}
+	}
+	plain := Plain(doc).(map[string]any)
+	raw, err := json.Marshal(plain)
+	if err != nil {
+		return nil, err
+	}
+	def, err := build(raw, baseline)
+	if err != nil {
+		return nil, err
+	}
+	def.Doc = plain
+	return def, nil
+}
+
+// build makes the definition of a document the schema has accepted.
+func build(raw []byte, baseline *tools.Registry) (*Definition, error) {
 	var d doc
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, err
@@ -113,9 +161,6 @@ func Parse(raw []byte, baseline *tools.Registry) (*Definition, error) {
 	l := p.Limits
 	if l.TTLMinutes == nil || l.ToolCalls == nil || l.GithubCalls == nil || l.OpenPRs == nil || l.ModelTokens == nil || l.Children == nil {
 		return nil, fmt.Errorf("%s: profile/limits: every limit is required", d.Name)
-	}
-	if len(p.TierCeiling) != 2 || p.TierCeiling[0] != 'T' || p.TierCeiling[1] < '0' || p.TierCeiling[1] > '3' {
-		return nil, fmt.Errorf("%s: profile/tierCeiling: %q is not T0 to T3", d.Name, p.TierCeiling)
 	}
 	net := p.Network
 	if net == "" {
@@ -163,31 +208,6 @@ func Parse(raw []byte, baseline *tools.Registry) (*Definition, error) {
 		def.Triggers = parseTriggers(nil, false)
 	}
 	return def, nil
-}
-
-// FromRecords reads the loaded rows of gateway_definitions ({name, state: "loaded", source, doc}); a row that does not
-// parse, and a rejected one, is skipped and named in the second result.
-func FromRecords(records []json.RawMessage, baseline *tools.Registry) (map[string]*Definition, []string) {
-	out := map[string]*Definition{}
-	var skipped []string
-	for _, raw := range records {
-		var r struct {
-			Name  string          `json:"name"`
-			State string          `json:"state"`
-			Doc   json.RawMessage `json:"doc"`
-		}
-		if json.Unmarshal(raw, &r) != nil || r.State != "loaded" {
-			skipped = append(skipped, r.Name)
-			continue
-		}
-		d, err := Parse(r.Doc, baseline)
-		if err != nil {
-			skipped = append(skipped, r.Name+": "+err.Error())
-			continue
-		}
-		out[d.Name] = d
-	}
-	return out, skipped
 }
 
 // Scope is the scope the evaluation carries for a session of this definition.
@@ -256,15 +276,11 @@ func LoadDir(dir string, baseline *tools.Registry) (map[string]*Definition, erro
 		if err != nil {
 			return nil, err
 		}
-		var generic any
-		if err := yaml.Unmarshal(raw, &generic); err != nil {
-			return nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
-		}
-		js, err := json.Marshal(generic)
+		doc, err := ParseYAML(raw)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
-		d, err := Parse(js, baseline)
+		d, err := ParseDoc(doc, baseline)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}

@@ -10,7 +10,7 @@ import (
 )
 
 // The S5b settings are carried now, with Python's names and defaults; a bad value stops the start, and what the Go gateway does
-// not carry yet (the pinned definitions and xr.request that GITHUB_PR_ENABLED turns on in Python) must be said to be off.
+// not carry yet (xr.request, which GITHUB_PR_ENABLED turns on in Python) must be said to be off.
 
 func TestHangarSettingsDefaultsAndValues(t *testing.T) {
 	c, err := configFromEnv(envOf(base(nil)))
@@ -51,9 +51,9 @@ func TestBadHangarSettingsStopTheStart(t *testing.T) {
 		{"credentials in the glidepath URL", map[string]string{"GLIDEPATH_API_URL": "http://u:p@x"}, "GLIDEPATH_API_URL"},
 		{"a bad flag", map[string]string{"GITHUB_PR_ENABLED": "maybe"}, "GITHUB_PR_ENABLED must be 0 or 1"},
 		{"a bad on-behalf-of flag", map[string]string{"GLIDEPATH_ON_BEHALF_OF": "2"}, "GLIDEPATH_ON_BEHALF_OF must be 0 or 1"},
-		{"GitHub with the pinned definitions left on", map[string]string{"GITHUB_PR_ENABLED": "1", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "AGENT_XRS_ENABLED=0"},
+		{"GitHub with the pinned definitions left on and no namespaces to read them from", map[string]string{"GITHUB_PR_ENABLED": "1", "XR_REQUEST_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "AGENT_XRS_NAMESPACES"},
 		{"GitHub with xr.request left on", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "XR_REQUEST_ENABLED=0"},
-		{"the pinned definitions asked for", map[string]string{"AGENT_XRS_ENABLED": "1"}, "not carried"},
+		{"the pinned definitions asked for without GitHub", map[string]string{"AGENT_XRS_ENABLED": "1"}, "AGENT_XRS_ENABLED needs GITHUB_PR_ENABLED"},
 		{"xr.request asked for", map[string]string{"XR_REQUEST_ENABLED": "1"}, "not carried"},
 		{"GitHub with no broker (there is no lab default)", merge(on, map[string]string{"BROKER_URL": ""}), "BROKER_URL"},
 		{"GitHub with a bad broker", merge(on, map[string]string{"BROKER_URL": "gopher://b"}), "BROKER_URL"},

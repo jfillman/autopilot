@@ -211,6 +211,9 @@ type Core struct {
 	Log         *slog.Logger
 	drainMu     sync.Mutex
 	definitions *client.Client
+	// BundledVersion is the gateway build the bundled definitions ship in (Python: bundled_version), named in the core's evidence.
+	BundledVersion string
+	noBundled      bundledFlag
 	// OnDecision and OnPosted, when set, see each decision id the core answered and each entry it took with its
 	// record reference. Only the conformance control interface sets them (to report what it was answered).
 	OnDecision func(decisionID string)

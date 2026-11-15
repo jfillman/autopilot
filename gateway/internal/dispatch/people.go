@@ -309,7 +309,7 @@ func (g *Gateway) mayManage(ctx context.Context, person, agent string, s *sessio
 		}
 	}
 	var owner *string
-	if d := g.Defs[agent]; d != nil {
+	if d := g.def(agent); d != nil {
 		owner = d.Owner
 	}
 	if !MayManage(person, owner, g.groupsOf(ctx, person), g.Admins) {
@@ -579,7 +579,7 @@ func (g *Gateway) HoldTriggers(ctx context.Context, token, agent string, reason,
 	if g.Holds == nil {
 		return nil, &ControlError{"CT-OFF", "this deployment keeps no holds", "", 404}
 	}
-	if g.Defs[agent] == nil {
+	if g.def(agent) == nil {
 		return nil, &ControlError{"CT-UNKNOWN", "no such agent", "", 404}
 	}
 	if err := g.mayManage(ctx, person, agent, nil); err != nil {
@@ -718,15 +718,15 @@ const MaxScoreSessions = 50
 // or a platform admin (the person controls' rule). With a `document` (a candidate definition, a PR's) and an optional `budget`, a
 // budgeted Preflight run of that candidate instead. Recorded as session.open (via the delegate) and run.launch (Gateway.run_agent).
 //
-// A candidate document is untrusted input to the definition loader. This gateway does not carry the definition schema (a later
-// slice), so Candidate is not supplied a validated parse and a document is refused (CT-NOTCARRIED, 501) after the person has been
-// checked; a live agent's run does not need it.
+// A candidate document is untrusted input to the definition loader. It is parsed and validated by CandidateParse (serve supplies
+// definitions.ParseDoc, the schema read strictly); a gateway built without one refuses a document (CT-NOTCARRIED, 501) after the
+// person has been checked; a live agent's run does not need it.
 func (g *Gateway) RunAgent(ctx context.Context, token, agent string, runInput any, onBehalfOf string, document, budget any) (map[string]any, error) {
 	person, via, err := g.personFor(ctx, token, onBehalfOf)
 	if err != nil {
 		return nil, err
 	}
-	d, fp := g.Defs[agent], ""
+	d, fp := g.def(agent), ""
 	switch {
 	case document != nil:
 		// A candidate under Preflight: the person must manage the live agent (or be an admin, for a new one).
@@ -736,7 +736,7 @@ func (g *Gateway) RunAgent(ctx context.Context, token, agent string, runInput an
 		var cerr error
 		if d, fp, cerr = g.Candidate(agent, document, budget); cerr != nil {
 			if errors.Is(cerr, ErrNotCarried) {
-				return nil, &ControlError{"CT-NOTCARRIED", "candidate definitions are validated against the definition schema, which this gateway does not carry yet (A-9 S4)",
+				return nil, &ControlError{"CT-NOTCARRIED", "candidate definitions are validated by a definition parser, which this gateway was not given",
 					"Run Preflight against the Python gateway, or run the live definition.", 501}
 			}
 			return nil, cerr

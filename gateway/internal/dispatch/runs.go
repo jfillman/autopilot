@@ -137,7 +137,7 @@ func (g *Gateway) ApplySpawn(req *client.EvaluationRequest, args map[string]any,
 	req.Action.Name = "session.spawn"
 	var child *definitions.Definition
 	if name, ok := args["agent"].(string); ok {
-		child = g.Defs[name]
+		child = g.def(name)
 	}
 	if child != nil {
 		req.Context.Agent = child.AgentDef()
