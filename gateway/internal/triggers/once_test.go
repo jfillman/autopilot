@@ -54,7 +54,10 @@ func TestADecisionThatCannotBeWrittenIsCompletedByTheReplayAndNeverLaunchesTwice
 // happens, and no other session is opened while the recorded one is usable.
 func TestAClaimWithASessionRecordedIsResumedAccordingToTheSession(t *testing.T) {
 	ctx := context.Background()
-	type sess struct{ hasRun, launched, closed, frozen, ended, unknown bool }
+	type sess struct {
+		hasRun, launched, closed, frozen, ended, unknown bool
+		ctl                                              string // how it was closed when not by a person
+	}
 	for name, c := range map[string]struct {
 		s        sess
 		want     string
@@ -68,7 +71,9 @@ func TestAClaimWithASessionRecordedIsResumedAccordingToTheSession(t *testing.T) 
 		"finished (closed after launching)":      {sess{hasRun: true, launched: true, closed: true}, "launched", "", 0, 0},
 		"closed by a person before launching":    {sess{closed: true, ended: true}, "refused", "CT-ENDED", 0, 0},
 		"closed and frozen before launching":     {sess{closed: true, frozen: true}, "refused", "CT-FROZEN", 0, 0},
-		"closed by its deadline, never launched": {sess{closed: true}, "launched", "", 1, 1}, // opened afresh, once
+		"closed by its deadline, never launched": {sess{closed: true, ctl: "deadline"}, "launched", "", 1, 1}, // the only reason a fresh session may follow
+		"closed with no reason recorded":         {sess{closed: true}, "refused", "CT-CLOSED", 0, 0},
+		"closed by the gateway (abandoned)":      {sess{closed: true, ctl: "abandon"}, "refused", "CT-CLOSED", 0, 0},
 		"unknown to this gateway":                {sess{unknown: true}, "deduped", "", 0, 0},
 	} {
 		gw := newGW(triage(nil, 0))
@@ -77,7 +82,13 @@ func TestAClaimWithASessionRecordedIsResumedAccordingToTheSession(t *testing.T) 
 		if !c.s.unknown {
 			gw.sessions["triage-agent/"+task] = "s-old"
 		}
-		gw.hasRun["s-old"], gw.launched["s-old"], gw.closed["s-old"], gw.frozen["s-old"], gw.ended["s-old"] = c.s.hasRun, c.s.launched, c.s.closed, c.s.frozen, c.s.ended
+		gw.hasRun["s-old"], gw.launched["s-old"], gw.closed["s-old"], gw.frozen["s-old"] = c.s.hasRun, c.s.launched, c.s.closed, c.s.frozen
+		switch {
+		case c.s.ended:
+			gw.closeCtl["s-old"] = "end"
+		case c.s.closed:
+			gw.closeCtl["s-old"] = c.s.ctl
+		}
 		if ok, _ := r.ledger.Claim(ctx, "triage-agent", key1, "stream", "e1", t0, t0); !ok {
 			t.Fatal("claim")
 		}
@@ -99,7 +110,7 @@ func TestAClaimWithASessionRecordedIsResumedAccordingToTheSession(t *testing.T) 
 	gw := newGW(triage(nil, 0))
 	r := newRig(t, gw, "")
 	gw.sessions["triage-agent/"+triggers.EventTaskID("triage-agent", key1)] = "s-old"
-	gw.closed["s-old"] = true
+	gw.closed["s-old"], gw.closeCtl["s-old"] = true, "deadline"
 	_, _ = r.ledger.Claim(ctx, "triage-agent", key1, "stream", "e1", t0, t0)
 	_ = r.ledger.Opened(ctx, "triage-agent", key1, "s-old")
 	r.now = t0.Add(72 * time.Hour)

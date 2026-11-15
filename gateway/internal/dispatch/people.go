@@ -429,7 +429,11 @@ func (g *Gateway) EndSession(ctx context.Context, token, sessionID string, reaso
 	if err != nil {
 		return nil, err
 	}
-	touched := g.Store.CloseTouched(s.ID)
+	by := person
+	if via != "" {
+		by += " via " + via
+	}
+	touched := g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseEnd, By: by, At: g.Now()})
 	mine := false
 	for _, t := range touched {
 		mine = mine || t == s
@@ -447,11 +451,19 @@ func (g *Gateway) EndSession(ctx context.Context, token, sessionID string, reaso
 // whose read side every open and launch takes) is never held across a database call: a stuck database stalls the person who is
 // holding, never the opens and launches behind a pending hold.
 
+var errHoldsNotLoaded = errors.New("the holds have not been loaded from the store")
+
 // loadHolds reads the store into the copy, once, outside the gate (the first use; ReloadHolds again).
 func (g *Gateway) loadHolds(ctx context.Context) error {
 	g.holdLoadMu.Lock()
 	defer g.holdLoadMu.Unlock()
-	if g.holdsLoaded || g.Holds == nil {
+	if g.Holds == nil {
+		return nil
+	}
+	g.holdGate.RLock()
+	loaded := g.holdsLoaded
+	g.holdGate.RUnlock()
+	if loaded {
 		return nil
 	}
 	all, err := g.Holds.All(ctx)
@@ -470,10 +482,17 @@ func (g *Gateway) loadHolds(ctx context.Context) error {
 
 // ReloadHolds reads the store again (start-up, and a test that wrote the store directly).
 func (g *Gateway) ReloadHolds(ctx context.Context) error {
-	g.holdLoadMu.Lock()
-	g.holdsLoaded = false
-	g.holdLoadMu.Unlock()
+	g.invalidateHolds()
 	return g.loadHolds(ctx)
+}
+
+// invalidateHolds marks the copy as not loaded: every open and launch then fails closed until the next read of the store.
+func (g *Gateway) invalidateHolds() {
+	g.holdLoadMu.Lock()
+	g.holdGate.Lock()
+	g.holdsLoaded = false
+	g.holdGate.Unlock()
+	g.holdLoadMu.Unlock()
 }
 
 // holdForLocked is the active hold on an agent's triggers, if any, from the copy. The caller holds the hold gate (read or write). An
@@ -481,6 +500,9 @@ func (g *Gateway) ReloadHolds(ctx context.Context) error {
 func (g *Gateway) holdForLocked(_ context.Context, agent string) (*Hold, error) {
 	if g.Holds == nil {
 		return nil, nil
+	}
+	if !g.holdsLoaded { // fail closed: until the holds have been read from the store, nobody knows there is none
+		return nil, errHoldsNotLoaded
 	}
 	h := g.holdCache[agent]
 	if h == nil || !h.Active(g.Now()) {
@@ -545,6 +567,9 @@ func (g *Gateway) HoldTriggers(ctx context.Context, token, agent string, reason,
 		g.holdGate.Lock()
 		g.holdCache[agent] = h
 		g.holdGate.Unlock()
+	}
+	if err != nil {
+		g.invalidateHolds() // a write that errored may have committed: the copy is not trusted until the store is read again
 	}
 	g.holdWriteMu.Unlock()
 	if err != nil {

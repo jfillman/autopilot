@@ -282,6 +282,15 @@ func containsID(a []string, x string) bool {
 // budget back), so the caller can save them together: a parent whose budget came back must not be left saved with it
 // still reserved against a child that is saved closed.
 func (st *Store) CloseTouched(id string) []*Session {
+	return st.CloseTouchedBy(id, CloseReason{Control: CloseOther})
+}
+
+// CloseTouchedBy is CloseTouched with the reason, written on every session it closes in the same step that closes it (the sessions
+// below it are closed by their parent's close). A session that is already closed keeps the reason it has.
+func (st *Store) CloseTouchedBy(id string, why CloseReason) []*Session {
+	if why.At.IsZero() {
+		why.At = time.Now().UTC()
+	}
 	s := st.Get(id)
 	if s == nil {
 		return nil
@@ -298,7 +307,7 @@ func (st *Store) CloseTouched(id string) []*Session {
 	}
 	var touched []*Session
 	for _, c := range kids {
-		touched = append(touched, st.CloseTouched(c)...)
+		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: why.Control, At: why.At})...)
 	}
 	s.Lock()
 	if s.Closed { // closed by another caller while its children were
@@ -306,6 +315,8 @@ func (st *Store) CloseTouched(id string) []*Session {
 		return touched
 	}
 	s.Closed = true
+	reason := why
+	s.CloseReason = &reason
 	parent, limits, used := s.ParentID, s.Limits, s.Used
 	// A spawn that landed after the snapshot above and before this close adopted its child under a parent that was still open
 	// (AdoptChild refuses a closed parent, and only now is it closed). It appended itself to Children under the lock, so the
@@ -319,7 +330,7 @@ func (st *Store) CloseTouched(id string) []*Session {
 	}
 	s.Unlock()
 	for _, c := range late {
-		touched = append(touched, st.CloseTouched(c)...)
+		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: why.Control, At: why.At})...)
 	}
 	touched = append(touched, s)
 	if parent != nil {
@@ -396,7 +407,7 @@ func (st *Store) Sweep(now time.Time) []string {
 		}
 	}
 	for _, id := range gone {
-		st.Close(id)
+		st.CloseTouchedBy(id, CloseReason{Control: CloseDeadline, At: now})
 	}
 	return gone
 }

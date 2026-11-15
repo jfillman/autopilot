@@ -281,7 +281,7 @@ func (g *Gateway) runAgentAs(ctx context.Context, person, via, agent string, d *
 	out, lerr := g.Launch(ctx, s.ID, task)
 	if lerr != nil || !out.OK {
 		// A run that was not launched leaves no live session behind: nobody was told its id.
-		g.flush(ctx, g.Store.CloseTouched(s.ID)...)
+		g.flush(ctx, g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseAbandon, At: g.Now()})...)
 		if lerr != nil {
 			return nil, lerr
 		}

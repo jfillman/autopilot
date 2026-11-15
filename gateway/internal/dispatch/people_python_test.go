@@ -382,7 +382,7 @@ func TestPersonOperationsEqualPython(t *testing.T) {
 			s.Lock()
 			rec := s.ToRecord()
 			s.Unlock()
-			rec.DeleteFail, rec.LaunchedAt = nil, nil
+			rec.DeleteFail, rec.LaunchedAt, rec.CloseReason, rec.RunRemoved = nil, nil, nil, nil
 			var want any
 			_ = json.Unmarshal(raw, &want)
 			if !reflect.DeepEqual(norm(t, rec), dropEmpty(want, "")) {
@@ -451,7 +451,7 @@ func TestControlSequencesEqualPython(t *testing.T) {
 		s.Lock()
 		rec := s.ToRecord()
 		s.Unlock()
-		rec.DeleteFail, rec.LaunchedAt = nil, nil
+		rec.DeleteFail, rec.LaunchedAt, rec.CloseReason, rec.RunRemoved = nil, nil, nil, nil
 		var want any
 		_ = json.Unmarshal(raw, &want)
 		if !reflect.DeepEqual(norm(t, rec), dropEmpty(want, "")) {

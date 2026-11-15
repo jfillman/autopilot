@@ -120,6 +120,10 @@ type Session struct {
 	// It is the Go gateway's own key (the Python gateway reads a row by the keys it knows, so it ignores it, and drops it at its next
 	// save of the session).
 	LaunchedAt *time.Time
+	// CloseReason says how the session was closed, written in the same step that closes it (nil: it is open, or it was closed by a path
+	// that records nothing, which a trigger treats as "do not launch"). RunRemoved says why a run that was made was taken away again.
+	CloseReason *CloseReason
+	RunRemoved  *RunRemoved
 }
 
 // Lock guards the session's fields.
@@ -247,6 +251,9 @@ type Record struct {
 	DeleteFail *DeleteFail `json:"delete_failure,omitempty"`
 	// LaunchedAt is the Go gateway's own key (see Session.LaunchedAt); absent for a row the Python gateway wrote.
 	LaunchedAt *time.Time `json:"launched_at,omitempty"`
+	// CloseReason and RunRemoved are the Go gateway's own keys (see Session); absent for a row the Python gateway wrote.
+	CloseReason *CloseReason `json:"close_reason,omitempty"`
+	RunRemoved  *RunRemoved  `json:"run_removed,omitempty"`
 }
 
 // IsoFormat is Python's datetime.isoformat for an aware UTC time.
@@ -284,7 +291,7 @@ func (s *Session) ToRecord() Record {
 		CreatedAt: s.CreatedAt.UTC().Format(IsoFormat), ExpiresAt: s.ExpiresAt.UTC().Format(IsoFormat),
 		ParentID: s.ParentID, Depth: s.Depth, TaskID: s.TaskID, Used: budgetsMap(&s.Used), Reserved: budgetsMap(&s.Reserved),
 		Children: nonNil(s.Children), Tripped: s.Tripped, TripReason: s.TripReason, Denials: s.Denials, Closed: s.Closed,
-		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail), LaunchedAt: copyTime(s.LaunchedAt)}
+		Run: s.Run, Input: s.Input, Outcome: s.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(s.DeleteFail), LaunchedAt: copyTime(s.LaunchedAt), CloseReason: copyCR(s.CloseReason), RunRemoved: copyRR(s.RunRemoved)}
 }
 
 // FromRecord is the inverse of ToRecord, for a row either gateway wrote.
@@ -308,7 +315,7 @@ func FromRecord(r Record) (*Session, error) {
 	return &Session{ID: r.ID, Principal: r.Principal, Agent: r.Agent, Limits: r.Limits, CreatedAt: created, ExpiresAt: expires,
 		ParentID: r.ParentID, Depth: r.Depth, TaskID: r.TaskID, Used: budgetsFrom(r.Used), Reserved: budgetsFrom(r.Reserved),
 		Children: r.Children, Tripped: r.Tripped, TripReason: r.TripReason, Denials: r.Denials, Closed: r.Closed, Run: r.Run,
-		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail), LaunchedAt: copyTime(r.LaunchedAt)}, nil
+		Input: r.Input, Outcome: r.Outcome, Usage: usage, Signals: signals, DeleteFail: copyDF(r.DeleteFail), LaunchedAt: copyTime(r.LaunchedAt), CloseReason: copyCR(r.CloseReason), RunRemoved: copyRR(r.RunRemoved)}, nil
 }
 
 func parseTime(v string) (time.Time, error) {
@@ -318,6 +325,53 @@ func parseTime(v string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, &time.ParseError{Value: v, Message: ": not an ISO 8601 time"}
+}
+
+// The controls a session can be closed by, as CloseReason.Control says.
+const (
+	CloseDeadline = "deadline" // its deadline passed (the sweep); the only reason a trigger may open a fresh session after
+	CloseEnd      = "end"      // a person ended it
+	CloseAbandon  = "abandon"  // the gateway closed a session it could not launch
+	CloseOwner    = "close"    // its owner closed it (session_close, run.close)
+	CloseParent   = "parent"   // its parent was closed
+	CloseFinish   = "finish"   // its run handed back its result
+	CloseOther    = "other"    // a path that says nothing more
+)
+
+// CloseReason is who closed a session, how and when: durable, in the write that closes it.
+type CloseReason struct {
+	Control string    `json:"control"`
+	By      string    `json:"by,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// The reasons a run that was made was taken away again (RunRemoved.Reason).
+const (
+	RemovedHold     = "hold"          // a hold was saved while it was being made
+	RemovedClosed   = "closed"        // the session was closed while it was being made
+	RemovedNoRecord = "record-failed" // the launch record could not be written (fail closed)
+)
+
+// RunRemoved is the durable fact that the run of a session was made and taken away again, and why.
+type RunRemoved struct {
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
+}
+
+func copyCR(c *CloseReason) *CloseReason {
+	if c == nil {
+		return nil
+	}
+	x := *c
+	return &x
+}
+
+func copyRR(r *RunRemoved) *RunRemoved {
+	if r == nil {
+		return nil
+	}
+	x := *r
+	return &x
 }
 
 func copyTime(t *time.Time) *time.Time {

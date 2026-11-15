@@ -22,6 +22,13 @@ says what each gateway tag adds. The manager cuts the tags.
 - `tools/gen_gateway_registry.py` also writes fixtures for the inbox, the controls, the rows they write and the triggers (matcher, keys,
   the bridge and the scheduler driven over a fake gateway), generated from the Python code.
 
+- Round-4 review fixes of S3 (Go gateway only): a trigger's takeover decides only from facts recorded durably when they happened, never from
+  the clock or a missing field: a person's end is written with the close (who, when, which control), a session closed with no reason is
+  never launched, the run's name is saved before the run is made and "created" right after, a run a hold took away is recorded as removed
+  (with the reason) before the row is decided, and a run backend that cannot be asked leaves the trigger resumable instead of closing the
+  session of a run that may exist. The holds copy is loaded at start and every triggered open and launch fails closed while it is not.
+  Difference from Python: a session row carries three Go-only keys (`launched_at`, `close_reason`, `run_removed`), omitted when empty;
+  Python ignores them and drops them at its next save of the session. The doc's crash-point table is written from the code and walked by a test.
 - Review fixes of S3 (Go gateway only): a trigger records the session it opened in its ledger row before it launches, so a stale claim can
   never launch a second run; a trigger dedupes only onto a session it opened; a frozen session and a held agent start no run; freeze and end
   answer one 404 for an unknown and a foreign session; delegates are named by where they run (no `*`, no wildcard namespace, never a run, a

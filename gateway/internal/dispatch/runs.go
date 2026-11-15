@@ -308,7 +308,7 @@ func (g *Gateway) spawn(ctx context.Context, parent *session.Session, d *definit
 // can come after the API server took the object). The session keeps its run name when the delete fails, so the sweep
 // retries it: the session is closed, which is what finds it.
 func (g *Gateway) abandonRun(ctx context.Context, s *session.Session) {
-	touched := g.Store.CloseTouched(s.ID)
+	touched := g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseAbandon, At: g.Now()})
 	bctx, cancel := g.bg(ctx)
 	defer cancel()
 	if err := callBackend(func() error { return g.Runs.Delete(bctx, s) }); err == nil {
@@ -359,7 +359,11 @@ const (
 // failing, and its success is recorded once; and each run is handled at most once per sweep. A close by a person or a run
 // (sw nil) always tries.
 func (g *Gateway) deleteRuns(ctx context.Context, target, actor *session.Session, why string, sw *sweepRun) []*session.Session {
-	touched := g.Store.CloseTouched(target.ID)
+	control := map[string]string{"closed": session.CloseOwner, "finished": session.CloseFinish, "expired": session.CloseDeadline}[why]
+	if control == "" {
+		control = session.CloseOther
+	}
+	touched := g.Store.CloseTouchedBy(target.ID, session.CloseReason{Control: control, At: g.Now()})
 	actor.Lock()
 	actorPrincipal := actor.Principal
 	actor.Unlock()
@@ -507,7 +511,7 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 	if tripped {
 		// A frozen session (a person's freeze, or the breaker) starts no run: it is closed, as a launch that failed is, so nothing
 		// is left live that nothing will use.
-		g.flush(ctx, g.Store.CloseTouched(s.ID)...)
+		g.flush(ctx, g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseAbandon, By: "frozen", At: g.Now()})...)
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R004", "frozen": true}, Error: str("this session is frozen: it starts no run"), Session: &s.ID}, nil
 	}
 	refuse := func(msg string) (*Result, error) {
@@ -535,7 +539,7 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 		s.Unlock()
 		var phase string
 		if perr := callBackend(func() (e error) { phase, e = g.Runs.Ended(ctx, s); return }); perr != nil {
-			return nil, perr // cannot tell whether the run exists: nothing is made, the caller may try again
+			return nil, &ResumableError{perr} // cannot tell whether the run exists: nothing is made, nothing is undone, the claim stays resumable
 		}
 		if phase != "Gone" {
 			return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"run": have, "session": s.ID, ExistingRunKey: true}, Session: &s.ID}, nil
@@ -567,8 +571,11 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 	closedNow := s.Closed
 	s.Unlock()
 	s.BumpRunEpoch()
+	g.flush(ctx, s) // "the run was created" is its own durable write, before anything else is decided about it
 	if closedNow {
-		// Closed while its run was being made (a person's End, the sweep): the run is deleted, not left outside the accounting.
+		// Closed while its run was being made (a person's End, the sweep): the run is deleted, not left outside the accounting, and the
+		// session says so (durably, before anything is decided about the trigger).
+		g.markRunRemoved(ctx, s, session.RemovedClosed)
 		bctx, cancel := g.bg(ctx)
 		if derr := callBackend(func() error { return g.Runs.Delete(bctx, s) }); derr == nil {
 			s.Lock()
@@ -585,6 +592,7 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 		if !errors.As(rerr, &un) {
 			return nil, rerr
 		}
+		g.markRunRemoved(ctx, s, session.RemovedNoRecord)
 		bctx, cancel := g.bg(ctx)
 		derr := callBackend(func() error { return g.Runs.Delete(bctx, s) })
 		cancel()
@@ -599,6 +607,31 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 		return &Result{Decision: map[string]any{"allow": false, "rule": v.Rule}, Error: str(v.Message), Session: &s.ID}, nil
 	}
 	return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"run": run, "session": s.ID}, AuditSeq: seq, Session: &s.ID}, nil
+}
+
+// markRunRemoved writes, durably, that the session's run was made and is being taken away again, and why: a later holder of the claim
+// of a trigger reads this and decides from it, not from what is left.
+func (g *Gateway) markRunRemoved(ctx context.Context, s *session.Session, reason string) {
+	at := g.Now()
+	s.Lock()
+	s.RunRemoved = &session.RunRemoved{Reason: reason, At: at}
+	s.Unlock()
+	g.flush(ctx, s)
+}
+
+// ResumableError is a failure that proves nothing about what exists: a read that could not tell. A trigger that meets one leaves its
+// claim as it is (nothing is undone, nothing is decided) and tries again; only an error that proves nothing was made, or that the
+// launch can never succeed, is final.
+type ResumableError struct{ Err error }
+
+func (e *ResumableError) Error() string { return "could not tell: " + e.Err.Error() }
+func (e *ResumableError) Unwrap() error { return e.Err }
+
+// IsResumable says whether err is a ResumableError or a HoldReadError.
+func IsResumable(err error) bool {
+	var r *ResumableError
+	var h *HoldReadError
+	return errors.As(err, &r) || errors.As(err, &h)
 }
 
 func intOf(v any) (int64, bool) {
@@ -734,7 +767,7 @@ func (g *Gateway) FinishRun(ctx context.Context, token, sessionID string, body a
 		return nil, &ControlError{"R004", "no live session", "The session already ended: its outcome is kept.", 409}
 	}
 	seq, _ := g.record(ctx, "run.finish", s, p.ID, map[string]any{"status": status, "turns": turns}, status, false)
-	touched := g.Store.CloseTouched(s.ID)
+	touched := g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseFinish, By: p.ID, At: g.Now()})
 	g.flush(ctx, touched...)
 	var keptOut any
 	if kept != nil {
@@ -780,7 +813,7 @@ func (g *Gateway) CloseSession(ctx context.Context, token, sessionID string, rea
 			return nil, err
 		}
 	}
-	touched := g.Store.CloseTouched(s.ID)
+	touched := g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseOwner, By: p.ID, At: g.Now()})
 	rec := g.controlRecord(ctx, p.ID, "session.end", s, agent, map[string]any{"reason": text}, "ended: "+text)
 	withRuns := []string{}
 	for _, sid := range append([]string{s.ID}, g.descendants(s)...) {

@@ -42,13 +42,16 @@ type fakeGW struct {
 	abandoned               []string
 	closed                  map[string]bool
 	launched, frozen, ended map[string]bool
-	lateHold                map[string]bool // a hold that only the launch sees
+	closeCtl, removed       map[string]string // how a session was closed; why its run was taken away
+	existsErr               error             // RunExists: could not tell
+	reserved                map[string]bool   // a session that names a run that was only reserved (RunExists says no)
+	lateHold                map[string]bool   // a hold that only the launch sees
 	beforeLaunch            func()
 }
 
 func newGW(defs ...*definitions.Definition) *fakeGW {
 	g := &fakeGW{defs: map[string]*definitions.Definition{}, sessions: map[string]string{}, hasRun: map[string]bool{}, holdRule: map[string]string{},
-		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, launched: map[string]bool{}, frozen: map[string]bool{}, ended: map[string]bool{}, lateHold: map[string]bool{}}
+		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, launched: map[string]bool{}, frozen: map[string]bool{}, ended: map[string]bool{}, closeCtl: map[string]string{}, removed: map[string]string{}, lateHold: map[string]bool{}}
 	for _, d := range defs {
 		g.defs[d.Name] = d
 	}
@@ -90,6 +93,17 @@ func (g *fakeGW) AbandonTriggered(_ context.Context, sid string, _ bool) {
 	defer g.mu.Unlock()
 	g.abandoned = append(g.abandoned, sid)
 	g.closed[sid] = true
+	g.closeCtl[sid] = "abandon"
+}
+
+// RunExists: the run exists when the session has one.
+func (g *fakeGW) RunExists(_ context.Context, sid string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.existsErr != nil {
+		return false, &dispatch.ResumableError{Err: g.existsErr}
+	}
+	return g.hasRun[sid], nil
 }
 
 // TriggerSessionState: a session is known when an open made it (or a test planted it), live until it is abandoned or closed.
@@ -100,8 +114,8 @@ func (g *fakeGW) TriggerSessionState(sid string) dispatch.TriggerSession {
 	for _, s := range g.sessions {
 		known = known || s == sid
 	}
-	st := dispatch.TriggerSession{Known: known, Live: known && !g.closed[sid], Launched: g.launched[sid], Frozen: g.frozen[sid], Ended: g.ended[sid]}
-	if g.hasRun[sid] {
+	st := dispatch.TriggerSession{Known: known, Live: known && !g.closed[sid], Launched: g.launched[sid], Frozen: g.frozen[sid], Removed: g.removed[sid], CloseControl: g.closeCtl[sid]}
+	if g.hasRun[sid] || g.reserved[sid] {
 		st.Run = "r-" + sid[2:]
 	}
 	return st
@@ -289,18 +303,18 @@ func TestAFailureForOneAgentDoesNotSkipTheOthers(t *testing.T) {
 	gw := newGW(a, b)
 	gw.panicOn["another-agent"] = true
 	r := newRig(t, gw, "")
-	// a panic leaves its trigger claimed and resumable (an error: not marked handled), and the other agent still runs; one that panics on
-	// every delivery is decided launch-failed at the third
-	got, err := r.b.Handle(context.Background(), finished("e1", "pr-1", "failure"), "stream")
-	if err == nil || len(got) != 1 || got[0].Agent != "triage-agent" || got[0].Result != "launched" {
-		t.Fatalf("%+v %v", got, err)
+	// a panic leaves its trigger claimed and resumable (an error: not marked handled), and the other agent still runs; every delivery
+	// resumes it, and it is never decided by a count of panics
+	for i := 0; i < 4; i++ {
+		got, err := r.b.Handle(context.Background(), finished("e1", "pr-1", "failure"), "stream")
+		if err == nil || len(got) != 1 || got[0].Agent != "triage-agent" {
+			t.Fatalf("%d: %+v %v", i, got, err)
+		}
+		if row, _ := r.ledger.Get(context.Background(), "another-agent", "gate-api.pipelinerun.finished/pr-1"); row == nil || row.State != "claimed" {
+			t.Fatalf("%d: %+v", i, row)
+		}
 	}
-	for i := 0; i < 2; i++ {
-		got, err = r.b.Handle(context.Background(), finished("e1", "pr-1", "failure"), "stream")
-	}
-	if err != nil || len(got) != 2 || got[0].Agent != "another-agent" || got[0].Result != "launch-failed" {
-		t.Fatalf("%+v %v", got, err)
-	}
+	var got []triggers.Outcome
 	gw.panicOn["another-agent"] = false
 	gw.openErr = errors.New("core down")
 	got, _ = r.b.Handle(context.Background(), finished("e2", "pr-2", "failure"), "stream")

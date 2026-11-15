@@ -61,7 +61,6 @@ type Scheduler struct {
 	mu        sync.Mutex // one tick at a time
 	fired     map[slotRef]struct{}
 	undecided pendingDecisions
-	panics    map[string]int
 	checked   map[slotRef]struct{}
 	floors    map[string]time.Time
 	pruned    time.Time
@@ -79,7 +78,7 @@ func NewScheduler(gw Gateway, ledger Ledger, now func() time.Time, m Metrics, lo
 		log = slog.Default()
 	}
 	return &Scheduler{gw: gw, ledger: ledger, metrics: m, log: log, now: now, Tick_: TickEvery, started: now(),
-		fired: map[slotRef]struct{}{}, checked: map[slotRef]struct{}{}, floors: map[string]time.Time{}, panics: map[string]int{}}
+		fired: map[slotRef]struct{}{}, checked: map[slotRef]struct{}{}, floors: map[string]time.Time{}}
 }
 
 // SlotOf is the slot `now` falls in and when it started.
@@ -176,7 +175,12 @@ func (s *Scheduler) checkMissed(ctx context.Context, sc schedule, slot int64, st
 		// `claimed` orphan a dead process left may have launched its run: not missed either.)
 		if row != nil {
 			if row.State == "claimed" { // an orphan: taken over and resolved (its session decides; past its grace nothing is started)
-				if o, ok := s.handleSlot(ctx, sc, sl, slStart, now); ok && o != nil {
+				o, ok := s.handleSlot(ctx, sc, sl, slStart, now)
+				if !ok {
+					delete(s.checked, ref) // not decided: looked at again on the next tick, not only after a restart
+					return out, nil
+				}
+				if o != nil {
 					out = append(out, *o)
 				}
 			}
@@ -268,6 +272,7 @@ func (s *Scheduler) handleSlot(ctx context.Context, sc schedule, slot int64, sta
 		return nil, false
 	}
 	if !won {
+		s.undecided.drop(sc.agent, key)
 		return nil, true // decided: fired before (or called missed)
 	}
 	var out SlotOutcome
@@ -300,16 +305,10 @@ func (s *Scheduler) handleSlot(ctx context.Context, sc schedule, slot int64, sta
 func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start, now time.Time) (out SlotOutcome, err error) {
 	out = SlotOutcome{Agent: sc.agent, Slot: slot, Result: "launch-failed"}
 	key := SlotKey(sc.everyS, slot)
-	pk := sc.agent + "\x00" + key
 	defer func() {
 		if r := recover(); r != nil { // one agent's failed launch must not skip the others in this tick
 			s.log.Error("a schedule panicked", "agent", sc.agent, "slot", slot, "panic", fmt.Sprint(r))
-			if s.panics[pk]++; s.panics[pk] >= maxPanics {
-				delete(s.panics, pk)
-				out.Result, err = "launch-failed", nil
-				return
-			}
-			err = fmt.Errorf("a schedule panicked")
+			err = fmt.Errorf("a schedule panicked") // not decided, not counted: the next tick resumes from what the row and the session recorded
 		}
 	}()
 	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
@@ -330,18 +329,21 @@ func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start, no
 			}
 			return input
 		},
-		open: func(ctx context.Context) (*opened, *fireOut) {
+		open: func(ctx context.Context) (*opened, *fireOut, error) {
 			res, oerr := s.gw.OpenTriggered(ctx, sc.agent, "interval:"+sc.everyS, SlotTaskID(sc.agent, slot))
 			if oerr != nil {
+				if dispatch.IsResumable(oerr) {
+					return nil, nil, oerr
+				}
 				s.log.Error("a schedule could not open its session", "agent", sc.agent, "slot", slot, "err", errKind(oerr))
-				return nil, &fireOut{Result: "launch-failed"}
+				return nil, &fireOut{Result: "launch-failed"}, nil
 			}
 			if !res.OK {
 				rule, _ := res.Decision["rule"].(string)
 				if rule == "R024" {
-					return nil, &fireOut{Result: "held", Rule: rule}
+					return nil, &fireOut{Result: "held", Rule: rule}, nil
 				}
-				return nil, &fireOut{Result: "refused", Rule: rule}
+				return nil, &fireOut{Result: "refused", Rule: rule}, nil
 			}
 			data, _ := res.Data.(map[string]any)
 			sid := ""
@@ -349,7 +351,7 @@ func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start, no
 				sid = *res.Session
 			}
 			dd, _ := data["deduped"].(bool)
-			return &opened{session: sid, deduped: dd}, nil
+			return &opened{session: sid, deduped: dd}, nil, nil
 		}}
 	res, ferr := r.run(fctx, prior)
 	if ferr != nil {

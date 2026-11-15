@@ -397,6 +397,11 @@ func serve(_ []string) int {
 	g.SetInbox(pgstate.NewInbox(st), nil, cfg.delegates)
 	g.Admins = cfg.admins
 	g.Holds = pgstate.NewHolds(st)
+	// The holds are read before anything is served or triggered. Until they have been, every open and launch fails closed (a hold that
+	// cannot be known is not "no hold"), and each retries the read.
+	if err := g.ReloadHolds(ctx); err != nil {
+		log.Warn("the holds could not be read at start: triggers and people's runs wait until they can be", "err", err.Error())
+	}
 	g.Events = pgstate.NewEvents(st)
 	g.RuntimeImages = cfg.runtimeImages
 	g.Fingerprint = dispatch.Fingerprint

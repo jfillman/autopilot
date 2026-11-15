@@ -122,7 +122,7 @@ func (g *Gateway) OpenTriggered(ctx context.Context, agent, trigger, taskID stri
 	g.holdGate.RUnlock()
 	if herr != nil {
 		g.Store.GiveBack(newID)
-		return nil, herr
+		return nil, &HoldReadError{herr}
 	}
 	if held != nil {
 		g.Store.GiveBack(newID)
@@ -204,23 +204,31 @@ func (g *Gateway) LaunchTriggered(ctx context.Context, agent, sessionID string, 
 			return res, err
 		}
 	}
-	h, herr := g.HoldFor(ctx, agent)
-	if herr != nil || h == nil {
+	h, herr := g.holdForRetry(ctx, agent)
+	if herr != nil {
+		// The hold cannot be read after the run was made: that is not "no hold". The claim stays resumable (the run is recorded as
+		// created); nothing is decided on a hold nobody could read.
+		return nil, herr
+	}
+	if h == nil {
 		return res, nil
 	}
 	if s := g.Store.Get(sessionID); s != nil {
+		g.markRunRemoved(ctx, s, session.RemovedHold)
 		g.flush(ctx, g.deleteRuns(ctx, s, s, "closed", nil)...)
 	}
 	return heldResult(agent, h, nil), nil
 }
 
-// TriggerSession is what a trigger needs to know of a session an earlier holder of its claim opened.
+// TriggerSession is what a trigger needs to know of a session an earlier holder of its claim opened. Every field is a fact the session
+// recorded (or its own deadline), never an inference from what is missing.
 type TriggerSession struct {
-	Known, Live bool
-	Run         string // the run it names ("" none); a name may be only reserved
-	Launched    bool   // its run was created (LaunchedAt)
-	Frozen      bool   // tripped
-	Ended       bool   // closed by someone (a person's end, a parent's close), not by its deadline
+	Known, Live  bool
+	Run          string // the run it names ("" none); a name may be only reserved
+	Launched     bool   // its run was created (LaunchedAt)
+	Removed      string // why a run that was made was taken away (session.Removed*), or ""
+	Frozen       bool   // tripped
+	CloseControl string // how it was closed (session.Close*); "deadline" also for an open session past its deadline; "" closed with no reason recorded
 }
 
 // TriggerSessionState reads a session for a trigger that takes over a claim.
@@ -235,8 +243,36 @@ func (g *Gateway) TriggerSessionState(sessionID string) TriggerSession {
 	if s.Run != nil {
 		t.Run = *s.Run
 	}
-	t.Ended = s.Closed && (s.Outcome == nil || s.Outcome["via"] != "deadline") && g.Now().Before(s.ExpiresAt)
+	if s.RunRemoved != nil {
+		t.Removed = s.RunRemoved.Reason
+	}
+	switch {
+	case s.Closed && s.CloseReason != nil:
+		t.CloseControl = s.CloseReason.Control
+	case !s.Closed && !g.Now().Before(s.ExpiresAt):
+		t.CloseControl = session.CloseDeadline // its own recorded deadline has passed
+	}
 	return t
+}
+
+// RunExists asks the run backend whether the run a session names exists: (true, nil) it does, (false, nil) it provably does not (the
+// session names none, or the backend says it is gone), and an error when it could not tell (a *ResumableError).
+func (g *Gateway) RunExists(ctx context.Context, sessionID string) (bool, error) {
+	s := g.Store.Get(sessionID)
+	if s == nil || g.Runs == nil {
+		return false, nil
+	}
+	s.Lock()
+	has := s.Run != nil && *s.Run != ""
+	s.Unlock()
+	if !has {
+		return false, nil
+	}
+	var phase string
+	if err := callBackend(func() (e error) { phase, e = g.Runs.Ended(ctx, s); return }); err != nil {
+		return false, &ResumableError{err}
+	}
+	return phase != "Gone", nil
 }
 
 func refusedGrant(v *core.Verdict) *Result {
@@ -254,6 +290,9 @@ func (g *Gateway) TriggeredRequest(ctx context.Context, agent, trigger, taskID, 
 // TriggeredRequestLive is TriggeredRequest, and the live session of the task it showed the core, if any. The hold is read under
 // the gate's read lock, which is let go before it returns.
 func (g *Gateway) TriggeredRequestLive(ctx context.Context, agent, trigger, taskID, newID string, now time.Time) (*client.EvaluationRequest, *session.Session, error) {
+	if err := g.loadHolds(ctx); err != nil {
+		return nil, nil, &HoldReadError{err} // not ready: a hold that cannot be known is not "no hold"
+	}
 	g.holdGate.RLock()
 	defer g.holdGate.RUnlock()
 	return g.triggeredRequest(ctx, agent, trigger, taskID, newID, now)
@@ -339,5 +378,5 @@ func (g *Gateway) AbandonTriggered(ctx context.Context, sessionID string, failed
 	if has && !failed {
 		return
 	}
-	g.flush(ctx, g.Store.CloseTouched(sessionID)...)
+	g.flush(ctx, g.Store.CloseTouchedBy(sessionID, session.CloseReason{Control: session.CloseAbandon, At: g.Now()})...)
 }

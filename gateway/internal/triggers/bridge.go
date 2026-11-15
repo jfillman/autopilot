@@ -86,6 +86,8 @@ type Gateway interface {
 	OpenTriggered(ctx context.Context, agent, trigger, taskID string) (*dispatch.Result, error)
 	// TriggerSessionState reads a session an earlier holder of a claim opened.
 	TriggerSessionState(sessionID string) dispatch.TriggerSession
+	// RunExists asks the run backend whether the run a session names exists (an error: it could not tell).
+	RunExists(ctx context.Context, sessionID string) (bool, error)
 	// LaunchTriggered launches a trigger's session with the hold read again right before and after.
 	LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*dispatch.Result, error)
 	// AbandonTriggered closes a session a trigger opened and could not launch.
@@ -156,7 +158,6 @@ type Bridge struct {
 	seenQ     []string
 	brakes    map[string]*RateLimiter
 	undecided pendingDecisions
-	panics    map[string]int
 }
 
 // NewBridge checks the configuration and builds a bridge. It does not connect.
@@ -204,7 +205,7 @@ func NewBridge(gw Gateway, ledger Ledger, cfg BridgeConfig, m Metrics, log *slog
 		hc = &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	b := &Bridge{gw: gw, ledger: ledger, metrics: m, log: log, cfg: cfg, base: u, hc: hc, started: cfg.Now(),
-		seen: map[string]struct{}{}, brakes: map[string]*RateLimiter{}, panics: map[string]int{}}
+		seen: map[string]struct{}{}, brakes: map[string]*RateLimiter{}}
 	return b, nil
 }
 
@@ -301,6 +302,7 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 			continue
 		}
 		if !won { // a decided row: a duplicate
+			b.undecided.drop(m.Agent, key)
 			gctx, cancel := b.dbCtx(ctx)
 			row, _ := b.ledger.Get(gctx, m.Agent, key)
 			cancel()
@@ -407,15 +409,12 @@ func (b *Bridge) brake(agent string, perHour int) *RateLimiter {
 func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via string) (out Outcome, err error) {
 	eid := env["id"].(string)
 	out = Outcome{Agent: m.Agent, Via: via, New: true}
-	pk := m.Agent + "\x00" + key
 	defer func() {
 		if r := recover(); r != nil { // one agent's failure must not skip the others for this event
 			b.log.Error("a trigger panicked", "event", eid, "agent", m.Agent, "panic", fmt.Sprint(r))
-			if b.panics[pk]++; b.panics[pk] >= maxPanics {
-				delete(b.panics, pk)
-				out.Result, err = "launch-failed", nil // it would panic on every delivery: decided
-				return
-			}
+			// Not decided and not counted: whatever it had written is recorded on the row and the session (the session, the run's
+			// reservation and creation), so the next delivery resumes from those facts. A trigger that panics on every delivery is
+			// logged each time.
 			err = fmt.Errorf("a trigger panicked")
 		}
 	}()
@@ -442,19 +441,22 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 	r := &resumer{gw: b.gw, ledger: b.ledger, log: b.log, waits: RetryWaits, agent: m.Agent, key: key,
 		valid: func() bool { return b.Now().Sub(eventTime(env, b.Now())) <= b.cfg.ResumeWindow },
 		input: b.runInput(m.Agent, env),
-		open: func(ctx context.Context) (*opened, *fireOut) {
+		open: func(ctx context.Context) (*opened, *fireOut, error) {
 			res, oerr := b.gw.OpenTriggered(ctx, m.Agent, "glidepath:"+eid, EventTaskID(m.Agent, key))
 			if oerr != nil {
+				if dispatch.IsResumable(oerr) {
+					return nil, nil, oerr // a hold nobody could read: not an open, not a refusal
+				}
 				b.log.Error("a trigger could not open its session", "event", eid, "agent", m.Agent, "err", errKind(oerr))
-				return nil, &fireOut{Result: "launch-failed"}
+				return nil, &fireOut{Result: "launch-failed"}, nil
 			}
 			if !res.OK {
 				// R024: a person holds this agent's triggers; the event is history, not a run.
 				rule, _ := res.Decision["rule"].(string)
 				if rule == "R024" {
-					return nil, &fireOut{Result: "held", Rule: rule}
+					return nil, &fireOut{Result: "held", Rule: rule}, nil
 				}
-				return nil, &fireOut{Result: "refused", Rule: rule}
+				return nil, &fireOut{Result: "refused", Rule: rule}, nil
 			}
 			data, _ := res.Data.(map[string]any)
 			sid := ""
@@ -462,7 +464,7 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 				sid = *res.Session
 			}
 			dd, _ := data["deduped"].(bool)
-			return &opened{session: sid, deduped: dd}, nil
+			return &opened{session: sid, deduped: dd}, nil, nil
 		}}
 	res, ferr := r.run(fctx, prior)
 	if ferr != nil {
@@ -596,6 +598,7 @@ func (b *Bridge) handleOne(ctx context.Context, env map[string]any, via string) 
 			if r := recover(); r != nil { // one bad event must not end the stream
 				b.log.Error("an event's handling panicked", "event", str(env["id"]), "panic", fmt.Sprint(r))
 				b.metrics.Dropped("malformed")
+				err = fmt.Errorf("an event's handling panicked") // not handled: the cursor does not move past it
 			}
 		}()
 		_, err = b.Handle(hctx, env, via)
