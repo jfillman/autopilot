@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/jfillman/autopilot/gateway/internal/pyrepr"
@@ -48,16 +49,37 @@ var known = map[string]bool{
 	"$schema": true, "title": true, "description": true, "type": true, "additionalProperties": true, "required": true, "properties": true,
 	"pattern": true, "minLength": true, "maxLength": true, "enum": true, "items": true, "uniqueItems": true, "minimum": true, "maximum": true,
 	"maxItems": true, "minProperties": true, "const": true, "oneOf": true, "if": true, "then": true, "propertyNames": true,
+	// A-9 S5c (the AppSpec schema): references to local definitions, the other combinators, and the bounds it uses. `format` is
+	// never checked (jsonschema has no format checker unless one is passed). `$defs`, `default`, `$comment` and every `x-` key are
+	// annotations.
+	"$ref": true, "anyOf": true, "allOf": true, "not": true, "exclusiveMinimum": true, "minItems": true, "maxProperties": true,
+	"format": true, "$defs": true, "default": true, "$comment": true,
 }
+
+func isKnownKeyword(k string) bool { return known[k] || strings.HasPrefix(k, "x-") }
 
 // checkKeywords panics for a keyword in a schema position that this validator would silently ignore.
 func checkKeywords(s *OMap) {
 	for _, k := range s.Keys {
-		if !known[k] {
+		if !isKnownKeyword(k) {
 			panic("the definition schema uses the keyword " + k + ", which the Go validator does not implement")
 		}
 		v := s.M[k]
 		switch k {
+		case "$defs":
+			for _, dk := range v.(*OMap).Keys {
+				checkKeywords(v.(*OMap).M[dk].(*OMap))
+			}
+		case "not":
+			checkKeywords(v.(*OMap))
+		case "$ref":
+			if _, ok := v.(string); !ok || !strings.HasPrefix(v.(string), "#/") {
+				panic("the schema has a $ref that is not local: " + pyrepr.Value(v))
+			}
+		case "anyOf", "allOf":
+			for _, e := range v.([]any) {
+				checkKeywords(e.(*OMap))
+			}
 		case "properties":
 			for _, pk := range v.(*OMap).Keys {
 				checkKeywords(v.(*OMap).M[pk].(*OMap))
@@ -82,11 +104,11 @@ func checkKeywords(s *OMap) {
 // no-break space must not pass `[^\s@]`).
 const pyWhite = `\t-\r\x1c-\x20\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}`
 
-var patterns = map[string]*regexp.Regexp{}
+var patterns sync.Map // pattern -> *regexp.Regexp
 
 func compile(p string) *regexp.Regexp {
-	if re, ok := patterns[p]; ok {
-		return re
+	if re, ok := patterns.Load(p); ok {
+		return re.(*regexp.Regexp)
 	}
 	g := p
 	if strings.Contains(g, `\s`) {
@@ -99,7 +121,7 @@ func compile(p string) *regexp.Regexp {
 	if err != nil {
 		panic("a schema pattern does not compile: " + p + ": " + err.Error())
 	}
-	patterns[p] = re
+	patterns.Store(p, re)
 	return re
 }
 
@@ -205,8 +227,26 @@ func num(v any) float64 {
 	return 0
 }
 
+// vctx is one validation run: the schema document `$ref`s are resolved against.
+type vctx struct{ root *OMap }
+
+// resolve is the schema a local `$ref` (`#/a/b`, JSON pointer) names.
+func (c *vctx) resolve(ref string) *OMap {
+	var cur any = c.root
+	for _, part := range strings.Split(strings.TrimPrefix(ref, "#/"), "/") {
+		part = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
+		o, ok := cur.(*OMap)
+		if !ok {
+			return nil
+		}
+		cur = o.M[part]
+	}
+	o, _ := cur.(*OMap)
+	return o
+}
+
 // errorsOf is iter_errors(instance) against s: every error, in jsonschema's order.
-func errorsOf(inst any, s *OMap) []*verr {
+func (c *vctx) errorsOf(inst any, s *OMap) []*verr {
 	var out []*verr
 	add := func(msg, kw string) {
 		out = append(out, &verr{msg: msg, validator: kw, instance: inst, schema: s})
@@ -308,7 +348,7 @@ func errorsOf(inst any, s *OMap) []*verr {
 				ps := v.(*OMap)
 				for _, p := range ps.Keys {
 					if iv, has := o.M[p]; has {
-						out = append(out, descend(iv, ps.M[p].(*OMap), p)...)
+						out = append(out, c.descend(iv, ps.M[p].(*OMap), p)...)
 					}
 				}
 			}
@@ -326,7 +366,7 @@ func errorsOf(inst any, s *OMap) []*verr {
 			}
 			if sub, isObj := v.(*OMap); isObj {
 				for _, k := range extras {
-					out = append(out, descend(o.M[k], sub, k)...)
+					out = append(out, c.descend(o.M[k], sub, k)...)
 				}
 			} else if v == false && len(extras) > 0 {
 				sort.Strings(extras)
@@ -343,20 +383,30 @@ func errorsOf(inst any, s *OMap) []*verr {
 		case "propertyNames":
 			if o, ok := inst.(*OMap); ok {
 				for _, k := range o.Keys {
-					out = append(out, errorsOf(k, v.(*OMap))...)
+					out = append(out, c.errorsOf(k, v.(*OMap))...)
 				}
 			}
 		case "items":
 			if a, ok := inst.([]any); ok {
 				for i, e := range a {
-					out = append(out, descend(e, v.(*OMap), int64(i))...)
+					out = append(out, c.descend(e, v.(*OMap), int64(i))...)
 				}
 			}
-		case "oneOf":
+		case "$ref":
+			target := c.resolve(v.(string))
+			if target == nil {
+				panic("the schema has a $ref that does not resolve: " + v.(string))
+			}
+			out = append(out, c.errorsOf(inst, target)...)
+		case "allOf":
+			for _, sub := range v.([]any) {
+				out = append(out, c.errorsOf(inst, sub.(*OMap))...)
+			}
+		case "anyOf":
 			var all []*verr
 			valid := false
 			for _, sub := range v.([]any) {
-				errs := errorsOf(inst, sub.(*OMap))
+				errs := c.errorsOf(inst, sub.(*OMap))
 				if len(errs) == 0 {
 					valid = true
 					break
@@ -370,13 +420,67 @@ func errorsOf(inst any, s *OMap) []*verr {
 				}
 				out = append(out, e)
 			}
+		case "not":
+			if len(c.errorsOf(inst, v.(*OMap))) == 0 {
+				add(fmt.Sprintf("%s should not be valid under %s", pyrepr.Value(inst), pyrepr.Value(v)), kw)
+			}
+		case "exclusiveMinimum":
+			if isType(inst, "number") && num(inst) <= num(v) {
+				add(fmt.Sprintf("%s is less than or equal to the minimum of %s", pyrepr.Value(inst), pyrepr.Value(v)), kw)
+			}
+		case "minItems":
+			if a, ok := inst.([]any); ok && int64(len(a)) < v.(int64) {
+				m := "is too short"
+				if v.(int64) == 1 {
+					m = "should be non-empty"
+				}
+				add(pyrepr.Value(inst)+" "+m, kw)
+			}
+		case "maxProperties":
+			if o, ok := inst.(*OMap); ok && int64(len(o.Keys)) > v.(int64) {
+				m := "has too many properties"
+				if v.(int64) == 0 {
+					m = "is expected to be empty"
+				}
+				add(pyrepr.Value(inst)+" "+m, kw)
+			}
+		case "oneOf":
+			var all []*verr
+			first := -1
+			subs := v.([]any)
+			for i, sub := range subs {
+				errs := c.errorsOf(inst, sub.(*OMap))
+				if len(errs) == 0 {
+					first = i
+					break
+				}
+				all = append(all, errs...)
+			}
+			if first < 0 {
+				e := &verr{msg: pyrepr.Value(inst) + " is not valid under any of the given schemas", validator: kw, instance: inst, schema: s, context: all}
+				for _, c := range all {
+					c.parent = e
+				}
+				out = append(out, e)
+			} else {
+				var more []string
+				for _, sub := range subs[first+1:] {
+					if len(c.errorsOf(inst, sub.(*OMap))) == 0 {
+						more = append(more, pyrepr.Value(sub))
+					}
+				}
+				if len(more) > 0 {
+					more = append(more, pyrepr.Value(subs[first]))
+					add(pyrepr.Value(inst)+" is valid under each of "+strings.Join(more, ", "), kw)
+				}
+			}
 			// Valid under more than one branch is an error in jsonschema ("is valid under each of ..."); no two branches of this
 			// schema's triggers can both accept one object (each requires a different `type` or `source`), and the schema is
 			// held equal to Python's, so a change that made it possible is seen by the fixtures.
 		case "if":
-			if len(errorsOf(inst, v.(*OMap))) == 0 {
+			if len(c.errorsOf(inst, v.(*OMap))) == 0 {
 				if then, ok := s.M["then"].(*OMap); ok {
-					out = append(out, errorsOf(inst, then)...)
+					out = append(out, c.errorsOf(inst, then)...)
 				}
 			}
 		}
@@ -396,8 +500,8 @@ func unique(a []any) bool {
 }
 
 // descend validates a child and puts the child's key or index on the front of each error's path.
-func descend(inst any, s *OMap, elem any) []*verr {
-	errs := errorsOf(inst, s)
+func (c *vctx) descend(inst any, s *OMap, elem any) []*verr {
+	errs := c.errorsOf(inst, s)
 	for _, e := range errs {
 		e.path = append([]any{elem}, e.path...)
 	}
@@ -455,7 +559,7 @@ func cmpKey(a, b *verr) int {
 		}
 		return 0
 	}
-	if c := bi(a.validator != "oneOf") - bi(b.validator != "oneOf"); c != 0 {
+	if c := bi(a.validator != "oneOf" && a.validator != "anyOf") - bi(b.validator != "oneOf" && b.validator != "anyOf"); c != 0 {
 		return c
 	}
 	return bi(!a.matchesType()) - bi(!b.matchesType())
@@ -484,7 +588,7 @@ func bestMatch(errs []*verr) *verr {
 // ValidateSchema is jsonschema.validate(doc, schema): nil for a document that passes, else the error Python would raise, as the
 // DefinitionError text profile.parse makes of it ("<name>: <path>: <message>").
 func ValidateSchema(doc *OMap) error {
-	best := bestMatch(errorsOf(doc, theSchema))
+	best := bestMatch((&vctx{root: theSchema}).errorsOf(doc, theSchema))
 	if best == nil {
 		return nil
 	}

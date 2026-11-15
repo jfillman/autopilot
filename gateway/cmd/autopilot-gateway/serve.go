@@ -371,6 +371,9 @@ func serve(_ []string) int {
 	// The Glidepath, repository and Argo CD sync tools decide a call's scope from the agent's definition; the gateway is built
 	// after the handlers, so the lookup is made late.
 	var gw *dispatch.Gateway
+	if cfg.hangar.airframeNote != "" {
+		log.Warn(cfg.hangar.airframeNote)
+	}
 	hangar, err := hangarConfig(cfg.hangar, cfg.reads.argoNamespaces, reg, func(agent string) *definitions.Definition { return gw.Def(agent) })
 	if err != nil {
 		log.Error("configuration: " + err.Error())

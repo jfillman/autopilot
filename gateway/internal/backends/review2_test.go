@@ -208,13 +208,13 @@ func TestAnApplicationWithNoAppLabelIsNotSynced(t *testing.T) {
 	}
 }
 
-// 4. The closed list is nine requests, with their methods.
-func TestTheClosedListOfGitHubRequestsIsExactlyNine(t *testing.T) {
+// 4. The closed list is ten requests, with their methods (S5c added the list of a pull request's files).
+func TestTheClosedListOfGitHubRequestsIsExactlyTen(t *testing.T) {
 	want := []string{"GET /repos/{owner}/{repo}/git/ref/heads/{branch}", "GET /repos/{owner}/{repo}/git/commits/{sha}", "POST /repos/{owner}/{repo}/git/trees",
 		"POST /repos/{owner}/{repo}/git/commits", "POST /repos/{owner}/{repo}/git/refs", "POST /repos/{owner}/{repo}/pulls",
 		"GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state={all|open}&per_page={5|10}", "GET /repos/{owner}/{repo}/contents/{path}?ref={ref}",
-		"GET /repos/{owner}/{repo}"}
-	if len(AllowedGitHubRequests) != 9 {
+		"GET /repos/{owner}/{repo}", "GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100"}
+	if len(AllowedGitHubRequests) != 10 {
 		t.Fatalf("%d entries", len(AllowedGitHubRequests))
 	}
 	for i, w := range want {

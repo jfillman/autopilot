@@ -68,6 +68,7 @@ type writesCase struct {
 }
 
 type writesGo struct {
+	Effect   any        `json:"effect"`
 	Result   any        `json:"result"`
 	Denied   *wsDenied  `json:"denied"`
 	Error    *errorJSON `json:"error"`

@@ -9,8 +9,8 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 )
 
-// The S5b settings are carried now, with Python's names and defaults; a bad value stops the start, and what the Go gateway does
-// not carry yet (xr.request, which GITHUB_PR_ENABLED turns on in Python) must be said to be off.
+// The S5b settings are carried now, with Python's names and defaults; a bad value stops the start. S5c carries xr.request and the
+// Airframe tools: XR_REQUEST_ENABLED defaults to GITHUB_PR_ENABLED as in Python, and the S5b rule that it be said to be 0 is gone.
 
 func TestHangarSettingsDefaultsAndValues(t *testing.T) {
 	c, err := configFromEnv(envOf(base(nil)))
@@ -25,8 +25,8 @@ func TestHangarSettingsDefaultsAndValues(t *testing.T) {
 	c, err = configFromEnv(envOf(base(map[string]string{
 		"GLIDEPATH_API_URL": "http://glidepath-api.platform.svc:8080/", "GLIDEPATH_API_ALLOW_HTTP": "1", "BROKER_ALLOW_HTTP": "true",
 		"GLIDEPATH_TOKEN_FILE": "/gp", "GLIDEPATH_ON_BEHALF_OF": "1",
-		"GITHUB_PR_ENABLED": "yes", "AGENT_XRS_ENABLED": "0", "XR_REQUEST_ENABLED": "0", "AGENT_TOKEN_FILE": "/agent",
-		"BROKER_URL": "http://broker.platform.svc:8080", "GITHUB_OWNERS": "acme, other", "ARGO_SYNC_ENABLED": "true"})))
+		"GITHUB_PR_ENABLED": "yes", "AGENT_XRS_ENABLED": "0", "AGENT_TOKEN_FILE": "/agent",
+		"BROKER_URL": "http://broker.platform.svc:8080", "GITHUB_OWNERS": "acme, other", "AIRFRAME_OWNER": "acme", "ARGO_SYNC_ENABLED": "true"})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestHangarSettingsDefaultsAndValues(t *testing.T) {
 }
 
 func TestBadHangarSettingsStopTheStart(t *testing.T) {
-	on := map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "XR_REQUEST_ENABLED": "0", "BROKER_URL": "https://b:8080", "GITHUB_OWNERS": "acme"}
+	on := map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b:8080", "GITHUB_OWNERS": "acme"}
 	cases := []struct {
 		name string
 		env  map[string]string
@@ -51,10 +51,14 @@ func TestBadHangarSettingsStopTheStart(t *testing.T) {
 		{"credentials in the glidepath URL", map[string]string{"GLIDEPATH_API_URL": "http://u:p@x"}, "GLIDEPATH_API_URL"},
 		{"a bad flag", map[string]string{"GITHUB_PR_ENABLED": "maybe"}, "GITHUB_PR_ENABLED must be 0 or 1"},
 		{"a bad on-behalf-of flag", map[string]string{"GLIDEPATH_ON_BEHALF_OF": "2"}, "GLIDEPATH_ON_BEHALF_OF must be 0 or 1"},
-		{"GitHub with the pinned definitions left on and no namespaces to read them from", map[string]string{"GITHUB_PR_ENABLED": "1", "XR_REQUEST_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "AGENT_XRS_NAMESPACES"},
-		{"GitHub with xr.request left on", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "XR_REQUEST_ENABLED=0"},
+		{"GitHub with the pinned definitions left on and no namespaces to read them from", map[string]string{"GITHUB_PR_ENABLED": "1", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "AGENT_XRS_NAMESPACES"},
+		{"xr.request without GitHub", map[string]string{"XR_REQUEST_ENABLED": "1"}, "XR_REQUEST_ENABLED needs GITHUB_PR_ENABLED=1"},
+		{"GitHub with several owners and no Airframe owner", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme,other"}, "AIRFRAME_OWNER"},
+		{"an Airframe owner that is not one of the GitHub owners", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_OWNER": "evil"}, "not one of GITHUB_OWNERS"},
+		{"a tenants repository with an owner in it", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_TENANTS_REPO": "evil/repo"}, "AIRFRAME_TENANTS_REPO"},
+		{"a bad cluster name", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_CLUSTER": "a b"}, "AIRFRAME_CLUSTER"},
+		{"Airframe asked for with no owner", map[string]string{"AIRFRAME_ENABLED": "1"}, "AIRFRAME_OWNER"},
 		{"the pinned definitions asked for without GitHub", map[string]string{"AGENT_XRS_ENABLED": "1"}, "AGENT_XRS_ENABLED needs GITHUB_PR_ENABLED"},
-		{"xr.request asked for", map[string]string{"XR_REQUEST_ENABLED": "1"}, "not carried"},
 		{"GitHub with no broker (there is no lab default)", merge(on, map[string]string{"BROKER_URL": ""}), "BROKER_URL"},
 		{"GitHub with a bad broker", merge(on, map[string]string{"BROKER_URL": "gopher://b"}), "BROKER_URL"},
 		{"GitHub with no owners", merge(on, map[string]string{"GITHUB_OWNERS": ""}), "GITHUB_OWNERS"},
@@ -91,5 +95,27 @@ func TestAShortCredentialStopsTheStart(t *testing.T) {
 	_ = os.WriteFile(f, []byte("a-token-long-enough\n"), 0o600)
 	if _, err := hangarConfig(hangarSettings{glidepathURL: "https://g.example", glidepathTokenFile: f}, nil, tools.Default(), nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The new rule: GITHUB_PR_ENABLED turns xr.request on (and the Airframe tools, with an owner) as it does in Python.
+func TestTheAirframeSettings(t *testing.T) {
+	c, err := configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_ENABLED": "0", "XR_REQUEST_ENABLED": "", "AIRFRAME_CLUSTER": "dev-1", "AIRFRAME_UPPER_CLUSTERS": "up-1, up-2"}))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := c.hangar
+	if !h.xrRequest || !h.airframeEnabled || h.airframeOwner != "acme" || h.airframeCluster != "dev-1" || len(h.airframeUpper) != 2 || h.airframeTenantsRepo != "gitops-hangar-dev-tenants" {
+		t.Fatalf("%+v", h)
+	}
+	// said to be off, they are off
+	c, err = configFromEnv(envOf(base(merge(githubOn, map[string]string{"AGENT_XRS_ENABLED": "0", "XR_REQUEST_ENABLED": "0", "AIRFRAME_ENABLED": "0"}))))
+	if err != nil || c.hangar.xrRequest || c.hangar.airframeEnabled {
+		t.Fatalf("%v %+v", err, c.hangar)
+	}
+	// with no owner to name and the default left alone the tools are off, with the reason
+	c, err = configFromEnv(envOf(base(nil)))
+	if err != nil || c.hangar.airframeEnabled || c.hangar.airframeNote == "" {
+		t.Fatalf("%v %+v", err, c.hangar)
 	}
 }

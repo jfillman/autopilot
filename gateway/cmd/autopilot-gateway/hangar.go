@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/jfillman/autopilot/gateway/internal/airframe"
 	"github.com/jfillman/autopilot/gateway/internal/backends"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
 )
@@ -23,6 +25,15 @@ type hangarSettings struct {
 	githubOwners              []string
 
 	argoSync bool
+
+	// The Airframe tools (A-9 S5c): AIRFRAME_ENABLED, the fleet the planner knows, and xr.request.
+	airframeEnabled     bool
+	airframeCluster     string
+	airframeUpper       []string
+	airframeTenantsRepo string
+	airframeOwner       string
+	xrRequest           bool
+	airframeNote        string // why the Airframe tools are off when the default would have turned them on
 }
 
 const (
@@ -77,26 +88,25 @@ func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, e
 	if h.githubPRs, err = flagEnv(env, "GITHUB_PR_ENABLED", false); err != nil {
 		return h, err
 	}
-	xrReq, err := flagEnv(env, "XR_REQUEST_ENABLED", false)
-	if err != nil {
-		return h, err
-	}
-	if xrReq {
-		return h, configError("XR_REQUEST_ENABLED: not carried by the Go gateway yet (docs/admin/go-gateway.md); unset it, or keep running the Python gateway")
-	}
 	h.agentTokenFile = getenv(env, "AGENT_TOKEN_FILE", agentTokenDefault)
 	if h.githubPRs {
-		if env("XR_REQUEST_ENABLED") == "" {
-			return h, configError("GITHUB_PR_ENABLED turns xr.request on in the Python gateway, and the Go gateway does not carry it yet: " +
-				"set XR_REQUEST_ENABLED=0 to say you know (docs/admin/go-gateway.md)")
-		}
 		h.brokerURL = env("BROKER_URL")
 		for _, o := range strings.Split(env("GITHUB_OWNERS"), ",") {
 			if o = strings.TrimSpace(o); o != "" {
 				h.githubOwners = append(h.githubOwners, o)
 			}
 		}
-		if _, err = backends.NewGitHub(backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners, AllowHTTP: h.brokerAllowHTTP}); err != nil {
+	}
+	if h.githubPRs {
+		if _, err = backends.NewGitHub(h.githubOptions()); err != nil {
+			return h, configError("GITHUB_PR_ENABLED: " + err.Error())
+		}
+	}
+	if err = airframeFromEnv(env, &h); err != nil {
+		return h, err
+	}
+	if h.githubPRs {
+		if _, err = backends.NewGitHub(h.githubOptions()); err != nil {
 			return h, configError("GITHUB_PR_ENABLED: " + err.Error())
 		}
 	}
@@ -136,9 +146,21 @@ func hangarConfig(h hangarSettings, argoNamespaces []string, reg *tools.Registry
 		}
 	}
 	if h.githubPRs {
-		if c.GitHub, err = backends.NewGitHub(backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners, AllowHTTP: h.brokerAllowHTTP}); err != nil {
+		if c.GitHub, err = backends.NewGitHub(h.githubOptions()); err != nil {
 			return c, err
 		}
+	}
+	if h.airframeEnabled || h.xrRequest {
+		ac := &backends.AirframeConfig{Enabled: h.airframeEnabled, XRRequests: h.xrRequest,
+			Registry: airframe.Registry{DevCluster: h.airframeCluster, UpperClusters: h.airframeUpper, TenantsRepo: h.airframeTenantsRepo, Owner: h.airframeOwner}}
+		if h.airframeEnabled {
+			kr := backends.NewKubeReader()
+			if err := kr.Validate(); err != nil {
+				return c, err
+			}
+			ac.State = &airframe.State{Kube: backends.StateReader{KubeReader: kr}, Cluster: h.airframeCluster, ArgoNamespace: airframe.ArgoNamespace}
+		}
+		c.Airframe = ac
 	}
 	if h.argoSync {
 		if c.ArgoSync, err = backends.NewArgoSync(nil, argoNamespaces); err != nil {
@@ -146,4 +168,94 @@ func hangarConfig(h hangarSettings, argoNamespaces []string, reg *tools.Registry
 		}
 	}
 	return c, nil
+}
+
+// githubOptions is the GitHub backend's options: the broker, the owners and (when something writes there) the tenants repository,
+// the one repository the broker is asked about with no app.
+func (h hangarSettings) githubOptions() backends.GitHubOptions {
+	o := backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners, AllowHTTP: h.brokerAllowHTTP}
+	if h.airframeEnabled || h.xrRequest {
+		o.TenantsRepo = h.airframeOwner + "/" + h.airframeTenantsRepo
+	}
+	return o
+}
+
+var (
+	clusterName = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._-]{0,62}\z`)
+	repoName    = regexp.MustCompile(`\A[A-Za-z0-9._-]{1,100}\z`)
+)
+
+// airframeFromEnv reads the Airframe tools' settings (Python's, with their defaults) and the one the Go gateway adds:
+//
+//   - AIRFRAME_ENABLED (default on), AIRFRAME_CLUSTER (hangar-dev), AIRFRAME_UPPER_CLUSTERS (hangar-prod) and AIRFRAME_TENANTS_REPO
+//     (gitops-hangar-dev-tenants) are Python's. The planner, airframe.status/describe/verify and airframe.apply need them.
+//   - XR_REQUEST_ENABLED defaults to GITHUB_PR_ENABLED, as in Python, and needs it: an XR request is a pull request opened as the
+//     agents' App. (S5b required it to be said to be 0 while the Go gateway had no xr.request; that rule is gone.)
+//   - AIRFRAME_OWNER (Go only) is the GitHub owner of the tenants repository and of the apps' repositories the planner names (Python
+//     assumes one lab user). It must be one of GITHUB_OWNERS; with a single owner there it is that one, otherwise it is required
+//     when anything Airframe is on.
+func airframeFromEnv(env func(string) string, h *hangarSettings) error {
+	var err error
+	if h.airframeEnabled, err = flagEnv(env, "AIRFRAME_ENABLED", true); err != nil {
+		return err
+	}
+	if h.xrRequest, err = flagEnv(env, "XR_REQUEST_ENABLED", h.githubPRs); err != nil {
+		return err
+	}
+	if h.xrRequest && !h.githubPRs {
+		return configError("XR_REQUEST_ENABLED needs GITHUB_PR_ENABLED=1 (an XR request is a pull request opened as the agents' App)")
+	}
+	h.airframeCluster = getenv(env, "AIRFRAME_CLUSTER", "hangar-dev")
+	h.airframeTenantsRepo = getenv(env, "AIRFRAME_TENANTS_REPO", "gitops-hangar-dev-tenants")
+	for _, c := range strings.Split(getenv(env, "AIRFRAME_UPPER_CLUSTERS", "hangar-prod"), ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			h.airframeUpper = append(h.airframeUpper, c)
+		}
+	}
+	if !h.airframeEnabled && !h.xrRequest {
+		return nil
+	}
+	for k, v := range map[string]string{"AIRFRAME_CLUSTER": h.airframeCluster} {
+		if !clusterName.MatchString(v) {
+			return configError(k + " is a cluster name (letters, digits, `.`, `_`, `-`), not " + strconv.Quote(v))
+		}
+	}
+	for _, c := range h.airframeUpper {
+		if !clusterName.MatchString(c) {
+			return configError("AIRFRAME_UPPER_CLUSTERS names " + strconv.Quote(c) + ", which is not a cluster name")
+		}
+	}
+	if !repoName.MatchString(h.airframeTenantsRepo) || h.airframeTenantsRepo == "." || h.airframeTenantsRepo == ".." {
+		return configError("AIRFRAME_TENANTS_REPO is a repository name (no owner), not " + strconv.Quote(h.airframeTenantsRepo))
+	}
+	h.airframeOwner = env("AIRFRAME_OWNER")
+	var owners []string
+	for _, o := range strings.Split(env("GITHUB_OWNERS"), ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			owners = append(owners, o)
+		}
+	}
+	if h.airframeOwner == "" && len(owners) == 1 {
+		h.airframeOwner = owners[0]
+	}
+	if h.airframeOwner == "" && !h.xrRequest && env("AIRFRAME_ENABLED") == "" {
+		// Python turns the Airframe tools on by default. They need an owner this gateway does not guess: with none named and the
+		// setting left at its default they are off, said at start; asked for by name, or with xr.request on, they refuse to start.
+		h.airframeEnabled = false
+		h.airframeNote = "the airframe.* tools are off: AIRFRAME_OWNER is not set and GITHUB_OWNERS does not name exactly one owner (AIRFRAME_ENABLED=0 silences this)"
+		return nil
+	}
+	if h.airframeOwner == "" {
+		return configError("the Airframe tools need AIRFRAME_OWNER, the GitHub owner of the tenants repository and the apps' repositories (or GITHUB_OWNERS with one entry); AIRFRAME_ENABLED=0 and XR_REQUEST_ENABLED=0 turn them off")
+	}
+	if h.githubPRs {
+		found := false
+		for _, o := range owners {
+			found = found || strings.EqualFold(o, h.airframeOwner)
+		}
+		if !found {
+			return configError("AIRFRAME_OWNER " + strconv.Quote(h.airframeOwner) + " is not one of GITHUB_OWNERS")
+		}
+	}
+	return nil
 }

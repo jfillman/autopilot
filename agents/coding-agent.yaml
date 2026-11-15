@@ -10,6 +10,8 @@ profile:
   tools: [catalog.read, metrics.query, logs.query, argo.app.get, repo.file.get, repo.pr.open, xr.request, argo.sync.lower, glidepath.run.rerun, glidepath.run.cancel, glidepath.live.list, glidepath.live.watch, glidepath.previews.list, glidepath.cicd.validate, glidepath.cicd.propose, run.spawn, run.close, human.request, repo.pr.open_upper]
   repos: { allow: ["jfillman/*"] }
   glidepath: { apps: ["*"] }
+  # xr.request is for an app named here (the Go gateway checks it itself; the core scopes only the airframe.* tools by it).
+  airframe: { apps: ["*"] }
   models: [claude-sonnet-5-5]
   network: clearance+model
   compute: small

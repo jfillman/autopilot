@@ -65,8 +65,8 @@ func FuzzGitHubRequestTarget(f *testing.F) {
 		f.Add("o", "gate-api", s, s, "a/b.txt", strings.Repeat("a", 40))
 	}
 	f.Fuzz(func(t *testing.T, owner, name, branch, ref, p, sha string) {
-		for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo} {
-			r := ghReq{ep: ep, owner: owner, name: name, branch: branch, ref: ref, path: p, sha: sha, state: "all", perPage: 5,
+		for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo, epListPullFiles} {
+			r := ghReq{ep: ep, owner: owner, name: name, number: int64(len(branch)) - 3, branch: branch, ref: ref, path: p, sha: sha, state: "all", perPage: 5,
 				body: refBody{Ref: "refs/heads/" + branch, Sha: sha}}
 			method, target, err := r.target()
 			if err != nil {

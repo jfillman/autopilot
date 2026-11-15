@@ -5,6 +5,17 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Added (A-9 S5c: the Airframe tools in the Go gateway)
+- The Go gateway (`gateway/`, off by default, not deployed) carries `airframe.capabilities`, `explain`, `plan`, `status`, `describe`, `verify`, `apply` and `xr.request`
+  (`airframe.validate` has no handler, as in the Python deployment). The planner, the contract tools and the state tools equal Python's over 284 and 169 recorded cases;
+  `xr.request`, `airframe.apply` and the repository methods they call (`commit_xr`, `pr_paths`, `repo_ready`, `onboarding_prs`, `find_pr`, `ensure_pr`) over 75, with exact request lists.
+- `xr.request` is stricter than Python on purpose: six kinds, each with its XRD's own fields (no `compositionRef`, `providerConfigRef`, `writeConnectionSecretToRef`, `managementPolicies`, chart source...), cloud names and references bound to the app,
+  private database ranges only, names that start with `<app>-`, one YAML document read back strictly; never an `Agent` XR. Every call is scoped by the gateway itself (`profile.airframe.apps`, `repos.allow`, `proposeFlight`) before any request.
+  The GitHub closed list is ten requests (the pull request's files); the Kubernetes reads are a closed list of the contract's plurals, namespaced. No cluster write was added.
+- Settings: `AIRFRAME_ENABLED`, `AIRFRAME_CLUSTER`, `AIRFRAME_UPPER_CLUSTERS`, `AIRFRAME_TENANTS_REPO`, `XR_REQUEST_ENABLED` (default `GITHUB_PR_ENABLED`) and Go's `AIRFRAME_OWNER`. The rule that `GITHUB_PR_ENABLED` needs `XR_REQUEST_ENABLED=0` is gone.
+- `agents/coding-agent.yaml` gets `airframe: { apps: ["*"] }` (it is granted `xr.request`). `docs/admin/go-gateway.md` has the section.
+
+
 ### Added (A-9 S4: the agent definition set in the Go gateway)
 - The Go gateway (`gateway/`, still off by default and not deployed) owns the agent definition set: it reads the bundled `agents/` and the Agent XRs,
   validates every definition against the JSON schema (a Go validator over the embedded schema, in Python's error order and words), decides each pin
