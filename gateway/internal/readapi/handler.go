@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
@@ -58,10 +59,15 @@ type API struct {
 	// Timeout bounds one request (default 10 s); MaxInFlight bounds the requests being served at once (default 64): more get a 503.
 	Timeout     time.Duration
 	MaxInFlight int
+	// ProbeEvery is how long a /readyz answer stands (default 5 s): the probe reaches the database once per that, however many ask.
+	ProbeEvery time.Duration
 
 	ops      []*operation
 	contract map[string]any
 	sem      chan struct{}
+	probeMu  sync.Mutex
+	probeAt  time.Time
+	probeOK  bool
 	fns      map[string]func(*request) (any, error)
 }
 
@@ -194,13 +200,10 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/readyz":
 		a.simple(w, r, func() (int, any) {
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			defer cancel()
-			if err := a.Store.Ping(ctx); err != nil {
-				slog.Warn("readiness: the database did not answer", "err", err.Error())
-				return http.StatusServiceUnavailable, map[string]bool{"ok": false}
+			if a.ready() {
+				return 200, map[string]bool{"ok": true}
 			}
-			return 200, map[string]bool{"ok": true}
+			return http.StatusServiceUnavailable, map[string]bool{"ok": false}
 		})
 		return
 	}
@@ -259,6 +262,29 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out, hdr)
 }
 
+// ready is the readiness probe: the database answers a ping, remembered for ProbeEvery. One caller probes at a time (the lock is held
+// while it does), the others take its answer; a probe is bounded at 3 s on a context of its own, so a caller that hangs up does not leave
+// the answer unmade, and a flood of /readyz (it needs no token) is one query per interval and never a use of the pool per request.
+func (a *API) ready() bool {
+	a.probeMu.Lock()
+	defer a.probeMu.Unlock()
+	every := a.ProbeEvery
+	if every <= 0 {
+		every = 5 * time.Second
+	}
+	if !a.probeAt.IsZero() && time.Since(a.probeAt) < every {
+		return a.probeOK
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := a.Store.Ping(ctx)
+	if err != nil {
+		slog.Warn("readiness: the database did not answer", "err", err.Error())
+	}
+	a.probeAt, a.probeOK = time.Now(), err == nil
+	return a.probeOK
+}
+
 func (a *API) simple(w http.ResponseWriter, r *http.Request, f func() (int, any)) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		plain(w, http.StatusMethodNotAllowed, "Method Not Allowed", map[string]string{"Allow": "GET, HEAD"})
@@ -305,13 +331,21 @@ func (a *API) fail(w http.ResponseWriter, op string, err error, hdr map[string]s
 
 func bad(msg string) error { return &Error{400, msg} }
 
+// page is a list and the cursor of its next page: when it is full, the time and the id of its last row, "<time>|<id>" (a time alone loses
+// the rows that share it). A cursor of Python's, a plain time, is still read.
 func page(items []Record, limit int, key string) Record {
 	if items == nil {
 		items = []Record{}
 	}
 	var next any
 	if len(items) == limit && len(items) > 0 {
-		next = items[len(items)-1][key]
+		last := items[len(items)-1]
+		id, _ := last["id"].(string)
+		if t, ok := last[key].(string); ok && id != "" {
+			next = t + "|" + id
+		} else {
+			next = last[key]
+		}
 	}
 	return Record{"items": items, "next": next}
 }
@@ -460,6 +494,9 @@ func (a *API) getTask(q *request) (any, error) {
 	if len(sessions) == 0 {
 		return nil, &Error{404, "no such task"}
 	}
+	if len(sessions) > maxTaskSessions { // more than a tree is shown: the oldest are, and the totals of part of a tree are not the tree's
+		return Record{"task_id": id, "sessions": sessions[:maxTaskSessions], "used": nil, "cost": nil, "truncated": true}, nil
+	}
 	used, cost := map[string]int64{}, map[string]int64{}
 	for _, s := range sessions {
 		if m, ok := s["used"].(map[string]any); ok {
@@ -499,10 +536,18 @@ func (a *API) human(q *request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if items == nil {
-		items = []Record{}
+	truncated := len(items) > maxPending
+	if truncated { // newest first from the store: the newest maxPending are kept, and shown oldest first as Python shows them
+		items = items[:maxPending]
 	}
-	return Record{"items": items}, nil
+	out := make([]Record, 0, len(items))
+	for i := len(items) - 1; i >= 0; i-- {
+		out = append(out, items[i])
+	}
+	if truncated {
+		return Record{"items": out, "truncated": true}, nil
+	}
+	return Record{"items": out}, nil
 }
 
 func (a *API) listEvents(q *request) (any, error) {
@@ -526,13 +571,14 @@ func (a *API) listEvents(q *request) (any, error) {
 			f.Until = &t
 		}
 	}
-	var after *time.Time
+	var after *EventCursor
 	if s := q.q.get("after"); s != "" {
-		t, _, err := ParseISO(s)
-		if err != nil {
+		ts, id, hasID := SplitCursor(s)
+		t, _, err := ParseISO(ts)
+		if err != nil || (hasID && (id == "" || !okFilter(id))) {
 			return nil, bad("after is a cursor from a previous page")
 		}
-		after = &t
+		after = &EventCursor{T: t, ID: id}
 	}
 	for _, s := range []string{f.App, f.Agent, f.Source, f.Key, f.Subject} {
 		if !okFilter(s) {

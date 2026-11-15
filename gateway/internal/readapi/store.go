@@ -25,12 +25,12 @@ type Store interface {
 	Sessions(ctx context.Context, f SessionFilter, v *Viewer, limit int, after string, now time.Time) ([]Record, error)
 	Session(ctx context.Context, id string, now time.Time) (Record, error)
 	Result(ctx context.Context, sessionID string, now time.Time) (Record, error)
-	// Task is the sessions of a task the viewer may see, oldest first, at most maxTaskSessions.
+	// Task is the sessions of a task the viewer may see, oldest first, at most maxTaskSessions+1 (one more than the API shows: it says so).
 	Task(ctx context.Context, taskID string, v *Viewer, now time.Time) ([]Record, error)
-	// HumanPending is the pending requests the viewer may see (a notifier or auditor: every one), oldest first, at most maxPending.
+	// HumanPending is the pending requests the viewer may see (a notifier or auditor: every one), NEWEST first, at most maxPending+1.
 	// since is compared as text with the request's created_at, as Python does.
 	HumanPending(ctx context.Context, now time.Time, since string, v *Viewer) ([]Record, error)
-	Events(ctx context.Context, f EventFilter, v *Viewer, limit int, after *time.Time) ([]Record, error)
+	Events(ctx context.Context, f EventFilter, v *Viewer, limit int, after *EventCursor) ([]Record, error)
 	Holds(ctx context.Context, now time.Time) (map[string]Record, error)
 	Definitions(ctx context.Context) ([]definitions.Row, error)
 	Ping(ctx context.Context) error

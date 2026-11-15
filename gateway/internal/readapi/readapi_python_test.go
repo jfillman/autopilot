@@ -51,7 +51,7 @@ func (d downStore) Task(context.Context, string, *Viewer, time.Time) ([]Record, 
 func (d downStore) HumanPending(context.Context, time.Time, string, *Viewer) ([]Record, error) {
 	return nil, d.fail()
 }
-func (d downStore) Events(context.Context, EventFilter, *Viewer, int, *time.Time) ([]Record, error) {
+func (d downStore) Events(context.Context, EventFilter, *Viewer, int, *EventCursor) ([]Record, error) {
 	return nil, d.fail()
 }
 func (d downStore) Holds(context.Context, time.Time) (map[string]Record, error) { return nil, d.fail() }
@@ -61,8 +61,14 @@ func (d downStore) Ping(context.Context) error                                  
 // Every request the Python API was asked, as each caller, is answered by the Go API over a real database seeded with the same rows: the
 // same status, content type, Allow header and JSON body, except where the case carries a "go" and a "why".
 func TestTheAPIEqualsPython(t *testing.T) {
+	for _, loc := range locales { // the text compares in C whatever the database's locale is
+		t.Run(loc, func(t *testing.T) { equalsPython(t, loc) })
+	}
+}
+
+func equalsPython(t *testing.T, locale string) {
 	f := loadFixture(t)
-	dsn, st := scratch(t)
+	dsn, st := scratchLocale(t, locale)
 	f.seed(t, st)
 	store, err := OpenPg(context.Background(), dsn, 4)
 	if err != nil {
@@ -103,7 +109,11 @@ func TestTheAPIEqualsPython(t *testing.T) {
 			t.Errorf("%s: content type %q, want %q", c.Name, rec.Header().Get("Content-Type"), *want.ContentType)
 		}
 		if want.ContentType != nil && strings.Contains(*want.ContentType, "json") {
-			if got := norm(t, rec.Body.String()); !reflect.DeepEqual(got, any(map[string]any(want.Body))) {
+			got := norm(t, rec.Body.String())
+			if m, ok := got.(map[string]any); ok {
+				stripCursorID(t, c.Name, m)
+			}
+			if !reflect.DeepEqual(got, any(map[string]any(want.Body))) {
 				g, _ := json.Marshal(got)
 				w, _ := json.Marshal(want.Body)
 				t.Errorf("%s: the body differs\n go:     %.600s\n python: %.600s", c.Name, g, w)
@@ -166,4 +176,21 @@ func TestAHeadHasNoBody(t *testing.T) {
 	if n, _ := resp.Body.Read(b); n != 0 || resp.StatusCode != 200 {
 		t.Fatalf("status %d, %d body bytes", resp.StatusCode, n)
 	}
+}
+
+// stripCursorID turns the cursor Go returns, "<time>|<id>", into Python's, "<time>": the id must be the last row's, and the time is what
+// Python's cursor is. (A difference carried on purpose: a time alone loses the rows that share it.)
+func stripCursorID(t *testing.T, name string, body map[string]any) {
+	t.Helper()
+	next, ok := body["next"].(string)
+	if !ok {
+		return
+	}
+	items, _ := body["items"].([]any)
+	last, _ := items[len(items)-1].(map[string]any)
+	ts, id, hasID := SplitCursor(next)
+	if !hasID || last["id"] != id {
+		t.Errorf("%s: the cursor %q is not the time and id of the last row", name, next)
+	}
+	body["next"] = ts
 }

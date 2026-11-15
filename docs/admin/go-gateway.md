@@ -1312,6 +1312,15 @@ Tower's backend and Backstage's call as themselves and name the person in `X-Han
 - the person must be a principal form, `user:` and 1 to 128 of letters, digits and `._@+:/-`; one header only (two are a 400); no query
   parameter or other header (`X-Forwarded-User`, `person=`) names anyone.
 
+### What an auditor or notifier pattern may be
+
+`GATEWAY_API_AUDITORS` and `GATEWAY_API_NOTIFIERS` are refused at start unless every pattern is one of: a person, `user:<name>`, with **no wildcard
+anywhere** (`user:*`, `user:?*`, `user:**` and `user:[a-z]*` would make every person an auditor); or a workload, `namespace/name` or `cluster/namespace/name`,
+with a **literal cluster and namespace** and a name that has at least one literal character (`poller-*` is allowed, `*` and `?*` are not). Anything else
+(`*`, `*:*`, a bare word) is neither and is refused. `AUTOPILOT_DELEGATES` has its own rule (a literal cluster and namespace, the name may be a pattern; never `*`).
+A run is never a delegate, in either form of its identity: `agent-r-<hex>/run` of this cluster, and `<cluster>/agent-r-<hex>/run` of another
+(the namespace segment is a run's and the name is `run`).
+
 ### Owner-group resolution, and what happens when the catalog cannot answer
 
 A person's groups are the `memberOf` relations of their User entity in Tower's Backstage catalog; the apps they own are the Components whose
@@ -1337,20 +1346,31 @@ without a query); a cursor is a time the API wrote (`sessions`: the text of `cre
 `until` and `after` are parsed strictly. The query string is at most 4096 bytes, a request at most 10 s, at most 64 are in flight (more get a
 503 with `Retry-After`), every connection has a 5 s `statement_timeout` and is read-only.
 
+**The cursor is lossless.** A page that is full returns `next` as `<time>|<id>` of its last row and the next page starts strictly after that pair
+(`(time, id) < (t, id)`, a row comparison the indexes above answer), so rows that share a time are neither lost nor repeated; a page of the full
+list and a walk of its pages at any `limit` are the same rows (`TestPagingIsLosslessUnderTies`: random ties, limits 1 to 7, both for sessions and
+events, on a database with the C collation and one with `en_US.utf8`). Python's cursor, a plain time, is still read. **Text is ordered and compared
+in the C collation** (`COLLATE "C"`, in the queries and in the indexes): the stored times are ISO text, which a locale's collation ignores
+punctuation in and misorders when one has a fraction and one has none. **A cut-off says so**: a run tree of more than 1000 sessions answers the first
+1000 (oldest first) with `"truncated": true` and `used` and `cost` null (the totals of part of a tree are not the tree's); an inbox of more than 1000
+pending requests answers the **newest** 1000, oldest first, with `"truncated": true`. Python has neither cap and neither key.
+**`/readyz` is a cached probe**: the first caller in a 5 s window pings the database (3 s limit), everyone else in the window takes the answer, so the open
+probe is one query per interval and never a use of the pool per request.
+
 A person's list of sessions (and of events) is a `UNION` of **ordered branches, one for their own principal and one per agent of their teams
 (per app for events), each cut at one page by its own `LIMIT`**: the cost is a few pages however long the history is, and a person with nothing
 reads nothing (an `OR` across two columns scans the history for rows that are not there: the first plan the test showed).
 
 | Query | Index that serves it |
 |---|---|
-| sessions, an auditor | `gateway_sessions_created` ((record->>'created_at') DESC, id DESC) |
+| sessions, an auditor | `gateway_sessions_created` (((record->>'created_at') COLLATE "C") DESC, (id COLLATE "C") DESC) |
 | sessions, a person | `gateway_sessions_principal` and `gateway_sessions_agent` (each with created_at, id) |
 | sessions, `state=live` / `expired` | `gateway_sessions_live` (closed, expires_at), the existing one |
 | sessions by `task`, a run tree | `gateway_sessions_task` ((record->>'task_id'), created_at, id) |
 | a session, a result | the primary keys |
 | the inbox | `gateway_human_requests_pending` (status, expires_at), the existing one |
-| events, an auditor | `gateway_events_received_id` (received_at DESC, id DESC) |
-| events, one app / a person's apps | `gateway_events_app_id` (app, received_at DESC, id DESC) |
+| events, an auditor | `gateway_events_received` (received_at DESC), the shared schema's: the cursor's time bounds the scan and an incremental sort orders the ties (a second index on (received_at, id) was tried and the planner never chose it, so it is not created) |
+| events, one app / a person's apps | `gateway_events_app_id` (app, received_at DESC, id COLLATE "C" DESC): without it the planner walks `gateway_events_received` filtering by app |
 | events, by agent | `gateway_events_outcomes`, GIN on `record->'outcomes'` (containment); it cannot order, so that branch sorts only the agents' own events, which the table's retention (30 days, 200,000 rows) bounds |
 | holds, definitions | small tables (one row per agent; one per pin) |
 
@@ -1370,6 +1390,12 @@ string in the read API's package that could write (it fails on a planted `INSERT
 `gateway_definitions` every `GATEWAY_API_DEFINITIONS_INTERVAL` (30 s) through the same pin decision `serve` makes (a stored row that no longer
 passes it is shown as rejected, with the reason).
 
+**The role is checked at start, before anything is served** (`PgStore.CheckRole`): the process refuses to start unless the role is not a superuser or
+a member of `pg_write_all_data`, owns no `gateway_*` table (nor is a member of the role that does), has no INSERT, UPDATE, DELETE or TRUNCATE on any of
+them (through a role it is a member of too), and has no CREATE on the schema or the database. A session default of read-only is not a defence for a role
+that may write: it can switch it off. The message names the role and what is wrong (`TestTheAPIRefusesARoleThatCouldWrite`: the writer's DSN, each
+privilege, group membership, ownership; `TestTheAPIDoesNotStartOnTheWritersRole`). Give it a role with `SELECT` on the gateway tables and nothing else.
+
 ### Metrics
 
 `serve` serves the trigger counters on `METRICS_PORT` (default 9090; 0 turns them off; must differ from `PORT` and `MODEL_PORT`), a listener of its
@@ -1388,8 +1414,7 @@ numbers, body (cut at 4096 characters) and the 2000-line queue, 200-line batches
 `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1` (Go only, off by default) is needed for a plain `http` collector: **the endpoint must be https**. A full
 queue drops the line and counts it; a post that fails, hangs (5 s) or is answered with a redirect drops its batch and counts it; logging never
 waits. A line is **redacted before it is queued**: a field named like a credential, a prompt or a request body (`token`, `secret`, `password`,
-`authorization`, `api_key`, `prompt`, `body`, `input`, `instructions`...) is `[redacted]`, and so is anything shaped like one in the text (a bearer value,
-a JWT, a GitHub token, a provider key, a PEM header, a long key-like run), and the contents of the credential files the process reads. The gateway
+`authorization`, `api_key`, `prompt`, `body`, `input`, `instructions`...) is `[redacted]`, and so is anything shaped like one in the text (a labelled value in text or JSON, quoted or not, `client_secret` and `db_password` included; a URL's userinfo; `Bearer`, `bearer:`, `Basic` and `Token` values; a cookie header; a JWT; GitHub, GitLab, Slack, Stripe and provider keys; AWS access key ids and the 40-character secret key; a private key's whole BEGIN to END block; a long key-like run), `TestEveryShapeOfCredentialIsRemoved` has one case for each, and the contents of the credential files the process reads (`api` too: the catalog token and its own DSN and password). The gateway
 had no log redaction before S6 (its only redaction, `backends.redact`, is a literal replace on an upstream's answer); this reuses that scheme (a literal
 secret becomes `[redacted]`) and adds the names and shapes.
 
@@ -1406,6 +1431,14 @@ Each is in the fixtures (`gateway/internal/readapi/testdata/readapi.json`) with 
 | A failed read is `read failed: <ExceptionClass>` (503) | `read failed` | internal detail |
 | `after` is any text the database is handed as a parameter (a bad timestamp is a 503) | a time of the form the API writes, else a 400 | a cursor is never anything else |
 | `limit=1_0` and any Unicode digit are numbers | a 400 | Python's `int()` |
+| `next` is the last row's time | `<time>\|<id>`, and a plain time is still read | rows that share a time were lost between pages |
+| A text time is compared in the database's collation | in the C collation | a locale's collation misorders ISO times that differ in a fraction |
+| `/readyz` pings the database on every request | a probe cached 5 s | the probe is open and must not use the pool per request |
+| No cap on the run tree or the inbox | 1000 sessions of a tree (`truncated: true`, no totals) and the newest 1000 pending requests (`truncated: true`) | a cut-off says so, and sums of part of a tree are not shown |
+| The role is whatever the DSN names | refused at start unless it can only read | a session default does not stop a role that may write |
+| The catalog may be plain http | `https` unless `BACKSTAGE_ALLOW_HTTP=1` (also for `catalog.read` in `serve`) | the gateway's bearer token goes to it on every call; no host name is an exception |
+| An auditor or notifier glob is any glob | only the shapes above | a wildcard in a person's name makes every person an auditor |
+| A run is excluded from delegates by `agent-r-<hex>/run` only | also `<cluster>/agent-r-<hex>/run` | the run identity of another cluster has three segments |
 | A person's `OR` scan; unbounded run tree, inbox | UNION of ordered branches; at most 1000 pending requests and 1000 sessions of a task | the cost of a request was the length of the history |
 | Ties in `created_at` come back in the planner's order | by id | deterministic order |
 | A person's groups unknown is "no groups" cached for 60 s | no groups, cached 10 s, and `X-Autopilot-Owners: unknown` | the person is told, and an outage is retried sooner |
@@ -1424,7 +1457,7 @@ Each is in the fixtures (`gateway/internal/readapi/testdata/readapi.json`) with 
 `AUTOPILOT_GATEWAY_URL`, `CLEARANCE_API_URL`, `RUNTIME_IMAGES_EXTRA`, `PORT`, and the auth and catalog settings (`AUTOPILOT_AUDIENCE`,
 `AUTOPILOT_RUN_AUDIENCES`, `AUTOPILOT_OIDC_*`, `TOWER_*`, `BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`). The runtime catalog is `runtime/catalog.yaml` beside
 `agents/` (as Python's). `serve`: `METRICS_PORT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP`, `OTEL_SERVICE_NAME`,
-`OTEL_RESOURCE_ATTRIBUTES`. Retired `CLEARANCE_*` names are refused in `api` too.
+`OTEL_RESOURCE_ATTRIBUTES`; both: `BACKSTAGE_ALLOW_HTTP` (Go only, default off). Retired `CLEARANCE_*` names are refused in `api` too.
 
 ### What the proof ran (S6)
 
@@ -1445,7 +1478,11 @@ status, content type, `Allow` and JSON body; 17 cases differ on purpose, 5 more 
 - `serve` must have started once against the database (it creates the indexes) before `api` takes load; `METRICS_PORT` and the NetworkPolicy for
   it; `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1` if the collector is still plain `http` in the cluster.
 - Alerts that read the timestamp gauges read Python's six-significant-digit values (`1.73159e+09`): the format is held equal.
-- The Backstage plugin reads the same JSON; the only visible additions are headers.
+- The Backstage plugin reads the same JSON; the only visible additions are headers, the `<time>|<id>` cursor (opaque to it) and `truncated`.
+- Left for S7, known: `serve` creates the indexes at start with a plain `CREATE INDEX` (blocks writes to that table while it builds; no `CONCURRENTLY`, no
+  timeout); the catalog's `Apps` reads one page of 500 components (a person with more sees fewer, which fails closed); events filtered by `subject` or `key`
+  walk the table (bounded by the 5 s statement timeout, the 30 days and 200,000 rows); the metrics series cap drops new series silently (there is no counter
+  of drops yet); `api` serves no metrics (Python's does not).
 
 ## The drift guard
 

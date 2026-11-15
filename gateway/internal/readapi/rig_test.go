@@ -21,6 +21,12 @@ import (
 // scratch makes a database of its own on the server AUTOPILOT_TEST_PG names, with the writer's schema and indexes.
 func scratch(t *testing.T) (dsn string, st *pgstate.State) {
 	t.Helper()
+	return scratchLocale(t, "C")
+}
+
+// scratchLocale is scratch on a database whose text collation is locale ("C", or "en_US.utf8": a locale that ignores punctuation).
+func scratchLocale(t *testing.T, locale string) (dsn string, st *pgstate.State) {
+	t.Helper()
 	base := os.Getenv("AUTOPILOT_TEST_PG")
 	if base == "" {
 		t.Skip("no scratch Postgres (set AUTOPILOT_TEST_PG)")
@@ -32,7 +38,7 @@ func scratch(t *testing.T) (dsn string, st *pgstate.State) {
 	}
 	defer admin.Close(ctx)
 	name := fmt.Sprintf("apitest_%d", time.Now().UnixNano())
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name+" TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'"); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name+" TEMPLATE template0 LC_COLLATE '"+locale+"' LC_CTYPE '"+locale+"'"); err != nil {
 		t.Fatal(err)
 	}
 	u, _ := url.Parse(base)

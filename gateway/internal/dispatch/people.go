@@ -236,15 +236,23 @@ func verifiedFrom(ctx context.Context, token string) *Principal {
 	return nil
 }
 
-// runIdentity is a run pod's identity (agent-<run>/run, a run name of r- and 6 to 32 hex digits).
-var runIdentity = regexp.MustCompile(`^agent-r-[0-9a-f]{6,32}/run$`)
+// runNamespace is a run's namespace (agent-<run name>).
+var runNamespace = regexp.MustCompile(`^agent-r-[0-9a-f]{6,32}$`)
+
+// isRunIdentity is whether id is a run pod's, in the form of this cluster (agent-r-<hex>/run) or of another (cluster/agent-r-<hex>/run): the
+// name is `run` and the namespace, the segment before it, is a run's.
+func isRunIdentity(id string) bool {
+	parts := strings.Split(id, "/")
+	n := len(parts)
+	return (n == 2 || n == 3) && parts[n-1] == "run" && runNamespace.MatchString(parts[n-2])
+}
 
 // IsDelegate says whether the caller may act for a person it names: a workload (never a person), that is not a run, whose id
 // matches a delegate glob segment by segment (`*` and `?` stay inside one segment, so a glob cannot cross a `/`). A principal of
 // another cluster has three segments (cluster/namespace/name) and matches only a glob of three; one of this cluster has two.
 // A run is refused whatever the list says.
 func IsDelegate(p *Principal, globs []string) bool {
-	if p.Kind != "workload" || runIdentity.MatchString(p.ID) {
+	if p.Kind != "workload" || isRunIdentity(p.ID) {
 		return false
 	}
 	return glob.MatchSegments(p.ID, globs)

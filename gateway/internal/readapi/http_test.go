@@ -150,7 +150,7 @@ func (f failingStore) Task(context.Context, string, *Viewer, time.Time) ([]Recor
 func (f failingStore) HumanPending(context.Context, time.Time, string, *Viewer) ([]Record, error) {
 	return nil, f.err
 }
-func (f failingStore) Events(context.Context, EventFilter, *Viewer, int, *time.Time) ([]Record, error) {
+func (f failingStore) Events(context.Context, EventFilter, *Viewer, int, *EventCursor) ([]Record, error) {
 	return nil, f.err
 }
 func (f failingStore) Holds(context.Context, time.Time) (map[string]Record, error) { return nil, f.err }
@@ -288,7 +288,7 @@ func (r *recordingStore) Sessions(_ context.Context, _ SessionFilter, _ *Viewer,
 	r.calls++
 	return nil, nil
 }
-func (r *recordingStore) Events(_ context.Context, _ EventFilter, _ *Viewer, limit int, _ *time.Time) ([]Record, error) {
+func (r *recordingStore) Events(_ context.Context, _ EventFilter, _ *Viewer, limit int, _ *EventCursor) ([]Record, error) {
 	r.eventsLimit = limit
 	r.calls++
 	return nil, nil

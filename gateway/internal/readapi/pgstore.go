@@ -35,7 +35,7 @@ const StatementTimeoutMS = 5000
 //	Task                             gateway_sessions_task
 //	Result                           the primary key (session)
 //	HumanPending                     gateway_human_requests_pending (status, expires_at)
-//	Events, unscoped                 gateway_events_received (received_at DESC)
+//	Events, unscoped                 gateway_events_received (received_at DESC), the shared schema's: bounded by the cursor's time, ties ordered by an incremental sort
 //	Events, scoped by app            gateway_events_app_id (app, received_at DESC, id DESC), a branch per app
 //	Events, scoped by agent          gateway_events_outcomes, a GIN index on the outcomes (record->'outcomes' @> ...)
 //	Holds, Definitions               small tables (one row per agent; one per pinned definition)
@@ -181,13 +181,17 @@ func sessionsSQL(f SessionFilter, v *Viewer, limit int, after string, now time.T
 		common = append(common, "NOT s.closed AND s.expires_at <= "+a.add(now))
 	}
 	if after != "" {
-		common = append(common, "s.record->>'created_at' < "+a.add(after))
+		if t, id, hasID := SplitCursor(after); hasID {
+			common = append(common, "("+SessCreated+", s.id COLLATE \"C\") < ("+a.add(t)+"::text, "+a.add(id)+"::text)")
+		} else {
+			common = append(common, SessCreated+" < "+a.add(t)+"::text")
+		}
 	}
 	n := a.add(limit)
 	branch := func(scope string) string {
 		where := append([]string{scope}, common...)
-		return "(SELECT s.record AS record, s.record->>'created_at' AS created, s.id AS id FROM gateway_sessions s WHERE " + strings.Join(where, " AND ") +
-			" ORDER BY s.record->>'created_at' DESC, s.id DESC LIMIT " + n + ")"
+		return "(SELECT s.record AS record, " + SessCreated + " AS created, s.id COLLATE \"C\" AS id FROM gateway_sessions s WHERE " + strings.Join(where, " AND ") +
+			" ORDER BY " + SessCreated + " DESC, s.id COLLATE \"C\" DESC LIMIT " + n + ")"
 	}
 	if v.All() {
 		return "SELECT record FROM " + branch("TRUE") + " u ORDER BY created DESC, id DESC", a.v
@@ -234,7 +238,7 @@ func (s *PgStore) Result(ctx context.Context, sessionID string, now time.Time) (
 func taskSQL(taskID string, v *Viewer) (string, []any) {
 	a := &args{}
 	sql := "SELECT s.record FROM gateway_sessions s WHERE s.record->>'task_id' = " + a.add(taskID) + " AND " + sessionScope(a, v, "s") +
-		" ORDER BY s.record->>'created_at', s.id LIMIT " + a.add(maxTaskSessions)
+		" ORDER BY " + SessCreated + ", s.id COLLATE \"C\" LIMIT " + a.add(maxTaskSessions+1)
 	return sql, a.v
 }
 
@@ -256,12 +260,12 @@ func humanSQL(now time.Time, since string, v *Viewer) (string, []any) {
 	a := &args{}
 	where := []string{"status = 'pending'", "expires_at > " + a.add(now)}
 	if since != "" {
-		where = append(where, "record->>'created_at' > "+a.add(since))
+		where = append(where, "(record->>'created_at') COLLATE \"C\" > "+a.add(since)+"::text")
 	}
 	if v.Role == RolePerson {
 		where = append(where, fmt.Sprintf("(record->>'owner' = %s OR record->>'group' = ANY(%s))", a.add(v.Person), a.add(sortedKeys(v.Groups))))
 	}
-	return "SELECT record FROM gateway_human_requests WHERE " + strings.Join(where, " AND ") + " ORDER BY record->>'created_at', id LIMIT " + a.add(maxPending), a.v
+	return "SELECT record FROM gateway_human_requests WHERE " + strings.Join(where, " AND ") + " ORDER BY (record->>'created_at') COLLATE \"C\" DESC, id COLLATE \"C\" DESC LIMIT " + a.add(maxPending+1), a.v
 }
 
 // outcomeOf is the containment test that says an event's outcomes name an agent (served by the GIN index on record->'outcomes').
@@ -270,16 +274,16 @@ func outcomeOf(a *args, agent string) string {
 	return "e.record->'outcomes' @> " + a.add(string(doc)) + "::jsonb"
 }
 
-func (s *PgStore) Events(ctx context.Context, f EventFilter, v *Viewer, limit int, after *time.Time) ([]Record, error) {
+func (s *PgStore) Events(ctx context.Context, f EventFilter, v *Viewer, limit int, after *EventCursor) ([]Record, error) {
 	sql, a := eventsSQL(f, v, limit, after)
 	return s.records(ctx, sql, a...)
 }
 
 // eventsSQL is the trigger bridge's history a viewer may see, newest first. As the list of sessions, a person's is the UNION of ordered
-// branches: one per app they own (gateway_events_app_id: app, received_at DESC, id DESC, so each stops after a page) and one for their
+// branches: one per app they own (gateway_events_app_id: app, received_at DESC, id COLLATE "C" DESC, so each stops after a page) and one for their
 // teams' agents (the GIN index on the outcomes finds those events; it cannot order them, so that branch sorts only the agents' own
 // events, which the table's retention (30 days, 200,000 rows) bounds). More than maxAgentBranches apps fall back to one branch for them all.
-func eventsSQL(f EventFilter, v *Viewer, limit int, after *time.Time) (string, []any) {
+func eventsSQL(f EventFilter, v *Viewer, limit int, after *EventCursor) (string, []any) {
 	a := &args{}
 	var common []string
 	for _, c := range []struct{ val, col string }{{f.App, "e.app"}, {f.Source, "e.source"}, {f.Key, "e.routing_key"}, {f.Subject, "e.record->'subject'->>'id'"}} {
@@ -297,7 +301,11 @@ func eventsSQL(f EventFilter, v *Viewer, limit int, after *time.Time) (string, [
 		common = append(common, "e.received_at < "+a.add(*f.Until))
 	}
 	if after != nil {
-		common = append(common, "e.received_at < "+a.add(*after))
+		if after.ID != "" {
+			common = append(common, "(e.received_at, e.id COLLATE \"C\") < ("+a.add(after.T)+", "+a.add(after.ID)+"::text)")
+		} else {
+			common = append(common, "e.received_at < "+a.add(after.T))
+		}
 	}
 	n := a.add(limit)
 	branch := func(scope string) string {
@@ -305,11 +313,11 @@ func eventsSQL(f EventFilter, v *Viewer, limit int, after *time.Time) (string, [
 		if scope != "" {
 			where = append([]string{scope}, common...)
 		}
-		sql := "(SELECT e.record AS record, e.received_at AS received, e.id AS id FROM gateway_events e"
+		sql := "(SELECT e.record AS record, e.received_at AS received, e.id COLLATE \"C\" AS id FROM gateway_events e"
 		if len(where) > 0 {
 			sql += " WHERE " + strings.Join(where, " AND ")
 		}
-		return sql + " ORDER BY e.received_at DESC, e.id DESC LIMIT " + n + ")"
+		return sql + " ORDER BY e.received_at DESC, e.id COLLATE \"C\" DESC LIMIT " + n + ")"
 	}
 	if v.All() {
 		return "SELECT record FROM " + branch("") + " u ORDER BY received DESC, id DESC", a.v
@@ -379,4 +387,79 @@ func (s *PgStore) Ping(ctx context.Context) error {
 		return nil
 	}
 	return err
+}
+
+// SessCreated is a session's created_at as the text it is, compared and ordered in the C collation: the stored times are ISO text of one
+// shape, which sorts as time only byte by byte (a locale's collation ignores punctuation and misorders a fraction against none).
+const SessCreated = "((s.record->>'created_at') COLLATE \"C\")"
+
+// EventCursor is where an events page stopped: the time and the id of its last row (a time alone loses the rows that share it).
+type EventCursor struct {
+	T  time.Time
+	ID string // "" for a plain-time cursor
+}
+
+// SplitCursor reads "<time>|<id>" (the cursor the API returns) or a plain "<time>" (Python's): the id is everything after the first "|".
+func SplitCursor(s string) (t, id string, hasID bool) {
+	if i := strings.IndexByte(s, '|'); i >= 0 {
+		return s[:i], s[i+1:], true
+	}
+	return s, "", false
+}
+
+// CheckRole refuses a role that could write. A read-only session default (default_transaction_read_only) is not a defence: a role that
+// may write can switch it off for its session. So the role must not be a superuser or a member of pg_write_all_data, must not own or have
+// INSERT, UPDATE, DELETE or TRUNCATE on any gateway_* table (through a role it is a member of too), and must not have CREATE on the
+// schema or the database. It is asked at start, before anything is served, and again by nothing: the role is the deployment's.
+func (s *PgStore) CheckRole(ctx context.Context) error {
+	var user string
+	var super, writeAll, schemaCreate, dbCreate bool
+	err := s.Pool.QueryRow(ctx, `SELECT current_user,
+		(SELECT rolsuper FROM pg_roles WHERE rolname = current_user),
+		COALESCE(to_regrole('pg_write_all_data') IS NOT NULL AND pg_has_role(current_user, 'pg_write_all_data', 'USAGE'), false),
+		has_schema_privilege(COALESCE(current_schema(), 'public'), 'CREATE'),
+		has_database_privilege(current_database(), 'CREATE')`).Scan(&user, &super, &writeAll, &schemaCreate, &dbCreate)
+	if err != nil {
+		return fmt.Errorf("the database role could not be checked: %w", err)
+	}
+	var problems []string
+	if super {
+		problems = append(problems, "it is a superuser")
+	}
+	if writeAll {
+		problems = append(problems, "it is a member of pg_write_all_data")
+	}
+	if schemaCreate {
+		problems = append(problems, "it may create in the schema")
+	}
+	if dbCreate {
+		problems = append(problems, "it may create in the database")
+	}
+	rows, err := s.Pool.Query(ctx, `SELECT c.relname, pg_has_role(c.relowner, 'USAGE'), has_table_privilege(c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
+		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relname LIKE 'gateway\_%' AND c.relkind IN ('r', 'p') AND n.nspname = ANY (current_schemas(false)) ORDER BY c.relname`)
+	if err != nil {
+		return fmt.Errorf("the database role could not be checked: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var owns, writes bool
+		if err := rows.Scan(&name, &owns, &writes); err != nil {
+			return err
+		}
+		switch {
+		case owns:
+			problems = append(problems, "it owns, or is a member of the role that owns, "+name)
+		case writes:
+			problems = append(problems, "it may write "+name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("GATEWAY_API_DSN must name a read-only role (SELECT on gateway_* and nothing else); %s: %s", user, strings.Join(problems, "; "))
+	}
+	return nil
 }

@@ -187,3 +187,38 @@ func TestAStaleAnswerIsNeverUsedPastItsTTL(t *testing.T) {
 		t.Fatalf("a stale answer was used: %v %v", g, err)
 	}
 }
+
+type onlyGroupsFail struct{}
+
+func (onlyGroupsFail) Groups(context.Context, string) (map[string]bool, error) {
+	return map[string]bool{}, errors.New("down")
+}
+
+type onlyAppsFail struct{}
+
+func (onlyAppsFail) Apps(context.Context, string) (map[string]bool, error) {
+	return map[string]bool{}, errors.New("down")
+}
+
+// Either half of the catalog failing is "unknown", and the header says so; neither failing is not.
+func TestTheUnknownHeaderIsSetWhenEitherHalfOfTheCatalogFails(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		dir  Directory
+		own  Ownership
+		want string
+	}{
+		{"the groups fail", onlyGroupsFail{}, mapOwn{}, "unknown"},
+		{"the apps fail", mapDir{}, onlyAppsFail{}, "unknown"},
+		{"neither fails", mapDir{}, mapOwn{}, ""},
+	} {
+		api, _ := New(&API{Access: accessWith(c.dir, c.own), Store: &captureStore{}, Defs: definitions.NewSet(nil)})
+		if got := get(api, "/v1/sessions", "alice").Header().Get("X-Autopilot-Owners"); got != c.want {
+			t.Errorf("%s: header %q, want %q", c.name, got, c.want)
+		}
+		// and on a refusal after the viewer is known
+		if got := get(api, "/v1/sessions?limit=x", "alice").Header().Get("X-Autopilot-Owners"); got != c.want {
+			t.Errorf("%s: on a 400, header %q, want %q", c.name, got, c.want)
+		}
+	}
+}

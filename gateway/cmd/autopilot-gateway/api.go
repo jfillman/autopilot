@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/auth"
+	"github.com/jfillman/autopilot/gateway/internal/backends"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/readapi"
@@ -39,8 +40,40 @@ type apiConfig struct {
 	auth                      authConfig
 }
 
-// refusesEverything: a glob that matches every caller makes every caller an auditor or a notifier; it is a mistake, not a policy.
-func catchAll(g string) bool { return strings.Trim(g, "*") == "" }
+// checkReaderGlob is the rule for an auditor or notifier pattern (what may read everything, or the inbox feed of everyone): a glob
+// that can match more than the one place or person named would make a caller who is neither an auditor. So:
+//   - a person is `user:` and a literal name: no `*`, `?`, `[` or `\` anywhere (`user:*`, `user:?*`, `user:**`, `user:[a-z]*` are refused);
+//   - a workload is `namespace/name` or `cluster/namespace/name`: every segment but the last is literal, and the last has at least one
+//     literal character (it may be a pattern such as `poller-*`, never `*` or `?*`);
+//   - anything else (`*`, `*:*`, a bare word) is neither, and is refused.
+func checkReaderGlob(setting, g string) error {
+	const wild = "*?[\\"
+	bad := func(why string) error {
+		return configError(setting + " names " + strconv.Quote(g) + ", which " + why + " (a person is user:<name> with no wildcard; a workload is [cluster/]namespace/name with a literal namespace and cluster and a name that has a literal character)")
+	}
+	if name, ok := strings.CutPrefix(g, "user:"); ok {
+		if name == "" || strings.ContainsAny(name, wild) {
+			return bad("could match more than one person")
+		}
+		return nil
+	}
+	parts := strings.Split(g, "/")
+	if len(parts) < 2 || len(parts) > 3 {
+		return bad("is neither a person nor a workload")
+	}
+	for i, p := range parts {
+		if p == "" {
+			return bad("has an empty segment")
+		}
+		if i < len(parts)-1 && strings.ContainsAny(p, wild) {
+			return bad("has a wildcard in the cluster or namespace")
+		}
+	}
+	if last := parts[len(parts)-1]; strings.Trim(last, wild) == "" || strings.ContainsAny(last, "[\\") {
+		return bad("could match every workload of the namespace")
+	}
+	return nil
+}
 
 func apiConfigFromEnv(env func(string) string) (*apiConfig, error) {
 	if m := retiredSettings(env); m != "" {
@@ -76,13 +109,13 @@ func apiConfigFromEnv(env func(string) string) (*apiConfig, error) {
 	c.port = int(port)
 	c.auditors, c.notifiers, c.delegates = list(env("GATEWAY_API_AUDITORS")), list(env("GATEWAY_API_NOTIFIERS")), list(env("AUTOPILOT_DELEGATES"))
 	for _, g := range c.auditors {
-		if catchAll(g) {
-			return nil, configError("GATEWAY_API_AUDITORS names a glob that matches every caller (" + g + "): name who may read everything")
+		if err := checkReaderGlob("GATEWAY_API_AUDITORS", g); err != nil {
+			return nil, err
 		}
 	}
 	for _, g := range c.notifiers {
-		if catchAll(g) {
-			return nil, configError("GATEWAY_API_NOTIFIERS names a glob that matches every caller (" + g + ")")
+		if err := checkReaderGlob("GATEWAY_API_NOTIFIERS", g); err != nil {
+			return nil, err
 		}
 	}
 	for _, d := range c.delegates {
@@ -117,7 +150,8 @@ func apiConfigFromEnv(env func(string) string) (*apiConfig, error) {
 // api is `autopilot-gateway api`: the read-only process that serves the runtime reads from the gateway database (internal/readapi).
 // It opens the database through the read API's own store: no writer lock, no schema, no statement but SELECT.
 func api(_ []string) int {
-	log, closeLogs := newLogger("autopilot-api", os.Getenv)
+	log, closeLogs := newLoggerWith("autopilot-api", os.Getenv, dsnSecrets(os.Getenv("GATEWAY_API_DSN")),
+		getenv(os.Getenv, "BACKSTAGE_TOKEN_FILE", backends.BackstageTokenFileDefault))
 	defer closeLogs()
 	slog.SetDefault(log)
 	cfg, err := apiConfigFromEnv(os.Getenv)
@@ -173,6 +207,13 @@ func buildAPI(ctx context.Context, cfg *apiConfig, log *slog.Logger) (*http.Serv
 	}
 	store, err := readapi.OpenPg(ctx, cfg.dsn, cfg.pool)
 	if err != nil {
+		return nil, nil, err
+	}
+	// The role is checked now, before anything is served, not when the first request or the readiness probe happens to reach the database.
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := store.CheckRole(cctx); err != nil {
+		store.Close()
 		return nil, nil, err
 	}
 	a, err := readapi.New(&readapi.API{Access: access, Store: store, Defs: set, Runtimes: runtimes, CustomImages: cfg.runtimeImages,

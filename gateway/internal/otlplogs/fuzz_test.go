@@ -34,6 +34,9 @@ func FuzzResourceAttributes(f *testing.F) {
 func FuzzRedact(f *testing.F) {
 	f.Add("token abc", "literal-secret")
 	f.Add("Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln", "x")
+	for _, c := range shapes { // a seed for every shape the table knows
+		f.Add(c.line, "")
+	}
 	f.Fuzz(func(t *testing.T, line, secret string) {
 		out := Redact(line, secret)
 		if len(secret) >= 6 && strings.Contains(out, secret) && !strings.Contains(Redacted, secret) {

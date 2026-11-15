@@ -800,6 +800,11 @@ func TestDelegatesAreNamedByWhereTheyRun(t *testing.T) {
 		{"a person", &dispatch.Principal{ID: "tower/backend", Kind: "user"}, []string{"tower/backend"}, false},
 		{"a run, named exactly", w("agent-r-0000a1/run"), []string{"agent-r-0000a1/run"}, false},
 		{"a run, by a name pattern", w("agent-r-0000a1/run"), []string{"agent-r-0000a1/r*"}, false},
+		{"a run of another cluster, named exactly", w("hangar-prod/agent-r-0000a1/run"), []string{"hangar-prod/agent-r-0000a1/run"}, false},
+		{"a run of another cluster, by a name pattern", w("hangar-prod/agent-r-0000a1/run"), []string{"hangar-prod/agent-r-0000a1/r*"}, false},
+		{"a run of another cluster, by the namespace's cluster", w("hangar-prod/agent-r-0000a1/run"), []string{"hangar-prod/agent-r-0000a1/*"}, false},
+		{"a workload named run in another namespace is not a run", w("hangar-prod/tower/run"), []string{"hangar-prod/tower/run"}, true},
+		{"a workload in a run's namespace that is not the run", w("hangar-prod/agent-r-0000a1/helper"), []string{"hangar-prod/agent-r-0000a1/helper"}, true},
 	}
 	for _, c := range cases {
 		if got := dispatch.IsDelegate(c.p, c.globs); got != c.want {

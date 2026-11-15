@@ -81,8 +81,14 @@ func leftPad(s string, n int) string {
 // cursorRe is a cursor the API itself wrote: the created_at of the last session of a page, as Python writes a datetime.
 var cursorRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(\+00:00|Z)?$`)
 
-// validCursor is whether a session cursor is a time of the form the API writes (it is then compared as the text it is).
+// validCursor is whether a session cursor is what the API writes: a time of that form (Python's cursor, compared as the text it is), or
+// that time, "|" and the id of the last row (ours).
 func validCursor(s string) bool {
+	ts, id, hasID := SplitCursor(s)
+	if hasID && (id == "" || !okFilter(id)) {
+		return false
+	}
+	s = ts
 	if len(s) > 40 || !cursorRe.MatchString(s) {
 		return false
 	}

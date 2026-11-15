@@ -39,7 +39,7 @@ func (c *captureStore) Task(context.Context, string, *Viewer, time.Time) ([]Reco
 func (c *captureStore) HumanPending(context.Context, time.Time, string, *Viewer) ([]Record, error) {
 	return nil, nil
 }
-func (c *captureStore) Events(context.Context, EventFilter, *Viewer, int, *time.Time) ([]Record, error) {
+func (c *captureStore) Events(context.Context, EventFilter, *Viewer, int, *EventCursor) ([]Record, error) {
 	return nil, nil
 }
 func (c *captureStore) Holds(context.Context, time.Time) (map[string]Record, error) { return nil, nil }

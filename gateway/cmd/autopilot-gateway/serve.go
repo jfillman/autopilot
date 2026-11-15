@@ -345,7 +345,7 @@ func metricsPortFromEnv(env func(string) string) (int, error) {
 func pyQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "\\'") + "'" }
 
 func serve(_ []string) int {
-	log, closeLogs := newLogger("autopilot-gateway", os.Getenv, getenv(os.Getenv, "CLEARANCE_CORE_TOKEN_FILE", "/var/run/secrets/tokens/clearance"), getenv(os.Getenv, "BACKSTAGE_TOKEN_FILE", backends.BackstageTokenFileDefault), os.Getenv("GLIDEPATH_TOKEN_FILE"), os.Getenv("AGENT_TOKEN_FILE"), os.Getenv("MODEL_KEY_FILE"))
+	log, closeLogs := newLoggerWith("autopilot-gateway", os.Getenv, dsnSecrets(os.Getenv("GATEWAY_DSN")), getenv(os.Getenv, "CLEARANCE_CORE_TOKEN_FILE", "/var/run/secrets/tokens/clearance"), getenv(os.Getenv, "BACKSTAGE_TOKEN_FILE", backends.BackstageTokenFileDefault), os.Getenv("GLIDEPATH_TOKEN_FILE"), os.Getenv("AGENT_TOKEN_FILE"), os.Getenv("MODEL_KEY_FILE"))
 	defer closeLogs()
 	slog.SetDefault(log)
 	cfg, err := configFromEnv(os.Getenv)

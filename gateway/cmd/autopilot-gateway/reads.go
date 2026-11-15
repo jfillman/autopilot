@@ -11,6 +11,7 @@ import (
 // config_from_env reads them.
 type readSettings struct {
 	backstageURL, backstageTokenFile string
+	backstageAllowHTTP               bool // BACKSTAGE_ALLOW_HTTP (Go only, default off): the URL may be plain http
 	appAPIServices                   map[string]string
 	argoNamespaces                   []string // empty: argo.app.get is off (ARGO_ENABLED=0)
 }
@@ -20,9 +21,18 @@ type readSettings struct {
 // checked here, so a bad one stops the start rather than a call.
 func readBackends(env func(string) string) (readSettings, error) {
 	var r readSettings
+	var err error
 	if u := env("BACKSTAGE_URL"); u != "" {
 		if _, err := backends.NewCatalog(u, "", 0); err != nil {
 			return r, configError(err.Error())
+		}
+		// The gateway's token for the catalog goes to this URL on every call: https, unless the operator says plain http in a setting of its
+		// own (nothing here treats a host name as special).
+		if r.backstageAllowHTTP, err = strictFlag(env, "BACKSTAGE_ALLOW_HTTP", false); err != nil {
+			return r, err
+		}
+		if !strings.HasPrefix(u, "https://") && !r.backstageAllowHTTP {
+			return r, configError("BACKSTAGE_URL must be an https URL: the catalog's bearer token is sent to it (a plain http URL needs BACKSTAGE_ALLOW_HTTP=1)")
 		}
 		r.backstageURL = u
 	}

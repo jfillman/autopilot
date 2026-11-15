@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -33,7 +34,7 @@ func logSettingsFromEnv(env func(string) string) (logSettings, error) {
 
 // secretsFrom is the contents of credential files, re-read at most every 30 seconds, for the log redaction: a token that reached a log
 // line as a literal is removed whatever the line says around it.
-func secretsFrom(files ...string) func() []string {
+func secretsFrom(literals []string, files ...string) func() []string {
 	var mu sync.Mutex
 	var at time.Time
 	var cached []string
@@ -43,7 +44,7 @@ func secretsFrom(files ...string) func() []string {
 		if time.Since(at) < 30*time.Second {
 			return cached
 		}
-		at, cached = time.Now(), nil
+		at, cached = time.Now(), append([]string(nil), literals...)
 		for _, f := range files {
 			if b, err := os.ReadFile(f); err == nil {
 				if t := strings.TrimSpace(string(b)); len(t) >= 6 && len(t) < 16<<10 {
@@ -58,6 +59,11 @@ func secretsFrom(files ...string) func() []string {
 // newLogger is the process's logger: JSON lines on stderr, and a copy of the INFO-and-above lines to the OTLP collector when one is
 // configured. A collector setting that is wrong is logged and the export stays off: a log destination never stops the service.
 func newLogger(service string, env func(string) string, secretFiles ...string) (*slog.Logger, func()) {
+	return newLoggerWith(service, env, nil, secretFiles...)
+}
+
+// newLoggerWith is newLogger with literal secrets (a DSN and its password) as well as credential files: neither reaches the collector.
+func newLoggerWith(service string, env func(string) string, literals []string, secretFiles ...string) (*slog.Logger, func()) {
 	var h slog.Handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: levelFromEnv()})
 	stderr := slog.New(h)
 	ls, err := logSettingsFromEnv(env)
@@ -69,11 +75,25 @@ func newLogger(service string, env func(string) string, secretFiles ...string) (
 		return stderr, func() {}
 	}
 	x := otlplogs.New(otlplogs.Config{Endpoint: ls.endpoint, Resource: otlplogs.ResourceAttributes(env, service), Logger: loggerName(service),
-		AllowHTTP: ls.allowHTTP, Secrets: secretsFrom(secretFiles...)})
+		AllowHTTP: ls.allowHTTP, Secrets: secretsFrom(literals, secretFiles...)})
 	return slog.New(&otlplogs.Handler{Inner: h, X: x}), x.Close
 }
 
 // loggerName is the `logger` attribute Python sends (its logger's name): autopilot.api for the read API, autopilot.gateway for serve.
 func loggerName(service string) string {
 	return "autopilot." + strings.TrimPrefix(service, "autopilot-")
+}
+
+// dsnSecrets are what of a connection string must never be logged: the string itself and its password.
+func dsnSecrets(dsn string) []string {
+	if dsn == "" {
+		return nil
+	}
+	out := []string{dsn}
+	if u, err := url.Parse(dsn); err == nil && u.User != nil {
+		if pw, ok := u.User.Password(); ok && pw != "" {
+			out = append(out, pw)
+		}
+	}
+	return out
 }

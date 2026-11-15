@@ -281,7 +281,7 @@ func TestOpenCreatesTheReadAPIsIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"gateway_sessions_created", "gateway_sessions_principal", "gateway_sessions_agent", "gateway_sessions_task", "gateway_events_outcomes", "gateway_events_received_id", "gateway_events_app_id"}
+	want := []string{"gateway_sessions_created", "gateway_sessions_principal", "gateway_sessions_agent", "gateway_sessions_task", "gateway_events_outcomes", "gateway_events_app_id"}
 	have := func() map[string]bool {
 		rows, err := st.Pool.Query(ctx, "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
 		if err != nil {
