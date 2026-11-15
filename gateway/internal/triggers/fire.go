@@ -78,6 +78,7 @@ type resumer struct {
 	waits  []time.Duration
 	agent  string
 	key    string
+	task   string      // the trigger's task id: its session carries it
 	valid  func() bool // the trigger is still within its validity
 	open   func(ctx context.Context) (*opened, *fireOut, error)
 	input  func() map[string]any
@@ -87,8 +88,22 @@ type resumer struct {
 // decided nor to be reported as handled: the claim stays, and the next delivery takes it over.
 func (r *resumer) run(ctx context.Context, prior string) (fireOut, error) {
 	sid := prior
+	if sid == "" && r.task != "" {
+		// The row names no session, but one may have been opened for this task and not yet recorded (the process died between the
+		// open and Opened): it is accounted for, whatever became of it, or a session a person ended in that window would be
+		// followed by a fresh one that runs.
+		if found := r.gw.SessionOfTask(r.agent, r.task); found != "" {
+			if err := retry(ctx, r.waits, func() error { return r.ledger.Opened(ctx, r.agent, r.key, found) }); err != nil {
+				if errors.Is(err, ErrNotClaimed) {
+					return fireOut{Result: "deduped", Session: found}, nil
+				}
+				return fireOut{}, err
+			}
+			sid = found
+		}
+	}
 	if sid != "" {
-		out, reopen, err := r.continueSession(ctx, sid)
+		out, reopen, err := r.continueRetrying(ctx, sid)
 		if err != nil || !reopen {
 			return out, err
 		}
@@ -107,14 +122,14 @@ func (r *resumer) run(ctx context.Context, prior string) (fireOut, error) {
 	if err := retry(ctx, r.waits, func() error { return r.ledger.Opened(ctx, r.agent, r.key, o.session) }); err != nil {
 		// The session cannot be tied to the claim: nothing launches, and a session this call made is closed again.
 		if !o.deduped {
-			r.gw.AbandonTriggered(ctx, o.session, false)
+			r.gw.AbandonUnrecorded(ctx, o.session)
 		}
 		if errors.Is(err, ErrNotClaimed) {
 			return fireOut{Result: "deduped", Session: o.session}, nil
 		}
 		return fireOut{}, err
 	}
-	out, reopen, err := r.continueSession(ctx, o.session)
+	out, reopen, err := r.continueRetrying(ctx, o.session)
 	if reopen { // the session just opened is already unusable: nothing more is tried this time
 		return fireOut{Result: "launch-failed", Session: o.session}, err
 	}
@@ -131,7 +146,11 @@ func (r *resumer) continueSession(ctx context.Context, sid string) (out fireOut,
 	case !st.Known:
 		return fireOut{Result: "deduped", Session: sid}, false, nil
 	case st.Removed != "":
-		// A run was made and taken away again, and the session says why (written before anything was decided).
+		// A run was made and is being taken away, and the session says why (written before the delete). It is deleted now if it
+		// still is there, and its absence confirmed through the backend, before anything is decided: a marker is not a deletion.
+		if err := r.resumable(ctx, func() error { return r.gw.ReapRun(ctx, sid) }); err != nil {
+			return fireOut{}, false, err
+		}
 		switch st.Removed {
 		case session.RemovedHold:
 			return fireOut{Result: "held", Session: sid, Rule: "R024"}, false, nil
@@ -140,27 +159,45 @@ func (r *resumer) continueSession(ctx context.Context, sid string) (out fireOut,
 		}
 		return fireOut{Result: "refused", Session: sid, Rule: closeRule(st)}, false, nil
 	case !st.Live:
-		if run != "" && !st.Launched {
-			// The run's name was reserved and the session records no creation: the run may or may not exist. Ask the backend before
-			// anything else is decided: it exists (launched), it provably does not (go on), or nobody could tell (resumable).
-			var exists bool
+		exists := false
+		if run != "" {
+			// A run is named. Whatever it is, it must not live on under a closed session: the backend is asked, and a run that is there
+			// is deleted and its absence confirmed. An answer that cannot be had is resumable (nothing decided, closed or deleted).
 			if err := r.resumable(ctx, func() (e error) { exists, e = r.gw.RunExists(ctx, sid); return }); err != nil {
 				return fireOut{}, false, err
 			}
 			if exists {
-				return fireOut{Result: "launched", Session: sid, Run: run}, false, nil
+				if err := r.resumable(ctx, func() error { return r.gw.ReapRun(ctx, sid) }); err != nil {
+					return fireOut{}, false, err
+				}
 			}
 		}
 		switch {
 		case st.Launched:
 			return fireOut{Result: "launched", Session: sid, Run: run}, false, nil
+		case exists && st.CloseControl == session.CloseDeadline:
+			return fireOut{Result: "launched", Session: sid, Run: run}, false, nil // made, and its deadline came
 		case st.Frozen:
 			return fireOut{Result: "refused", Session: sid, Rule: "CT-FROZEN"}, false, nil
-		case st.CloseControl == session.CloseDeadline:
-			return fireOut{}, true, nil // closed by its own deadline before it was launched: the only reason a fresh session may follow
+		case st.CloseControl == session.CloseDeadline || st.CloseControl == session.CloseUnrecorded:
+			return fireOut{}, true, nil // closed by its own deadline, or never tied to the row, before it was launched: a fresh session may follow
 		}
 		// Closed by a person, the gateway, its parent or a path that recorded nothing: not launched, and not reopened.
 		return fireOut{Result: "refused", Session: sid, Rule: closeRule(st)}, false, nil
+	case st.Frozen:
+		// Frozen while live: a run that is there stays (a freeze leaves it for a person to read) and is the trigger's run; none is
+		// made after a freeze.
+		exists := false
+		if run != "" {
+			if err := r.resumable(ctx, func() (e error) { exists, e = r.gw.RunExists(ctx, sid); return }); err != nil {
+				return fireOut{}, false, err
+			}
+		}
+		if exists {
+			return fireOut{Result: "launched", Session: sid, Run: run}, false, nil
+		}
+		r.gw.AbandonTriggered(ctx, sid, true)
+		return fireOut{Result: "refused", Session: sid, Rule: "CT-FROZEN"}, false, nil
 	}
 	out = fireOut{Result: "launch-failed", Session: sid}
 	var res *dispatch.Result
@@ -204,23 +241,26 @@ func closeRule(st dispatch.TriggerSession) string {
 	return "CT-CLOSED"
 }
 
-// resumable runs fn, retrying a ResumableError (a read that could not tell) with the bounded backoff; any other result, or the last
-// error, is returned.
-func (r *resumer) resumable(ctx context.Context, fn func() error) error {
-	err := fn()
+// continueRetrying is continueSession, run again from the session's recorded state (never from the middle of an earlier attempt) after
+// a "could not tell", with the bounded backoff; any other result, or the last error, is returned.
+func (r *resumer) continueRetrying(ctx context.Context, sid string) (out fireOut, reopen bool, err error) {
+	out, reopen, err = r.continueSession(ctx, sid)
 	for _, w := range r.waits {
 		if err == nil || !dispatch.IsResumable(err) || ctx.Err() != nil {
-			return err
+			return
 		}
 		select {
 		case <-ctx.Done():
-			return err
+			return
 		case <-time.After(w):
 		}
-		err = fn()
+		out, reopen, err = r.continueSession(ctx, sid)
 	}
-	return err
+	return
 }
+
+// resumable runs fn once: a read that could not tell is the caller's to return (the whole session is re-read on the next attempt).
+func (r *resumer) resumable(_ context.Context, fn func() error) error { return fn() }
 
 // pendingDecisions are outcomes that were determined and could not be written, by agent and key; bounded, the oldest evicted.
 type pendingDecisions struct {

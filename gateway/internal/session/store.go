@@ -357,10 +357,28 @@ func (st *Store) Flush(ctx context.Context, sessions ...*Session) error {
 	}
 	var recs []Record
 	var blobs []string
+	// The saves of one session are ordered (see Session.flushMu): taken in id order, so two flushes of overlapping sets cannot deadlock.
+	var ordered []*Session
 	for _, s := range sessions {
-		if s == nil {
+		if s != nil {
+			ordered = append(ordered, s)
+		}
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	var held []*Session
+	for i, s := range ordered {
+		if i > 0 && ordered[i-1] == s {
 			continue
 		}
+		s.flushMu.Lock()
+		held = append(held, s)
+	}
+	defer func() {
+		for _, s := range held {
+			s.flushMu.Unlock()
+		}
+	}()
+	for _, s := range ordered {
 		s.Lock()
 		r := s.ToRecord()
 		s.Unlock()

@@ -49,6 +49,10 @@ type Row struct {
 	State           string
 	Session, Run    *string
 	ClaimedAt       time.Time
+	// Failures and FirstFailed are how many times handling this claimed row failed in a way that is not the ledger's (a panic, a
+	// could-not-tell that did not clear), and when the first did. They are kept on the row across takeovers and restarts.
+	Failures    int
+	FirstFailed time.Time
 }
 
 // Cursor is the newest event id the bridge has handled for a source, and the floor: when the ledger first ran for that source.
@@ -74,6 +78,9 @@ type Ledger interface {
 	Opened(ctx context.Context, agent, key, session string) error
 	// Decide writes the decision of a claimed row.
 	Decide(ctx context.Context, agent, key, state, session, run string) error
+	// Failed records one more failed attempt on a claimed row and returns how many there have been and when the first was (kept on the
+	// row, so a restart does not start the count again).
+	Failed(ctx context.Context, agent, key string, now time.Time) (attempts int, first time.Time, err error)
 	// Get is the row, or nil.
 	Get(ctx context.Context, agent, key string) (*Row, error)
 	// Cursor is the source's cursor, creating it (floor now) when there is none.
@@ -187,11 +194,14 @@ func (m *MemoryLedger) Claim(_ context.Context, agent, key, via, eventID string,
 	if r := m.rows[[2]string{agent, key}]; r != nil && !(r.State == "claimed" && !r.ClaimedAt.After(staleBefore)) {
 		return false, nil
 	}
-	var kept *string // a claim taken over from an orphan keeps the session that was opened for it
+	var kept *string // a claim taken over from an orphan keeps the session that was opened for it, and its failures
+	var fails int
+	var firstFail time.Time
 	if r := m.rows[[2]string{agent, key}]; r != nil {
-		kept = r.Session
+		kept, fails, firstFail = r.Session, r.Failures, r.FirstFailed
 	}
-	m.rows[[2]string{agent, key}] = &Row{Agent: agent, Key: key, Via: via, EventID: sp(eventID), State: "claimed", Session: kept, ClaimedAt: now}
+	m.rows[[2]string{agent, key}] = &Row{Agent: agent, Key: key, Via: via, EventID: sp(eventID), State: "claimed", Session: kept, ClaimedAt: now,
+		Failures: fails, FirstFailed: firstFail}
 	return true, nil
 }
 
@@ -210,6 +220,22 @@ func (m *MemoryLedger) Opened(_ context.Context, agent, key, session string) err
 		return nil
 	}
 	return ErrNotClaimed
+}
+
+// Failed is Ledger.Failed.
+func (m *MemoryLedger) Failed(_ context.Context, agent, key string, now time.Time) (int, time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	r := m.rows[[2]string{agent, key}]
+	if r == nil || r.State != "claimed" {
+		return 0, time.Time{}, ErrNotClaimed
+	}
+	if r.Failures == 0 {
+		r.FirstFailed = now
+	}
+	r.Failures++
+	return r.Failures, r.FirstFailed, nil
 }
 
 // Decide is Ledger.Decide.

@@ -293,11 +293,28 @@ func (t *Triggers) Decide(ctx context.Context, agent, key, state, session, run s
 	return err
 }
 
+// Failed is Ledger.Failed: the count and the first failure's time are columns the Go gateway adds to the row (pgstate.goSchema); the
+// Python gateway never reads them and its own writes leave them as they are.
+func (t *Triggers) Failed(ctx context.Context, agent, key string, now time.Time) (int, time.Time, error) {
+	var n int
+	var first time.Time
+	err := t.st.Pool.QueryRow(ctx, "UPDATE gateway_trigger_launches SET failures = failures + 1, first_failed_at = COALESCE(first_failed_at, $3), updated_at = now() "+
+		"WHERE agent = $1 AND key = $2 AND state = 'claimed' RETURNING failures, first_failed_at", agent, key, now).Scan(&n, &first)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, time.Time{}, triggers.ErrNotClaimed
+	}
+	return n, first, err
+}
+
 // Get is Ledger.Get.
 func (t *Triggers) Get(ctx context.Context, agent, key string) (*triggers.Row, error) {
 	r := &triggers.Row{}
-	err := t.st.Pool.QueryRow(ctx, "SELECT agent, key, via, event_id, state, session, run, claimed_at FROM gateway_trigger_launches WHERE agent = $1 AND key = $2",
-		agent, key).Scan(&r.Agent, &r.Key, &r.Via, &r.EventID, &r.State, &r.Session, &r.Run, &r.ClaimedAt)
+	var ff *time.Time
+	err := t.st.Pool.QueryRow(ctx, "SELECT agent, key, via, event_id, state, session, run, claimed_at, failures, first_failed_at FROM gateway_trigger_launches WHERE agent = $1 AND key = $2",
+		agent, key).Scan(&r.Agent, &r.Key, &r.Via, &r.EventID, &r.State, &r.Session, &r.Run, &r.ClaimedAt, &r.Failures, &ff)
+	if ff != nil {
+		r.FirstFailed = *ff
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

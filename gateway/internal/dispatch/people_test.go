@@ -682,6 +682,7 @@ func TestAHoldStopsALaunchOfASessionOpenedBeforeIt(t *testing.T) {
 		p := newPeopleRig(t)
 		img := "ghcr.io/jfillman/autopilot-agent-runtime@sha256:" + strings.Repeat("a", 64)
 		p.g.Defs["triage-agent"].Image = &img
+		p.api.GoneWhenAbsent = true
 		res, err := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e1", "t-aaaaaaaaaaaa")
 		if err != nil || !res.OK {
 			t.Fatalf("%+v %v", res, err)
@@ -1469,15 +1470,26 @@ func TestTriggersThroughTheRealGateway(t *testing.T) {
 	if s := p.store.Get("s-00ee01"); s.Run == nil || len(live()) != 2 {
 		t.Fatalf("the orphan was not launched, or a second session was opened: %d live", len(live()))
 	}
-	// a launch that fails closes the session it opened, and the failure is the trigger's decision
+	// a launch the API server answers could-not-tell leaves the trigger undecided and resumable (the run may exist): nothing is closed
 	p.api.Err = errors.New("API server 500")
+	got, err = b3.Handle(ctx, env("e5", "pr-5"), "stream")
+	if err == nil || len(got) != 0 || len(live()) != 3 {
+		t.Fatalf("an unknown must leave the trigger resumable: %+v %v %d live", got, err, len(live()))
+	}
+	p.api.Err = nil
+	got, err = b3.Handle(ctx, env("e5", "pr-5"), "stream") // the next delivery finishes it: the same session, one run
+	if err != nil || len(got) != 1 || got[0].Result != "launched" || len(live()) != 3 {
+		t.Fatalf("%+v %v %d live", got, err, len(live()))
+	}
+	// a launch the API server refuses closes the session it opened, and the failure is the trigger's decision
+	p.api.Err = &runs.Error{Msg: "API server 422 creating AgentRun"}
 	got, _ = b3.Handle(ctx, env("e3", "pr-3"), "stream")
-	if len(got) != 1 || got[0].Result != "launch-failed" || len(live()) != 2 {
+	if len(got) != 1 || got[0].Result != "launch-failed" || len(live()) != 3 {
 		t.Fatalf("%+v: %d live", got, len(live()))
 	}
 	p.api.Err = nil
 	got, _ = b3.Handle(ctx, env("e4", "pr-3"), "stream") // the same trigger key again: decided, not retried
-	if len(got) != 1 || got[0].New || len(live()) != 2 {
+	if len(got) != 1 || got[0].New || len(live()) != 3 {
 		t.Fatalf("%+v", got)
 	}
 	// the scheduler, once per slot

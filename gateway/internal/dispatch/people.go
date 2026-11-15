@@ -453,20 +453,58 @@ func (g *Gateway) EndSession(ctx context.Context, token, sessionID string, reaso
 
 var errHoldsNotLoaded = errors.New("the holds have not been loaded from the store")
 
-// loadHolds reads the store into the copy, once, outside the gate (the first use; ReloadHolds again).
-func (g *Gateway) loadHolds(ctx context.Context) error {
-	g.holdLoadMu.Lock()
-	defer g.holdLoadMu.Unlock()
-	if g.Holds == nil {
+// HoldStoreTimeout bounds one call to the hold store: a database that has stopped answering fails the call (closed) instead of holding
+// every waiter forever.
+var HoldStoreTimeout = 10 * time.Second
+
+// ctxMutex is a mutex whose waiters give up when their context ends.
+type ctxMutex struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (m *ctxMutex) init() { m.once.Do(func() { m.ch = make(chan struct{}, 1) }) }
+
+// Lock takes the mutex, or returns the context's error.
+func (m *ctxMutex) Lock(ctx context.Context) error {
+	m.init()
+	select {
+	case m.ch <- struct{}{}:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+}
+
+// Unlock releases it.
+func (m *ctxMutex) Unlock() { <-m.ch }
+
+func (g *Gateway) holdsAreLoaded() bool {
 	g.holdGate.RLock()
-	loaded := g.holdsLoaded
-	g.holdGate.RUnlock()
-	if loaded {
+	defer g.holdGate.RUnlock()
+	return g.holdsLoaded
+}
+
+// loadHolds reads the store into the copy when it is not loaded (the first use; ReloadHolds again), under holdMu and outside the gate.
+func (g *Gateway) loadHolds(ctx context.Context) error {
+	if g.Holds == nil || g.holdsAreLoaded() {
 		return nil
 	}
-	all, err := g.Holds.All(ctx)
+	if err := g.holdMu.Lock(ctx); err != nil {
+		return err
+	}
+	defer g.holdMu.Unlock()
+	return g.loadHoldsLocked(ctx)
+}
+
+// loadHoldsLocked is loadHolds for a caller that holds holdMu.
+func (g *Gateway) loadHoldsLocked(ctx context.Context) error {
+	if g.holdsAreLoaded() {
+		return nil
+	}
+	sctx, cancel := context.WithTimeout(ctx, HoldStoreTimeout)
+	defer cancel()
+	all, err := g.Holds.All(sctx)
 	if err != nil {
 		return err
 	}
@@ -482,17 +520,22 @@ func (g *Gateway) loadHolds(ctx context.Context) error {
 
 // ReloadHolds reads the store again (start-up, and a test that wrote the store directly).
 func (g *Gateway) ReloadHolds(ctx context.Context) error {
+	if g.Holds == nil {
+		return nil
+	}
+	if err := g.holdMu.Lock(ctx); err != nil {
+		return err
+	}
+	defer g.holdMu.Unlock()
 	g.invalidateHolds()
-	return g.loadHolds(ctx)
+	return g.loadHoldsLocked(ctx)
 }
 
 // invalidateHolds marks the copy as not loaded: every open and launch then fails closed until the next read of the store.
 func (g *Gateway) invalidateHolds() {
-	g.holdLoadMu.Lock()
 	g.holdGate.Lock()
 	g.holdsLoaded = false
 	g.holdGate.Unlock()
-	g.holdLoadMu.Unlock()
 }
 
 // holdForLocked is the active hold on an agent's triggers, if any, from the copy. The caller holds the hold gate (read or write). An
@@ -558,20 +601,7 @@ func (g *Gateway) HoldTriggers(ctx context.Context, token, agent string, reason,
 	if via != "" {
 		h.Via = &via
 	}
-	if err := g.loadHolds(ctx); err != nil {
-		return nil, err
-	}
-	g.holdWriteMu.Lock() // one hold or release at a time: the store and the copy are written in the same order
-	err = g.Holds.Put(ctx, h)
-	if err == nil {
-		g.holdGate.Lock()
-		g.holdCache[agent] = h
-		g.holdGate.Unlock()
-	}
-	if err != nil {
-		g.invalidateHolds() // a write that errored may have committed: the copy is not trusted until the store is read again
-	}
-	g.holdWriteMu.Unlock()
+	err = g.writeHold(ctx, func(sctx context.Context) error { return g.Holds.Put(sctx, h) }, func() { g.holdCache[agent] = h })
 	if err != nil {
 		return nil, err
 	}
@@ -580,6 +610,29 @@ func (g *Gateway) HoldTriggers(ctx context.Context, token, agent string, reason,
 	out := h.View()
 	out["audit_seq"] = nilSeq(rec)
 	return out, nil
+}
+
+// writeHold is one write to the hold store: under holdMu (so no load overlaps it), with the store call bounded, and the copy updated
+// under the gate (apply) only when the write succeeded. A write that errored may have committed, so the copy is then distrusted until
+// the store is read again; the next reader takes holdMu after this returns, so its snapshot is of the store as this write left it.
+func (g *Gateway) writeHold(ctx context.Context, write func(context.Context) error, apply func()) error {
+	if err := g.holdMu.Lock(ctx); err != nil {
+		return err
+	}
+	defer g.holdMu.Unlock()
+	if err := g.loadHoldsLocked(ctx); err != nil {
+		return err
+	}
+	sctx, cancel := context.WithTimeout(ctx, HoldStoreTimeout)
+	defer cancel()
+	if err := write(sctx); err != nil {
+		g.invalidateHolds()
+		return err
+	}
+	g.holdGate.Lock()
+	apply()
+	g.holdGate.Unlock()
+	return nil
 }
 
 // ReleaseTriggers lifts a hold before it expires. Recorded as trigger.release (Gateway.release_triggers). Whether an agent is held
@@ -592,19 +645,21 @@ func (g *Gateway) ReleaseTriggers(ctx context.Context, token, agent, onBehalfOf 
 	if err := g.mayManage(ctx, person, agent, nil); err != nil {
 		return nil, err
 	}
-	if err := g.loadHolds(ctx); err != nil {
-		return nil, err
-	}
-	g.holdWriteMu.Lock()
-	h, err := g.HoldFor(ctx, agent)
-	if err == nil && h != nil {
-		if err = g.Holds.Delete(ctx, agent); err == nil {
-			g.holdGate.Lock()
-			delete(g.holdCache, agent)
-			g.holdGate.Unlock()
+	var h *Hold
+	err = g.writeHold(ctx, func(sctx context.Context) error {
+		g.holdGate.RLock()
+		cur, herr := g.holdForLocked(sctx, agent)
+		g.holdGate.RUnlock()
+		if herr != nil || cur == nil {
+			return herr
 		}
-	}
-	g.holdWriteMu.Unlock()
+		h = cur
+		return g.Holds.Delete(sctx, agent)
+	}, func() {
+		if h != nil {
+			delete(g.holdCache, agent)
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -618,11 +673,16 @@ func (g *Gateway) ReleaseTriggers(ctx context.Context, token, agent, onBehalfOf 
 
 // PruneHolds drops the holds that have expired (Python drops one when it reads it). The sweep calls it.
 func (g *Gateway) PruneHolds(ctx context.Context) int {
-	if g.Holds == nil || g.loadHolds(ctx) != nil {
+	if g.Holds == nil {
 		return 0
 	}
-	g.holdWriteMu.Lock()
-	defer g.holdWriteMu.Unlock()
+	if err := g.holdMu.Lock(ctx); err != nil {
+		return 0
+	}
+	defer g.holdMu.Unlock()
+	if g.loadHoldsLocked(ctx) != nil {
+		return 0
+	}
 	g.holdGate.RLock()
 	var expired []string
 	for name, h := range g.holdCache {
@@ -633,12 +693,17 @@ func (g *Gateway) PruneHolds(ctx context.Context) int {
 	g.holdGate.RUnlock()
 	n := 0
 	for _, name := range expired {
-		if g.Holds.Delete(ctx, name) == nil {
-			g.holdGate.Lock()
-			delete(g.holdCache, name)
-			g.holdGate.Unlock()
-			n++
+		sctx, cancel := context.WithTimeout(ctx, HoldStoreTimeout)
+		err := g.Holds.Delete(sctx, name)
+		cancel()
+		if err != nil {
+			g.invalidateHolds()
+			break
 		}
+		g.holdGate.Lock()
+		delete(g.holdCache, name)
+		g.holdGate.Unlock()
+		n++
 	}
 	return n
 }

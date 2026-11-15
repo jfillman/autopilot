@@ -86,6 +86,9 @@ type DeleteFail struct {
 // operations on one session (a call's decision, spend and outcome), so a session never overspends by racing itself,
 // while different sessions run in parallel.
 type Session struct {
+	// flushMu orders the saves of this session: a save builds its record and writes it under it, so a record built before a later
+	// change can never be written after the later one (a stale open overwriting a person's end).
+	flushMu  sync.Mutex
 	mu       sync.Mutex
 	serial   sync.Mutex
 	runEpoch uint64
@@ -329,13 +332,14 @@ func parseTime(v string) (time.Time, error) {
 
 // The controls a session can be closed by, as CloseReason.Control says.
 const (
-	CloseDeadline = "deadline" // its deadline passed (the sweep); the only reason a trigger may open a fresh session after
-	CloseEnd      = "end"      // a person ended it
-	CloseAbandon  = "abandon"  // the gateway closed a session it could not launch
-	CloseOwner    = "close"    // its owner closed it (session_close, run.close)
-	CloseParent   = "parent"   // its parent was closed
-	CloseFinish   = "finish"   // its run handed back its result
-	CloseOther    = "other"    // a path that says nothing more
+	CloseDeadline   = "deadline"   // its deadline passed (the sweep); the only reason a trigger may open a fresh session after
+	CloseEnd        = "end"        // a person ended it
+	CloseUnrecorded = "unrecorded" // a trigger's session that could not be tied to its ledger row: closed, never launched, safe to replace
+	CloseAbandon    = "abandon"    // the gateway closed a session it could not launch
+	CloseOwner      = "close"      // its owner closed it (session_close, run.close)
+	CloseParent     = "parent"     // its parent was closed
+	CloseFinish     = "finish"     // its run handed back its result
+	CloseOther      = "other"      // a path that says nothing more
 )
 
 // CloseReason is who closed a session, how and when: durable, in the write that closes it.

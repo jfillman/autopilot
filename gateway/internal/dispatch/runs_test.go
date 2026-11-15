@@ -771,6 +771,7 @@ func TestLaunchRefusals(t *testing.T) {
 // The run.launch record must reach the core: when it cannot, the run is deleted again and the session keeps none.
 func TestLaunchFailsClosedWhenTheLaunchRecordCannotBeWritten(t *testing.T) {
 	r := launchRig(t, "researcher", nil)
+	r.api.GoneWhenAbsent = true // the API server answers 404 for a run that is gone
 	r.fc.Down.Store(true)
 	res, err := r.g.Launch(context.Background(), "s-0000a1", map[string]any{"prompt": "hi"})
 	if err != nil || res.OK || res.Decision["rule"] != core.OutageRule {
@@ -796,11 +797,12 @@ func TestLaunchWhenTheRunBackendFails(t *testing.T) {
 	if res != nil || !errors.As(err, &ke) || r.store.Get("s-0000a1").Run != nil {
 		t.Fatalf("%v %v", res, err)
 	}
-	// a panic is an error, not a crash
+	// a panic is an error, not a crash, and it cannot be told whether the run was made: resumable, the name stays, nothing is deleted
 	f2 := runs.NewFake()
 	f2.OnCreate = func() { panic("boom") }
 	r.g.SetRuns(f2)
-	if _, err := r.g.Launch(context.Background(), "s-0000a1", nil); err == nil || dispatch.ErrorKind(err) != "Panic" || r.store.Get("s-0000a1").Run != nil {
+	if _, err := r.g.Launch(context.Background(), "s-0000a1", nil); err == nil || !dispatch.IsResumable(err) || dispatch.ErrorKind(errors.Unwrap(err)) != "Panic" ||
+		r.store.Get("s-0000a1").Run == nil || f2.Count("delete r-0000a1") != 0 {
 		t.Fatalf("%v", err)
 	}
 }

@@ -22,6 +22,16 @@ says what each gateway tag adds. The manager cuts the tags.
 - `tools/gen_gateway_registry.py` also writes fixtures for the inbox, the controls, the rows they write and the triggers (matcher, keys,
   the bridge and the scheduler driven over a fake gateway), generated from the Python code.
 
+- Round-5 review fixes of S3 (Go gateway only): the crash-window test now drives the real code over a fault-injecting store, ledger and a
+  stateful run backend (every durable call crashed at, for a plain launch, a hold, an end, a freeze and each class of backend answer,
+  through the stream and through the catch-up). It found, and these fix: a run that outlived its `run_removed` marker (a takeover now
+  closes the session, deletes the run and confirms it gone before deciding); a hold not read before a resumed create; create errors
+  treated as final (a 409 on the session's own name is the run, a timeout or 5xx is resumable and deletes nothing, only a 4xx releases
+  the name); a session a person ended before it was tied to its ledger row being followed by a fresh one; a stale save overwriting a later
+  one (saves of a session are ordered); a holds reload overlapping a hold write (one lock with context-aware waiters, store calls bounded);
+  a poison event blocking the cursor forever (decided `launch-failed`/`CT-POISON` after 8 attempts over 10 minutes, counted on the row, run
+  resolved first). Go-only: two columns on the trigger ledger (`failures`, `first_failed_at`), with defaults. The rollback note is in
+  `docs/admin/go-gateway.md`.
 - Round-4 review fixes of S3 (Go gateway only): a trigger's takeover decides only from facts recorded durably when they happened, never from
   the clock or a missing field: a person's end is written with the close (who, when, which control), a session closed with no reason is
   never launched, the run's name is saved before the run is made and "created" right after, a run a hold took away is recorded as removed

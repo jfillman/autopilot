@@ -117,9 +117,11 @@ type Gateway struct {
 	PreflightLedger *PreflightLedger
 	// holdGate: a trigger's open and a person's run read a hold and open their session under the read lock; a hold or a release
 	// writes under the write lock.
-	holdGate    sync.RWMutex
-	holdWriteMu sync.Mutex // one hold or release at a time
-	holdLoadMu  sync.Mutex
+	holdGate sync.RWMutex
+	// holdMu serializes every touch of the hold store that decides what the copy holds: a load (a read of the whole store) and a
+	// hold, a release or a prune (a write). A reload therefore never overlaps a write, so its snapshot cannot be older than a write
+	// that finished before the copy was set. Waiters honour their context, and a store call is bounded (holdStoreTimeout).
+	holdMu      ctxMutex
 	holdsLoaded bool
 	holdCache   map[string]*Hold // the holds, as the store has them; read and written under holdGate
 	answers     answerLocks

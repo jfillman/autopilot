@@ -12,8 +12,9 @@ package dispatch
 //     session are serialized, so concurrent spawns cannot overspend a parent;
 //   - a run's name is written into its session and saved before the run is created (write-ahead), so a crash between the
 //     two leaves a session whose sweep deletes the run it may have started; Python leaves the run to its own deadline;
-//   - a run that fails to be created is deleted again, best effort, because a timeout may have come after the API server
-//     took it.
+//   - a failed create is classified (runs.ClassifyCreate): a 409 on the session's own reserved name is the run (made by an attempt whose
+//     answer was lost); a refusal that proves nothing was made releases the name; anything else (a transport error, a timeout, a 5xx,
+//     a cancelled context) could not be told, so nothing is deleted, the name stays and the launch is resumable (ResumableError).
 
 import (
 	"context"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
+	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/clearance/client"
 )
@@ -486,7 +488,7 @@ func InputView(input map[string]any) map[string]any {
 // must reach the core: when it cannot, the run is deleted again (fail closed). A backend failure is the returned error,
 // as Python raises it.
 func (g *Gateway) Launch(ctx context.Context, sessionID string, input map[string]any) (*Result, error) {
-	return g.launch(ctx, sessionID, input, false)
+	return g.launch(ctx, sessionID, input, false, nil)
 }
 
 // ExistingRunKey is the Data key of an answer that found the session's run already made (a resumed launch) rather than making it.
@@ -495,7 +497,10 @@ const ExistingRunKey = "existing"
 // launch is Launch. With resume (a trigger's session taken over after a crash) a session that already names a run is not refused:
 // the name was written ahead of the run, so the run may never have been made. The run backend is asked: a run that exists is the
 // answer ({"run", "existing": true}); one that is gone is made now, under the name already reserved.
-func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string]any, resume bool) (*Result, error) {
+//
+// guard, when set, is asked immediately before every create, including one made on resume: it answers a refusal (a hold) or an error
+// (the hold could not be read: nothing is created). The session's own state (closed, frozen) is read again at the same point.
+func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string]any, resume bool, guard func(context.Context) (*Result, error)) (*Result, error) {
 	s := g.Store.Get(sessionID)
 	if s == nil {
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("no live session")}, nil
@@ -551,17 +556,31 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 	s.Unlock()
 	s.BumpRunEpoch()
 	g.flush(ctx, s) // write-ahead
+	// Immediately before the create (and so before every create, a resumed one too): the session may have been ended or frozen, and a
+	// hold may have been placed, since the checks above. The name stays reserved (nothing was created), so a close deletes by it.
+	if res, err := g.beforeCreate(ctx, s, guard); res != nil || err != nil {
+		return res, err
+	}
 	run, cerr := g.createRun(ctx, s, d, input)
 	if cerr != nil {
-		defer s.BumpRunEpoch()
-		bctx, cancel := g.bg(ctx)
-		if derr := callBackend(func() error { return g.Runs.Delete(bctx, s) }); derr == nil {
+		switch runs.ClassifyCreate(cerr) {
+		case runs.CreateExists:
+			// The name is unique to this session (r-<its id>) and was reserved by it: the run that is there is this session's own,
+			// made by an earlier attempt whose answer was lost.
+			run = name
+		case runs.CreateFinal:
+			// A response that proves nothing was made and nothing will be: the name is released.
 			s.Lock()
 			s.Run = nil
 			s.Unlock()
+			s.BumpRunEpoch()
+			return nil, cerr
+		default:
+			// It cannot be told whether the run was made, or whether it still will be (a delete's 404 does not prove a late create
+			// cannot land). Nothing is deleted, the name stays, and the caller leaves the trigger resumable: the next holder asks the
+			// backend by name.
+			return nil, &ResumableError{cerr}
 		}
-		cancel()
-		return nil, cerr
 	}
 	launchedAt := g.Now()
 	s.Lock()
@@ -574,16 +593,12 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 	g.flush(ctx, s) // "the run was created" is its own durable write, before anything else is decided about it
 	if closedNow {
 		// Closed while its run was being made (a person's End, the sweep): the run is deleted, not left outside the accounting, and the
-		// session says so (durably, before anything is decided about the trigger).
+		// session says so (durably, before anything is decided about the trigger). The delete is confirmed through the backend; if it
+		// cannot be, the caller is told so and the trigger stays undecided.
 		g.markRunRemoved(ctx, s, session.RemovedClosed)
-		bctx, cancel := g.bg(ctx)
-		if derr := callBackend(func() error { return g.Runs.Delete(bctx, s) }); derr == nil {
-			s.Lock()
-			s.Run = nil
-			s.Unlock()
-			s.BumpRunEpoch()
+		if rerr := g.removeRun(ctx, s); rerr != nil {
+			return nil, rerr
 		}
-		cancel()
 		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("no live session"), Session: &s.ID}, nil
 	}
 	seq, rerr := g.record(ctx, "run.launch", s, principal, map[string]any{"run": run}, "created", true)
@@ -593,20 +608,82 @@ func (g *Gateway) launch(ctx context.Context, sessionID string, input map[string
 			return nil, rerr
 		}
 		g.markRunRemoved(ctx, s, session.RemovedNoRecord)
-		bctx, cancel := g.bg(ctx)
-		derr := callBackend(func() error { return g.Runs.Delete(bctx, s) })
-		cancel()
+		if rerr := g.removeRun(ctx, s); rerr != nil {
+			return nil, rerr // the run may still exist: nothing is decided
+		}
 		s.Lock()
-		if derr == nil {
-			s.Run = nil // deleted: the session keeps none
-		} // else it keeps the run's name, so the sweep (which needs it) retries the delete
 		s.Input = nil
 		s.Unlock()
-		s.BumpRunEpoch()
 		v := core.OutageVerdict(un, nil)
 		return &Result{Decision: map[string]any{"allow": false, "rule": v.Rule}, Error: str(v.Message), Session: &s.ID}, nil
 	}
 	return &Result{OK: true, Decision: map[string]any{"allow": true}, Data: map[string]any{"run": run, "session": s.ID}, AuditSeq: seq, Session: &s.ID}, nil
+}
+
+// beforeCreate is the check made immediately before a run is created: the session must still be live and not frozen, and the guard
+// (the agent's hold) must say no. A refusal creates nothing; an error means it could not be told, and nothing is created either.
+func (g *Gateway) beforeCreate(ctx context.Context, s *session.Session, guard func(context.Context) (*Result, error)) (*Result, error) {
+	s.Lock()
+	closed, tripped := s.Closed, s.Tripped
+	s.Unlock()
+	if closed {
+		return &Result{Decision: map[string]any{"allow": false, "rule": "R004"}, Error: str("no live session"), Session: &s.ID}, nil
+	}
+	if tripped {
+		g.flush(ctx, g.Store.CloseTouchedBy(s.ID, session.CloseReason{Control: session.CloseAbandon, By: "frozen", At: g.Now()})...)
+		return &Result{Decision: map[string]any{"allow": false, "rule": "R004", "frozen": true}, Error: str("this session is frozen: it starts no run"), Session: &s.ID}, nil
+	}
+	if guard != nil {
+		return guard(ctx)
+	}
+	return nil, nil
+}
+
+// removeRun deletes the session's run and confirms through the backend (a GET by name: 404) that it is gone; only then is the name
+// released. An error (the delete failed, or the backend could not say) is a ResumableError: the run may still exist, so nothing that
+// depends on its absence may be decided.
+func (g *Gateway) removeRun(ctx context.Context, s *session.Session) error {
+	if g.Runs == nil {
+		return nil
+	}
+	bctx, cancel := g.bg(ctx)
+	defer cancel()
+	if derr := callBackend(func() error { return g.Runs.Delete(bctx, s) }); derr != nil {
+		return &ResumableError{derr}
+	}
+	var phase string
+	if perr := callBackend(func() (e error) { phase, e = g.Runs.Ended(bctx, s); return }); perr != nil {
+		return &ResumableError{perr}
+	}
+	if phase != "Gone" {
+		return &ResumableError{fmt.Errorf("the run is still there after its delete")}
+	}
+	s.Lock()
+	s.Run = nil
+	s.DeleteFail = nil
+	s.Unlock()
+	s.BumpRunEpoch()
+	g.flush(ctx, s)
+	return nil
+}
+
+// ReapRun is what a trigger's takeover does for a session whose run must not live: it closes the session if it is live (with a
+// recorded reason) and deletes the run, confirming its absence through the backend. A run that cannot be confirmed gone is a
+// ResumableError: the trigger is not decided while it may exist.
+func (g *Gateway) ReapRun(ctx context.Context, sessionID string) error {
+	s := g.Store.Get(sessionID)
+	if s == nil {
+		return nil
+	}
+	defer s.Serial()()
+	g.flush(ctx, g.Store.CloseTouchedBy(sessionID, session.CloseReason{Control: session.CloseAbandon, By: "run-removed", At: g.Now()})...)
+	s.Lock()
+	has := s.Run != nil && *s.Run != ""
+	s.Unlock()
+	if !has {
+		return nil
+	}
+	return g.removeRun(ctx, s)
 }
 
 // markRunRemoved writes, durably, that the session's run was made and is being taken away again, and why: a later holder of the claim

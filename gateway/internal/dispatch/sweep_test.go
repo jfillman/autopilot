@@ -142,10 +142,13 @@ func TestALaunchWhoseRecordAndDeleteBothFailKeepsTheRunNameForTheSweep(t *testin
 	r.g.SetRuns(f)
 	r.fc.Down.Store(true)
 	res, err := r.g.Launch(context.Background(), "s-0000a1", map[string]any{"prompt": "x"})
-	if err != nil || res.OK {
+	if err == nil || !dispatch.IsResumable(err) || res != nil { // the run may still exist: nothing is answered, the trigger would stay undecided
 		t.Fatalf("%v %v", res, err)
 	}
 	s := r.store.Get("s-0000a1")
+	if s.RunRemoved == nil || s.RunRemoved.Reason != session.RemovedNoRecord {
+		t.Fatalf("the removal was not recorded: %+v", s.RunRemoved)
+	}
 	if s.Run == nil || *s.Run != "r-0000a1" {
 		t.Fatalf("the name was dropped with the run still there: %v", s.Run)
 	}

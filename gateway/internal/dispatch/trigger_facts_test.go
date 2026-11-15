@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -227,4 +228,128 @@ func TestAHoldWriteThatErroredInvalidatesTheCopy(t *testing.T) {
 	if res, _ := p.g.OpenTriggered(ctx, "triage-agent", "glidepath:e3", "t-cccccccccccc"); res == nil || res.OK {
 		t.Fatalf("the hold that committed must hold once the store is read: %+v", res)
 	}
+}
+
+// slowHolds is a hold store whose All answers from a snapshot it takes first and then waits for the test, and whose Put counts.
+type slowHolds struct {
+	*dispatch.MemoryHolds
+	mu      sync.Mutex
+	allGate chan struct{} // when set, All takes its snapshot, tells snapshotted, and waits for this channel
+	snapped chan struct{}
+	puts    int
+	hang    chan struct{} // when set, All never answers until it is closed
+	putErr  error
+}
+
+func (s *slowHolds) All(c context.Context) ([]*dispatch.Hold, error) {
+	s.mu.Lock()
+	gate, snapped, hang := s.allGate, s.snapped, s.hang
+	s.mu.Unlock()
+	if hang != nil {
+		select {
+		case <-hang:
+		case <-c.Done():
+			return nil, c.Err()
+		}
+	}
+	snap, err := s.MemoryHolds.All(c)
+	if gate != nil {
+		snapped <- struct{}{}
+		<-gate
+	}
+	return snap, err
+}
+
+func (s *slowHolds) Put(c context.Context, h *dispatch.Hold) error {
+	s.mu.Lock()
+	s.puts++
+	pe := s.putErr
+	s.mu.Unlock()
+	if err := s.MemoryHolds.Put(c, h); err != nil {
+		return err
+	}
+	return pe
+}
+
+// A reload that a failed hold write started takes its snapshot while a later hold's write is waiting for it, never before that write:
+// the copy cannot be set from a snapshot older than a write that finished first (run with -race).
+func TestAHoldReloadIsSerializedWithHoldWrites(t *testing.T) {
+	p := factsRig(t)
+	s := &slowHolds{MemoryHolds: p.holds}
+	p.g.Holds = s
+	if err := p.g.ReloadHolds(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// hold #1's write errors after committing: the copy is distrusted
+	s.mu.Lock()
+	s.putErr = errors.New("connection reset")
+	s.mu.Unlock()
+	if _, err := p.g.HoldTriggers(ctx, p.person(adminID), "triage-agent", "first", 1, ""); err == nil {
+		t.Fatal("the failed write was reported as made")
+	}
+	s.mu.Lock()
+	s.putErr, s.allGate, s.snapped = nil, make(chan struct{}), make(chan struct{})
+	gate, snapped := s.allGate, s.snapped
+	s.mu.Unlock()
+	// a reader starts the reload (its snapshot is taken, then it waits)
+	readerDone := make(chan error, 1)
+	go func() { _, err := p.g.HoldFor(ctx, "triage-agent"); readerDone <- err }()
+	<-snapped
+	// hold #2 is requested meanwhile: its write must wait for the reload, not run beside it
+	before := func() int { s.mu.Lock(); defer s.mu.Unlock(); return s.puts }()
+	writer := make(chan error, 1)
+	go func() {
+		_, err := p.g.HoldTriggers(ctx, p.person(adminID), "nightly-reviewer", "second", 1, "")
+		writer <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if n := func() int { s.mu.Lock(); defer s.mu.Unlock(); return s.puts }(); n != before {
+		t.Fatalf("a hold was written while the copy was being reloaded (%d puts, was %d)", n, before)
+	}
+	close(gate)
+	if err := <-readerDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-writer; err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []string{"triage-agent", "nightly-reviewer"} {
+		if h, err := p.g.HoldFor(ctx, a); err != nil || h == nil {
+			t.Fatalf("the hold on %s is missing from the copy (a lost update): %v %v", a, h, err)
+		}
+	}
+}
+
+// A hung hold store fails calls closed with an error: waiters give up with their context and a store call is bounded.
+func TestAHungHoldStoreFailsCallsClosedAndNeverBlocksForever(t *testing.T) {
+	p := factsRig(t)
+	s := &slowHolds{MemoryHolds: p.holds, hang: make(chan struct{})}
+	defer close(s.hang)
+	p.g.Holds = s
+	old := dispatch.HoldStoreTimeout
+	dispatch.HoldStoreTimeout = 150 * time.Millisecond
+	defer func() { dispatch.HoldStoreTimeout = old }()
+	p.g.Defs["triage-agent"].Image = nil
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// the first call holds the load; later ones wait on it with their own, shorter context
+		c1, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if _, err := p.g.HoldFor(c1, "triage-agent"); err == nil {
+			t.Error("a hung store answered")
+		}
+	}()
+	time.Sleep(30 * time.Millisecond)
+	c2, cancel := context.WithTimeout(ctx, 40*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	res, err := p.g.OpenTriggered(c2, "triage-agent", "glidepath:e9", "t-dddddddddddd")
+	if err == nil && res != nil && res.OK {
+		t.Fatalf("an open against a hung hold store must not succeed: %+v", res)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("the open waited %v on the hung store", time.Since(start))
+	}
+	<-done
 }

@@ -320,7 +320,7 @@ func (s *Scheduler) fire(ctx context.Context, sc schedule, slot int64, start, no
 	if row != nil && row.Session != nil {
 		prior = *row.Session
 	}
-	r := &resumer{gw: s.gw, ledger: s.ledger, log: s.log, waits: RetryWaits, agent: sc.agent, key: key,
+	r := &resumer{gw: s.gw, ledger: s.ledger, log: s.log, waits: RetryWaits, agent: sc.agent, key: key, task: SlotTaskID(sc.agent, slot),
 		valid: func() bool { return now.Sub(start) <= Grace },
 		input: func() map[string]any {
 			input := map[string]any{"prompt": fmt.Sprintf("Scheduled run (%s, slot starting %s). Carry out your instructions.", sc.everyS, dispatch.PyIso(start))}

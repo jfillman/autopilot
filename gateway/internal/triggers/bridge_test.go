@@ -44,14 +44,15 @@ type fakeGW struct {
 	launched, frozen, ended map[string]bool
 	closeCtl, removed       map[string]string // how a session was closed; why its run was taken away
 	existsErr               error             // RunExists: could not tell
-	reserved                map[string]bool   // a session that names a run that was only reserved (RunExists says no)
-	lateHold                map[string]bool   // a hold that only the launch sees
+	reaped                  []string
+	reserved                map[string]bool // a session that names a run that was only reserved (RunExists says no)
+	lateHold                map[string]bool // a hold that only the launch sees
 	beforeLaunch            func()
 }
 
 func newGW(defs ...*definitions.Definition) *fakeGW {
 	g := &fakeGW{defs: map[string]*definitions.Definition{}, sessions: map[string]string{}, hasRun: map[string]bool{}, holdRule: map[string]string{},
-		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, launched: map[string]bool{}, frozen: map[string]bool{}, ended: map[string]bool{}, closeCtl: map[string]string{}, removed: map[string]string{}, lateHold: map[string]bool{}}
+		panicOn: map[string]bool{}, launchOK: true, closed: map[string]bool{}, launched: map[string]bool{}, frozen: map[string]bool{}, ended: map[string]bool{}, closeCtl: map[string]string{}, removed: map[string]string{}, lateHold: map[string]bool{}, reserved: map[string]bool{}}
 	for _, d := range defs {
 		g.defs[d.Name] = d
 	}
@@ -104,6 +105,36 @@ func (g *fakeGW) RunExists(_ context.Context, sid string) (bool, error) {
 		return false, &dispatch.ResumableError{Err: g.existsErr}
 	}
 	return g.hasRun[sid], nil
+}
+
+func (g *fakeGW) AbandonUnrecorded(_ context.Context, sid string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.abandoned = append(g.abandoned, sid)
+	g.closed[sid] = true
+	g.closeCtl[sid] = "unrecorded"
+}
+
+// SessionOfTask: the session a test planted or an open made for the task.
+func (g *fakeGW) SessionOfTask(agent, task string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sessions[agent+"/"+task]
+}
+
+// ReapRun closes a live session and deletes its run (confirmed), unless a test made the backend unable to say.
+func (g *fakeGW) ReapRun(_ context.Context, sid string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.existsErr != nil {
+		return &dispatch.ResumableError{Err: g.existsErr}
+	}
+	if !g.closed[sid] {
+		g.closed[sid], g.closeCtl[sid] = true, "abandon"
+	}
+	g.hasRun[sid], g.reserved[sid] = false, false
+	g.reaped = append(g.reaped, sid)
+	return nil
 }
 
 // TriggerSessionState: a session is known when an open made it (or a test planted it), live until it is abandoned or closed.
@@ -359,12 +390,12 @@ func TestACrashAtEachPointLeavesATriggerThatFiresOnce(t *testing.T) {
 		{"dies after the session is opened (and saved), before it is launched", func(r *rig) {
 			claim(r)
 			r.gw.sessions["triage-agent/"+task] = "s-orphan"
-		}, "launched", 1, 1}, // the repair: the live session of this key has no run, so it is launched, not deduped away
+		}, "launched", 0, 1}, // the repair: the session of this task (found by its task id) has no run, so it is launched; no other is opened
 		{"dies after the run is launched, before the decision is written", func(r *rig) {
 			claim(r)
 			r.gw.sessions["triage-agent/"+task] = "s-orphan"
 			r.gw.hasRun["s-orphan"] = true
-		}, "launched", 1, 0}, // a live run of this key: one run, and the row says what happened
+		}, "launched", 0, 0}, // a live run of this key: one run, and the row says what happened
 		{"dies after the decision, before the cursor moves", func(r *rig) {
 			claim(r)
 			_ = r.ledger.Decide(ctx, "triage-agent", key, "launched", "s-1", "r-1")

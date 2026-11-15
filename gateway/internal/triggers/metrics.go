@@ -23,6 +23,13 @@ type Metrics interface {
 	SlotLag(agent string, seconds float64)
 	// Dropped counts an event the bridge dropped: reason is one of DropReasons.
 	Dropped(reason string)
+	// Stuck says how many times in a row the handling of one agent's trigger failed without being decided (0 when it was decided).
+	// Together with the cursor's lag it is what an operator alerts on: while an event is stuck the cursor does not move.
+	Stuck(agent string, attempts int)
+	// Poisoned counts an event whose trigger was decided launch-failed because it kept failing (see PoisonAttempts).
+	Poisoned(agent string)
+	// Panicked counts a handler that panicked outside one agent's trigger.
+	Panicked()
 }
 
 // DropReasons are why an event is dropped, never fired.
@@ -44,6 +51,9 @@ func (Nop) SlotLaunch(string, string)      {}
 func (Nop) SlotMissed(string)              {}
 func (Nop) SlotLag(string, float64)        {}
 func (Nop) Dropped(string)                 {}
+func (Nop) Stuck(string, int)              {}
+func (Nop) Poisoned(string)                {}
+func (Nop) Panicked()                      {}
 
 // Recorder is Metrics that keep what they were told (tests; S6's Prometheus registry replaces it).
 type Recorder struct {
@@ -103,3 +113,6 @@ func (r *Recorder) SlotLaunch(agent, result string) { r.inc("slot_launch/" + age
 func (r *Recorder) SlotMissed(agent string)         { r.inc("slot_missed/" + agent) }
 func (r *Recorder) SlotLag(agent string, s float64) { r.set("slot_lag/"+agent, s) }
 func (r *Recorder) Dropped(reason string)           { r.inc("dropped/" + reason) }
+func (r *Recorder) Stuck(agent string, n int)       { r.set("stuck/"+agent, float64(n)) }
+func (r *Recorder) Poisoned(agent string)           { r.inc("poisoned/" + agent) }
+func (r *Recorder) Panicked()                       { r.inc("panicked") }

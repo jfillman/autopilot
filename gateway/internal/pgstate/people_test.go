@@ -269,3 +269,30 @@ func TestOpenedSaysWhenTheRowIsNotClaimed(t *testing.T) {
 		t.Fatalf("%+v", row)
 	}
 }
+
+// The failed attempts of a claimed row are kept on the row, across a takeover, and a decided row takes no more.
+func TestTheLedgerKeepsTheFailedAttemptsOfAClaimedRow(t *testing.T) {
+	st, ctx := open(t)
+	l := pgstate.NewTriggers(st)
+	if ok, err := l.Claim(ctx, "triage-agent", "kf", "stream", "e1", t0, t0); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	n, first, err := l.Failed(ctx, "triage-agent", "kf", t0.Add(time.Second))
+	if err != nil || n != 1 || !first.Equal(t0.Add(time.Second)) {
+		t.Fatalf("%d %v %v", n, first, err)
+	}
+	if ok, _ := l.Claim(ctx, "triage-agent", "kf", "recent", "e1", t0.Add(time.Hour), t0.Add(time.Hour)); !ok {
+		t.Fatal("takeover")
+	}
+	n, first, err = l.Failed(ctx, "triage-agent", "kf", t0.Add(2*time.Hour))
+	if err != nil || n != 2 || !first.Equal(t0.Add(time.Second)) {
+		t.Fatalf("the count did not survive the takeover: %d %v %v", n, first, err)
+	}
+	if row, _ := l.Get(ctx, "triage-agent", "kf"); row.Failures != 2 {
+		t.Fatalf("%+v", row)
+	}
+	_ = l.Decide(ctx, "triage-agent", "kf", "launch-failed", "", "")
+	if _, _, err := l.Failed(ctx, "triage-agent", "kf", t0); err == nil {
+		t.Fatal("a decided row took a failure")
+	}
+}

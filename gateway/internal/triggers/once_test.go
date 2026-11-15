@@ -281,3 +281,73 @@ func TestASlotIsNotFiredUntilItsRowIsDecided(t *testing.T) {
 		}
 	}
 }
+
+// An event that fails on every delivery does not hold the cursor forever: after PoisonAttempts attempts over PoisonAfter (counted on
+// the ledger row, so a restart does not start again) its trigger is decided launch-failed (CT-POISON), but only once any run it may have
+// made is resolved through the backend.
+func TestAnEventThatKeepsFailingIsDecidedAfterABoundAndNotBefore(t *testing.T) {
+	ctx := context.Background()
+	oldA, oldT := triggers.PoisonAttempts, triggers.PoisonAfter
+	triggers.PoisonAttempts, triggers.PoisonAfter = 3, 3*time.Minute
+	defer func() { triggers.PoisonAttempts, triggers.PoisonAfter = oldA, oldT }()
+	for _, how := range []string{"panic", "could-not-tell"} {
+		gw := newGW(triage(nil, 0))
+		r := newRig(t, gw, "")
+		if how == "panic" {
+			gw.panicOn["triage-agent"] = true
+		} else {
+			gw.existsErr = errors.New("api server unreachable")
+			gw.reserved["s-1"] = true
+		}
+		task := triggers.EventTaskID("triage-agent", key1)
+		if how == "could-not-tell" {
+			gw.sessions["triage-agent/"+task] = "s-1"
+			gw.closed["s-1"], gw.closeCtl["s-1"] = true, "deadline"
+		}
+		deliver := func(n int) ([]triggers.Outcome, error) {
+			r.now = t0.Add(time.Duration(n) * time.Minute)
+			// every delivery is a new process: the count lives on the row
+			return r.bridge("").Handle(ctx, finished("e1", "pr-1", "failure"), "stream")
+		}
+		for n := 1; n <= 3; n++ {
+			// the third attempt is at the count but the first failure is only 2 minutes old
+			if got, err := deliver(n); err == nil {
+				t.Fatalf("%s #%d: a stuck event was decided early: %+v", how, n, got)
+			}
+		}
+		row, _ := r.ledger.Get(ctx, "triage-agent", key1)
+		if row.State != "claimed" || row.Failures != 3 {
+			t.Fatalf("%s: %+v", how, row)
+		}
+		got, err := deliver(4) // the 4th attempt, 3 minutes after the first failure: over the bound
+		if how == "could-not-tell" {
+			// its run cannot be resolved through the backend: not decided while a run may exist, however often it fails
+			if err == nil {
+				t.Fatalf("%s: decided with a run that could not be resolved: %+v", how, got)
+			}
+			if row, _ = r.ledger.Get(ctx, "triage-agent", key1); row.State != "claimed" {
+				t.Fatalf("%s: %+v", how, row)
+			}
+			gw.mu.Lock()
+			gw.existsErr = nil
+			gw.mu.Unlock()
+			if got, err = deliver(5); err != nil || len(got) != 1 || got[0].Result == "" {
+				t.Fatalf("%s: with the backend back it is carried out: %+v %v", how, got, err)
+			}
+			continue
+		}
+		if err != nil || len(got) != 1 || got[0].Result != "launch-failed" || got[0].Rule != "CT-POISON" || !got[0].New {
+			t.Fatalf("%s: %+v %v", how, got, err)
+		}
+		if row, _ = r.ledger.Get(ctx, "triage-agent", key1); row.State != "launch-failed" {
+			t.Fatalf("%s: %+v", how, row)
+		}
+		if r.m.C["poisoned/triage-agent"] != 1 {
+			t.Fatalf("%s: no distinct metric: %v", how, r.m.C)
+		}
+		// decided: a replay is a dedupe, and the panic does not happen again
+		if again, _ := deliver(6); len(again) != 1 || again[0].New {
+			t.Fatalf("%s: %+v", how, again)
+		}
+	}
+}

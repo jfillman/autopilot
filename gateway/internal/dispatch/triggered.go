@@ -178,44 +178,44 @@ func (g *Gateway) holdForRetry(ctx context.Context, agent string) (*Hold, error)
 // A session that already names a run is not refused (the launch is resumed): a run that exists is the answer (Data "existing"), one that
 // was only reserved is made. A hold that cannot be read is a *HoldReadError after bounded retries.
 func (g *Gateway) LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*Result, error) {
-	var res *Result
-	var err error
-	named := false
-	if s := g.Store.Get(sessionID); s != nil {
-		s.Lock()
-		named = s.Run != nil && *s.Run != "" && !s.Closed
-		s.Unlock()
-	}
-	if named {
-		// A run is named: the run that is there is the answer, whatever a hold now says; one that was only reserved is made.
-		if res, err = g.launch(ctx, sessionID, input, true); err != nil || !res.OK || res.Data.(map[string]any)[ExistingRunKey] == true {
-			return res, err
-		}
-	} else {
-		var h *Hold
-		if h, err = g.holdForRetry(ctx, agent); err != nil {
+	// The hold is read immediately before every create (the guard), a resumed one included; a run that is already there needs none.
+	guard := func(ctx context.Context) (*Result, error) {
+		h, err := g.holdForRetry(ctx, agent)
+		if err != nil {
 			return nil, err
 		}
 		if h != nil {
-			g.AbandonTriggered(ctx, sessionID, false)
 			return heldResult(agent, h, nil), nil
 		}
-		if res, err = g.launch(ctx, sessionID, input, true); err != nil || !res.OK {
-			return res, err
+		return nil, nil
+	}
+	res, err := g.launch(ctx, sessionID, input, true, guard)
+	if err != nil {
+		return nil, err
+	}
+	if !res.OK {
+		if rule, _ := res.Decision["rule"].(string); rule == "R024" {
+			// held before anything was created: the session is closed, and the name it reserved is deleted by its close
+			g.AbandonTriggered(ctx, sessionID, true)
 		}
+		return res, nil
 	}
 	h, herr := g.holdForRetry(ctx, agent)
 	if herr != nil {
-		// The hold cannot be read after the run was made: that is not "no hold". The claim stays resumable (the run is recorded as
+		// The hold cannot be read after the run exists: that is not "no hold". The claim stays resumable (the run is recorded as
 		// created); nothing is decided on a hold nobody could read.
 		return nil, herr
 	}
 	if h == nil {
 		return res, nil
 	}
+	// A hold was placed while the run was being made (or before a taken-over run was decided): the run is taken away, durably marked
+	// first, then the session is closed and the run deleted and confirmed gone. Until it is confirmed gone nothing is decided.
 	if s := g.Store.Get(sessionID); s != nil {
 		g.markRunRemoved(ctx, s, session.RemovedHold)
-		g.flush(ctx, g.deleteRuns(ctx, s, s, "closed", nil)...)
+		if rerr := g.ReapRun(ctx, sessionID); rerr != nil {
+			return nil, rerr
+		}
 	}
 	return heldResult(agent, h, nil), nil
 }
@@ -253,6 +253,25 @@ func (g *Gateway) TriggerSessionState(sessionID string) TriggerSession {
 		t.CloseControl = session.CloseDeadline // its own recorded deadline has passed
 	}
 	return t
+}
+
+// SessionOfTask is the newest session (live or closed) an open made for an agent's task, "" when there is none.
+func (g *Gateway) SessionOfTask(agent, task string) string {
+	var best string
+	var at time.Time
+	d := g.Defs[agent]
+	if d == nil || d.IdentityType != "workload" || d.ServiceAccount == nil {
+		return ""
+	}
+	for _, s := range g.Store.All() {
+		s.Lock()
+		// only a session this trigger's own workload identity opened (a person's, or another principal's, is not one)
+		if s.Agent == agent && s.TaskID == task && s.ParentID == nil && s.Principal == *d.ServiceAccount && (best == "" || s.CreatedAt.After(at)) {
+			best, at = s.ID, s.CreatedAt
+		}
+		s.Unlock()
+	}
+	return best
 }
 
 // RunExists asks the run backend whether the run a session names exists: (true, nil) it does, (false, nil) it provably does not (the
@@ -361,6 +380,12 @@ func (g *Gateway) SessionHasRun(sessionID string) bool {
 	return s.Run != nil && *s.Run != ""
 }
 
+// AbandonUnrecorded closes a session a trigger opened and could not tie to its ledger row. It was never launched, and nothing names
+// it, so a later holder of the claim may open a replacement (the recorded reason says so).
+func (g *Gateway) AbandonUnrecorded(ctx context.Context, sessionID string) {
+	g.flush(ctx, g.Store.CloseTouchedBy(sessionID, session.CloseReason{Control: session.CloseUnrecorded, At: g.Now()})...)
+}
+
 // AbandonTriggered closes a session a trigger opened and could not launch, so it does not stay live, with its budget, until its
 // deadline: the trigger's decision is final (launch-failed) and nothing will launch it. Python leaves it live. failed says the
 // launch raised (a backend error): the session may then name a run that may exist (its name is written before the run is created),
@@ -373,10 +398,10 @@ func (g *Gateway) AbandonTriggered(ctx context.Context, sessionID string, failed
 	}
 	defer s.Serial()()
 	s.Lock()
-	has := s.Run != nil && *s.Run != ""
+	created := s.LaunchedAt != nil
 	s.Unlock()
-	if has && !failed {
-		return
+	if created && !failed {
+		return // its run was made and recorded: it has one
 	}
 	g.flush(ctx, g.Store.CloseTouchedBy(sessionID, session.CloseReason{Control: session.CloseAbandon, At: g.Now()})...)
 }

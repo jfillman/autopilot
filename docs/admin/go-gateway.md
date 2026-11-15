@@ -250,7 +250,7 @@ compares answers, sessions, rows and records with Python's (`testdata/people.jso
 | A person's run: `POST /v1/agents/{agent}/runs`, with `document` and `budget` for a Preflight candidate | `Gateway.RunAgent`, then `RunAgentAs` (S2) | `TestRunAgentByThePersonRouteChecksWhoAndWhat`, `TestRunAgentRefusesAGrantForSomeoneElseOrWider`, `TestACandidateIsRefusedUntilTheSchemaIsCarriedThenRunsClamped` |
 | Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger | `TestPreflightCasesAndScore` |
 | `open_triggered`: a triggered run's session, with the agent's hold and any live session of the task in the evaluation | `Gateway.OpenTriggered`, `TriggeredRequest` | the replay's 31 triggered `session.open` lines against the real core, `TestOpenTriggeredOpensDedupesAndChecksTheGrant`, `TestOpenTriggeredRefusesWhatTheCoreShouldNotHaveGranted` |
-| The trigger ledger and the event cursor; a trigger fires once | `triggers.Ledger` on `gateway_trigger_launches` and `gateway_event_cursors` | `TestTheBridgeEqualsPython`, `TestACrashAtEachPointLeavesATriggerThatFiresOnce`, `TestEveryCrashWindowIsTakenOverToAtMostOneRunAndNeverALostOne`, `TestTriggersThroughTheRealGateway`, `pgstate` `TestTheLedgerClaimIsWonOnce` |
+| The trigger ledger and the event cursor; a trigger fires once | `triggers.Ledger` on `gateway_trigger_launches` and `gateway_event_cursors` | `TestTheBridgeEqualsPython`, `TestACrashAtEachPointLeavesATriggerThatFiresOnce`, `TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe`, `TestTriggersThroughTheRealGateway`, `pgstate` `TestTheLedgerClaimIsWonOnce` |
 | The event bridge: the stream, the catch-up from the cursor with `Last-Event-ID`, the storm brake, the history | `triggers.Bridge` | `TestTheStreamResumesFromTheCursorAndHandlesWhatItCarries`, `TestTheCursorOnlyFollowsIDsItCanTrust`, `TestMalformedAndOversizedEventsAreDroppedAndCounted`, `TestTheBridgeNeverFollowsARedirect`, `TestTheReconnectBackoffIsBounded` |
 | The interval scheduler, with its missed-slot record | `triggers.Scheduler` | `TestTheSchedulerEqualsPython`, `TestTheSchedulerFiresASlotOnceAcrossRestartsAndRecordsWhatWasMissed` |
 | The reconciliation sweep | `triggers.Reconciler` | `TestTheSweepLaunchesWhatNoEventDeliveredOnceAndOnlyWithinItsBounds` |
@@ -332,73 +332,106 @@ the claim is taken over at once (a cut-off of "now"; Python's five minutes are g
 over.
 
 What a takeover does depends on **facts the session recorded**, never on the clock or on a field's absence. The session records, each in its
-own durable write at the moment it happens: its `run` name (reserved before the run is created); `launched_at` (the run was created, written
-at once after, not with the end of the call); `close_reason` (`control`, `by`, `at`: written in the same step as the close: `end` by a person,
-`deadline` by the sweep, `abandon`, `close`, `parent`, `finish`, `other`); and `run_removed` (`reason`, `at`: `hold`, `closed`,
-`record-failed`: written before a run is deleted and before the row is decided). A takeover reads those and nothing else:
+own durable write at the moment it happens: its `run` name (reserved before the run is created); `launched_at` (the run was created, its own
+write right after); `close_reason` (`control`, `by`, `at`: written in the same step as the close: `end` by a person, `deadline` by the sweep,
+`abandon`, `unrecorded`, `close`, `parent`, `finish`, `other`); and `run_removed` (`reason`, `at`: `hold`, `closed`, `record-failed`: written
+before a run is deleted). A takeover reads those, and the backend, and nothing else:
 
-- **removed** (`run_removed`): decided from the reason: `hold` is `held`, `record-failed` is `launch-failed`, `closed` is `refused`;
-- a run **named but not recorded as created**, session not live: the run backend is asked (`RunExists`): it is there, so `launched`; it
-  provably is not (404), so go on as below; the backend cannot be reached, so the takeover is **resumable** (nothing decided, closed or
-  deleted; bounded retries, then the next delivery tries again);
-- **live**: launched (a run that exists is the run; a name that was only reserved is made; a hold stops it; a frozen session is
-  `refused`/`CT-FROZEN`); an error that cannot be told apart from "the run may exist" is resumable and never closes the session;
-- **closed after its run was made** (`launched_at`): `launched`, whatever became of the run;
-- **frozen**: `refused`/`CT-FROZEN`; **closed by a person's end**: `refused`/`CT-ENDED`; **closed with any other reason, or with no reason
-  recorded**: `refused`/`CT-CLOSED`: never launched, never reopened;
-- **closed by its deadline** (a recorded `deadline`, or an open session past its own `expires_at`) before it was launched: a fresh session is
-  opened and run once, while the trigger is still valid (an event: within 24 hours of when it happened; a slot: within its 10 minutes of
-  grace), else `missed`;
-- a session this gateway no longer knows: `deduped`; **no session**: the trigger starts from the beginning (the same validity).
+- **removed** (`run_removed`): a marker is not a deletion. The takeover closes the session (recorded reason), deletes the run, and confirms
+  through the backend (a GET by name: 404) that it is gone; only then is the row decided from the reason (`hold` is `held`, `record-failed` is
+  `launch-failed`, `closed` is `refused`). A delete that fails, or a GET that cannot answer, leaves the key resumable, never decided;
+- **closed with a run named**: the backend is asked. A run that is there is deleted and its absence confirmed before anything is decided
+  (a closed session leaves no live run); an answer that cannot be had is resumable. Then: `launched_at` recorded or a run that was there and
+  a recorded `deadline` is `launched`; frozen is `refused`/`CT-FROZEN`; a person's end is `refused`/`CT-ENDED`; any other reason, or none
+  recorded, is `refused`/`CT-CLOSED` (never launched, never reopened); a recorded `deadline` or `unrecorded` with no run is replaced by a
+  fresh session while the trigger is valid (an event: 24 hours; a slot: its 10 minutes of grace), else `missed`;
+- **live**: launched. A hold is read immediately before **every** create, a resumed one included, and the session's own state (closed,
+  frozen) again with it; a hold read again after the run exists takes the run away (marker first). A frozen live session keeps the run it
+  has and makes none; a session ended in the same window is closed (above);
+- a **create** is classified: a 409 on the session's own reserved name (unique to it) is the run, made by an attempt whose answer was lost;
+  a refusal that proves nothing was made (a 4xx) releases the name and is `launch-failed`; anything else (a transport error, a timeout, a
+  cancelled context, a 5xx, a panic) **could not be told**: nothing is deleted, the name is never cleared (a delete's 404 does not prove a
+  late create cannot land), and the key stays resumable; the next holder asks the backend by name;
+- **no session recorded in the row**: the session this agent's own workload identity opened for the trigger's task (live or closed) is
+  found by its task id and accounted for, so a session a person ended in the window before `Opened` is not followed by a fresh one. A session
+  that could not be tied to the row is closed `unrecorded` and is replaced;
+- a session this gateway no longer knows: `deduped`; none found: the trigger starts from the beginning (the same validity).
 
-Every durable write, and the window after it. `TestEveryCrashWindowIsTakenOverToAtMostOneRunAndNeverALostOne` builds each row of this table
-(W0 to W17), takes the claim over, and asserts: at most one run exists; never zero runs under a `launched` row; no launch after a person's
-end or a freeze, or under a hold; the row is decided; a replay does nothing more.
+A **poison event** (a panic on every delivery, a "could not tell" that never clears) does not block the cursor forever: each failed attempt
+is counted on the ledger row (`failures`, `first_failed_at`, two columns the Go gateway adds; they survive a restart), and after 8 attempts
+over at least 10 minutes (`triggers.PoisonAttempts`, `PoisonAfter`) the trigger is decided `launch-failed` with rule `CT-POISON` in the event
+history, a log line and the metric `poisoned`, and the cursor moves on: but only after the session's run is resolved through the backend as
+above (a run that cannot be confirmed gone keeps the key undecided). Until then the metric `stuck` (attempts of the failing trigger) and
+the cursor's lag (`cursor_time`) are exposed; alert when the cursor lags more than 15 minutes, or `stuck` is above 3. The scheduler has no
+cursor to block and does not poison a slot.
 
-| # | Durable write (the process dies after it) | Database holds | Next gateway (takeover outcome) |
+The catch-up (`Resume`) moves the cursor only past events whose triggers were all decided; a catch-up that ends early (an error, the
+context) reports `failed` and is run again from the saved cursor on the next stream, instead of being counted as done.
+
+**How this table is made.** `TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe` (gateway/internal/dispatch) drives the real
+code (the bridge's takeover, `LaunchTriggered`, `launch`, the person controls, the sweep) over the real session store, with a fault
+injector in place of the session database, the ledger and the run backend, and a run backend that keeps state (the runs that exist, every
+create ever committed). A crash is the Nth durable call of the first process: it completes, and every later call of that process fails
+without effect; fresh objects then take over. A clean run counts its calls, and each one is crashed at, for a plain launch, for a hold, an
+end and a freeze placed before each call (and at the start of the takeover), and for each class of backend answer (timeout before the
+commit, timeout after it, a create whose answer is lost and which lands later, a refusal) at each backend call, with the first takeover
+also run against a backend that is down. The event arrives once by the stream and once by the catch-up (`Resume`, with the cursor). After
+the takeover and after the deadline's sweep it asserts, against the backend's state: at most one run is ever created for the key; no
+`launched` row without a run that was made (and a live session's run is live); no run is live under a decision other than `launched`; no run
+is created after a hold, an end or a freeze, and none is live after a hold or an end that came before the decision; nothing is left live that
+no session names; the cursor is never past an undecided trigger; every key ends decided after a clean takeover. A hold or an end that lands
+inside the create call itself, or while the decision is being written, does not undo a launch past its last check (an in-flight create is
+undone by the check after it; a late-landing run is the sweep's).
+
+The clean run's durable calls are the windows (the same list with the catch-up's cursor write after the decision):
+
+| Window | Durable call it follows | The database and backend hold | Takeover outcome |
 |---|---|---|---|
-| W0 | the claim | the row `claimed`, no session | taken over at once; runs from the start (`missed` when no longer valid): `launched`, one run |
-| W1 | the session is opened, `Opened` written | `claimed` with the session; the session live, no run | launched: one run. (If it dies *before* `Opened`: the live session of the task is found again; the core's dedupe is accepted only for this agent's own trigger session; then as W1. If `Opened` cannot be written after the retries: the session just made is closed, `Handle` errors, the replay starts from the start: one run) |
-| W2 | the run's name is reserved (own write, before the run is created) | the session names a run; no `launched_at` | the backend is asked: the run is not there, so it is **made under the reserved name** (`launched`, one run); it is there, so `launched`; cannot tell, so resumable (nothing decided) |
-| W3 | the run is created, `launched_at` written (own write) | `claimed`, `launched_at`, the run | decided `launched` with the session and run; one run |
-| W4 | the session closes after the run was made (finished) | `claimed`; closed with `finish`, `launched_at` | `launched`; one run (whatever became of the run) |
-| W5 | W2 and the session closed by its deadline, the backend cannot be asked | `claimed`; closed `deadline`, run named, no `launched_at` | resumable: the claim stays, nothing is closed, deleted or decided; once the backend answers: W2's outcome |
-| W6 | W2 and the run does exist | as W5 | `launched`; one run |
-| W7 | a hold takes the run away after it was made: `run_removed=hold` written before the delete | `claimed`; `run_removed` hold | `held` (R024); no run, no launch |
-| W8 | the run is removed because the session closed (`run_removed=closed`) | `claimed`; closed, `run_removed` closed | `refused`; no launch |
-| W9 | the run is removed because it could not be recorded (`run_removed=record-failed`) | `claimed`; `run_removed` record-failed | `launch-failed`; no launch |
-| W10 | a person ends the session (`close_reason` end, with who and when, in the same step as the close) before the launch | `claimed`; closed, `end` | `refused`/`CT-ENDED`, even long after the deadline; no launch |
-| W11 | as W10, read after the session's deadline | as W10 | the same: the end is read as recorded, not inferred from the clock |
-| W12 | a freeze before the launch | `claimed`; `tripped` | `refused`/`CT-FROZEN`; no launch |
-| W13 | the sweep closes the session at its deadline (`close_reason` deadline), never launched | `claimed`; closed, `deadline` | a fresh session, once, if the trigger is still valid; else `missed` |
-| W14 | closed with no reason recorded (a close that wrote none) | `claimed`; closed, no `close_reason` | `refused`/`CT-CLOSED`; no launch (not a reason to reopen) |
-| W15 | a hold is in force when the live session is resumed | `claimed`; the session live | `held` (R024); the session is closed; no launch |
-| W16 | the decision is written | the row decided | the replay is `deduped`; nothing opens; the row stays as decided |
-| W17 | the session was recorded and this gateway no longer knows it | `claimed` with a session | `deduped`; nothing opens |
-| - | `Decide` cannot be written (every retry fails) | `claimed` (with its session) | the outcome that was determined is kept in memory (bounded to 1000, the oldest evicted; dropped when the claim is lost) and written as it was by the next claim of the key; a hold released in between does not turn a `held` into a launch. A restart loses it and the trigger is carried out again from the row as above |
-| - | the ledger cannot be read or written at the claim | nothing | the event is not marked seen and the stream ends, so the cursor stays |
-| - | after the decision, before the cursor moves | the row decided | the replay's claim loses; `deduped`; nothing opens |
-| - | a duplicate or replayed event | the decided row | the key is the same; the claim loses; `deduped` |
-| - | the hold cannot be read before the launch, or after the run was made | `claimed` with the session | retried (50 ms, 250 ms, 1 s), then left as it is; the next delivery takes it over. Never `launch-failed`, never "no hold"; the holds copy is loaded at start, and while it is not loaded (or a write to the store errored) every triggered open and launch fails closed |
-| - | the launch fails with an error that proves nothing was created | `claimed` | `launch-failed`, never retried; the session is closed (Python leaves it live) |
-| - | the launch fails and it cannot be told whether the run exists | `claimed`, run named | resumable, as W2: never `launch-failed` and never closed or deleted on an unknown |
-| - | a trigger panics | `claimed` | not decided, the cursor does not move; the next delivery takes it over. No counter: a panic is never turned into `launch-failed` by a count |
-| - | an inbox request is added, then the process dies before the session is saved | the request; the session without that charge | the request stays pending (counts toward the 5 a session may have); the run's retry adds another; both expire with the session |
-| - | a human answer: the record is written, then the process dies before the answer is saved | the evidence record, the request pending | the person answers again; a second `human.answer` record (Python the same) |
+| 1 | the claim | the row `claimed`, no session | the session of the task is looked for; none, so the trigger runs from the start (`missed` when no longer valid): one run |
+| 2 | the session is saved | a session of the task; the row `claimed` without it | found by its task id and recorded (`Opened`); launched: one run. A person's end or freeze here is read from the session: `refused`, no run |
+| 3 | `Opened` | the row `claimed` with the session | launched (a hold stops it: `held`, session closed): one run |
+| 4 | the run name is reserved | the session names a run; no `launched_at` | the backend is asked: absent, so created under the reserved name after the hold is read again; present, so it is the run; cannot tell, so resumable |
+| 5 | the create (committed; the answer lost or not) | the run exists, no `launched_at` | a 409 or the backend's answer: the run is the session's own; the hold is read again after it and takes it away if one came (marker, close, delete, confirmed) |
+| 6 | `launched_at` | the run exists and is recorded | decided `launched`; a hold placed since takes the run away first |
+| 7 | the decision | the row decided | the replay is `deduped`; nothing opens (a hold, end or freeze now does not undo the launch; the sweep ends the run at its deadline) |
+| 8 | the cursor (catch-up) | the cursor past a decided key | nothing to do |
+| a | `run_removed` written (hold race, closed while made, record failed) | session live or closed, the run exists | closed, deleted, absence confirmed, then `held` / `refused` / `launch-failed`; a failed delete leaves the key resumable |
+| b | a person's end, before or after any window above | closed `end` | the run, if there, is deleted and confirmed; `refused`/`CT-ENDED`; no create after it |
+| c | the backend answers could-not-tell to a create | the name reserved; the run may exist or land later | nothing deleted, the name kept, the key resumable; resolved by the backend on the next takeover; a late landing run is ended by the sweep |
+| d | the backend answers could-not-tell to a delete | `run_removed`, the run may exist | resumable until the delete is confirmed |
+| e | the backend is down at the takeover | as at the crash | nothing is decided on a run that may exist; decided when the backend answers |
+
+Other rows: `Decide` that cannot be written keeps the determined outcome in memory (bounded to 1000, the oldest evicted, dropped when the claim is
+lost) and writes it as it was at the next claim; a ledger that cannot be read or written at the claim ends the stream and the cursor stays; a
+hold that cannot be read before or after the run is retried (50 ms, 250 ms, 1 s) and then left undecided, never "no hold" and never
+`launch-failed`; the holds copy is loaded at start, fails closed while it is not (or a write to the store errored), and a reload never overlaps
+a hold write (one lock, whose waiters give up with their context, and each store call is bounded to 10 s); a trigger that panics is not
+decided and the cursor does not move (it counts toward the poison bound above); an inbox request added before the call's session is saved
+stays pending (counts toward the 5 a session may have) and the retry adds another; a human answer whose record is written before the process
+dies is answered again and a second `human.answer` record is written (Python the same).
 
 The ledger's `state` column is a closed set that Python's schema checks (`launched`, `deduped`, `braked`, `held`, `refused`, `launch-failed`,
 `missed`), so no new value was added: a freeze or an end before the launch is recorded `refused` with the rule in the event history's outcome
-(`CT-FROZEN`, `CT-ENDED`), and a session whose launch is known to have happened is `launched`, with its session and run in the row, instead of
-`deduped`. The read API and Tower read `state`, the session and the run, so nothing they know changed meaning.
+(`CT-FROZEN`, `CT-ENDED`), a poison event `launch-failed` with `CT-POISON`, and a session whose launch is known to have happened is `launched`.
+The read API and Tower read `state`, the session and the run, so nothing they know changed meaning.
+
+The saves of one session are ordered (a record is built and written under one per-session lock), so a stale record can no longer overwrite a
+later one (a person's end, written while an open was being saved); the harness found it.
 
 The ledger change for the session needs no column: the row's existing `session` column is written while the row is still `claimed`, and Go's
 takeover keeps it where it used to clear it. Python's claim clears `session` and `run` when it takes a `claimed` row over and never reads the
 session of a claimed row, so Python is unchanged. A row Python wrote `claimed` has no session, and Go runs it from the start. A session row
 carries three new keys in its JSON document, all Go-only and omitted when empty: `launched_at` (when its run was created), `close_reason`
 (`control`, `by`, `at`) and `run_removed` (`reason`, `at`). Python reads a row by the keys it knows, so it ignores them and drops them at its
-next save of that session (as with `delete_failure`). A session Python saved after a Go launch is read by Go as "never launched, closed with
-no reason", which is `refused`/`CT-CLOSED` for a closed one and a launch for a live one that names no run: at worst a trigger that is not
-fired again, never a second run.
+next save of that session (as with `delete_failure`).
+
+**Rollback note.** After a roll back to the Python gateway and forward again to Go, the three Go-only facts (`launched_at`, `close_reason`,
+`run_removed`) are gone from every session Python saved in between. Go then fails closed, with no relaunch and no double run: a session
+read with no recorded close reason is `refused`/`CT-CLOSED`, so a deadline-close that was reopenable becomes a refused trigger, and a run
+that was launched can be reported `refused` when its session is closed and its `launched_at` is gone (the run, if still live, is deleted by the
+takeover like any run under a closed session). Before cutting back to Python an operator checks that no trigger row is `claimed` (the
+ledger's `claimed` count is 0), that the event cursor has caught up, and that no `run_removed` is outstanding (no session whose run still
+exists was marked removed): decided rows and their runs are unaffected, undecided ones are what the missing facts change.
 
 A person's run (`RunAgent`): a crash after the core's open and before the session is saved leaves nothing (the core has the allow
 record); after the save and before the launch, a live session with no run which the sweep closes at its deadline; a run that cannot be

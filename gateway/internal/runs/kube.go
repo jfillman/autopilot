@@ -132,7 +132,7 @@ func (k *Kube) send(ctx context.Context, method, path string, body map[string]an
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return 0, nil, &Error{"API server unreachable: " + reason(err)}
+		return 0, nil, &Unknown{"API server unreachable: " + reason(err)} // the request may have been taken
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -150,7 +150,7 @@ func reason(err error) string {
 }
 
 // Create posts an AgentRun. It refuses anything but an AgentRun with a DNS-label name in autopilot-runs before any
-// request exists. 409 is an error: a run is new.
+// request exists. A 409 is an Exists, a transport failure or a 5xx an Unknown (the run may have been made), any other answer an Error.
 func (k *Kube) Create(ctx context.Context, manifest map[string]any) error {
 	meta, _ := manifest["metadata"].(map[string]any)
 	name, _ := meta["name"].(string)
@@ -165,7 +165,10 @@ func (k *Kube) Create(ctx context.Context, manifest map[string]any) error {
 	case 200, 201, 202:
 		return nil
 	case 409:
-		return &Error{fmt.Sprintf("AgentRun %s already exists", name)}
+		return &Exists{fmt.Sprintf("AgentRun %s already exists", name)}
+	}
+	if status >= 500 || status == 408 || status == 429 {
+		return &Unknown{fmt.Sprintf("API server %d creating AgentRun %s", status, name)}
 	}
 	return &Error{fmt.Sprintf("API server %d creating AgentRun %s", status, name)}
 }

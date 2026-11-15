@@ -90,6 +90,14 @@ type Gateway interface {
 	RunExists(ctx context.Context, sessionID string) (bool, error)
 	// LaunchTriggered launches a trigger's session with the hold read again right before and after.
 	LaunchTriggered(ctx context.Context, agent, sessionID string, input map[string]any) (*dispatch.Result, error)
+	// SessionOfTask is the session an earlier holder opened for a task, live or closed ("" none): the session a claim that never recorded
+	// one must still account for, or a session a person ended in that window would be followed by a fresh one.
+	SessionOfTask(agent, task string) string
+	// AbandonUnrecorded closes a session that could not be tied to its ledger row (never launched; a replacement may follow).
+	AbandonUnrecorded(ctx context.Context, sessionID string)
+	// ReapRun closes the session if it is live and deletes its run, confirming through the backend that it is gone (an error: it
+	// could not be confirmed, so the trigger stays undecided).
+	ReapRun(ctx context.Context, sessionID string) error
 	// AbandonTriggered closes a session a trigger opened and could not launch.
 	AbandonTriggered(ctx context.Context, sessionID string, failed bool)
 	RecordEvent(ctx context.Context, summary map[string]any, outcomes []map[string]any) (bool, error)
@@ -321,9 +329,15 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 		} else {
 			var ferr error
 			if o, ferr = b.fire(ctx, m, env, key, via); ferr != nil {
-				b.log.Error("the trigger could not be carried out and stays claimed for the next delivery", "agent", m.Agent, "err", errKind(ferr))
-				failed = ferr
-				continue
+				if po, bad := b.poison(ctx, m, key, via, ferr); bad {
+					o = po
+				} else {
+					b.log.Error("the trigger could not be carried out and stays claimed for the next delivery", "agent", m.Agent, "err", errKind(ferr))
+					failed = ferr
+					continue
+				}
+			} else {
+				b.metrics.Stuck(m.Agent, 0)
 			}
 		}
 		dctx, cancel := b.dbCtx(ctx)
@@ -375,6 +389,64 @@ func (b *Bridge) handle(ctx context.Context, env map[string]any, via string) ([]
 	return done, nil
 }
 
+// PoisonAttempts and PoisonAfter bound an event that cannot be carried out (a panic on every delivery, a "could not tell" that never
+// clears): after PoisonAttempts failed attempts over at least PoisonAfter (counted on the ledger row, so a restart does not start
+// again) its trigger is decided launch-failed, so the cursor can move on and the events behind it are not blocked forever. Until then the
+// event's attempts (metric Stuck) and the cursor's lag (metric CursorTime) are what an operator sees: alert when the cursor lags by
+// more than 15 minutes, or an event has failed more than 3 times.
+var (
+	PoisonAttempts = 8
+	PoisonAfter    = 10 * time.Minute
+)
+
+// stuckError is a failure of one trigger that is not the ledger's: a panic. A ResumableError is the other kind. Both are counted.
+type stuckError struct{ error }
+
+func isStuck(err error) bool {
+	var se *stuckError
+	return errors.As(err, &se) || dispatch.IsResumable(err)
+}
+
+// poison counts a failed attempt of a trigger that is neither decided nor failing on the ledger, and when the bound is reached it
+// decides the trigger launch-failed (rule CT-POISON in the event's history), after any run it may have made is resolved through the
+// backend (the session's run is deleted and its absence confirmed): a run that cannot be confirmed gone keeps the trigger undecided.
+func (b *Bridge) poison(ctx context.Context, m Match, key, via string, ferr error) (Outcome, bool) {
+	if !isStuck(ferr) {
+		return Outcome{}, false // the ledger's failure: the database is away, not the event's fault
+	}
+	cctx, cancel := b.dbCtx(ctx)
+	n, first, err := b.ledger.Failed(cctx, m.Agent, key, b.Now())
+	cancel()
+	if err != nil {
+		return Outcome{}, false
+	}
+	b.metrics.Stuck(m.Agent, n)
+	if n < PoisonAttempts || b.Now().Sub(first) < PoisonAfter {
+		return Outcome{}, false
+	}
+	gctx, gcancel := b.dbCtx(ctx)
+	row, _ := b.ledger.Get(gctx, m.Agent, key)
+	gcancel()
+	sid := ""
+	if row != nil && row.Session != nil {
+		sid = *row.Session
+	}
+	if sid == "" {
+		sid = b.gw.SessionOfTask(m.Agent, EventTaskID(m.Agent, key))
+	}
+	if sid != "" {
+		if rerr := b.gw.ReapRun(ctx, sid); rerr != nil {
+			b.log.Error("an event that keeps failing could not be decided: its run could not be resolved", "agent", m.Agent, "attempts", n, "err", errKind(rerr))
+			return Outcome{}, false
+		}
+	}
+	b.log.Error("an event that kept failing was decided launch-failed so the cursor can move on", "agent", m.Agent, "key", key, "attempts", n,
+		"first_failed", first.UTC().Format(time.RFC3339), "err", errKind(ferr))
+	b.metrics.Poisoned(m.Agent)
+	b.metrics.Stuck(m.Agent, 0)
+	return Outcome{Agent: m.Agent, Result: "launch-failed", Via: via, New: true, Session: sid, Rule: "CT-POISON"}, true
+}
+
 func (b *Bridge) markSeen(eid string) {
 	if _, ok := b.seen[eid]; ok {
 		return
@@ -415,7 +487,7 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 			// Not decided and not counted: whatever it had written is recorded on the row and the session (the session, the run's
 			// reservation and creation), so the next delivery resumes from those facts. A trigger that panics on every delivery is
 			// logged each time.
-			err = fmt.Errorf("a trigger panicked")
+			err = &stuckError{fmt.Errorf("a trigger panicked")}
 		}
 	}()
 	fctx, cancel := context.WithTimeout(ctx, EventTimeout)
@@ -438,7 +510,7 @@ func (b *Bridge) fire(ctx context.Context, m Match, env map[string]any, key, via
 			return out, nil
 		}
 	}
-	r := &resumer{gw: b.gw, ledger: b.ledger, log: b.log, waits: RetryWaits, agent: m.Agent, key: key,
+	r := &resumer{gw: b.gw, ledger: b.ledger, log: b.log, waits: RetryWaits, agent: m.Agent, key: key, task: EventTaskID(m.Agent, key),
 		valid: func() bool { return b.Now().Sub(eventTime(env, b.Now())) <= b.cfg.ResumeWindow },
 		input: b.runInput(m.Agent, env),
 		open: func(ctx context.Context) (*opened, *fireOut, error) {
@@ -597,7 +669,7 @@ func (b *Bridge) handleOne(ctx context.Context, env map[string]any, via string) 
 		defer func() {
 			if r := recover(); r != nil { // one bad event must not end the stream
 				b.log.Error("an event's handling panicked", "event", str(env["id"]), "panic", fmt.Sprint(r))
-				b.metrics.Dropped("malformed")
+				b.metrics.Panicked()
 				err = fmt.Errorf("an event's handling panicked") // not handled: the cursor does not move past it
 			}
 		}()
@@ -680,6 +752,14 @@ func (b *Bridge) Resume(ctx context.Context) (string, error) {
 	if cur.LastID == nil {
 		return "none", nil
 	}
+	// A catch-up that ends before its page is handled is not a catch-up: the next stream tries it again from the saved cursor (which
+	// moved only past events that were fully handled), instead of resuming from the stream alone.
+	ok := false
+	defer func() {
+		if !ok {
+			b.resumed = false
+		}
+	}()
 	b.lastID = *cur.LastID
 	t, hasTime := IDTime(b.lastID)
 	if hasTime {
@@ -689,6 +769,7 @@ func (b *Bridge) Resume(ctx context.Context) (string, error) {
 	if err != nil {
 		b.log.Warn("the event catch-up failed; the stream resumes with Last-Event-ID", "from", b.lastID, "err", errKind(err))
 		b.metrics.Resume("failed")
+		ok = true // the page could not be read: the stream (and the sweep) cover it
 		return "failed", nil
 	}
 	n := 0
@@ -696,7 +777,8 @@ func (b *Bridge) Resume(ctx context.Context) (string, error) {
 		list, _ := page["events"].([]any)
 		for _, e := range list {
 			if ctx.Err() != nil {
-				break
+				b.metrics.Resume("failed")
+				return "", ctx.Err()
 			}
 			env, ok := e.(map[string]any)
 			if !ok {
@@ -707,6 +789,7 @@ func (b *Bridge) Resume(ctx context.Context) (string, error) {
 				break
 			}
 			if err := b.handleOne(ctx, env, "recent"); err != nil {
+				b.metrics.Resume("failed")
 				return "", err
 			}
 		}
@@ -718,6 +801,7 @@ func (b *Bridge) Resume(ctx context.Context) (string, error) {
 	}
 	b.log.Info("event catch-up", "from", b.lastID, "events", n, "result", result)
 	b.metrics.Resume(result)
+	ok = true
 	return result, nil
 }
 

@@ -77,6 +77,57 @@ func (e *Error) Error() string    { return e.Msg }
 func (e *Error) Kind() string     { return "KubeRunError" }
 func (e *Error) Evidence() string { return clip160(e.Msg) }
 
+// Final says that a failed create proves nothing was made and nothing will be: the request was refused before it was sent, or the API
+// server answered that it will not make it (a 4xx other than 409).
+func (e *Refused) Final() bool { return true }
+
+// Final: see Refused.Final. An Error comes back from a create only for a request that was not sent or was refused.
+func (e *Error) Final() bool { return true }
+
+// Unknown is a failure that does not say whether the request took effect: a transport error, a timeout, a cancelled context or a 5xx.
+// The API server may have made the run, or may still make it. Nothing is deleted and nothing is decided on one.
+type Unknown struct{ Msg string }
+
+func (e *Unknown) Error() string      { return e.Msg }
+func (e *Unknown) Kind() string       { return "KubeRunError" }
+func (e *Unknown) Evidence() string   { return clip160(e.Msg) }
+func (e *Unknown) CouldNotTell() bool { return true }
+
+// Exists is the API server's 409: the name is taken. A run's name is unique to its session (r-<the session's id>), so a create that
+// meets it has met this session's own run (an earlier attempt whose answer was lost).
+type Exists struct{ Msg string }
+
+func (e *Exists) Error() string       { return e.Msg }
+func (e *Exists) Kind() string        { return "KubeRunError" }
+func (e *Exists) Evidence() string    { return clip160(e.Msg) }
+func (e *Exists) AlreadyExists() bool { return true }
+
+// CreateClass is what a failed create says about the run.
+type CreateClass int
+
+const (
+	// CreateUnknown: it could not be told whether the run was made (and it may still be): the default for any error not known to be
+	// final, so that nothing is ever destroyed on a guess.
+	CreateUnknown CreateClass = iota
+	// CreateExists: the name is taken (409), so the run exists and is this session's own.
+	CreateExists
+	// CreateFinal: nothing was made and nothing will be.
+	CreateFinal
+)
+
+// ClassifyCreate sorts a create's error.
+func ClassifyCreate(err error) CreateClass {
+	var ex interface{ AlreadyExists() bool }
+	var fin interface{ Final() bool }
+	switch {
+	case errors.As(err, &ex) && ex.AlreadyExists():
+		return CreateExists
+	case errors.As(err, &fin) && fin.Final():
+		return CreateFinal
+	}
+	return CreateUnknown
+}
+
 func clip160(s string) string {
 	if r := []rune(s); len(r) > 160 {
 		return string(r[:160])
