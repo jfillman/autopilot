@@ -55,7 +55,7 @@ func TestBadHangarSettingsStopTheStart(t *testing.T) {
 		{"GitHub with the pinned definitions left on and no namespaces to read them from", map[string]string{"GITHUB_PR_ENABLED": "1", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme"}, "AGENT_XRS_NAMESPACES"},
 		{"xr.request without GitHub", map[string]string{"XR_REQUEST_ENABLED": "1"}, "XR_REQUEST_ENABLED needs GITHUB_PR_ENABLED=1"},
 		{"GitHub with several owners and no Airframe owner", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme,other"}, "AIRFRAME_OWNER"},
-		{"an Airframe owner that is not one of the GitHub owners", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_OWNER": "evil"}, "not one of GITHUB_OWNERS"},
+		{"an Airframe owner that is not one of the GitHub owners", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_OWNER": "evil"}, "one of GITHUB_OWNERS"},
 		{"a tenants repository with an owner in it", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_TENANTS_REPO": "evil/repo"}, "AIRFRAME_TENANTS_REPO"},
 		{"a bad cluster name", map[string]string{"GITHUB_PR_ENABLED": "1", "AGENT_XRS_ENABLED": "0", "BROKER_URL": "https://b", "GITHUB_OWNERS": "acme", "AIRFRAME_CLUSTER": "a b"}, "AIRFRAME_CLUSTER"},
 		{"Airframe asked for with no owner", map[string]string{"AIRFRAME_ENABLED": "1"}, "AIRFRAME_OWNER"},

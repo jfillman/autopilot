@@ -98,18 +98,16 @@ func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, e
 			}
 		}
 	}
+	// One build of the GitHub backend checks the broker, the owners and the tenants repository together. The GitHub settings are
+	// reported first, then the Airframe ones.
+	aerr := airframeFromEnv(env, &h)
 	if h.githubPRs {
 		if _, err = backends.NewGitHub(h.githubOptions()); err != nil {
 			return h, configError("GITHUB_PR_ENABLED: " + err.Error())
 		}
 	}
-	if err = airframeFromEnv(env, &h); err != nil {
-		return h, err
-	}
-	if h.githubPRs {
-		if _, err = backends.NewGitHub(h.githubOptions()); err != nil {
-			return h, configError("GITHUB_PR_ENABLED: " + err.Error())
-		}
+	if aerr != nil {
+		return h, aerr
 	}
 	if h.argoSync, err = flagEnv(env, "ARGO_SYNC_ENABLED", false); err != nil {
 		return h, err
@@ -175,7 +173,7 @@ func hangarConfig(h hangarSettings, argoNamespaces []string, reg *tools.Registry
 // the one repository the broker is asked about with no app.
 func (h hangarSettings) githubOptions() backends.GitHubOptions {
 	o := backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners, AllowHTTP: h.brokerAllowHTTP}
-	if h.airframeEnabled || h.xrRequest {
+	if (h.airframeEnabled || h.xrRequest) && h.airframeOwner != "" {
 		o.TenantsRepo = h.airframeOwner + "/" + h.airframeTenantsRepo
 	}
 	return o
