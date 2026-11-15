@@ -252,7 +252,7 @@ func (s *State) Verify(ctx context.Context, app, kind, name string, env *string)
 			knownEnv, ns = true, pl.ns
 		}
 		if !named {
-			ok, oerr := s.owned(ctx, ns, app)
+			ok, oerr := s.ownedCicd(ctx, ns, app)
 			if oerr != nil {
 				return nil, oerr
 			}
@@ -266,8 +266,8 @@ func (s *State) Verify(ctx context.Context, app, kind, name string, env *string)
 		}
 		if xr != nil {
 			allowed = map[string]bool{ns: true}
-			cicd := t + "-" + app + "-cicd"
-			if ok, oerr := s.owned(ctx, cicd, app); oerr != nil {
+			cicd := stCicdNamespace(t, app)
+			if ok, oerr := s.ownedCicd(ctx, cicd, app); oerr != nil {
 				return nil, oerr
 			} else if ok {
 				allowed[cicd] = true

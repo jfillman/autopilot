@@ -57,7 +57,9 @@ class World:
         for ns in sorted({o["metadata"]["namespace"] for o in objects if o["metadata"].get("namespace")}):
             m = _re_ns.match(ns)
             if m:
-                self.objects["/api/v1/namespaces/" + ns] = {"kind": "Namespace", "metadata": {"name": ns, "labels": {"hangar.io/app": m.group(2)}}}
+                # the lab's real shapes: an environment namespace carries hangar.io/app, a -cicd namespace carries none
+                md = {"name": ns} if ns.endswith("-cicd") else {"name": ns, "labels": {"hangar.io/app": m.group(2)}}
+                self.objects["/api/v1/namespaces/" + ns] = {"kind": "Namespace", "metadata": md}
         self.status, self.pages, self.raw = status or {}, pages or {}, raw or {}
         self.seen: list[dict] = []
         self.lock = threading.Lock()
@@ -247,7 +249,12 @@ def go_env(cs, world, objects):
         cs["why"] = why0
         return
     nsobj = {o["metadata"]["name"]: o for o in (world.objects[k] for k in world.objects if k.startswith("/api/v1/namespaces/"))}
-    owned = lambda ns: nsobj.get(ns, {}).get("metadata", {}).get("labels", {}).get("hangar.io/app") == app
+    def owned(ns):
+        o = nsobj.get(ns)
+        if o is None:
+            return False
+        lab = o["metadata"].get("labels", {}).get("hangar.io/app")
+        return lab in (None, app) if ns.endswith("-cicd") else lab == app
     nsget = lambda ns: _peek(world, "/api/v1/namespaces/" + ns)
     under = lambda ns: [r for r in reqs if f"/namespaces/{ns}/" in r["target"] and "/applications?" not in r["target"] and "/rollouts" not in r["target"]]
     why = ("Go reads in a namespace only once its Namespace object carries the platform's label hangar.io/app for the app, takes an "
@@ -367,7 +374,7 @@ def verify_cases():
             if kind == "Agent":
                 # Agent XRs are read by the definition loader's list only; Go has no read of one by name.
                 e = PathRefused(xr_path("agents", "app-vx-cicd", "x1"))
-                cs["go"] = {"requests": [{"target": "/api/v1/namespaces/app-vx-cicd", "status": 200, "body": {"kind": "Namespace", "metadata": {"name": "app-vx-cicd", "labels": {"hangar.io/app": "vx"}}}}],
+                cs["go"] = {"requests": [{"target": "/api/v1/namespaces/app-vx-cicd", "status": 200, "body": {"kind": "Namespace", "metadata": {"name": "app-vx-cicd"}}}],
                             "error": {"class": "Denied", "rule": e.rule, "message": e.message, "hint": e.hint}}
                 cs["why"] = ("an Agent XR is listed (the definition loader) and never read by name: the closed list of reads has no "
                              "request for it, so verify of an Agent is refused before any request")

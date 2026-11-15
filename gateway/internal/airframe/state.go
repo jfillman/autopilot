@@ -133,6 +133,21 @@ func (s *State) owned(ctx context.Context, ns, app string) (bool, error) {
 	return l != "" && l == app, nil
 }
 
+// cicdNamespace is the app's cicd namespace, `<type>-<app>-cicd`. The mapping from (type, app) is injective: the suffix is fixed and there is no
+// environment component (app `gate` is `app-gate-cicd`, `gate-api` is `app-gate-api-cicd`, `x-cicd` is `app-x-cicd-cicd`, distinct from `x`'s
+// `app-x-cicd`), so the exact name identifies the app and the platform's label is not needed; if the Namespace carries `hangar.io/app` it must
+// still be the app's. A namespace with an environment component (`<type>-<app>-<env>`) is not injective and needs the label (owned).
+func stCicdNamespace(t, app string) string { return t + "-" + app + "-cicd" }
+
+func (s *State) ownedCicd(ctx context.Context, ns, app string) (bool, error) {
+	o, err := s.get(ctx, stNamespacePath(ns))
+	if err != nil || o == nil {
+		return false, err
+	}
+	l, has := stAsMap(stAsMap(o["metadata"])["labels"])["hangar.io/app"]
+	return !has || l == app, nil
+}
+
 // AppNamespaces are the exact namespaces the platform assigned to one of the app's environments on this cluster (an Application the
 // platform labelled for it is destined for them, and each carries the app's own label): what an SLO's matchers are forced into.
 func (s *State) AppNamespaces(ctx context.Context, app, env string) ([]string, error) {
@@ -239,8 +254,8 @@ func stMdName(o map[string]any) string {
 
 func (s *State) cicd(ctx context.Context, app string) (t, ns string, xrs []map[string]any, err error) {
 	for _, t = range stTypes {
-		ns = t + "-" + app + "-cicd"
-		if ok, oerr := s.owned(ctx, ns, app); oerr != nil || !ok {
+		ns = stCicdNamespace(t, app)
+		if ok, oerr := s.ownedCicd(ctx, ns, app); oerr != nil || !ok {
 			if oerr != nil {
 				return "", "", nil, oerr
 			}

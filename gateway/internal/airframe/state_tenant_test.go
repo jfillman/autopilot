@@ -79,8 +79,12 @@ func tenantWorld() *recReader {
 	add("/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications", app("gate-dev", "argocd-apps", "gate", "dev", "app-gate-dev"))
 	add("/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications", app("gate-api-prod", "argocd-apps", "gate-api", "prod", "app-gate-api-prod"))
 	add("/apis/argoproj.io/v1alpha1/namespaces/app-gate-api-prod/rollouts", map[string]any{"kind": "Rollout", "metadata": map[string]any{"name": "web", "namespace": "app-gate-api-prod"}})
-	for ns, a := range map[string]string{"app-gate-cicd": "gate", "app-gate-dev": "gate", "app-gate-api-cicd": "gate-api", "app-gate-api-prod": "gate-api", "app-gate-pr-12": "gate"} {
+	// the lab's real shapes: an environment namespace carries hangar.io/app and hangar.io/env, a -cicd namespace carries neither
+	for ns, a := range map[string]string{"app-gate-dev": "gate", "app-gate-api-prod": "gate-api", "app-gate-pr-12": "gate"} {
 		r.objs["/api/v1/namespaces/"+ns] = map[string]any{"kind": "Namespace", "metadata": map[string]any{"name": ns, "labels": map[string]any{"hangar.io/app": a}}}
+	}
+	for _, ns := range []string{"app-gate-cicd", "app-gate-api-cicd"} {
+		r.objs["/api/v1/namespaces/"+ns] = map[string]any{"kind": "Namespace", "metadata": map[string]any{"name": ns}}
 	}
 	r.objs["/api/v1/namespaces/app-gate-bare"] = map[string]any{"kind": "Namespace", "metadata": map[string]any{"name": "app-gate-bare"}}
 	r.objs["/apis/catalog.hangar.io/v1alpha1/namespaces/app-gate-api-prod/redis/secret-cache"] = xr("Redis", "app-gate-api-prod", "secret-cache", nil)
@@ -208,5 +212,47 @@ func TestADashedEnvironmentIsReadWhenItsNamespaceCarriesTheAppsLabel(t *testing.
 	}
 	if r.touched("namespaces/app-gate-cicd/applications") {
 		t.Fatalf("Applications were listed in a namespace a tenant writes: %v", r.seen)
+	}
+}
+
+func TestAnUnlabelledCicdNamespaceIsTheAppsByItsExactNameAndALabelledOneMustBeTheApps(t *testing.T) {
+	r := tenantWorld()
+	s := &State{Kube: r, Cluster: "k"}
+	out, err := s.Status(context.Background(), "gate", nil)
+	if err != nil || stAsMap(out)["error"] != nil || !r.touched("namespaces/app-gate-cicd/") || r.touched("app-gate-api-") {
+		t.Fatalf("own cicd namespace, unlabelled: %v %v %v", out, err, r.seen)
+	}
+	dev := "dev"
+	if out, err = s.Status(context.Background(), "gate", &dev); err != nil || stAsMap(out)["error"] != nil || !r.touched("namespaces/app-gate-dev/") {
+		t.Fatalf("own environment namespace, labelled: %v %v", out, err)
+	}
+	// another app's cicd or environment namespace is not reachable by naming it
+	for _, env := range []string{"api-cicd", "api-prod"} {
+		r2 := tenantWorld()
+		s2 := &State{Kube: r2, Cluster: "k"}
+		e := env
+		if out, err := s2.Status(context.Background(), "gate", &e); err != nil || stAsMap(stAsMap(out)["error"])["rule"] != "AF-ENV-404" || r2.touched("namespaces/app-gate-api-") {
+			t.Errorf("%s: %v %v %v", env, out, err, r2.seen)
+		}
+	}
+	// a cicd namespace that does carry the label must carry the app's
+	r3 := tenantWorld()
+	r3.objs["/api/v1/namespaces/app-gate-cicd"] = map[string]any{"metadata": map[string]any{"labels": map[string]any{"hangar.io/app": "gate-api"}}}
+	if out, _ := (&State{Kube: r3}).Status(context.Background(), "gate", nil); stAsMap(out)["error"] == nil || r3.touched("namespaces/app-gate-cicd/") {
+		t.Fatalf("a cicd namespace labelled for another app was read: %v", r3.seen)
+	}
+}
+
+// (type, app) -> `<type>-<app>-cicd` is injective, whatever the app is called: so the exact name identifies the app.
+func TestTheCicdNamespaceNameIsInjective(t *testing.T) {
+	seen := map[string]string{}
+	for _, typ := range stTypes {
+		for _, app := range []string{"gate", "gate-api", "x", "x-cicd", "a-cicd-b", "a", "a-b", "cicd", "gate-cicd", "app", "infra"} {
+			ns := stCicdNamespace(typ, app)
+			if prev, dup := seen[ns]; dup {
+				t.Fatalf("%s and %s/%s are both %s", prev, typ, app, ns)
+			}
+			seen[ns] = typ + "/" + app
+		}
 	}
 }
