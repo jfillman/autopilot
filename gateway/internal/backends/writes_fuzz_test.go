@@ -253,13 +253,13 @@ func FuzzDefang(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		out := defang(s)
 		if mentionByOracle(out) || strings.Contains(out, "<!--") || strings.Contains(out, "![") || strings.Contains(out, "<") ||
-			regexp.MustCompile(`#[0-9]`).MatchString(out) || regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b`).MatchString(out) {
+			regexp.MustCompile(`#[0-9]`).MatchString(out) || regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]*(https?://|#)`).MatchString(out) {
 			t.Fatalf("defang(%q) = %q still notifies, links, closes or hides", s, out)
 		}
 		if len([]rune(out)) > 60000 {
 			t.Fatalf("%d runes", len([]rune(out)))
 		}
-		if !strings.ContainsAny(s, "@#<!") && len([]rune(s)) < 1000 && !regexp.MustCompile(`(?i)close|fix|resolve`).MatchString(s) && out != s {
+		if !strings.ContainsAny(s, "@#<!") && len([]rune(s)) < 1000 && out != s {
 			t.Fatalf("plain text changed: %q", s)
 		}
 	})

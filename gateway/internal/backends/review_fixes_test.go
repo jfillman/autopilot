@@ -190,8 +190,8 @@ func TestAResumedBranchMustBeThisSessionsOwn(t *testing.T) {
 // 5. Text that goes to people.
 func TestTextForAPullRequestNotifiesNobodyAndLinksNothing(t *testing.T) {
 	for in, want := range map[string]string{
-		"`@alice": "`@​alice", "see #12": "see #​12", "o/r#7": "o/r#​7", "Fixes #3": "F​ixes #​3",
-		"closes o/r#4": "c​loses o/r#​4", "RESOLVED #1": "R​ESOLVED #​1", "a<!-- hidden -->b": "ab", "x <!-- open": "x ",
+		"`@alice": "`@​alice", "see #12": "see #​12", "o/r#7": "o/r#​7", "Fixes #3": "Fixes​ #​3", "Fix the probe": "Fix the probe", "fixes https://github.com/o/r/issues/1": "fixes​ https://github.com/o/r/issues/1",
+		"closes o/r#4": "closes​ o/r#​4", "RESOLVED #1": "RESOLVED​ #​1", "a<!-- hidden -->b": "ab", "x <!-- open": "x ",
 		"<img src=x onerror=1>": "&lt;img src=x onerror=1>", "![i](http://e/x.png)": "!​[i](http://e/x.png)", "### heading": "### heading",
 		"mail a@b.c": "mail a@b.c", "plain": "plain",
 	} {

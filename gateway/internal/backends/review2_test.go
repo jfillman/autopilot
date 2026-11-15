@@ -223,3 +223,17 @@ func TestTheClosedListOfGitHubRequestsIsExactlyNine(t *testing.T) {
 		}
 	}
 }
+
+func TestAPullRequestTitleNotifiesNobody(t *testing.T) {
+	gh := fakes.NewGitHub("o/gate-api")
+	defer gh.Close()
+	e := newFakeEnv(t, gh, nil, nil, "s-1")
+	a := prArgs("agent/t-1")
+	a["title"] = "@alice please fix #3"
+	if _, err := e.call("repo.pr.open", a); err != nil {
+		t.Fatal(err)
+	}
+	if got := gh.PullRequests("o/gate-api")[0].Title; got != "@\u200balice please fix\u200b #\u200b3" {
+		t.Fatalf("%q", got)
+	}
+}

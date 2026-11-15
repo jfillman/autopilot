@@ -567,7 +567,8 @@ func commitMessage(title string, meta map[string]string) string {
 var (
 	htmlComment = regexp.MustCompile(`(?s)<!--.*?(?:-->|$)`)
 	crossRef    = regexp.MustCompile(`#([0-9])`)
-	closing     = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b`)
+	// a closing keyword, only where it points at something: an issue number, an issue address or owner/repo#n
+	closing = regexp.MustCompile(`(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b([\s:]*)(#|https?://|[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#)`)
 )
 
 // defang makes text that an agent (or glidepath-api, from the agent's patch) wrote safe to put in a pull request: nobody is
@@ -580,8 +581,8 @@ func defang(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, "![", "!\u200b[")
 	s = mention.ReplaceAllString(s, "$1@\u200b$2")
+	s = closing.ReplaceAllString(s, "$1\u200b$2$3")
 	s = crossRef.ReplaceAllString(s, "#\u200b$1")
-	s = closing.ReplaceAllStringFunc(s, func(w string) string { return w[:1] + "\u200b" + w[1:] })
 	return clipRunes(s, maxPRBody)
 }
 
@@ -1019,7 +1020,7 @@ func (g *GitHub) createPR(ctx context.Context, token, owner, name, title, branch
 		sb.WriteString("\n\n" + defang(body))
 	}
 	status, pr, err := g.gh(ctx, token, ghReq{ep: epPostPull, owner: owner, name: name,
-		body: map[string]any{"title": title, "head": branch, "base": base, "body": sb.String()}})
+		body: map[string]any{"title": defang(title), "head": branch, "base": base, "body": sb.String()}})
 	var lost *writeLost
 	if errors.As(err, &lost) {
 		// Sent, no answer: look for the pull request of this branch before saying anything (a GET).

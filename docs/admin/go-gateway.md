@@ -510,7 +510,7 @@ Each is a case in the fixture with `go` and `why`, or a test named here.
 | the base branch, the head branch | any valid ref as base; any new valid name as head | the default branch only as base; heads under `agent/` only |
 | a file at a directory's path, or an ancestor of a protected path | sent (a blob then replaces the directory) | refused: the base commit's contents are read first; literal-prefix ancestors of the deny patterns are refused |
 | `EnsurePR` on a branch that exists | any branch whose files match is resumed | only one whose head commit carries this session's `Hangar-Session` trailer |
-| pull request text | `@mentions` and links as written | an `@name` (also after a backtick), `#12` and `owner/repo#12`, closing keywords get a zero-width space; HTML comments are removed, `<` escaped, images broken; the 60,000-character cap is applied after |
+| pull request text | `@mentions` and links as written | an `@name` (also after a backtick), `#12` and `owner/repo#12`, and a closing keyword that points at one (or at an address) get a zero-width space; the pull request title gets the same; HTML comments are removed, `<` escaped, images broken; the 60,000-character cap is applied after |
 | `argo.sync.lower` | the project and the Application only | also the definition's apps (`R022`) |
 | the repository's owner | whatever the argument says (the core's allowlist and the broker bound it) | must be one of `GITHUB_OWNERS` (Go only, required with `GITHUB_PR_ENABLED`) |
 | `GITHUB_PR_ENABLED` | also turns the pinned definitions (`AGENT_XRS_ENABLED`) and `xr.request` (`XR_REQUEST_ENABLED`) on | needs both said to be `0` (the Go gateway carries neither yet), and refuses `1` |
