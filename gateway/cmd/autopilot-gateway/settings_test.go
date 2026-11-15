@@ -174,3 +174,22 @@ func TestDelegateGlobsWindowAndHTTPSettings(t *testing.T) {
 		}
 	}
 }
+
+// The Python gateway refuses the Clearance core's own settings (CORE_ONLY: the evidence DSN, the gate's verifiers, the GitHub App, GitHub
+// Actions callers), because a gateway configured with one would be running without something the operator asked for. The Go gateway did not
+// know them and ignored them silently; it refuses them too, in serve and in the api (Python's api parses the same settings).
+func TestTheClearanceCoresSettingsAreRefusedNotIgnored(t *testing.T) {
+	if len(coreOnly) != 9 {
+		t.Fatalf("Python's CORE_ONLY has nine names, this has %d", len(coreOnly))
+	}
+	for _, k := range coreOnly {
+		_, err := configFromEnv(envOf(base(map[string]string{k: "x"})))
+		if err == nil || !strings.Contains(err.Error(), k) || !strings.Contains(err.Error(), "Clearance core's settings") {
+			t.Errorf("serve, %s: %v", k, err)
+		}
+		_, err = apiConfigFromEnv(envOf(map[string]string{"GATEWAY_API_DSN": "postgres://x", k: "x"}))
+		if err == nil || !strings.Contains(err.Error(), k) {
+			t.Errorf("api, %s: %v", k, err)
+		}
+	}
+}

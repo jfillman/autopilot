@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
 # autopilot-gateway, the Go AI gateway (A-9): one static binary on distroless static, nonroot (uid 65532), no shell, the
-# same bases as Clearance's image. NOT the deployed image yet: the Python gateway's Dockerfile (../Dockerfile) still is,
-# and gateway-image.yaml builds that one. See docs/admin/go-gateway.md.
+# same bases as Clearance's image. Nothing is written at runtime (read-only root filesystem works). NOT the deployed image
+# until the cutover (S9): the Python gateway's Dockerfile (../Dockerfile) still is, and gateway-image.yaml builds that one
+# on gateway-v* tags. THIS one is built on gateway-go-v* tags by gateway-go-image.yaml (docs/admin/go-gateway-release.md).
+# One binary, four subcommands (the entrypoint is the binary; the default is serve): serve | api | migrate | version.
 #
 #   docker buildx build -f gateway/Dockerfile --platform linux/amd64,linux/arm64 --build-arg VERSION=gateway-go-v0.0.1 .
 #   container build -f gateway/Dockerfile --build-arg VERSION=dev -t autopilot-gateway-go:dev .   # Apple's container CLI
@@ -36,7 +38,11 @@ LABEL org.opencontainers.image.title="autopilot-gateway" \
 # deployment's legacy CLEARANCE_AGENTS_DIR (the new name wins).
 ENV AUTOPILOT_GATEWAY_VERSION=${VERSION} PORT=8080
 COPY --from=build /out/autopilot-gateway /autopilot-gateway
+# What the Python image carries beside agents/ and the Go gateway reads from the filesystem next to AUTOPILOT_AGENTS_DIR: the runtime
+# catalog (GET /v1/runtimes of `api`; none listed without it) and Preflight's cases (the score endpoint answers 404 for every case without them).
 COPY agents/*.yaml /app/agents/
+COPY runtime/catalog.yaml /app/runtime/catalog.yaml
+COPY preflight/cases/ /app/preflight/cases/
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/autopilot-gateway"]

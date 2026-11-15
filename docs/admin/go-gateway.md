@@ -6,7 +6,7 @@ every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`, `repo.pr.open_upper`,
 the Agent XR loader, the schema, the publish to the core) and the Airframe tools (A-9 S5c, 2026-11-15: `airframe.*`, `xr.request`) are in, on top of the first
 slice and the catch-up (S0); built and tested, off by default, not deployed.** The Python gateway (`src/autopilot/serve.py`, the repo's `Dockerfile`, `gateway-image.yaml`) is
 still the gateway on every cluster and is still the reference: it is **not removed**. Nothing selects the Go image until
-the managing cutover does. This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
+the managing cutover does (S7 added its release workflow and an Apron switch, off by default: [go-gateway-release.md](go-gateway-release.md)). This page says what the Go gateway (`gateway/`) already does, how it is proven equal to the
 Python one, how it is kept equal ([the drift guard](#the-drift-guard)), and exactly what is left.
 
 ## What it is
@@ -1375,10 +1375,10 @@ reads nothing (an `OR` across two columns scans the history for rows that are no
 | holds, definitions | small tables (one row per agent; one per pin) |
 
 `TestEveryQueryIsServedByAnIndex` turns sequential scans off, EXPLAINs every query on 4,000 rows and requires the index above in the plan.
-**The indexes are the writer's**: `serve` creates them at start through `pgstate` (`IF NOT EXISTS`, Go only; Python's schema is the shared one and
-does not have them). A plain `CREATE INDEX` blocks **writes** to that table, never reads, for as long as the build takes (some thousands of rows:
-well under a second); the read API's role cannot create anything and never tries. Until `serve` has started once, the queries still work and
-the planner scans.
+**The indexes are `migrate`'s** (S7): `autopilot-gateway migrate` builds them with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` under a lock and a statement
+timeout, and `serve` and `api` only check that they exist and say what to run when they do not ([release and cutover](go-gateway-release.md#autopilot-gateway-migrate)).
+Go only; Python's schema is the shared one and does not have them. The read API's role cannot create anything and never tries. Without them the queries
+still work and the planner scans (bounded by the 5 s statement timeout).
 
 ### The process is read-only
 
@@ -1409,7 +1409,7 @@ else, no membership of a role that can write); the startup check is a guard agai
 own that answers `GET /metrics` and nothing else, unauthenticated (a NetworkPolicy admits Prometheus to that port alone), with timeouts. The
 twelve series are Python's: name, type, help text, label names and order, series sorting, escaping, the 128-character cut and the `%g` number
 format (one test renders Python's `TriggerMetrics` and Go's after the same calls and requires the exposition to be equal, byte for byte, for
-five call scripts). Four series are Go's own, after Python's: `autopilot_events_dropped_total{reason}`, `autopilot_trigger_stuck_attempts{agent}`,
+five call scripts). Five series are Go's own, after Python's: `autopilot_metric_series_dropped_total{metric}` (samples refused at the cap, S7), `autopilot_events_dropped_total{reason}`, `autopilot_trigger_stuck_attempts{agent}`,
 `autopilot_trigger_poisoned_total{agent}`, `autopilot_trigger_handler_panics_total`. The labels are `via`, `result`, `reason` (closed sets) and
 `agent` (a definition's name); no user id, session id, repo or free text is a label. A metric holds at most 5,000 series (Go only: a label that
 grew would fill the process). `api` serves no metrics (Python's does not).
@@ -1486,10 +1486,10 @@ status, content type, `Allow` and JSON body; 17 cases differ on purpose, 5 more 
   it; `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1` if the collector is still plain `http` in the cluster.
 - Alerts that read the timestamp gauges read Python's six-significant-digit values (`1.73159e+09`): the format is held equal.
 - The Backstage plugin reads the same JSON; the only visible additions are headers, the `<time>|<id>` cursor (opaque to it) and `truncated`.
-- Left for S7, known: `serve` creates the indexes at start with a plain `CREATE INDEX` (blocks writes to that table while it builds; no `CONCURRENTLY`, no
-  timeout); the catalog's `Apps` reads one page of 500 components (a person with more sees fewer, which fails closed); events filtered by `subject` or `key`
-  walk the table (bounded by the 5 s statement timeout, the 30 days and 200,000 rows); the metrics series cap drops new series silently (there is no counter
-  of drops yet); `api` serves no metrics (Python's does not).
+- Resolved in S7 ([release and cutover](go-gateway-release.md)): the indexes are `migrate`'s (concurrent, timeouts); the catalog's `Apps` is paged (500 a page, at most 20
+  pages, then an error that fails closed); the metrics series cap counts its drops (`autopilot_metric_series_dropped_total{metric}`); the role for `GATEWAY_API_DSN` is
+  `gateway/sql/gateway-api-reader.sql` (and the Python deployment's existing role passes the check too). Still true: events filtered by `subject` or `key` walk the table (bounded
+  by the 5 s statement timeout, the 30 days and 200,000 rows); `api` serves no metrics (Python's does not).
 
 ## The drift guard
 
@@ -1670,8 +1670,9 @@ Not ported, and still the Python gateway's:
 - **The field scope of a file's YAML** (`repos.fieldDeny`, `fieldAllow`, AF-9a) is the core's: it needs the file as it was before.
   The gateway decides the repository and the path again, not the fields.
 - **A `held` outbox reason** (since clearance v0.28.0 the core takes every kind the gateway writes). (`api`, the Prometheus endpoint and the OTLP logs are S6, above.)
-- **Release plumbing**: no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
-  `gateway-image.yaml` builds.
+- **Release plumbing** (S7, [go-gateway-release.md](go-gateway-release.md)): the `gateway-go-v*` image workflow, `migrate`, the read-only role, the environment table
+  ([go-gateway-env.md](go-gateway-env.md)) and, in Apron, a switch that is off by default. No tag is pushed and nothing is deployed. The Python image stays what
+  `gateway-image.yaml` builds, and the rollback.
 
 The 7-day canary, moving every definition to it, and removing the Python gateway are the managing agent's later steps,
 after the remainder above is ported.

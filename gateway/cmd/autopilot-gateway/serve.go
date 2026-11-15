@@ -18,6 +18,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/auth"
 	"github.com/jfillman/autopilot/gateway/internal/backends"
 	"github.com/jfillman/autopilot/gateway/internal/core"
+	"github.com/jfillman/autopilot/gateway/internal/dbindex"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/mcpserver"
@@ -153,6 +154,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 	}
 	if len(stale) > 0 {
 		return nil, configError(strings.Join(stale, ", ") + ": not carried by the Go gateway yet (docs/admin/go-gateway.md); unset them, or keep running the Python gateway")
+	}
+	if m := coreOnlySettings(env); m != "" {
+		return nil, configError(m)
 	}
 	if m := retiredSettings(env); m != "" {
 		return nil, configError(m)
@@ -363,6 +367,25 @@ func serve(_ []string) int {
 		return 1
 	}
 	defer st.Close(context.Background())
+	// The read API's indexes are `autopilot-gateway migrate`'s (a plain CREATE INDEX here would hold this table's writes for the build). A
+	// database without them is refused by default: a silently slow read path in production is what migrate exists to prevent. The cutover
+	// runs migrate BEFORE the switch, so the first start finds them; GATEWAY_ALLOW_MISSING_INDEXES=1 starts anyway (and says so).
+	// A check that cannot be made is not a pass: it is refused the same way (fail closed).
+	allowMissing := boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false)
+	states, cerr := st.CheckIndexes(ctx)
+	if cerr != nil {
+		if !allowMissing {
+			log.Error("the read API's indexes could not be checked: " + cerr.Error() + " (GATEWAY_ALLOW_MISSING_INDEXES=1 starts without the check)")
+			return 1
+		}
+		log.Error("starting without the index check (GATEWAY_ALLOW_MISSING_INDEXES=1): " + cerr.Error())
+	} else if m := dbindex.Problems(states); m != "" {
+		if !allowMissing {
+			log.Error("the gateway database lacks indexes the read API needs: " + m + " (GATEWAY_ALLOW_MISSING_INDEXES=1 starts without them)")
+			return 1
+		}
+		log.Error("starting without indexes the read API needs (GATEWAY_ALLOW_MISSING_INDEXES=1): " + m)
+	}
 	store, err := session.NewStore(ctx, pgstate.NewSessions(ctx, st))
 	if err != nil {
 		log.Error("sessions: " + err.Error())
@@ -395,7 +418,7 @@ func serve(_ []string) int {
 	logNameOverrides(pinPolicy, log)
 	switch {
 	case cfg.defs.enabled:
-		loadStored(set, stored, reg, pinPolicy, log)
+		loadStored(ctx, set, st, stored, reg, pinPolicy, log)
 	case len(stored) > 0:
 		// Stored pins nothing keeps up to date are not run: the bundled definitions only (as the Python gateway with the loader off).
 		log.Warn("the gateway database holds pinned definitions and the Agent XR loader is off (AGENT_XRS_ENABLED): they are not loaded", "rows", len(stored))

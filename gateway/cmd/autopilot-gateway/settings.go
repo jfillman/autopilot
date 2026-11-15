@@ -43,3 +43,23 @@ func retiredSettings(env func(string) string) string {
 	sort.Strings(bad)
 	return "retired settings (R-10e): " + strings.Join(bad, "; ") + ". Rename them: the old names are no longer read"
 }
+
+// coreOnly are the Clearance core's settings (Python: serve.CORE_ONLY, R-3b): the evidence DSN, the deployment gate's verifiers, provenance,
+// the GitHub App and GitHub Actions callers belong to the core. A gateway configured with one is refused, as Python refuses it, rather than run
+// without something the operator asked for.
+var coreOnly = []string{"CLEARANCE_DSN", "CLEARANCE_VERIFIERS", "AGENT_LOGINS", "CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GITHUB_APP_KEY_FILE",
+	"CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE", "CLEARANCE_GITHUB_APP_COMMENTS", "CLEARANCE_GITHUB_OIDC_AUDIENCE", "CLEARANCE_GITHUB_OIDC_ALLOWED"}
+
+// coreOnlySettings is the refusal for the core's settings that are set ("" when none is).
+func coreOnlySettings(env func(string) string) string {
+	var stale []string
+	for _, k := range coreOnly {
+		if env(k) != "" {
+			stale = append(stale, k)
+		}
+	}
+	if len(stale) == 0 {
+		return ""
+	}
+	return strings.Join(stale, ", ") + ": the Clearance core's settings, not the gateway's (the gateway has no evidence DSN and serves no gate, provenance or GitHub App); set them on the core"
+}

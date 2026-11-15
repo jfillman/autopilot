@@ -161,14 +161,45 @@ func rowsOf(raw []json.RawMessage) []definitions.Row {
 
 // loadStored makes the stored cluster set the live one before anything is served, so a restart does not unload every pinned agent while
 // the first poll is on its way: each row goes through the same decision a pin does (schema, strict reading, the pin rules, the policy).
-// A row that no longer passes is a rejection, named in the log.
-func loadStored(set *definitions.Set, rows []definitions.Row, reg *tools.Registry, policy definitions.PinPolicy, log *slog.Logger) {
+// A row that no longer passes is a rejection, named in the log. The decision is then KEPT: the rows are rewritten when it differs from what
+// was stored, because the read API (`api`) decides nothing, it shows what the store says, and a pin this gateway rejected must not read
+// as loaded there (it used to be decided again with a weaker policy).
+func loadStored(ctx context.Context, set *definitions.Set, keep definitions.RowStore, rows []definitions.Row, reg *tools.Registry, policy definitions.PinPolicy, log *slog.Logger) {
 	loaded, rejected := definitions.FromRecords(rows, set.Bundled(), reg, policy)
 	set.ReplaceCluster(loaded, rejected)
 	for _, r := range rejected {
 		log.Warn("a stored pinned definition was not loaded", "agent", r.Name, "why", r.Reason)
 	}
 	log.Info("stored pinned definitions loaded", "loaded", len(loaded), "rejected", len(rejected))
+	if keep == nil || !decisionDiffers(rows, set.Records()) {
+		return
+	}
+	if err := keep.ReplaceDefinitions(ctx, set.Records()); err != nil {
+		log.Error("this gateway's decision on the stored pinned definitions could not be kept: the read API may show a pin as loaded that this gateway rejected", "err", err.Error())
+	}
+}
+
+// decisionDiffers is whether the decision (which names are loaded, which rejected) is other than the stored rows say.
+func decisionDiffers(stored, now []definitions.Row) bool {
+	key := func(rows []definitions.Row) map[string]bool {
+		m := map[string]bool{}
+		for _, r := range rows {
+			n, _ := r["name"].(string)
+			s, _ := r["state"].(string)
+			m[s+"/"+n] = true
+		}
+		return m
+	}
+	a, b := key(stored), key(now)
+	if len(a) != len(b) {
+		return true
+	}
+	for k := range a {
+		if !b[k] {
+			return true
+		}
+	}
+	return false
 }
 
 // runDefinitions starts what keeps the definition set: the Agent XR loader, or, when it is off, the publish of the bundled set (until the

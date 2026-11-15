@@ -11,6 +11,8 @@ nav:
       - The provider contract: admin/provider.md
       - Trigger durability: admin/trigger-durability.md
       - The Go gateway (A-9): admin/go-gateway.md
+      - The Go gateway, release and cutover: admin/go-gateway-release.md
+      - The Go gateway, environment table: admin/go-gateway-env.md
   - Brand:
       - Marks and files: brand/README.md
 

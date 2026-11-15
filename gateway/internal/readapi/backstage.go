@@ -39,8 +39,11 @@ type Backstage struct {
 	TTL       time.Duration
 	FailTTL   time.Duration
 	Timeout   time.Duration
-	HTTP      *http.Client
-	Now       func() time.Time
+	// MaxPages bounds the apps read (DefaultMaxPages pages of 500 when 0): a person who owns more than that, or a catalog that does not stop
+	// paging, is an error, so the caller is held to what is theirs alone (as an outage does), never given a partial list as if it were whole.
+	MaxPages int
+	HTTP     *http.Client
+	Now      func() time.Time
 
 	mu     sync.Mutex
 	groups map[string]entry
@@ -56,6 +59,9 @@ type entry struct {
 
 // nameRe is a catalog entity name (reads._NAME).
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
+
+// DefaultMaxPages is how many pages of 500 components one person's apps may take (10,000 components, the table's own entry bound).
+const DefaultMaxPages = 20
 
 const (
 	maxEntries   = 10000
@@ -241,30 +247,51 @@ func (b *Backstage) fetchApps(ctx context.Context, name, person string) (map[str
 	}
 	q.Add("fields", "metadata.name")
 	q.Add("limit", "500")
-	status, body, err := b.get(ctx, "/api/catalog/entities/by-query", q)
-	if err != nil {
-		return map[string]bool{}, err
-	}
-	if status != http.StatusOK {
-		return map[string]bool{}, fmt.Errorf("the catalog answered %d", status)
-	}
-	var doc struct {
-		Items []struct {
-			Metadata *struct {
-				Name string `json:"name"`
-			} `json:"metadata"`
-		} `json:"items"`
-	}
-	if json.Unmarshal(body, &doc) != nil {
-		return map[string]bool{}, errors.New("the catalog's answer does not parse")
+	maxPages := b.MaxPages
+	if maxPages <= 0 {
+		maxPages = DefaultMaxPages
 	}
 	apps := map[string]bool{}
-	for _, it := range doc.Items {
-		if it.Metadata != nil && it.Metadata.Name != "" {
-			apps[strings.ToLower(it.Metadata.Name)] = true
+	seen := map[string]bool{}
+	for page := 1; ; page++ {
+		status, body, err := b.get(ctx, "/api/catalog/entities/by-query", q)
+		if err != nil {
+			return map[string]bool{}, err
 		}
+		if status != http.StatusOK {
+			return map[string]bool{}, fmt.Errorf("the catalog answered %d", status)
+		}
+		var doc struct {
+			Items []struct {
+				Metadata *struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+			} `json:"items"`
+			PageInfo struct {
+				NextCursor string `json:"nextCursor"`
+			} `json:"pageInfo"`
+		}
+		if json.Unmarshal(body, &doc) != nil {
+			return map[string]bool{}, errors.New("the catalog's answer does not parse")
+		}
+		for _, it := range doc.Items {
+			if it.Metadata != nil && it.Metadata.Name != "" {
+				apps[strings.ToLower(it.Metadata.Name)] = true
+			}
+		}
+		next := doc.PageInfo.NextCursor
+		if next == "" {
+			return apps, nil
+		}
+		if page >= maxPages {
+			return map[string]bool{}, fmt.Errorf("the catalog has more than %d pages of components for this person: not read (a partial list would be a wrong one)", maxPages)
+		}
+		if seen[next] || len(next) > 4096 {
+			return map[string]bool{}, errors.New("the catalog's paging does not advance")
+		}
+		seen[next] = true
+		q.Set("cursor", next)
 	}
-	return apps, nil
 }
 
 // DispatchDirectory is the Backstage directory as the gateway's human inbox and person controls read it (dispatch.Directory): there a
