@@ -242,7 +242,7 @@ func TestOneTenantCannotFillThePublishBudgetOrFreezeTheOthers(t *testing.T) {
 		r.files.files[repo+"|agents/"+name+".yaml|"+commit] = map[string]any{"doc": d}
 	}
 	ch := r.poll()
-	if r.defs["quiet"] == nil || r.defs["houga"] != nil || r.defs["hogb"] != nil {
+	if r.defs["quiet"] == nil || r.defs["hoga"] != nil || r.defs["hogb"] != nil || r.defs["hogc"] != nil {
 		t.Fatalf("the namespace that takes the most is dropped, the quiet one is not: %v", r.defs)
 	}
 	if len(ch.Rejected) != 3 || !strings.HasPrefix(ch.Rejected[0].Reason, "DF-BUDGET") {

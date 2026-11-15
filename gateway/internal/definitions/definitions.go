@@ -2,7 +2,7 @@
 // the limits a session is cut from, and the scope every call is decided against. It reads the cluster-pinned set the
 // Python gateway's loader keeps in gateway_definitions and the directory of bundled YAML. Every document is validated against
 // the definition schema (schema.go) and read strictly (value.go) first; pin.go decides which pins become definitions, set.go keeps
-// the live set, loader.go reads the Agent XRs and manifest.go publishes the set to the core.
+// the live set, loader.go reads the Agent XRs and manager.go publishes the set to the core.
 package definitions
 
 import (

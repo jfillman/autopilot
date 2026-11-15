@@ -187,6 +187,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 	if err != nil {
 		// The set the gateway runs and the set the core holds stay as they are. Said every poll; as an error once it has gone on.
 		p.mu.Lock()
+		p.empties = 0 // an empty answer on either side of a failed list is not two in a row
 		p.listFailures++
 		n := p.listFailures
 		p.mu.Unlock()

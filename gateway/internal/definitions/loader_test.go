@@ -575,3 +575,18 @@ func TestAListThatKeepsFailingIsSaidAsAnError(t *testing.T) {
 		t.Fatal("a success resets the count")
 	}
 }
+
+// An empty answer on either side of a failed list is not two empty answers in a row.
+func TestAnEmptyListAroundAFailedOneIsNotTwoInARow(t *testing.T) {
+	r := newRig(t)
+	r.pin("one", "app-gate-api-cicd", defDoc("one", nil))
+	r.poll()
+	r.lister.items = nil
+	r.poll()
+	r.lister.fail = "airframe"
+	r.poll()
+	r.lister.fail = ""
+	if ch := r.poll(); ch.Any() || r.defs["one"] == nil {
+		t.Fatalf("%+v", ch)
+	}
+}
