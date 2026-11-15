@@ -204,7 +204,7 @@ def go_image_control(tmp_path):
     port = _free_port()
     name = f"apgw-conformance-{port}"
     r = _docker("run", "-d", "--rm", "--name", name, "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                "-e", "GATEWAY_CONFORMANCE_CONTROL=1", GO_IMAGE, "conformance-control", "--listen", f"127.0.0.1:{port}")
+                "-e", "GATEWAY_CONFORMANCE_CONTROL=1", "-e", "AUTOPILOT_GATEWAY_VERSION=gateway-v0.0.0-conformance", GO_IMAGE, "conformance-control", "--listen", f"127.0.0.1:{port}")
     assert r.returncode == 0, r.stderr
     url = f"http://127.0.0.1:{port}"
     try:
@@ -236,6 +236,9 @@ def test_the_go_gateway_image_is_what_the_cluster_needs():
     assert _docker("run", "--rm", "--entrypoint", "/bin/sh", GO_IMAGE, "-c", "true").returncode != 0
     ver = _docker("run", "--rm", "--read-only", GO_IMAGE, "version")
     assert ver.returncode == 0 and ver.stdout.startswith("autopilot-gateway "), ver.stdout + ver.stderr
+    # the version is the release's (the VERSION build argument, in the image's own environment), never the build's "dev"
+    baked = [e.split("=", 1)[1] for e in cfg["Env"] if e.startswith("AUTOPILOT_GATEWAY_VERSION=")]
+    assert baked and baked[0] != "dev" and ver.stdout.strip() == f"autopilot-gateway {baked[0]}", (baked, ver.stdout)
     # the files the Go gateway reads next to agents/ are in the image: bundled agents, the runtime catalog, Preflight's cases. The image has
     # no shell, so they are read through a throwaway copy.
     cid = _docker("create", GO_IMAGE).stdout.strip()
