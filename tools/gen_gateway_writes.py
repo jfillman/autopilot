@@ -851,7 +851,7 @@ def writes_cases() -> str:
     direct_cases()
     argo_cases()
     return json.dumps({"tokens": {"glidepath": GP_TOKEN, "agent": AGENT_TOKEN, "github": GH_TOKEN, "kube": "kube-fixture-token"},
-                       "cases": [_compact(c) for c in CASES]}, indent=1, sort_keys=True) + "\n"
+                       "cases": [_compact(c) for c in CASES]}, separators=(",", ":"), sort_keys=True) + "\n"
 
 
 def outputs() -> dict:
