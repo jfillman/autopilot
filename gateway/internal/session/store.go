@@ -285,6 +285,15 @@ func (st *Store) CloseTouched(id string) []*Session {
 	return st.CloseTouchedBy(id, CloseReason{Control: CloseOther})
 }
 
+// parentBy is what a child's close reason says it was closed by: whoever closed its parent (a person, "frozen"), or, when the parent's
+// close names nobody, the parent's own control (the sweep's "deadline", a run's "finish").
+func parentBy(parent CloseReason) string {
+	if parent.By != "" {
+		return parent.By
+	}
+	return parent.Control
+}
+
 // CloseTouchedBy is CloseTouched with the reason, written on every session it closes in the same step that closes it (the sessions
 // below it are closed by their parent's close). A session that is already closed keeps the reason it has.
 func (st *Store) CloseTouchedBy(id string, why CloseReason) []*Session {
@@ -307,7 +316,7 @@ func (st *Store) CloseTouchedBy(id string, why CloseReason) []*Session {
 	}
 	var touched []*Session
 	for _, c := range kids {
-		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: why.Control, At: why.At})...)
+		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: parentBy(why), At: why.At})...)
 	}
 	s.Lock()
 	if s.Closed { // closed by another caller while its children were
@@ -330,7 +339,7 @@ func (st *Store) CloseTouchedBy(id string, why CloseReason) []*Session {
 	}
 	s.Unlock()
 	for _, c := range late {
-		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: why.Control, At: why.At})...)
+		touched = append(touched, st.CloseTouchedBy(c, CloseReason{Control: CloseParent, By: parentBy(why), At: why.At})...)
 	}
 	touched = append(touched, s)
 	if parent != nil {
