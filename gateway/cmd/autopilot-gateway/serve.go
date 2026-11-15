@@ -358,6 +358,7 @@ func serve(_ []string) int {
 		log.Error("configuration: " + err.Error())
 		return 2
 	}
+	logNameOverrides(pinPolicy, log)
 	switch {
 	case cfg.defs.enabled:
 		loadStored(set, stored, reg, pinPolicy, log)

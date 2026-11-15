@@ -948,12 +948,14 @@ nothing the XR says is trusted. What the pin policy guarantees against an author
 - **A published reason never quotes the file.** The reason a rejected pin is published with (to the core, the store and the read API) is a rule id and a place
   (`DF-SCHEMA profile/limits/ttlMinutes`, `DF-STRICT`, `DF-YAML at line 3`, `DF-POLICY profile/tools`, `DF-NAME`, `DF-OWNER`, `DF-IDENTITY`): never a value, a key or a name out of the
   file. The whole story is in the gateway's log (`agent pins: a pin was rejected`, with `detail`).
-- **An agent's name belongs to its namespace's app, decided from the XR alone.** A pinned agent's name is the app's or starts with the app and a dash (`gate-api`,
-  `gate-api-triage`), or is listed for that namespace in `AGENT_XRS_NAMES` (`name=namespace`, for the agents that were live before the rule). Two namespaces can therefore never ask
-  for one name, there is no holder, no state, nothing to squat, and an outage or an empty store at cutover moves nothing (tests: the squat, the holder's outage, the empty-store
-  cutover, the exception map). A name that is not the namespace's is refused before anything is fetched (`DF-POLICY metadata.name`). Two pins of one name that still reach the
-  set are both refused (Python's rule, kept). A name equal to a bundled definition's is refused, and cannot be put in `AGENT_XRS_NAMES`.
-- **Nothing an XR writes is stored or echoed unless it has the form a pin's has.** The repository (`owner/name`, 100 + 100 characters), path (200), commit (100), XR name (a
+- **An agent's name has one owner namespace, decided from configuration alone.** The owner is the namespace `AGENT_XRS_NAMES` lists for the name (`name=namespace`, for the agents that
+  were live before the rule), else, among the namespaces the loader reads, the one whose app is the **longest** app that equals the name or is a dash-terminated prefix of it (`gate-api-reader`
+  belongs to `app-gate-api-cicd`, not `app-gate-cicd`; `gate-reader` to `app-gate-cicd` unless it is listed for another). Only the owner may load the name: another namespace's XR of it is
+  refused alone, before anything is fetched (`DF-NAME`), never both, so a tenant cannot make another's agent go by asking for its name, whatever the apps' names have in common. A listed entry
+  overrides the prefix rule (the start logs each override); it must name a namespace the loader reads and not a bundled agent's name. There is no holder, no state, nothing to squat, and an
+  outage or an empty store at cutover moves nothing (tests: the squat, the holder's outage, the empty-store cutover, the exception map, the gate / gate-api clash both ways, the override, a
+  three-level chain). Two pins of one name that still reach the set are both refused (Python's rule, kept).
+- **Nothing an XR writes is stored or echoed unless it has the form a pin's has.** The repository (`owner/name`, 100 + 100 characters), path (200, a clean relative file path: no leading, double or trailing slash, no `.` or `..` segment), commit (100), XR name (a
   Kubernetes name) and owner (100) are checked first; an XR that fails is recorded with fixed placeholders (`invalid`) and a fixed reason (`DF-XR`), never its own strings.
   A rejected row has a largest size (a 300-character reason), a namespace has at most 32 rejected rows listed (the first by name; the rest are counted in one row), and
   XRs over a namespace's quota are never fetched or examined.

@@ -137,7 +137,7 @@ func (d defsSettings) policy(reg *tools.Registry, owners, extraImages []string, 
 			images = append(images, sc["image"])
 		}
 	}
-	return definitions.PinPolicy{Tools: reg, AllowTools: allow, MaxTier: d.maxTier, Owners: append([]string{}, owners...), ImageGlobs: images, BindApp: true, Names: d.names}, nil
+	return definitions.PinPolicy{Tools: reg, AllowTools: allow, MaxTier: d.maxTier, Owners: append([]string{}, owners...), ImageGlobs: images, BindApp: true, Names: d.names, Namespaces: d.namespaces}, nil
 }
 
 // githubFiles is the pinned files' reader: repo.file.get's, through the agents' GitHub App.
@@ -224,5 +224,16 @@ func candidateParser(reg *tools.Registry) func(any) (*definitions.Definition, er
 			return nil, &definitions.DefinitionError{Msg: "?: <root>: the document is not an object"}
 		}
 		return definitions.ParseDoc(om, reg)
+	}
+}
+
+// logNameOverrides says each AGENT_XRS_NAMES entry that takes a name away from the namespace its start would give it to.
+func logNameOverrides(p definitions.PinPolicy, log *slog.Logger) {
+	plain := p
+	plain.Names = nil
+	for name, ns := range p.Names {
+		if owner, ok := plain.NameOwner(name); ok && owner != ns {
+			log.Info("AGENT_XRS_NAMES overrides the prefix rule for an agent name", "name", name, "namespace", ns, "instead_of", owner)
+		}
 	}
 }

@@ -180,6 +180,8 @@ type PinPolicy struct {
 	// BindApp ties a pin to the app its namespace belongs to (`app-<app>-cicd`): its repository, its repository patterns, its app
 	// patterns and its event keys may name that app only. A pin in a namespace that is no app's is refused.
 	BindApp bool
+	// Namespaces are the namespaces the loader reads; with them a name has one owner (NameOwner).
+	Namespaces []string
 	// Names lists, for the agents whose names do not start with their app, the one namespace each may be pinned from (AGENT_XRS_NAMES).
 	Names map[string]string
 	// Detailed publishes Python's reasons, which quote the file (a value, a key, a name). Only the equivalence tests set it.
@@ -266,11 +268,33 @@ func (p PinPolicy) CheckSource(ns, name, repo string) error {
 	return nil
 }
 
+// NameOwner is the one namespace that may load a name, decided from configuration alone: the namespace AGENT_XRS_NAMES lists for it, else the
+// configured namespace whose app is the LONGEST app that equals the name or is a dash-terminated prefix of it. Another namespace's XR of
+// the name is refused alone, so prefix-related apps (gate, gate-api) cannot contend for a name and take each other's agents away. With no
+// namespaces configured (the zero policy) the owner is whichever app the name belongs to, which is only the namespace's own check.
+func (p PinPolicy) NameOwner(name string) (string, bool) {
+	if ns, ok := p.Names[name]; ok {
+		return ns, true
+	}
+	best, bestApp := "", ""
+	for _, ns := range p.Namespaces {
+		app, ok := AppOfNamespace(ns)
+		if ok && AppOfName(app, name) && len(app) > len(bestApp) {
+			best, bestApp = ns, app
+		}
+	}
+	return best, best != ""
+}
+
 func (p PinPolicy) checkName(app, ns, name string) error {
-	if AppOfName(app, name) || (p.Names != nil && p.Names[name] == ns) {
+	if p.Namespaces == nil {
+		if AppOfName(app, name) || p.Names[name] == ns {
+			return nil
+		}
+	} else if owner, ok := p.NameOwner(name); ok && owner == ns {
 		return nil
 	}
-	return pol("metadata.name", "an agent's name is the app's or starts with it and a dash (%s, %s-...), or is listed for this namespace", app, app)
+	return pol("metadata.name", "an agent's name belongs to one namespace: the one listed for it, else the app that is the longest match of its start (%s, %s-... when it is this namespace's)", app, app)
 }
 
 // Check is nil for a definition a pin of this source may be, else the reason it may not.
@@ -565,7 +589,15 @@ func FromPin(doc *OMap, src Source, owner string, reserved map[string]*Definitio
 		if errors.As(err, &pe) {
 			path = pe.Path
 		}
-		return rej("DF-POLICY: "+path, "%s", err.Error())
+		return rej(policyReason(path), "%s", err.Error())
 	}
 	return &Loaded{Def: d, Source: src, Owner: *d.Owner, Doc: d.Doc}, nil
+}
+
+// policyReason is the published reason of a policy refusal: a rule id and a place; DF-NAME for a name that is another namespace's.
+func policyReason(path string) string {
+	if path == "metadata.name" {
+		return "DF-NAME: the agent's name belongs to another namespace"
+	}
+	return "DF-POLICY: " + path
 }

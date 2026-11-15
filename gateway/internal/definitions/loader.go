@@ -182,7 +182,7 @@ func (p *Poller) list(ctx context.Context) ([]map[string]any, error) {
 var (
 	reXRName = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$`)
 	reRepo   = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$`)
-	rePath   = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,200}$`)
+	rePath   = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,200}(/[A-Za-z0-9_.-]{1,200})*$`)
 	reRef    = regexp.MustCompile(`^[A-Za-z0-9_./-]{1,100}$`)
 	reOwner  = regexp.MustCompile(`^[A-Za-z0-9:_./-]{1,100}$`)
 )
@@ -191,7 +191,18 @@ var (
 // not this function's to refuse (an XR with no complete source has its own rejection).
 func xrFieldsOK(repo, path, commit, name, owner string) bool {
 	ok := func(v string, re *regexp.Regexp) bool { return v == "" || re.MatchString(v) }
-	return ok(repo, reRepo) && ok(path, rePath) && !strings.Contains(path, "..") && ok(commit, reRef) && ok(name, reXRName) && ok(owner, reOwner)
+	return ok(repo, reRepo) && ok(path, rePath) && cleanPath(path) && len(path) <= 200 && ok(commit, reRef) && ok(name, reXRName) && ok(owner, reOwner)
+}
+
+// cleanPath is whether a path is a clean relative file path: no leading or trailing slash, no empty, `.` or `..` segment (the pattern has no
+// empty one; this takes the dots).
+func cleanPath(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // MaxRejectedPerNamespace is how many rejected pins of one namespace are listed; the rest are counted in one row.
@@ -334,7 +345,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 			// Before anything is fetched: no token is minted for a repository this namespace's app does not own.
 			var pe *PolicyError
 			errors.As(err, &pe)
-			rej := Rejected{Name: name, Source: src, Reason: "DF-POLICY: " + pe.Path, Detail: err.Error()}
+			rej := Rejected{Name: name, Source: src, Reason: policyReason(pe.Path), Detail: err.Error()}
 			if p.Policy.Detailed {
 				rej.Reason = err.Error()
 			}
