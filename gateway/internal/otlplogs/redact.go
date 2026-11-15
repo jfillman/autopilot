@@ -92,7 +92,7 @@ func keepDigest(s string, start, end int) bool {
 		prefix string
 		n      int
 	}{{"sha256:", 64}, {"sha512:", 128}} {
-		if len(run) == d.n && strings.HasPrefix(s[:start], "") && strings.HasSuffix(s[:start], d.prefix) && isHex(run) {
+		if len(run) == d.n && strings.HasSuffix(s[:start], d.prefix) && isHex(run) {
 			return true
 		}
 	}
