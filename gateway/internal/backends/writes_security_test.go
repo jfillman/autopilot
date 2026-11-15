@@ -115,7 +115,7 @@ func TestEveryWriteIsRefusedOutsideTheSessionsGrantAndTheDefinitionsScope(t *tes
 		}
 		// a propose-only tool is for a ceiling of T1 and above, and not above T2 tools that are not propose-only
 		e := run(narrowDefinition(), allTools(), "T1")
-		if _, err := e.call("glidepath.promote", promote); err == nil || errors.Is(err, nil) {
+		if _, err := e.call("glidepath.promote", promote); err != nil {
 			var den *core.Denied
 			if errors.As(err, &den) && den.Rule == "R007" {
 				t.Fatalf("a propose-only tool is allowed to T1: %v", err)
