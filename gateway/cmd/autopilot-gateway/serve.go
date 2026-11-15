@@ -370,10 +370,17 @@ func serve(_ []string) int {
 	// The read API's indexes are `autopilot-gateway migrate`'s (a plain CREATE INDEX here would hold this table's writes for the build). A
 	// database without them is refused by default: a silently slow read path in production is what migrate exists to prevent. The cutover
 	// runs migrate BEFORE the switch, so the first start finds them; GATEWAY_ALLOW_MISSING_INDEXES=1 starts anyway (and says so).
-	if states, err := st.CheckIndexes(ctx); err != nil {
-		log.Warn("the read API's indexes could not be checked", "err", err.Error())
+	// A check that cannot be made is not a pass: it is refused the same way (fail closed).
+	allowMissing := boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false)
+	states, cerr := st.CheckIndexes(ctx)
+	if cerr != nil {
+		if !allowMissing {
+			log.Error("the read API's indexes could not be checked: " + cerr.Error() + " (GATEWAY_ALLOW_MISSING_INDEXES=1 starts without the check)")
+			return 1
+		}
+		log.Error("starting without the index check (GATEWAY_ALLOW_MISSING_INDEXES=1): " + cerr.Error())
 	} else if m := dbindex.Problems(states); m != "" {
-		if !boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false) {
+		if !allowMissing {
 			log.Error("the gateway database lacks indexes the read API needs: " + m + " (GATEWAY_ALLOW_MISSING_INDEXES=1 starts without them)")
 			return 1
 		}

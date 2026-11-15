@@ -222,7 +222,12 @@ func buildAPI(ctx context.Context, cfg *apiConfig, log *slog.Logger) (*http.Serv
 	// The six indexes are `migrate`'s: without them the lists scan their tables. Refused by default (a silent slow path in production is what
 	// migrate exists to prevent); GATEWAY_ALLOW_MISSING_INDEXES=1 serves anyway, loudly.
 	if m, err := store.IndexProblems(cctx); err != nil {
-		log.Warn("the read API's indexes could not be checked", "err", err.Error())
+		// a check that cannot be made is not a pass
+		if !boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false) {
+			store.Close()
+			return nil, nil, fmt.Errorf("the read API's indexes could not be checked: %w (GATEWAY_ALLOW_MISSING_INDEXES=1 serves without the check)", err)
+		}
+		log.Error("serving without the index check (GATEWAY_ALLOW_MISSING_INDEXES=1): " + err.Error())
 	} else if m != "" {
 		if !boolEnv(os.Getenv, "GATEWAY_ALLOW_MISSING_INDEXES", false) {
 			store.Close()
