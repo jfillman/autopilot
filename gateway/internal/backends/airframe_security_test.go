@@ -804,3 +804,81 @@ func TestAnSLORequestedThroughTheGatewayIsForcedIntoTheAppsNamespace(t *testing.
 		t.Fatal("an SLO for an environment with no namespace was written")
 	}
 }
+
+// -- the second Lens round ---------------------------------------------------------------------------------------------------------
+
+// The checked value is the used value: a registry that spells the owner with capitals gets the canonical repository in the receipt, and
+// every request goes to it.
+func TestApplyUsesTheCanonicalRepositoryTheScopeCheckReturned(t *testing.T) {
+	old := airframeFixtureRegistry
+	airframeFixtureRegistry.Owner = "O"
+	defer func() { airframeFixtureRegistry = old }()
+	gh := afGitHub()
+	defer gh.Close()
+	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
+	out, err := e.call("airframe.apply", map[string]any{"spec": appSpec("a service")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := asMap(t, out)
+	if m["repo"] != tenantsRepo {
+		t.Fatalf("the receipt names %v, not the canonical %s", m["repo"], tenantsRepo)
+	}
+	for _, s := range m["steps"].([]any) {
+		if r, _ := asMap(t, s)["repo"].(string); r != strings.ToLower(r) {
+			t.Fatalf("a step names %q", r)
+		}
+	}
+	for _, c := range gh.Calls() {
+		if strings.Contains(c.Target, "/repos/O/") {
+			t.Fatalf("a request with the raw spelling: %s", c.Target)
+		}
+	}
+}
+
+// A branch another session made stops apply with that refusal before anything else is asked; only the broker's "not an app's repository"
+// means nothing exists.
+func TestAForeignBranchStopsApplyAtOnce(t *testing.T) {
+	gh := afGitHub()
+	defer gh.Close()
+	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
+	branch := branchForStep("parachute", "tenants", "s-1")
+	gh.SeedBranch(tenantsRepo, branch, map[string]string{"tenants/parachute/xr-requests/parachute.yaml": "x: 1\n"}, "a person's commit")
+	gh.SeedPR(tenantsRepo, branch)
+	before := len(gh.Calls())
+	_, err := e.call("airframe.apply", map[string]any{"spec": appSpec("a service")})
+	refusedWith(t, err, "APPLY-BRANCH-FOREIGN")
+	for _, c := range gh.Calls()[before:] {
+		if c.Method == "POST" && !strings.HasSuffix(c.Target, "/agent-installation-token") || strings.Contains(c.Target, "/contents/") || strings.Contains(c.Target, "onboarding") {
+			t.Fatalf("apply went on after the refusal: %s %s", c.Method, c.Target)
+		}
+	}
+	if !nothingExists(&core.Denied{Rule: "GH-REPO-NOT-APP"}) || !nothingExists(&core.Denied{Rule: "XR-TENANTS-TOKEN"}) {
+		t.Fatal("a repository the broker does not know is nothing")
+	}
+	for _, rule := range []string{"APPLY-BRANCH-FOREIGN", "GH-OWNER", "GH-REPO", "R014", "GH-BRANCH"} {
+		if nothingExists(&core.Denied{Rule: rule}) {
+			t.Errorf("%s was taken as nothing exists", rule)
+		}
+	}
+}
+
+func TestNoEnvironmentCanBeNamedSoThatItReadsAsACicdNamespace(t *testing.T) {
+	for _, env := range []string{"cicd", "pr-1-cicd", "agent-x-cicd"} {
+		if _, err := airframe.BuildXR(airframe.XRRequest{App: "flight-api", Env: env, Kind: "MessageQueue", Spec: mustArgs(t, map[string]any{})}, airframeFixtureRegistry); err == nil {
+			t.Errorf("xr.request for env %q", env)
+		}
+	}
+	gh := afGitHub()
+	defer gh.Close()
+	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
+	for _, env := range []string{"cicd", "x-cicd"} {
+		spec := appSpec("a service")
+		spec["environments"] = map[string]any{"ground": []any{env}, "flight": []any{}}
+		_, err := e.call("airframe.apply", map[string]any{"spec": spec})
+		refusedWith(t, err, "AF-ENV-NAME")
+	}
+	if len(gh.Calls()) != 0 {
+		t.Fatal("a request was made")
+	}
+}

@@ -256,3 +256,17 @@ func TestTheCicdNamespaceNameIsInjective(t *testing.T) {
 		}
 	}
 }
+
+func TestAnEnvironmentNamedLikeACicdNamespaceIsNotAnEnvironment(t *testing.T) {
+	for _, env := range []string{"cicd", "pr-1-cicd"} {
+		r := tenantWorld()
+		r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"] = append(r.lists["/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications"],
+			map[string]any{"kind": "Application", "metadata": map[string]any{"name": "c", "namespace": "argocd-apps", "labels": map[string]any{"hangar.io/app": "gate", "hangar.io/env": env}},
+				"spec": map[string]any{"destination": map[string]any{"namespace": "app-gate-" + env}}})
+		s := &State{Kube: r, Cluster: "k"}
+		e := env
+		if out, err := s.Status(context.Background(), "gate", &e); err != nil || stAsMap(stAsMap(out)["error"])["rule"] != "AF-ENV-404" {
+			t.Errorf("%s: %v %v", env, out, err)
+		}
+	}
+}

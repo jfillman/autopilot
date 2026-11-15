@@ -323,7 +323,7 @@ type envPlace struct {
 // hangar.io/app == app and hangar.io/env == env (the platform's labels, which a tenant's manifests do not set on an Application).
 func (s *State) place(ctx context.Context, app, env, t string, flight bool) (*envPlace, error) {
 	p := &envPlace{}
-	if !stEnvLabel.MatchString(env) || !stEnvLabel.MatchString(app) {
+	if !stEnvLabel.MatchString(env) || !stEnvLabel.MatchString(app) || CicdLike(env) {
 		return p, nil
 	}
 	apps, err := s.applications(ctx, app, env, t)

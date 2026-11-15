@@ -279,10 +279,14 @@ var humanRefusals = map[string]bool{"GP-SCOPE-001": true, "GP-SCOPE-002": true, 
 var onboardingFiles = []*regexp.Regexp{regexp.MustCompile(`\Aglidepath/envs/[^/]+\.yaml\z`), regexp.MustCompile(`\A[^/]+(/[^/]+)?/values\.yaml\z`)}
 
 type applier struct {
-	git *GitHub
-	gp  *Glidepath
-	reg airframe.Registry
-	sc  *scope
+	// repos maps the repository as the plan names it to the canonical one the scope check returned: the checked value is the used value,
+	// for every request, token, branch and receipt of the call.
+	repos map[string]string
+	def   *definitions.Definition
+	git   *GitHub
+	gp    *Glidepath
+	reg   airframe.Registry
+	sc    *scope
 }
 
 // branchForStep is branch_for: one branch per plan step, fixed by the plan and the session (Python: agent/airframe-<app>-<step>),
@@ -300,11 +304,26 @@ type planFile struct {
 	mustExist     bool
 }
 
-func (ap *applier) repoOf(st *airframe.Step) string {
-	if strings.Contains(st.Repo, "/") || st.Repo == "" {
-		return st.Repo
+// repoOf is the canonical repository of a step: the plan's name, scoped (repos.allow, owner) once, and used in that spelling.
+func (ap *applier) repoOf(st *airframe.Step) (string, error) {
+	raw := st.Repo
+	if raw == "" {
+		return "", nil // a step with no repository (the verify step)
 	}
-	return ap.reg.Owner + "/" + st.Repo
+	if !strings.Contains(raw, "/") {
+		raw = ap.reg.Owner + "/" + st.Repo
+	}
+	if c, ok := ap.repos[raw]; ok {
+		return c, nil
+	}
+	return ap.sc.repo(ap.def, raw, false)
+}
+
+// nothingExists says an error of FindPRIn is only the broker refusing a repository that is not an app's yet (the platform has not made
+// it): any other refusal (a foreign branch, a bad repository) stops the call.
+func nothingExists(err error) bool {
+	var den *core.Denied
+	return errors.As(err, &den) && (den.Rule == "XR-TENANTS-TOKEN" || den.Rule == "GH-REPO-NOT-APP")
 }
 
 func (ap *applier) apply(ctx context.Context, d *definitions.Definition, f SessionFacts, a map[string]any) (any, error) {
@@ -317,6 +336,10 @@ func (ap *applier) apply(ctx context.Context, d *definitions.Definition, f Sessi
 	specIn, base, err := specArgs(a)
 	if err != nil {
 		return nil, err
+	}
+	if env := cicdLikeEnv(a["spec"]); env != "" {
+		return nil, &core.Denied{Rule: "AF-ENV-NAME", Message: pyStrRepr(clipRunes(env, 100)) + " is not an environment name: it would read as a cicd namespace",
+			Hint: "Name the environment anything but cicd or ...-cicd."}
 	}
 	cs, answer := airframe.Changeset(specIn, base, ap.reg)
 	if cs == nil {
@@ -335,6 +358,7 @@ func (ap *applier) apply(ctx context.Context, d *definitions.Definition, f Sessi
 		}
 		repos[r] = canon
 	}
+	ap.repos, ap.def = repos, d
 	steps := []any{}
 	var current map[string]any
 	waiting := ""
@@ -342,7 +366,10 @@ func (ap *applier) apply(ctx context.Context, d *definitions.Definition, f Sessi
 	human := []any{}
 
 	for _, st := range cs.Steps {
-		repo := ap.repoOf(st)
+		repo, err := ap.repoOf(st)
+		if err != nil {
+			return nil, err
+		}
 		row := map[string]any{"id": st.ID, "title": st.Title, "repo": repo, "gate": st.Gate}
 		steps = append(steps, row)
 		flight := flightHalf[st.ID] != ""
@@ -374,8 +401,7 @@ func (ap *applier) apply(ctx context.Context, d *definitions.Definition, f Sessi
 		branch := branchForStep(app, st.ID, f.ID)
 		found, err := ap.git.FindPRIn(ctx, repo, branch, tenants, meta)
 		if err != nil {
-			var den *core.Denied
-			if !errors.As(err, &den) {
+			if !nothingExists(err) {
 				return nil, err
 			}
 			found = nil // the repo is not an onboarded app's yet (the broker's 403): nothing exists
@@ -427,7 +453,7 @@ func (ap *applier) apply(ctx context.Context, d *definitions.Definition, f Sessi
 			}
 			// Onboarding is not finished while its resync PR is open: a file this call opens now would race that PR.
 			var resync []map[string]any
-			for _, r := range []string{repo, repo[:strings.LastIndex(repo, "/")] + "/gitops-" + app} {
+			for _, r := range []string{repo, repos[ap.reg.Owner+"/gitops-"+app]} {
 				ps, err := ap.git.OnboardingPRs(ctx, r, false)
 				if err != nil {
 					return nil, err
@@ -809,4 +835,21 @@ func applyBody(st *airframe.Step, cs *airframe.ChangeSet, verdict map[string]any
 	}
 	lines = append(lines, "The plan's other steps: "+strings.Join(others, ", ")+".")
 	return strings.Join(lines, "\n")
+}
+
+// cicdLikeEnv is the first environment of an AppSpec (ground names, flight names) that is cicd or ends -cicd, or "".
+func cicdLikeEnv(spec any) string {
+	m, _ := spec.(map[string]any)
+	envs, _ := m["environments"].(map[string]any)
+	for _, g := range anyList(envs["ground"]) {
+		if n, ok := g.(string); ok && airframe.CicdLike(n) {
+			return n
+		}
+	}
+	for _, f := range anyList(envs["flight"]) {
+		if n, ok := obj(f)["name"].(string); ok && airframe.CicdLike(n) {
+			return n
+		}
+	}
+	return ""
 }

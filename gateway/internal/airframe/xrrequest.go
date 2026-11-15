@@ -63,6 +63,10 @@ var (
 	lowerEnvs        = map[string]bool{"dev": true, "development": true, "sandbox": true, "scratch": true}
 )
 
+// CicdLike says an environment name would make `<type>-<app>-<env>` read as a cicd namespace (`cicd`, or one that ends `-cicd`): no
+// environment may be requested, planned or read under such a name.
+func CicdLike(env string) bool { return env == "cicd" || strings.HasSuffix(env, "-cicd") }
+
 // IsLowerEnv is xr_request.is_lower.
 func IsLowerEnv(env string) bool {
 	return lowerEnvs[env] || strings.HasPrefix(env, "pr-") || strings.HasPrefix(env, "agent-")
@@ -329,7 +333,7 @@ func BuildXR(r XRRequest, reg Registry) (*BuiltXR, error) {
 		return nil, xrRefuse("XR-APP", xrEcho(r.App)+" is not an app name", "Pass the app's name as in tenants/<app>/ (e.g. flight-api).")
 	}
 	env, ok := asLabel(r.Env)
-	if !ok || !IsLowerEnv(env) {
+	if !ok || !IsLowerEnv(env) || CicdLike(env) {
 		return nil, xrRefuse("XR-ENV", xrEcho(r.Env)+" is not a lower environment",
 			"xr.request asks for lower environments only (dev, pr-*, agent-*); an upper one is a Flight change a person makes.")
 	}

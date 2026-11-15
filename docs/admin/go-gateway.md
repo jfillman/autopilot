@@ -1012,7 +1012,7 @@ it is the only tool that writes a new `tenants/<app>/`, scoped by `profile.airfr
 It opens PRs only: the planner's steps as GETs and the POSTs that make a new branch and its pull request; **no cluster write and no new backend**. Per step, as Python: find the step's pull request (merged: skip; closed: `waiting`;
 open: returned again with the paths GitHub says it carries), wait for the repository and for the onboarding resync pull requests, take cicd.yaml's change from glidepath-api (`POST /v1/apps/{app}/cicd/validations`, S5b's), read each file at the default branch, merge into the onboarding scaffold
 (`APPLY-CONFLICT`, `APPLY-EXISTS`) and open the pull request once. The Flight half only with `proposeFlight`, marked for a person (`Hangar-Merge: person`). Differences from Python: the strict YAML reader for existing files; a file is "already there" when its YAML is equal, not only its text;
-every repository is checked before the first request; the default branch is the base and is read (`GET /repos/{o}/{r}`) where Python says `main`.
+every repository is checked before the first request and used in the canonical spelling the check returned (requests, tokens, branches and receipt); only the broker's "not an app's repository" means nothing exists, any other refusal of a step's pull-request lookup (a foreign branch) stops the call; no environment may be named `cicd` or `...-cicd` (`xr.request`, `airframe.apply`, the read tools: it would read as a cicd namespace); the default branch is the base and is read (`GET /repos/{o}/{r}`) where Python says `main`.
 
 ### The closed lists of requests this slice adds
 
