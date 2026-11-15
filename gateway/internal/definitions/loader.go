@@ -212,6 +212,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 	var loaded []*Loaded
 	var rejected []Rejected
 	skipped := 0
+	skippedNames := map[string]bool{} // the pins whose file could not be read this poll: only these keep what was loaded for them
 	current := map[pinKey]bool{}
 	reserved := p.Set.Bundled()
 	for _, xr := range items {
@@ -239,6 +240,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		c, err := p.fetch(ctx, src, key)
 		if err != nil {
 			skipped++
+			skippedNames[name] = true
 			continue
 		}
 		src.LoadedAt = S(c.at)
@@ -259,7 +261,9 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		return Changes{}
 	}
 	if skipped > 0 {
-		// The unreachable pins keep their last state: re-add what is loaded for them so the swap drops nothing.
+		// The unreachable pins keep their last state: re-add what is loaded for them so the swap drops nothing. Only them: a pin whose XR is
+		// gone is gone, whatever else could not be read (Python re-adds every definition this poll did not see, so a deleted pin lives on
+		// for as long as any other pin is unreachable).
 		seen := map[string]bool{}
 		for _, l := range loaded {
 			seen[l.Name()] = true
@@ -270,7 +274,7 @@ func (p *Poller) Poll(ctx context.Context) Changes {
 		p.mu.Lock()
 		for _, name := range p.Set.ClusterNames() {
 			l := p.Set.Loaded(name)
-			if l == nil || seen[name] {
+			if l == nil || seen[name] || !skippedNames[name] {
 				continue
 			}
 			key := pinKey{strOr(l.Source.Repo, ""), strOr(l.Source.Path, ""), strOr(l.Source.Commit, "")}

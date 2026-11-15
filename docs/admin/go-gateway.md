@@ -909,9 +909,9 @@ the GitHub file read (the S5a `KubeReader` and the S5b `GitHub.ReadFile` gained 
 | Strict reading of a definition file: one document, a mapping, at most 64 KiB, 5,000 nodes, 24 levels; no duplicate key, anchor, alias, merge key or explicit tag; keys are strings; a plain scalar is read the same by YAML 1.1 and 1.2 or refused | `definitions.ParseYAML`, `DecodeJSON` | the corpus (`yaml-strict` group), `strict_test.go`, `FuzzParseYAML` |
 | The schema, in Python's order and words: required, additional properties, enum, pattern, bounds, `oneOf` (the best of its branches) | `definitions.ValidateSchema` | 301 corpus cases against Python's own error text; `FuzzValidateSchema` |
 | What a pin must also satisfy: its file's name is the XR's, its owner is the XR's, a workload identity is `autopilot-runs/<name>`, the name is not a bundled one | `definitions.FromPin` | the corpus (`pin` group), the scenarios |
-| The live set: bundled names first and never shadowed, a name twice is a rejection of both, what changed | `definitions.Set` | the scenarios (29 steps) |
+| The live set: bundled names first and never shadowed, a name twice is a rejection of both, what changed | `definitions.Set` | the scenarios (31 steps) |
 | The loader | `definitions.Poller` | the scenarios, `loader_test.go` |
-| The publish | `definitions.Manager`, `core.PublishDefinitions` | the scenarios (23 requests, body for body), `loader_test.go` |
+| The publish | `definitions.Manager`, `core.PublishDefinitions` | the scenarios (25 requests, body for body), `loader_test.go` |
 | The set held in memory is replaced whole while the gateway serves | `Gateway.SetDefs`, `Gateway.Definitions` | `defs_live_test.go` (`-race`) |
 | A candidate's `document` (Preflight) is read by the same validator | `Gateway.CandidateParse` is set in `serve` | `cmd/autopilot-gateway/definitions_test.go` |
 | The stored set (`gateway_definitions`) is replaced in one transaction | `pgstate.ReplaceDefinitions` | `TestDefinitionsAreReplacedWhole` (needs `AUTOPILOT_TEST_PG`) |
@@ -1003,6 +1003,9 @@ Each is a case in `testdata/definitions.json` with `go` and `why`; the test fail
 - **An empty list is believed on the second reading**, not the first (above).
 - **The stored rows are decided again** at start, and only when the loader is on.
 - **A non-string `spec.source` field** of an XR (which the XRD's schema forbids) is treated as missing; Python would write its `str()`. Timestamps in `loaded_at` have whole seconds.
+- **A deleted pin is removed even while another pin is unreachable.** When some pin's file cannot be read, Python re-adds every definition the poll did not
+  see, so an Agent XR that was deleted keeps its agent for as long as any other pin is unreachable (a revoke delayed by an outage). Go re-adds only the pins that
+  were skipped (PR Lens, #110).
 - **A fetch error that is not the broker's rule skips the pin** this poll; Python skips it only for a GitHub error and aborts the whole poll (keeping the set) for anything else.
 - **The unpublished flag is not set when the store write fails**: Python raises out of the poll before it. The live set is what runs; the store is for the restart, and the log says it could not be kept.
 - **The gateway database holds two rejections of one name** as one row (the table's key is `(name, state)`); Python's insert of both fails on the key.
@@ -1182,7 +1185,7 @@ is accepted and none panics.
    skipped for want of one, so none became takeable; it still shows zero differences against clearance v0.44.0 (342 tool calls,
    261 session opens, 35 session spawns, 49 model calls; 372 spends, 648 records and 265 grants compared).
 6. **The S4 fixtures** (above): the Python loader driven over 301 definition files (the schema's every rejection, the pin rules, the YAML readings) and
-   8 scenarios of its poll, 29 steps, with the 23 requests it made to the core, body for body. Zero differences except the 52 file cases and 4 steps
+   9 scenarios of its poll, 31 steps, with the 25 requests it made to the core, body for body. Zero differences except the 52 file cases and 5 steps
    carried as `go` with a `why`. The replay is unchanged (zero differences; 342 tool calls, 292 session opens, 35 spawns, 49 model calls, 372 spends,
    679 records, 290 grants compared against clearance v0.44.0): its corpus has no definition publish, and no line it skips was skipped for want of a
    definition, so none became takeable (the 12 kinds it still lists are numbers beyond int64, a gateway with no model routes, and the decisions

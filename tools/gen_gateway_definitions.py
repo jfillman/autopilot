@@ -604,6 +604,23 @@ def scenarios() -> list[dict]:
         {"label": "a new process: the pin is read from the store, GitHub is down", "at": at(5), "restart": True, "xrs": [xr(A)],
          "files": {fkey(REPO, f"agents/{A}.yaml", COMMIT): {"transient": 1}}},
     ]))
+    # a deleted pin is not kept alive by another pin's outage (a Python defect that delays a revoke; Go does not match it)
+    B2, C3 = "gate-two", "gate-three"
+    three = {**fa, fkey(REPO, f"agents/{B2}.yaml", COMMIT): f(base(B2)), fkey(REPO, f"agents/{C3}.yaml", COMMIT): f(base(C3))}
+    main = scenario("a pin that was deleted is not kept by another pin's outage", [
+        {"label": "three pins load", "at": at(0), "xrs": [xr(C3), xr(A), xr(B2)], "files": three},
+        {"label": "one XR is deleted while another one's repin is unreachable", "at": at(1), "xrs": [xr(C3, commit=COMMIT2), xr(B2)],
+         "files": {fkey(REPO, f"agents/{C3}.yaml", COMMIT2): {"transient": 1}}},
+    ])
+    control = scenario("control", [
+        {"label": "three pins load", "at": at(0), "xrs": [xr(C3), xr(A), xr(B2)], "files": three},
+        {"label": "one XR is deleted, the others are as they were", "at": at(1), "xrs": [xr(C3), xr(B2)], "files": {}},
+    ])
+    main["steps"][1]["go"] = {"changes": control["steps"][1]["changes"], "state": control["steps"][1]["state"],
+                              "fetched": main["steps"][1]["fetched"], "requests": control["steps"][1]["requests"]}
+    main["steps"][1]["why"] = ("a pin whose XR was deleted is removed, whatever else could not be read: Python re-adds every definition the poll did not see, "
+                               "so a deleted pin keeps running for as long as any other pin is unreachable, which delays a revoke by an outage's length")
+    out.append(main)
     # the empty-list difference: Go reads an empty list as "no definitions" only the second time in a row
     sc = out[4]
     s3, s4 = sc["steps"][3], sc["steps"][4]

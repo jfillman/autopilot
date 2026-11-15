@@ -32916,6 +32916,1722 @@
      ]
     }
    ]
+  },
+  {
+   "bundled": {
+    "researcher": {
+     "description": "The platform's researcher.",
+     "identity": {
+      "type": "delegated"
+     },
+     "kind": "task",
+     "name": "researcher",
+     "owner": "group:default/team-platform",
+     "profile": {
+      "compute": "small",
+      "glidepath": {
+       "apps": [
+        "gate-api"
+       ]
+      },
+      "limits": {
+       "children": 0,
+       "githubCalls": 40,
+       "modelTokens": 400000,
+       "openPrs": 1,
+       "toolCalls": 60,
+       "ttlMinutes": 20
+      },
+      "models": [
+       "claude-sonnet-5-5"
+      ],
+      "network": "clearance+model",
+      "repos": {
+       "allow": [
+        "acme/gate-api"
+       ]
+      },
+      "tierCeiling": "T1",
+      "tools": [
+       "glidepath.runs.list",
+       "repo.file.get",
+       "repo.pr.open"
+      ]
+     },
+     "runtime": {
+      "framework": "generic",
+      "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "instructions": "Find why the run failed."
+     },
+     "triggers": [
+      {
+       "type": "manual"
+      }
+     ]
+    },
+    "triage-agent": {
+     "description": "The platform's triage-agent.",
+     "identity": {
+      "type": "delegated"
+     },
+     "kind": "task",
+     "name": "triage-agent",
+     "owner": "group:default/team-platform",
+     "profile": {
+      "compute": "small",
+      "glidepath": {
+       "apps": [
+        "gate-api"
+       ]
+      },
+      "limits": {
+       "children": 0,
+       "githubCalls": 40,
+       "modelTokens": 400000,
+       "openPrs": 1,
+       "toolCalls": 60,
+       "ttlMinutes": 20
+      },
+      "models": [
+       "claude-sonnet-5-5"
+      ],
+      "network": "clearance+model",
+      "repos": {
+       "allow": [
+        "acme/gate-api"
+       ]
+      },
+      "tierCeiling": "T1",
+      "tools": [
+       "glidepath.runs.list",
+       "repo.file.get",
+       "repo.pr.open"
+      ]
+     },
+     "runtime": {
+      "framework": "generic",
+      "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "instructions": "Find why the run failed."
+     },
+     "triggers": [
+      {
+       "type": "manual"
+      }
+     ]
+    }
+   },
+   "bundled_version": "gw-test-1",
+   "name": "a pin that was deleted is not kept by another pin's outage",
+   "steps": [
+    {
+     "at": "2026-11-14T12:00:00+00:00",
+     "changes": {
+      "added": [
+       "gate-three",
+       "gate-triage",
+       "gate-two"
+      ],
+      "changed": [],
+      "cleared": [],
+      "rejected": [],
+      "removed": []
+     },
+     "core": [],
+     "fetched": [
+      "acme/gate-api|agents/gate-three.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+      "acme/gate-api|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+      "acme/gate-api|agents/gate-two.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"
+     ],
+     "files": {
+      "acme/gate-api|agents/gate-three.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b": {
+       "doc": {
+        "description": "Reads a failed run and proposes a fix.",
+        "identity": {
+         "serviceAccount": "autopilot-runs/gate-three",
+         "type": "workload"
+        },
+        "kind": "event",
+        "name": "gate-three",
+        "owner": "group:default/team-gate",
+        "profile": {
+         "compute": "small",
+         "glidepath": {
+          "apps": [
+           "gate-api"
+          ]
+         },
+         "limits": {
+          "children": 0,
+          "githubCalls": 40,
+          "modelTokens": 400000,
+          "openPrs": 1,
+          "toolCalls": 60,
+          "ttlMinutes": 20
+         },
+         "models": [
+          "claude-sonnet-5-5"
+         ],
+         "network": "clearance+model",
+         "repos": {
+          "allow": [
+           "acme/gate-api"
+          ]
+         },
+         "tierCeiling": "T1",
+         "tools": [
+          "glidepath.runs.list",
+          "repo.file.get",
+          "repo.pr.open"
+         ]
+        },
+        "runtime": {
+         "framework": "generic",
+         "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "instructions": "Find why the run failed."
+        },
+        "triggers": [
+         {
+          "bindingKey": "gate-api.pipelinerun.finished",
+          "match": {
+           "subject.content.outcome": "failure"
+          },
+          "maxPerHour": 4,
+          "source": "glidepath",
+          "type": "event"
+         }
+        ]
+       }
+      },
+      "acme/gate-api|agents/gate-triage.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b": {
+       "doc": {
+        "description": "Reads a failed run and proposes a fix.",
+        "identity": {
+         "serviceAccount": "autopilot-runs/gate-triage",
+         "type": "workload"
+        },
+        "kind": "event",
+        "name": "gate-triage",
+        "owner": "group:default/team-gate",
+        "profile": {
+         "compute": "small",
+         "glidepath": {
+          "apps": [
+           "gate-api"
+          ]
+         },
+         "limits": {
+          "children": 0,
+          "githubCalls": 40,
+          "modelTokens": 400000,
+          "openPrs": 1,
+          "toolCalls": 60,
+          "ttlMinutes": 20
+         },
+         "models": [
+          "claude-sonnet-5-5"
+         ],
+         "network": "clearance+model",
+         "repos": {
+          "allow": [
+           "acme/gate-api"
+          ]
+         },
+         "tierCeiling": "T1",
+         "tools": [
+          "glidepath.runs.list",
+          "repo.file.get",
+          "repo.pr.open"
+         ]
+        },
+        "runtime": {
+         "framework": "generic",
+         "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "instructions": "Find why the run failed."
+        },
+        "triggers": [
+         {
+          "bindingKey": "gate-api.pipelinerun.finished",
+          "match": {
+           "subject.content.outcome": "failure"
+          },
+          "maxPerHour": 4,
+          "source": "glidepath",
+          "type": "event"
+         }
+        ]
+       }
+      },
+      "acme/gate-api|agents/gate-two.yaml|1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b": {
+       "doc": {
+        "description": "Reads a failed run and proposes a fix.",
+        "identity": {
+         "serviceAccount": "autopilot-runs/gate-two",
+         "type": "workload"
+        },
+        "kind": "event",
+        "name": "gate-two",
+        "owner": "group:default/team-gate",
+        "profile": {
+         "compute": "small",
+         "glidepath": {
+          "apps": [
+           "gate-api"
+          ]
+         },
+         "limits": {
+          "children": 0,
+          "githubCalls": 40,
+          "modelTokens": 400000,
+          "openPrs": 1,
+          "toolCalls": 60,
+          "ttlMinutes": 20
+         },
+         "models": [
+          "claude-sonnet-5-5"
+         ],
+         "network": "clearance+model",
+         "repos": {
+          "allow": [
+           "acme/gate-api"
+          ]
+         },
+         "tierCeiling": "T1",
+         "tools": [
+          "glidepath.runs.list",
+          "repo.file.get",
+          "repo.pr.open"
+         ]
+        },
+        "runtime": {
+         "framework": "generic",
+         "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "instructions": "Find why the run failed."
+        },
+        "triggers": [
+         {
+          "bindingKey": "gate-api.pipelinerun.finished",
+          "match": {
+           "subject.content.outcome": "failure"
+          },
+          "maxPerHour": 4,
+          "source": "glidepath",
+          "type": "event"
+         }
+        ]
+       }
+      }
+     },
+     "label": "three pins load",
+     "list_fail": null,
+     "requests": [
+      {
+       "authorization": "Bearer fixture-core-token",
+       "body": {
+        "bundled": [
+         {
+          "doc": {
+           "description": "The platform's researcher.",
+           "identity": {
+            "type": "delegated"
+           },
+           "kind": "task",
+           "name": "researcher",
+           "owner": "group:default/team-platform",
+           "profile": {
+            "compute": "small",
+            "glidepath": {
+             "apps": [
+              "gate-api"
+             ]
+            },
+            "limits": {
+             "children": 0,
+             "githubCalls": 40,
+             "modelTokens": 400000,
+             "openPrs": 1,
+             "toolCalls": 60,
+             "ttlMinutes": 20
+            },
+            "models": [
+             "claude-sonnet-5-5"
+            ],
+            "network": "clearance+model",
+            "repos": {
+             "allow": [
+              "acme/gate-api"
+             ]
+            },
+            "tierCeiling": "T1",
+            "tools": [
+             "glidepath.runs.list",
+             "repo.file.get",
+             "repo.pr.open"
+            ]
+           },
+           "runtime": {
+            "framework": "generic",
+            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "instructions": "Find why the run failed."
+           },
+           "triggers": [
+            {
+             "type": "manual"
+            }
+           ]
+          },
+          "name": "researcher",
+          "version": "gw-test-1"
+         },
+         {
+          "doc": {
+           "description": "The platform's triage-agent.",
+           "identity": {
+            "type": "delegated"
+           },
+           "kind": "task",
+           "name": "triage-agent",
+           "owner": "group:default/team-platform",
+           "profile": {
+            "compute": "small",
+            "glidepath": {
+             "apps": [
+              "gate-api"
+             ]
+            },
+            "limits": {
+             "children": 0,
+             "githubCalls": 40,
+             "modelTokens": 400000,
+             "openPrs": 1,
+             "toolCalls": 60,
+             "ttlMinutes": 20
+            },
+            "models": [
+             "claude-sonnet-5-5"
+            ],
+            "network": "clearance+model",
+            "repos": {
+             "allow": [
+              "acme/gate-api"
+             ]
+            },
+            "tierCeiling": "T1",
+            "tools": [
+             "glidepath.runs.list",
+             "repo.file.get",
+             "repo.pr.open"
+            ]
+           },
+           "runtime": {
+            "framework": "generic",
+            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "instructions": "Find why the run failed."
+           },
+           "triggers": [
+            {
+             "type": "manual"
+            }
+           ]
+          },
+          "name": "triage-agent",
+          "version": "gw-test-1"
+         }
+        ],
+        "pins": [
+         {
+          "doc": {
+           "description": "Reads a failed run and proposes a fix.",
+           "identity": {
+            "serviceAccount": "autopilot-runs/gate-three",
+            "type": "workload"
+           },
+           "kind": "event",
+           "name": "gate-three",
+           "owner": "group:default/team-gate",
+           "profile": {
+            "compute": "small",
+            "glidepath": {
+             "apps": [
+              "gate-api"
+             ]
+            },
+            "limits": {
+             "children": 0,
+             "githubCalls": 40,
+             "modelTokens": 400000,
+             "openPrs": 1,
+             "toolCalls": 60,
+             "ttlMinutes": 20
+            },
+            "models": [
+             "claude-sonnet-5-5"
+            ],
+            "network": "clearance+model",
+            "repos": {
+             "allow": [
+              "acme/gate-api"
+             ]
+            },
+            "tierCeiling": "T1",
+            "tools": [
+             "glidepath.runs.list",
+             "repo.file.get",
+             "repo.pr.open"
+            ]
+           },
+           "runtime": {
+            "framework": "generic",
+            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "instructions": "Find why the run failed."
+           },
+           "triggers": [
+            {
+             "bindingKey": "gate-api.pipelinerun.finished",
+             "match": {
+              "subject.content.outcome": "failure"
+             },
+             "maxPerHour": 4,
+             "source": "glidepath",
+             "type": "event"
+            }
+           ]
+          },
+          "owner": "group:default/team-gate",
+          "source": {
+           "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+           "loaded_at": "2026-11-14T12:00:00Z",
+           "namespace": "app-gate-api-cicd",
+           "path": "agents/gate-three.yaml",
+           "repo": "acme/gate-api",
+           "xr": "gate-three"
+          }
+         },
+         {
+          "doc": {
+           "description": "Reads a failed run and proposes a fix.",
+           "identity": {
+            "serviceAccount": "autopilot-runs/gate-triage",
+            "type": "workload"
+           },
+           "kind": "event",
+           "name": "gate-triage",
+           "owner": "group:default/team-gate",
+           "profile": {
+            "compute": "small",
+            "glidepath": {
+             "apps": [
+              "gate-api"
+             ]
+            },
+            "limits": {
+             "children": 0,
+             "githubCalls": 40,
+             "modelTokens": 400000,
+             "openPrs": 1,
+             "toolCalls": 60,
+             "ttlMinutes": 20
+            },
+            "models": [
+             "claude-sonnet-5-5"
+            ],
+            "network": "clearance+model",
+            "repos": {
+             "allow": [
+              "acme/gate-api"
+             ]
+            },
+            "tierCeiling": "T1",
+            "tools": [
+             "glidepath.runs.list",
+             "repo.file.get",
+             "repo.pr.open"
+            ]
+           },
+           "runtime": {
+            "framework": "generic",
+            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "instructions": "Find why the run failed."
+           },
+           "triggers": [
+            {
+             "bindingKey": "gate-api.pipelinerun.finished",
+             "match": {
+              "subject.content.outcome": "failure"
+             },
+             "maxPerHour": 4,
+             "source": "glidepath",
+             "type": "event"
+            }
+           ]
+          },
+          "owner": "group:default/team-gate",
+          "source": {
+           "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+           "loaded_at": "2026-11-14T12:00:00Z",
+           "namespace": "app-gate-api-cicd",
+           "path": "agents/gate-triage.yaml",
+           "repo": "acme/gate-api",
+           "xr": "gate-triage"
+          }
+         },
+         {
+          "doc": {
+           "description": "Reads a failed run and proposes a fix.",
+           "identity": {
+            "serviceAccount": "autopilot-runs/gate-two",
+            "type": "workload"
+           },
+           "kind": "event",
+           "name": "gate-two",
+           "owner": "group:default/team-gate",
+           "profile": {
+            "compute": "small",
+            "glidepath": {
+             "apps": [
+              "gate-api"
+             ]
+            },
+            "limits": {
+             "children": 0,
+             "githubCalls": 40,
+             "modelTokens": 400000,
+             "openPrs": 1,
+             "toolCalls": 60,
+             "ttlMinutes": 20
+            },
+            "models": [
+             "claude-sonnet-5-5"
+            ],
+            "network": "clearance+model",
+            "repos": {
+             "allow": [
+              "acme/gate-api"
+             ]
+            },
+            "tierCeiling": "T1",
+            "tools": [
+             "glidepath.runs.list",
+             "repo.file.get",
+             "repo.pr.open"
+            ]
+           },
+           "runtime": {
+            "framework": "generic",
+            "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "instructions": "Find why the run failed."
+           },
+           "triggers": [
+            {
+             "bindingKey": "gate-api.pipelinerun.finished",
+             "match": {
+              "subject.content.outcome": "failure"
+             },
+             "maxPerHour": 4,
+             "source": "glidepath",
+             "type": "event"
+            }
+           ]
+          },
+          "owner": "group:default/team-gate",
+          "source": {
+           "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+           "loaded_at": "2026-11-14T12:00:00Z",
+           "namespace": "app-gate-api-cicd",
+           "path": "agents/gate-two.yaml",
+           "repo": "acme/gate-api",
+           "xr": "gate-two"
+          }
+         }
+        ],
+        "provider": "autopilot-gateway"
+       },
+       "method": "PUT",
+       "path": "/v1/definitions"
+      }
+     ],
+     "restart": false,
+     "seeded": null,
+     "state": {
+      "loaded": [
+       {
+        "name": "gate-three",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-three.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-three.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-three"
+        }
+       },
+       {
+        "name": "gate-triage",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-triage.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-triage"
+        }
+       },
+       {
+        "name": "gate-two",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-two.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-two.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-two"
+        }
+       }
+      ],
+      "rejected": [],
+      "rows": [
+       {
+        "doc": {
+         "description": "Reads a failed run and proposes a fix.",
+         "identity": {
+          "serviceAccount": "autopilot-runs/gate-three",
+          "type": "workload"
+         },
+         "kind": "event",
+         "name": "gate-three",
+         "owner": "group:default/team-gate",
+         "profile": {
+          "compute": "small",
+          "glidepath": {
+           "apps": [
+            "gate-api"
+           ]
+          },
+          "limits": {
+           "children": 0,
+           "githubCalls": 40,
+           "modelTokens": 400000,
+           "openPrs": 1,
+           "toolCalls": 60,
+           "ttlMinutes": 20
+          },
+          "models": [
+           "claude-sonnet-5-5"
+          ],
+          "network": "clearance+model",
+          "repos": {
+           "allow": [
+            "acme/gate-api"
+           ]
+          },
+          "tierCeiling": "T1",
+          "tools": [
+           "glidepath.runs.list",
+           "repo.file.get",
+           "repo.pr.open"
+          ]
+         },
+         "runtime": {
+          "framework": "generic",
+          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "instructions": "Find why the run failed."
+         },
+         "triggers": [
+          {
+           "bindingKey": "gate-api.pipelinerun.finished",
+           "match": {
+            "subject.content.outcome": "failure"
+           },
+           "maxPerHour": 4,
+           "source": "glidepath",
+           "type": "event"
+          }
+         ]
+        },
+        "name": "gate-three",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-three.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-three.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-three"
+        },
+        "state": "loaded"
+       },
+       {
+        "doc": {
+         "description": "Reads a failed run and proposes a fix.",
+         "identity": {
+          "serviceAccount": "autopilot-runs/gate-triage",
+          "type": "workload"
+         },
+         "kind": "event",
+         "name": "gate-triage",
+         "owner": "group:default/team-gate",
+         "profile": {
+          "compute": "small",
+          "glidepath": {
+           "apps": [
+            "gate-api"
+           ]
+          },
+          "limits": {
+           "children": 0,
+           "githubCalls": 40,
+           "modelTokens": 400000,
+           "openPrs": 1,
+           "toolCalls": 60,
+           "ttlMinutes": 20
+          },
+          "models": [
+           "claude-sonnet-5-5"
+          ],
+          "network": "clearance+model",
+          "repos": {
+           "allow": [
+            "acme/gate-api"
+           ]
+          },
+          "tierCeiling": "T1",
+          "tools": [
+           "glidepath.runs.list",
+           "repo.file.get",
+           "repo.pr.open"
+          ]
+         },
+         "runtime": {
+          "framework": "generic",
+          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "instructions": "Find why the run failed."
+         },
+         "triggers": [
+          {
+           "bindingKey": "gate-api.pipelinerun.finished",
+           "match": {
+            "subject.content.outcome": "failure"
+           },
+           "maxPerHour": 4,
+           "source": "glidepath",
+           "type": "event"
+          }
+         ]
+        },
+        "name": "gate-triage",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-triage.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-triage"
+        },
+        "state": "loaded"
+       },
+       {
+        "doc": {
+         "description": "Reads a failed run and proposes a fix.",
+         "identity": {
+          "serviceAccount": "autopilot-runs/gate-two",
+          "type": "workload"
+         },
+         "kind": "event",
+         "name": "gate-two",
+         "owner": "group:default/team-gate",
+         "profile": {
+          "compute": "small",
+          "glidepath": {
+           "apps": [
+            "gate-api"
+           ]
+          },
+          "limits": {
+           "children": 0,
+           "githubCalls": 40,
+           "modelTokens": 400000,
+           "openPrs": 1,
+           "toolCalls": 60,
+           "ttlMinutes": 20
+          },
+          "models": [
+           "claude-sonnet-5-5"
+          ],
+          "network": "clearance+model",
+          "repos": {
+           "allow": [
+            "acme/gate-api"
+           ]
+          },
+          "tierCeiling": "T1",
+          "tools": [
+           "glidepath.runs.list",
+           "repo.file.get",
+           "repo.pr.open"
+          ]
+         },
+         "runtime": {
+          "framework": "generic",
+          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "instructions": "Find why the run failed."
+         },
+         "triggers": [
+          {
+           "bindingKey": "gate-api.pipelinerun.finished",
+           "match": {
+            "subject.content.outcome": "failure"
+           },
+           "maxPerHour": 4,
+           "source": "glidepath",
+           "type": "event"
+          }
+         ]
+        },
+        "name": "gate-two",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-two.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-two.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-two"
+        },
+        "state": "loaded"
+       }
+      ]
+     },
+     "xrs": [
+      {
+       "apiVersion": "catalog.hangar.io/v1alpha1",
+       "kind": "Agent",
+       "metadata": {
+        "name": "gate-three",
+        "namespace": "app-gate-api-cicd"
+       },
+       "spec": {
+        "app": "gate-api",
+        "owner": "group:default/team-gate",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "path": "agents/gate-three.yaml",
+         "repo": "acme/gate-api"
+        }
+       }
+      },
+      {
+       "apiVersion": "catalog.hangar.io/v1alpha1",
+       "kind": "Agent",
+       "metadata": {
+        "name": "gate-triage",
+        "namespace": "app-gate-api-cicd"
+       },
+       "spec": {
+        "app": "gate-api",
+        "owner": "group:default/team-gate",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "path": "agents/gate-triage.yaml",
+         "repo": "acme/gate-api"
+        }
+       }
+      },
+      {
+       "apiVersion": "catalog.hangar.io/v1alpha1",
+       "kind": "Agent",
+       "metadata": {
+        "name": "gate-two",
+        "namespace": "app-gate-api-cicd"
+       },
+       "spec": {
+        "app": "gate-api",
+        "owner": "group:default/team-gate",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "path": "agents/gate-two.yaml",
+         "repo": "acme/gate-api"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "at": "2026-11-14T12:01:00+00:00",
+     "changes": {
+      "added": [],
+      "changed": [],
+      "cleared": [],
+      "rejected": [],
+      "removed": []
+     },
+     "core": [],
+     "fetched": [
+      "acme/gate-api|agents/gate-three.yaml|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+     ],
+     "files": {
+      "acme/gate-api|agents/gate-three.yaml|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+       "transient": 1
+      }
+     },
+     "go": {
+      "changes": {
+       "added": [],
+       "changed": [],
+       "cleared": [],
+       "rejected": [],
+       "removed": [
+        "gate-triage"
+       ]
+      },
+      "fetched": [
+       "acme/gate-api|agents/gate-three.yaml|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ],
+      "requests": [
+       {
+        "authorization": "Bearer fixture-core-token",
+        "body": {
+         "bundled": [
+          {
+           "doc": {
+            "description": "The platform's researcher.",
+            "identity": {
+             "type": "delegated"
+            },
+            "kind": "task",
+            "name": "researcher",
+            "owner": "group:default/team-platform",
+            "profile": {
+             "compute": "small",
+             "glidepath": {
+              "apps": [
+               "gate-api"
+              ]
+             },
+             "limits": {
+              "children": 0,
+              "githubCalls": 40,
+              "modelTokens": 400000,
+              "openPrs": 1,
+              "toolCalls": 60,
+              "ttlMinutes": 20
+             },
+             "models": [
+              "claude-sonnet-5-5"
+             ],
+             "network": "clearance+model",
+             "repos": {
+              "allow": [
+               "acme/gate-api"
+              ]
+             },
+             "tierCeiling": "T1",
+             "tools": [
+              "glidepath.runs.list",
+              "repo.file.get",
+              "repo.pr.open"
+             ]
+            },
+            "runtime": {
+             "framework": "generic",
+             "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "instructions": "Find why the run failed."
+            },
+            "triggers": [
+             {
+              "type": "manual"
+             }
+            ]
+           },
+           "name": "researcher",
+           "version": "gw-test-1"
+          },
+          {
+           "doc": {
+            "description": "The platform's triage-agent.",
+            "identity": {
+             "type": "delegated"
+            },
+            "kind": "task",
+            "name": "triage-agent",
+            "owner": "group:default/team-platform",
+            "profile": {
+             "compute": "small",
+             "glidepath": {
+              "apps": [
+               "gate-api"
+              ]
+             },
+             "limits": {
+              "children": 0,
+              "githubCalls": 40,
+              "modelTokens": 400000,
+              "openPrs": 1,
+              "toolCalls": 60,
+              "ttlMinutes": 20
+             },
+             "models": [
+              "claude-sonnet-5-5"
+             ],
+             "network": "clearance+model",
+             "repos": {
+              "allow": [
+               "acme/gate-api"
+              ]
+             },
+             "tierCeiling": "T1",
+             "tools": [
+              "glidepath.runs.list",
+              "repo.file.get",
+              "repo.pr.open"
+             ]
+            },
+            "runtime": {
+             "framework": "generic",
+             "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "instructions": "Find why the run failed."
+            },
+            "triggers": [
+             {
+              "type": "manual"
+             }
+            ]
+           },
+           "name": "triage-agent",
+           "version": "gw-test-1"
+          }
+         ],
+         "pins": [
+          {
+           "doc": {
+            "description": "Reads a failed run and proposes a fix.",
+            "identity": {
+             "serviceAccount": "autopilot-runs/gate-three",
+             "type": "workload"
+            },
+            "kind": "event",
+            "name": "gate-three",
+            "owner": "group:default/team-gate",
+            "profile": {
+             "compute": "small",
+             "glidepath": {
+              "apps": [
+               "gate-api"
+              ]
+             },
+             "limits": {
+              "children": 0,
+              "githubCalls": 40,
+              "modelTokens": 400000,
+              "openPrs": 1,
+              "toolCalls": 60,
+              "ttlMinutes": 20
+             },
+             "models": [
+              "claude-sonnet-5-5"
+             ],
+             "network": "clearance+model",
+             "repos": {
+              "allow": [
+               "acme/gate-api"
+              ]
+             },
+             "tierCeiling": "T1",
+             "tools": [
+              "glidepath.runs.list",
+              "repo.file.get",
+              "repo.pr.open"
+             ]
+            },
+            "runtime": {
+             "framework": "generic",
+             "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "instructions": "Find why the run failed."
+            },
+            "triggers": [
+             {
+              "bindingKey": "gate-api.pipelinerun.finished",
+              "match": {
+               "subject.content.outcome": "failure"
+              },
+              "maxPerHour": 4,
+              "source": "glidepath",
+              "type": "event"
+             }
+            ]
+           },
+           "owner": "group:default/team-gate",
+           "source": {
+            "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+            "loaded_at": "2026-11-14T12:00:00Z",
+            "namespace": "app-gate-api-cicd",
+            "path": "agents/gate-three.yaml",
+            "repo": "acme/gate-api",
+            "xr": "gate-three"
+           }
+          },
+          {
+           "doc": {
+            "description": "Reads a failed run and proposes a fix.",
+            "identity": {
+             "serviceAccount": "autopilot-runs/gate-two",
+             "type": "workload"
+            },
+            "kind": "event",
+            "name": "gate-two",
+            "owner": "group:default/team-gate",
+            "profile": {
+             "compute": "small",
+             "glidepath": {
+              "apps": [
+               "gate-api"
+              ]
+             },
+             "limits": {
+              "children": 0,
+              "githubCalls": 40,
+              "modelTokens": 400000,
+              "openPrs": 1,
+              "toolCalls": 60,
+              "ttlMinutes": 20
+             },
+             "models": [
+              "claude-sonnet-5-5"
+             ],
+             "network": "clearance+model",
+             "repos": {
+              "allow": [
+               "acme/gate-api"
+              ]
+             },
+             "tierCeiling": "T1",
+             "tools": [
+              "glidepath.runs.list",
+              "repo.file.get",
+              "repo.pr.open"
+             ]
+            },
+            "runtime": {
+             "framework": "generic",
+             "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "instructions": "Find why the run failed."
+            },
+            "triggers": [
+             {
+              "bindingKey": "gate-api.pipelinerun.finished",
+              "match": {
+               "subject.content.outcome": "failure"
+              },
+              "maxPerHour": 4,
+              "source": "glidepath",
+              "type": "event"
+             }
+            ]
+           },
+           "owner": "group:default/team-gate",
+           "source": {
+            "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+            "loaded_at": "2026-11-14T12:00:00Z",
+            "namespace": "app-gate-api-cicd",
+            "path": "agents/gate-two.yaml",
+            "repo": "acme/gate-api",
+            "xr": "gate-two"
+           }
+          }
+         ],
+         "provider": "autopilot-gateway"
+        },
+        "method": "PUT",
+        "path": "/v1/definitions"
+       }
+      ],
+      "state": {
+       "loaded": [
+        {
+         "name": "gate-three",
+         "source": {
+          "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+          "kind": "cluster",
+          "loaded_at": "2026-11-14T12:00:00Z",
+          "namespace": "app-gate-api-cicd",
+          "path": "agents/gate-three.yaml",
+          "pin": "acme/gate-api@1a2b3c4 agents/gate-three.yaml",
+          "repo": "acme/gate-api",
+          "xr": "gate-three"
+         }
+        },
+        {
+         "name": "gate-two",
+         "source": {
+          "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+          "kind": "cluster",
+          "loaded_at": "2026-11-14T12:00:00Z",
+          "namespace": "app-gate-api-cicd",
+          "path": "agents/gate-two.yaml",
+          "pin": "acme/gate-api@1a2b3c4 agents/gate-two.yaml",
+          "repo": "acme/gate-api",
+          "xr": "gate-two"
+         }
+        }
+       ],
+       "rejected": [],
+       "rows": [
+        {
+         "doc": {
+          "description": "Reads a failed run and proposes a fix.",
+          "identity": {
+           "serviceAccount": "autopilot-runs/gate-three",
+           "type": "workload"
+          },
+          "kind": "event",
+          "name": "gate-three",
+          "owner": "group:default/team-gate",
+          "profile": {
+           "compute": "small",
+           "glidepath": {
+            "apps": [
+             "gate-api"
+            ]
+           },
+           "limits": {
+            "children": 0,
+            "githubCalls": 40,
+            "modelTokens": 400000,
+            "openPrs": 1,
+            "toolCalls": 60,
+            "ttlMinutes": 20
+           },
+           "models": [
+            "claude-sonnet-5-5"
+           ],
+           "network": "clearance+model",
+           "repos": {
+            "allow": [
+             "acme/gate-api"
+            ]
+           },
+           "tierCeiling": "T1",
+           "tools": [
+            "glidepath.runs.list",
+            "repo.file.get",
+            "repo.pr.open"
+           ]
+          },
+          "runtime": {
+           "framework": "generic",
+           "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+           "instructions": "Find why the run failed."
+          },
+          "triggers": [
+           {
+            "bindingKey": "gate-api.pipelinerun.finished",
+            "match": {
+             "subject.content.outcome": "failure"
+            },
+            "maxPerHour": 4,
+            "source": "glidepath",
+            "type": "event"
+           }
+          ]
+         },
+         "name": "gate-three",
+         "source": {
+          "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+          "kind": "cluster",
+          "loaded_at": "2026-11-14T12:00:00Z",
+          "namespace": "app-gate-api-cicd",
+          "path": "agents/gate-three.yaml",
+          "pin": "acme/gate-api@1a2b3c4 agents/gate-three.yaml",
+          "repo": "acme/gate-api",
+          "xr": "gate-three"
+         },
+         "state": "loaded"
+        },
+        {
+         "doc": {
+          "description": "Reads a failed run and proposes a fix.",
+          "identity": {
+           "serviceAccount": "autopilot-runs/gate-two",
+           "type": "workload"
+          },
+          "kind": "event",
+          "name": "gate-two",
+          "owner": "group:default/team-gate",
+          "profile": {
+           "compute": "small",
+           "glidepath": {
+            "apps": [
+             "gate-api"
+            ]
+           },
+           "limits": {
+            "children": 0,
+            "githubCalls": 40,
+            "modelTokens": 400000,
+            "openPrs": 1,
+            "toolCalls": 60,
+            "ttlMinutes": 20
+           },
+           "models": [
+            "claude-sonnet-5-5"
+           ],
+           "network": "clearance+model",
+           "repos": {
+            "allow": [
+             "acme/gate-api"
+            ]
+           },
+           "tierCeiling": "T1",
+           "tools": [
+            "glidepath.runs.list",
+            "repo.file.get",
+            "repo.pr.open"
+           ]
+          },
+          "runtime": {
+           "framework": "generic",
+           "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+           "instructions": "Find why the run failed."
+          },
+          "triggers": [
+           {
+            "bindingKey": "gate-api.pipelinerun.finished",
+            "match": {
+             "subject.content.outcome": "failure"
+            },
+            "maxPerHour": 4,
+            "source": "glidepath",
+            "type": "event"
+           }
+          ]
+         },
+         "name": "gate-two",
+         "source": {
+          "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+          "kind": "cluster",
+          "loaded_at": "2026-11-14T12:00:00Z",
+          "namespace": "app-gate-api-cicd",
+          "path": "agents/gate-two.yaml",
+          "pin": "acme/gate-api@1a2b3c4 agents/gate-two.yaml",
+          "repo": "acme/gate-api",
+          "xr": "gate-two"
+         },
+         "state": "loaded"
+        }
+       ]
+      }
+     },
+     "label": "one XR is deleted while another one's repin is unreachable",
+     "list_fail": null,
+     "requests": [],
+     "restart": false,
+     "seeded": null,
+     "state": {
+      "loaded": [
+       {
+        "name": "gate-three",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-three.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-three.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-three"
+        }
+       },
+       {
+        "name": "gate-triage",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-triage.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-triage"
+        }
+       },
+       {
+        "name": "gate-two",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-two.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-two.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-two"
+        }
+       }
+      ],
+      "rejected": [],
+      "rows": [
+       {
+        "doc": {
+         "description": "Reads a failed run and proposes a fix.",
+         "identity": {
+          "serviceAccount": "autopilot-runs/gate-three",
+          "type": "workload"
+         },
+         "kind": "event",
+         "name": "gate-three",
+         "owner": "group:default/team-gate",
+         "profile": {
+          "compute": "small",
+          "glidepath": {
+           "apps": [
+            "gate-api"
+           ]
+          },
+          "limits": {
+           "children": 0,
+           "githubCalls": 40,
+           "modelTokens": 400000,
+           "openPrs": 1,
+           "toolCalls": 60,
+           "ttlMinutes": 20
+          },
+          "models": [
+           "claude-sonnet-5-5"
+          ],
+          "network": "clearance+model",
+          "repos": {
+           "allow": [
+            "acme/gate-api"
+           ]
+          },
+          "tierCeiling": "T1",
+          "tools": [
+           "glidepath.runs.list",
+           "repo.file.get",
+           "repo.pr.open"
+          ]
+         },
+         "runtime": {
+          "framework": "generic",
+          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "instructions": "Find why the run failed."
+         },
+         "triggers": [
+          {
+           "bindingKey": "gate-api.pipelinerun.finished",
+           "match": {
+            "subject.content.outcome": "failure"
+           },
+           "maxPerHour": 4,
+           "source": "glidepath",
+           "type": "event"
+          }
+         ]
+        },
+        "name": "gate-three",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-three.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-three.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-three"
+        },
+        "state": "loaded"
+       },
+       {
+        "doc": {
+         "description": "Reads a failed run and proposes a fix.",
+         "identity": {
+          "serviceAccount": "autopilot-runs/gate-triage",
+          "type": "workload"
+         },
+         "kind": "event",
+         "name": "gate-triage",
+         "owner": "group:default/team-gate",
+         "profile": {
+          "compute": "small",
+          "glidepath": {
+           "apps": [
+            "gate-api"
+           ]
+          },
+          "limits": {
+           "children": 0,
+           "githubCalls": 40,
+           "modelTokens": 400000,
+           "openPrs": 1,
+           "toolCalls": 60,
+           "ttlMinutes": 20
+          },
+          "models": [
+           "claude-sonnet-5-5"
+          ],
+          "network": "clearance+model",
+          "repos": {
+           "allow": [
+            "acme/gate-api"
+           ]
+          },
+          "tierCeiling": "T1",
+          "tools": [
+           "glidepath.runs.list",
+           "repo.file.get",
+           "repo.pr.open"
+          ]
+         },
+         "runtime": {
+          "framework": "generic",
+          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "instructions": "Find why the run failed."
+         },
+         "triggers": [
+          {
+           "bindingKey": "gate-api.pipelinerun.finished",
+           "match": {
+            "subject.content.outcome": "failure"
+           },
+           "maxPerHour": 4,
+           "source": "glidepath",
+           "type": "event"
+          }
+         ]
+        },
+        "name": "gate-triage",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-triage.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-triage.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-triage"
+        },
+        "state": "loaded"
+       },
+       {
+        "doc": {
+         "description": "Reads a failed run and proposes a fix.",
+         "identity": {
+          "serviceAccount": "autopilot-runs/gate-two",
+          "type": "workload"
+         },
+         "kind": "event",
+         "name": "gate-two",
+         "owner": "group:default/team-gate",
+         "profile": {
+          "compute": "small",
+          "glidepath": {
+           "apps": [
+            "gate-api"
+           ]
+          },
+          "limits": {
+           "children": 0,
+           "githubCalls": 40,
+           "modelTokens": 400000,
+           "openPrs": 1,
+           "toolCalls": 60,
+           "ttlMinutes": 20
+          },
+          "models": [
+           "claude-sonnet-5-5"
+          ],
+          "network": "clearance+model",
+          "repos": {
+           "allow": [
+            "acme/gate-api"
+           ]
+          },
+          "tierCeiling": "T1",
+          "tools": [
+           "glidepath.runs.list",
+           "repo.file.get",
+           "repo.pr.open"
+          ]
+         },
+         "runtime": {
+          "framework": "generic",
+          "image": "ghcr.io/acme/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "instructions": "Find why the run failed."
+         },
+         "triggers": [
+          {
+           "bindingKey": "gate-api.pipelinerun.finished",
+           "match": {
+            "subject.content.outcome": "failure"
+           },
+           "maxPerHour": 4,
+           "source": "glidepath",
+           "type": "event"
+          }
+         ]
+        },
+        "name": "gate-two",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "kind": "cluster",
+         "loaded_at": "2026-11-14T12:00:00Z",
+         "namespace": "app-gate-api-cicd",
+         "path": "agents/gate-two.yaml",
+         "pin": "acme/gate-api@1a2b3c4 agents/gate-two.yaml",
+         "repo": "acme/gate-api",
+         "xr": "gate-two"
+        },
+        "state": "loaded"
+       }
+      ]
+     },
+     "why": "a pin whose XR was deleted is removed, whatever else could not be read: Python re-adds every definition the poll did not see, so a deleted pin keeps running for as long as any other pin is unreachable, which delays a revoke by an outage's length",
+     "xrs": [
+      {
+       "apiVersion": "catalog.hangar.io/v1alpha1",
+       "kind": "Agent",
+       "metadata": {
+        "name": "gate-three",
+        "namespace": "app-gate-api-cicd"
+       },
+       "spec": {
+        "app": "gate-api",
+        "owner": "group:default/team-gate",
+        "source": {
+         "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+         "path": "agents/gate-three.yaml",
+         "repo": "acme/gate-api"
+        }
+       }
+      },
+      {
+       "apiVersion": "catalog.hangar.io/v1alpha1",
+       "kind": "Agent",
+       "metadata": {
+        "name": "gate-two",
+        "namespace": "app-gate-api-cicd"
+       },
+       "spec": {
+        "app": "gate-api",
+        "owner": "group:default/team-gate",
+        "source": {
+         "commit": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+         "path": "agents/gate-two.yaml",
+         "repo": "acme/gate-api"
+        }
+       }
+      }
+     ]
+    }
+   ]
   }
  ]
 }
