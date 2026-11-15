@@ -109,6 +109,7 @@ type rule struct {
 	maxLen   int // strings: characters
 	min, max float64
 	ranged   bool
+	exclMin  bool // the minimum itself is refused (the XRD's exclusiveMinimum)
 	maxItems int
 	item     *rule
 	fields   map[string]*rule
@@ -219,7 +220,7 @@ var kindFields = map[string]*rule{
 	"SLO": obj(map[string]*rule{
 		"environmentRef": obj(map[string]*rule{"name": s(`[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`, "")}, "name"),
 		"service":        &rule{t: tString, re: regexp.MustCompile(`\A(?:[a-zA-Z0-9_.-]+)\z`), bind: appDash, maxLen: 100},
-		"objective":      {t: tNumber, min: 0, max: 100, ranged: true},
+		"objective":      {t: tNumber, min: 0, max: 100, ranged: true, exclMin: true},
 		"indicator": obj(map[string]*rule{
 			"type":             se("availability", "latency"),
 			"metric":           s(`[a-zA-Z_:][a-zA-Z0-9_:]{0,199}`, ""),
@@ -562,7 +563,7 @@ func check(r *rule, v any, path, app string, cx *checkCtx) (any, error) {
 		default:
 			return nil, badField(path, "must be a number")
 		}
-		if math.IsNaN(f) || math.IsInf(f, 0) || (r.ranged && (f < r.min || f > r.max)) {
+		if math.IsNaN(f) || math.IsInf(f, 0) || (r.ranged && (f < r.min || f > r.max || (r.exclMin && f == r.min))) {
 			return nil, badField(path, fmt.Sprintf("must be from %v to %v", r.min, r.max))
 		}
 		return v, nil

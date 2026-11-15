@@ -435,3 +435,17 @@ func TestAGlobalNameBelongsToTheAppWithTheLongestNameThatStartsIt(t *testing.T) 
 		t.Error(err)
 	}
 }
+
+func TestAnSLOObjectiveOfZeroIsRefusedBeforeThePullRequest(t *testing.T) {
+	slo := func(o string) string {
+		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": ` + o + `, "indicator": {"type": "availability", "metric": "m", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`
+	}
+	if _, err := build(t, "flight-api", "dev", "SLO", nil, slo("0")); err == nil {
+		t.Fatal("objective 0 accepted: the XRD's minimum is exclusive")
+	}
+	for _, o := range []string{"0.0001", "99.9", "100"} {
+		if _, err := build(t, "flight-api", "dev", "SLO", nil, slo(o)); err != nil {
+			t.Errorf("%s: %v", o, err)
+		}
+	}
+}

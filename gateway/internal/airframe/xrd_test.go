@@ -153,6 +153,9 @@ func compareRule(t *testing.T, path string, r *rule, x map[string]any) {
 				}
 			}
 		}
+		if x["exclusiveMinimum"] == true && !r.exclMin {
+			t.Errorf("%s: the XRD's minimum is exclusive and the table's is not", path)
+		}
 		if mn, ok := asF(x["minimum"]); ok && r.ranged && r.min < mn {
 			t.Errorf("%s: minimum %v is below the XRD's %v", path, r.min, mn)
 		}
