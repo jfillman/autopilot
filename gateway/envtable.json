@@ -8,7 +8,7 @@
   {
    "name": "GATEWAY_DSN",
    "python": "serve",
-   "go": "serve",
+   "go": "serve,migrate",
    "class": "same",
    "deployed": "serve",
    "example": "postgresql://autopilot:pw@autopilot-pg-rw:5432/autopilot",

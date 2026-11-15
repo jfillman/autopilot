@@ -65,7 +65,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `GATEWAY_API_POOL` | api | api | - |  |
 | `GATEWAY_API_TABLES` | api | api | - | Retired at R-4 in both: only `gateway` is accepted. |
 | `GATEWAY_CONFORMANCE_CONTROL` | serve | serve | - | Test-only control interface; off unless set. |
-| `GATEWAY_DSN` | serve | serve | serve | The writer's DSN (the database owner's). |
+| `GATEWAY_DSN` | serve | serve,migrate | serve | The writer's DSN (the database owner's). |
 | `GATEWAY_OUTAGE_ALLOW_READS` | serve | serve | - |  |
 | `GITHUB_PR_ENABLED` | serve | serve | serve | Go also needs BROKER_URL, GITHUB_OWNERS and (it turns the Agent XR loader on) AGENT_XRS_NAMESPACES. |
 | `GLIDEPATH_API_URL` | serve | serve | serve | Go needs https unless GLIDEPATH_API_ALLOW_HTTP=1. |
