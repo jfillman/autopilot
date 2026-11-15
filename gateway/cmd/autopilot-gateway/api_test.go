@@ -142,3 +142,9 @@ func TestLogExportSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLoggerAttributeIsPythons(t *testing.T) {
+	if loggerName("autopilot-api") != "autopilot.api" || loggerName("autopilot-gateway") != "autopilot.gateway" {
+		t.Fatal(loggerName("autopilot-api"), loggerName("autopilot-gateway"))
+	}
+}

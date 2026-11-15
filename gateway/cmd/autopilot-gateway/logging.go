@@ -68,7 +68,12 @@ func newLogger(service string, env func(string) string, secretFiles ...string) (
 	if ls.endpoint == "" {
 		return stderr, func() {}
 	}
-	x := otlplogs.New(otlplogs.Config{Endpoint: ls.endpoint, Resource: otlplogs.ResourceAttributes(env, service), Logger: "autopilot",
+	x := otlplogs.New(otlplogs.Config{Endpoint: ls.endpoint, Resource: otlplogs.ResourceAttributes(env, service), Logger: loggerName(service),
 		AllowHTTP: ls.allowHTTP, Secrets: secretsFrom(secretFiles...)})
 	return slog.New(&otlplogs.Handler{Inner: h, X: x}), x.Close
+}
+
+// loggerName is the `logger` attribute Python sends (its logger's name): autopilot.api for the read API, autopilot.gateway for serve.
+func loggerName(service string) string {
+	return "autopilot." + strings.TrimPrefix(service, "autopilot-")
 }

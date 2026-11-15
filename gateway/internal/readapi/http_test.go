@@ -78,12 +78,16 @@ func TestEveryRouteRefusesTheUnauthenticated(t *testing.T) {
 			t.Errorf("%s: %d", p, rec.Code)
 		}
 	}
-	// A notifier reaches the human inbox and nothing else.
+	// A workload that is not a delegate may not name a person on any route, whatever it names.
 	for id, p := range paths {
-		rec := get(api, p, "other", "X-Hangar-On-Behalf-Of", "")
-		_ = rec
-		_ = id
+		if id == "getContract" {
+			continue
+		}
+		if rec := get(api, p, "other", "X-Hangar-On-Behalf-Of", "user:alice"); rec.Code != 403 {
+			t.Errorf("%s: a workload naming a person: %d", id, rec.Code)
+		}
 	}
+	// A notifier reaches the human inbox and nothing else.
 	api.Access.Notifiers = []string{"hangar-prod/app-x/*"}
 	for id, p := range paths {
 		want := 403
