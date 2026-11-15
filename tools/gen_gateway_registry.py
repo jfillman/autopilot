@@ -829,6 +829,10 @@ if __name__ == "__main__":
               and EFFECTS_OUT.is_file() and EFFECTS_OUT.read_text() == ef
               and all(p.is_file() and p.read_text() == t for p, t in runs.items())
               and RUN_OPS_OUT.is_file() and RUN_OPS_OUT.read_text() == runs_ops)
+        if not ok:   # say which file differs, so a failure in CI can be read
+            for p, t in {**runs, OUT: text, SCHEMA_OUT: pg.SCHEMA, AGENTS_OUT: ag, ROWS_OUT: rw, ERRORS_OUT: be, EFFECTS_OUT: ef, RUN_OPS_OUT: runs_ops}.items():
+                if not (p.is_file() and p.read_text() == t):
+                    print(f"differs: {p.relative_to(ROOT)}", file=sys.stderr)
         sys.exit(0 if ok else 1)
     OUT.write_text(text)
     SCHEMA_OUT.write_text(pg.SCHEMA)

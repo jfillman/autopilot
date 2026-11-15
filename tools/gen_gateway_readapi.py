@@ -382,16 +382,16 @@ def raw_cases() -> list[dict]:
     return [
         {"name": "sessions after is not a cursor", "caller": "admin", "path": "/v1/sessions?after=%27%3B%20DROP%20TABLE%20x%3B--", "status": 400,
          "body": {"error": "after is a cursor from a previous page"},
-         "why": "a cursor is a time the API itself wrote; Python hands any text to the database as a parameter"},
+         "why": "a cursor is a time the API itself wrote; Python hands any text to the database as a parameter, a 400 here"},
         {"name": "events after is not a cursor", "caller": "admin", "path": "/v1/events?after=garbage", "status": 400,
          "body": {"error": "after is a cursor from a previous page"},
-         "why": "Python lets the database refuse it (a 503 read failure)"},
+         "why": "Python lets the database refuse it as a 503 read failure; Go refuses a non-time cursor before asking"},
         {"name": "limit has an underscore", "caller": "admin", "path": "/v1/sessions?limit=1_0", "status": 400, "body": {"error": "limit must be a number"},
-         "why": "Python's int() reads 1_0 as 10"},
+         "why": "Python's int() reads 1_0 as 10 (underscores in a number); Go reads digits only"},
         {"name": "limit is an arabic-indic digit", "caller": "admin", "path": "/v1/sessions?limit=%D9%A3", "status": 400, "body": {"error": "limit must be a number"},
-         "why": "Python's int() reads any Unicode decimal digit"},
+         "why": "Python's int() reads any Unicode decimal digit; Go reads ASCII digits only"},
         {"name": "a very long query", "caller": "admin", "path": "/v1/sessions?x=" + "a" * 5000, "status": 414, "body": {"error": "the query string is too long"},
-         "why": "Python/uvicorn accept it; the Go API bounds the request line"},
+         "why": "Python and uvicorn accept it; the Go API bounds the query string at 4096 bytes"},
     ]
 
 
