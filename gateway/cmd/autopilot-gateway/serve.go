@@ -21,8 +21,10 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"github.com/jfillman/autopilot/gateway/internal/mcpserver"
+	"github.com/jfillman/autopilot/gateway/internal/metrics"
 	"github.com/jfillman/autopilot/gateway/internal/modelproxy"
 	"github.com/jfillman/autopilot/gateway/internal/pgstate"
+	"github.com/jfillman/autopilot/gateway/internal/readapi"
 	"github.com/jfillman/autopilot/gateway/internal/runs"
 	"github.com/jfillman/autopilot/gateway/internal/session"
 	"github.com/jfillman/autopilot/gateway/internal/tools"
@@ -50,6 +52,7 @@ type config struct {
 	modelKeyFile            string
 	modelTimeout            time.Duration
 	pgConns                 int32
+	metricsPort             int // METRICS_PORT: the Prometheus endpoint (0: off)
 	auth                    authConfig
 	reads                   readSettings
 	// The people's side (A-9 S3): who may act for a person (delegates) and who may manage every agent (admins), as globs; the
@@ -216,6 +219,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 		return nil, err
 	}
 	c.port, c.modelPort = int(port), int(mport)
+	if c.metricsPort, err = metricsPortFromEnv(env); err != nil {
+		return nil, err
+	}
 	c.agentsDir = getenv(env, "AUTOPILOT_AGENTS_DIR", "/app/agents")
 	// audience (AUTOPILOT_AUDIENCE) is the audience of Tower's foreign-cluster tokens and the core's, a wire contract
 	// the foreign verifier of a later slice uses; the workload tokens this slice accepts are the run pods', which carry
@@ -292,6 +298,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 		}
 	}
 	c.modelKeyFile = env("MODEL_KEY_FILE")
+	if c.metricsPort != 0 && (c.metricsPort == c.port || (c.modelKeyFile != "" && c.metricsPort == c.modelPort)) {
+		return nil, configError("METRICS_PORT must differ from PORT and MODEL_PORT")
+	}
 	if c.modelKeyFile != "" && len(c.modelRoutes) == 0 {
 		return nil, configError("MODEL_KEY_FILE is set but MODEL_ROUTES names no model")
 	}
@@ -311,8 +320,33 @@ func configFromEnv(env func(string) string) (*config, error) {
 	return c, nil
 }
 
+// metricsPortFromEnv is Python's: 0 turns the endpoint off, else a positive whole number up to 65535 (default 9090).
+func metricsPortFromEnv(env func(string) string) (int, error) {
+	v := strings.TrimSpace(env("METRICS_PORT"))
+	if v == "0" {
+		return 0, nil
+	}
+	if v == "" {
+		return 9090, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, configError(fmt.Sprintf("METRICS_PORT must be a number, not %s", pyQuote(env("METRICS_PORT"))))
+	}
+	if n <= 0 {
+		return 0, configError("METRICS_PORT must be positive")
+	}
+	if n > 65535 {
+		return 0, configError("METRICS_PORT must be at most 65535")
+	}
+	return n, nil
+}
+
+func pyQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "\\'") + "'" }
+
 func serve(_ []string) int {
-	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: levelFromEnv()}))
+	log, closeLogs := newLogger("autopilot-gateway", os.Getenv, getenv(os.Getenv, "CLEARANCE_CORE_TOKEN_FILE", "/var/run/secrets/tokens/clearance"), getenv(os.Getenv, "BACKSTAGE_TOKEN_FILE", backends.BackstageTokenFileDefault), os.Getenv("GLIDEPATH_TOKEN_FILE"), os.Getenv("AGENT_TOKEN_FILE"), os.Getenv("MODEL_KEY_FILE"))
+	defer closeLogs()
 	slog.SetDefault(log)
 	cfg, err := configFromEnv(os.Getenv)
 	if err != nil {
@@ -420,9 +454,14 @@ func serve(_ []string) int {
 	g.SetRuns(&runs.Backend{Store: runs.NewKube()})
 	g.Results = pgstate.NewResults(st)
 	g.ModelVersions = cfg.modelRoutes
-	// The people's side: the human inbox, the holds, the event history and Preflight. There is no Directory yet (the Backstage
-	// client is a later slice), so a session's owner and the platform admins are who may act.
-	g.SetInbox(pgstate.NewInbox(st), nil, cfg.delegates)
+	// The people's side: the human inbox, the holds, the event history and Preflight. A person's groups come from Tower's catalog when
+	// BACKSTAGE_URL is set (readapi.Backstage: cached a minute, and an answer it cannot get is no group: only a session's owner and
+	// the platform admins act then); without a catalog it is the owner and the admins alone, as it was before S6.
+	var directory dispatch.Directory
+	if cfg.reads.backstageURL != "" {
+		directory = readapi.DispatchDirectory{B: readapi.NewBackstage(cfg.reads.backstageURL, cfg.reads.backstageTokenFile)}
+	}
+	g.SetInbox(pgstate.NewInbox(st), directory, cfg.delegates)
 	g.Admins = cfg.admins
 	g.Holds = pgstate.NewHolds(st)
 	// The holds are read before anything is served or triggered. Until they have been, every open and launch fails closed (a hold that
@@ -480,7 +519,17 @@ func serve(_ []string) int {
 		reader, files = kr, githubFiles{hangar.GitHub}
 	}
 	runDefinitions(ctx, defsWG, cfg.defs, pinPolicy, mgr, set, reader, files, reg, stored, log)
-	loops, err := startTriggers(ctx, cfg, g, pgstate.NewTriggers(st), log)
+	// The Prometheus endpoint (METRICS_PORT; 0: off) is a listener of its own: nothing on it but GET /metrics. The trigger counters are
+	// counted behind triggers.Metrics whether it is on or not.
+	var trigM triggers.Metrics = triggers.Nop{}
+	if cfg.metricsPort != 0 {
+		tm := metrics.NewTrigger()
+		trigM = tm
+		ms := metrics.Server(fmt.Sprintf(":%d", cfg.metricsPort), tm.Registry)
+		servers = append(servers, ms)
+		log.Info("metrics", "port", cfg.metricsPort)
+	}
+	loops, err := startTriggers(ctx, cfg, g, pgstate.NewTriggers(st), trigM, log)
 	if err != nil {
 		log.Error("triggers: " + err.Error())
 		return 2
@@ -540,11 +589,10 @@ func sweep(ctx context.Context, g *dispatch.Gateway, every time.Duration, purge 
 }
 
 // startTriggers starts what the environment turns on: the interval scheduler (SCHEDULES_ENABLED), the event bridge (EVENTS_ENABLED) and
-// the reconciliation sweep beside it. Each runs on goroutines of its own and ends with ctx. The trigger counters are not served yet
-// (the Prometheus endpoint is a later slice): they are counted behind triggers.Metrics and dropped.
-func startTriggers(ctx context.Context, cfg *config, g *dispatch.Gateway, ledger triggers.Ledger, log *slog.Logger) (*sync.WaitGroup, error) {
+// the reconciliation sweep beside it. Each runs on goroutines of its own and ends with ctx. Their counters are m's (metrics.Trigger when
+// METRICS_PORT serves them).
+func startTriggers(ctx context.Context, cfg *config, g *dispatch.Gateway, ledger triggers.Ledger, m triggers.Metrics, log *slog.Logger) (*sync.WaitGroup, error) {
 	wg := &sync.WaitGroup{}
-	var m triggers.Metrics = triggers.Nop{}
 	if cfg.schedulesEnabled {
 		sc := triggers.NewScheduler(g, ledger, nil, m, log)
 		wg.Add(1)
@@ -565,9 +613,6 @@ func startTriggers(ctx context.Context, cfg *config, g *dispatch.Gateway, ledger
 			wg.Add(1)
 			go func() { defer wg.Done(); rc.Run(ctx) }()
 		}
-	}
-	if os.Getenv("METRICS_PORT") != "" {
-		log.Warn("METRICS_PORT is set: the Go gateway does not serve the trigger metrics yet (a later slice); they are counted and not exposed")
 	}
 	return wg, nil
 }

@@ -17,7 +17,9 @@ S3 slice's: the human inbox, the person controls and the rows they write (gatewa
 engine/inbox.py, control.py, events.py, Gateway.freeze_session, end_session, hold_triggers, release_triggers, human_answer) and
 the triggers (gateway/internal/triggers/testdata/triggers.json: triggers.py, trigger_ledger.py, event_bridge.py, reconcile.py,
 scheduler.py driven over a fake gateway and the in-memory ledger) and the S4 slice's: the definition loader and the set it publishes
-(gateway/internal/definitions/testdata/definitions.json and agent-definition.schema.json: tools/gen_gateway_definitions.py).
+(gateway/internal/definitions/testdata/definitions.json and agent-definition.schema.json: tools/gen_gateway_definitions.py) and the S6
+slice's: the read API's answers, the metrics exposition and the OTLP logs request (gateway/internal/readapi/testdata/readapi.json,
+metrics/testdata/metrics.json, otlplogs/testdata/otlp.json and readapi/contract.json: tools/gen_gateway_readapi.py).
 
 tests/test_gateway_go.py fails when the committed file differs from what this prints, so the two
 implementations cannot drift while both exist.   python tools/gen_gateway_registry.py [--check]
@@ -816,6 +818,8 @@ if __name__ == "__main__":
     runs.update(gen_gateway_writes.outputs())
     import gen_gateway_airframe   # the S5c Airframe tools' fixtures and copies (tools/gen_gateway_airframe.py)
     runs.update(gen_gateway_airframe.outputs())
+    import gen_gateway_readapi   # the S6 read API, metrics and log export fixtures (tools/gen_gateway_readapi.py)
+    runs.update(gen_gateway_readapi.outputs())
     import gen_gateway_definitions   # the S4 definitions' fixtures and the schema copy (tools/gen_gateway_definitions.py)
     runs.update(gen_gateway_definitions.outputs())
     if "--check" in sys.argv:

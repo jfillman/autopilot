@@ -83,8 +83,8 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "and the trigger ledger and cursors (schema.sql is generated)", ""),
     "src/autopilot/engine/definitions.py": (
         ("gateway/internal/definitions",), "Source, Loaded, Rejected, from_pin (the pin rules), Definitions (the live set: bundled "
-        "names first and never shadowed, replace_cluster and its Changes, records, cluster_set, bundled_set); not apply_records "
-        "(the read API's, S6)", ""),
+        "names first and never shadowed, replace_cluster and its Changes, records, cluster_set, bundled_set); S6: apply_records, as the "
+        "read API's refresher (readapi.Refresher: the rows through the same pin decision `serve` makes)", ""),
     "src/autopilot/engine/profile.py": (
         ("gateway/internal/definitions",), "parse: the JSON-schema validation in Python's words and order (best_match), the "
         "placeholder digest, scope, agent, runs_in, the interval and Glidepath event triggers, load_dir, the baseline deny lists", ""),
@@ -93,7 +93,7 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "src/autopilot/agent_xrs.py": (
         ("gateway/internal/definitions", "gateway/cmd/autopilot-gateway"), "AgentXRs: the poll, the once-per-commit fetch, rejections with "
         "reasons, the transient-failure rules, the seed from the store; DefinitionsPublisher (the bundled set published at start until "
-        "the core takes it)", "S6 DefinitionsRefresher (the read API's)"),
+        "the core takes it); S6: DefinitionsRefresher (readapi.Refresher)", ""),
     "src/autopilot/engine/scope.py": (("gateway/internal/dispatch", "gateway/internal/backends"),
                                       "normalize (repository-relative paths); S5b: glob_to_regex, repo_allowed and the path deny match, "
                                       "which the write tools decide again from the agent's definition (backends/scope.go)",
@@ -117,8 +117,9 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "(S5b: the repo.* handlers and argo.sync.lower; S5c: xr.request) chat"),
     "src/autopilot/reads.py": (("gateway/internal/backends",), "PrometheusAPI and LokiAPI (metrics.query, logs.query); S5a: "
                                "BackstageCatalog (catalog.read), AppAPIs (app.api.get), KubeArgo.get_app and app_summary (argo.app.get), "
-                               "ReadError; S5b: KubeArgo.sync (argo.sync.lower, over backends.ArgoSync)",
-                               "S6 BackstageDirectory and BackstageOwnership (the read API)"),
+                               "ReadError; S5b: KubeArgo.sync (argo.sync.lower, over backends.ArgoSync); S6: BackstageDirectory and BackstageOwnership "
+                               "(gateway/internal/readapi Backstage: groups and apps from the catalog, cached, failing closed)",
+                               ""),
     "src/autopilot/airframe_api.py": (("gateway/internal/backends",), "S5a: KubeReader's GET and list of Argo CD Applications "
                                       "(the path allowlist, the token and CA read on every call, AirframeError, argo_path); S5c: the XR kinds "
                                       "(a closed list of the contract's plurals) and Rollouts the airframe.* tools read through it, per namespace only", ""),
@@ -146,8 +147,9 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
                                "SCHEDULES_ENABLED, RECONCILE_SECONDS, RECONCILE_WINDOW_HOURS, AUTOPILOT_DELEGATES, AUTOPILOT_ADMINS, "
                                "RUNTIME_IMAGES_EXTRA, PREFLIGHT_CASES_DIR, the bridge, the sweep and the scheduler; S4: AGENT_XRS_ENABLED, "
                                "AGENT_XRS_INTERVAL (and the Go-only AGENT_XRS_NAMESPACES and AGENT_XRS_MAX_TIER), the Agent XR loader and the "
-                               "bundled publish at start",
-                               "S6 the settings and loops of what is not ported (the Backstage directory, the metrics port)"),
+                               "bundled publish at start; S6: METRICS_PORT and the trigger metrics endpoint, OTEL_EXPORTER_OTLP_LOGS_ENDPOINT (and Go's "
+                               "OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP), the Backstage directory the inbox reads (BACKSTAGE_URL)",
+                               ""),
     "src/autopilot/settings.py": (("gateway/cmd/autopilot-gateway",), "the retired CLEARANCE_* names", ""),
     # S5b: the Glidepath and repository tools
     "src/autopilot/glidepath_api.py": (
@@ -168,16 +170,30 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "src/autopilot/conformance.py": (("gateway/internal/conformance", "gateway/cmd/autopilot-gateway"),
                                      "the conformance control interface", ""),
     "src/autopilot/version.py": (("gateway/cmd/autopilot-gateway",), "the gateway's version", ""),
+    # S6: the read API, the metrics and the log export
+    "src/autopilot/api_serve.py": (
+        ("gateway/cmd/autopilot-gateway",), "`api`: GATEWAY_API_DSN, GATEWAY_API_TABLES (retired, `gateway` accepted), GATEWAY_API_POOL, "
+        "GATEWAY_API_AUDITORS, GATEWAY_API_NOTIFIERS, GATEWAY_API_DEFINITIONS_INTERVAL, AUTOPILOT_DELEGATES, AUTOPILOT_AGENTS_DIR, "
+        "AUTOPILOT_GATEWAY_URL, CLEARANCE_API_URL, RUNTIME_IMAGES_EXTRA, PORT, the auth and catalog settings; the build, the definitions "
+        "refresher and the runtime catalog", ""),
+    "src/autopilot/read_api.py": (
+        ("gateway/internal/readapi",), "the whole read API: ROUTES (the embedded contract), Access.viewer and Viewer (auditor, person, delegate "
+        "for a person, notifier), every route and its answers, PgReadStore's queries (scoped by the viewer in SQL, bounded), the "
+        "read-only pool", ""),
+    "src/autopilot/metrics.py": (
+        ("gateway/internal/metrics",), "the registry, counter and gauge, the exposition (text 0.0.4: names, help, labels, ordering, escaping, "
+        "%g), TriggerMetrics' twelve series, GET /metrics on its own port", ""),
+    "src/autopilot/otlp_logs.py": (
+        ("gateway/internal/otlplogs",), "the OTLP/HTTP JSON logs export: the resource attributes, scope, severity numbers, body, the bounded "
+        "queue, batches and the drop-not-block rule", ""),
+    "src/autopilot/engine/runtimes.py": (
+        ("gateway/internal/readapi",), "the catalog's parse (load) and Runtime.view for GET /v1/runtimes; allowed_images is the core's", ""),
 }
 
 # Python file -> the slice that ports it (the plan in docs/admin/go-gateway.md: S1 auth, S2 runs, S3 people and triggers,
 # S4 definitions publish, S5a/b/c backends, S6 api/metrics/logs). A change to one of these is not watched until its slice
 # moves it to PORTED.
-NOT_PORTED: dict[str, str] = {
-    "src/autopilot/engine/runtimes.py": "S6",      # the catalog file and GET /v1/runtimes; a candidate's image globs are Gateway.RuntimeImages
-    "src/autopilot/api_serve.py": "S6", "src/autopilot/metrics.py": "S6", "src/autopilot/otlp_logs.py": "S6",
-    "src/autopilot/read_api.py": "S6",
-}
+NOT_PORTED: dict[str, str] = {}
 
 # Python files with no Go counterpart, and why.
 OUT_OF_SCOPE: dict[str, str] = {

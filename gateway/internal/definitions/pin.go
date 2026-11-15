@@ -212,7 +212,7 @@ func pol(path, format string, a ...any) error { return &PolicyError{path, fmt.Sp
 // AppOfNamespace is the app a namespace belongs to: `app-<app>-cicd` (the tenants flow's), and nothing else. An app whose name makes the
 // name-based mapping of its repositories ambiguous (`gitops-*`, `infra-*`: see RepoApp) has no pins: the gateway has no registry of an
 // app's repositories to ask (the broker and the write tools bind an app to its repositories by their names, backends.AppOf, and the
-// Backstage directory is S6), so the one way to be sure `gitops-infra-foo` is app foo's and not app infra-foo's is that no app is
+// catalog is not asked), so the one way to be sure `gitops-infra-foo` is app foo's and not app infra-foo's is that no app is
 // named infra-foo, and that `gitops-x` is app x's gitops repository and not the main repository of an app named gitops-x.
 func AppOfNamespace(ns string) (string, bool) {
 	m := nsApp.FindStringSubmatch(ns)

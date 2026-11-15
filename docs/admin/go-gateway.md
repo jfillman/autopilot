@@ -80,7 +80,7 @@ Python changes since the first slice that belong to a later slice, and are there
 | S5a read backends | **done in S5a, below**: `ReadError` for catalog and app API reads as a `BackendError`, with the handlers behind it |
 | S5b Glidepath and repo tools | **done in S5b, below**: `GitHubError`'s agent message and evidence and the resumable `ensure_pr` (`github_pr.py`), `GlidepathError` naming a connection failure's cause, `ArgoSyncError`'s evidence without the response body, `glidepath.cicd.propose` for the `propose` scope class (`cicd_propose.py`) |
 | S5c Airframe tools | **done in S5c, [below](#what-s5c-carries-the-airframe-tools-2026-11-15)**: `airframe.apply` (`airframe_apply.py`), the planner, the state tools, `xr.request`, `AirframeError` as a `BackendError` |
-| S6 `api`, metrics, logs | the setting renames in `api_serve.py` (the retired names are refused there too) |
+| S6 `api`, metrics, logs | **done in S6, [below](#what-s6-carries-the-read-api-the-metrics-and-the-logs-2026-11-15)**: the setting renames in `api_serve.py` (the retired names are refused there too) |
 
 ## What S2 carries: runs and the run tree (2026-11-14)
 
@@ -256,7 +256,7 @@ compares answers, sessions, rows and records with Python's (`testdata/people.jso
 | The event bridge: the stream, the catch-up from the cursor with `Last-Event-ID`, the storm brake, the history | `triggers.Bridge` | `TestTheStreamResumesFromTheCursorAndHandlesWhatItCarries`, `TestTheCursorOnlyFollowsIDsItCanTrust`, `TestMalformedAndOversizedEventsAreDroppedAndCounted`, `TestTheBridgeNeverFollowsARedirect`, `TestTheReconnectBackoffIsBounded` |
 | The interval scheduler, with its missed-slot record | `triggers.Scheduler` | `TestTheSchedulerEqualsPython`, `TestTheSchedulerFiresASlotOnceAcrossRestartsAndRecordsWhatWasMissed` |
 | The reconciliation sweep | `triggers.Reconciler` | `TestTheSweepLaunchesWhatNoEventDeliveredOnceAndOnlyWithinItsBounds` |
-| Metric hooks as far as Python has them | `triggers.Metrics` (an interface; `Nop` in `serve`, `Recorder` in tests). The Prometheus endpoint is S6 | the counters `TestTheBridgeEqualsPython` and `TestTheSchedulerEqualsPython` compare |
+| Metric hooks as far as Python has them | `triggers.Metrics` (an interface; `metrics.Trigger` behind `METRICS_PORT` in `serve` since S6, `Nop` when it is 0, `Recorder` in tests) | the counters `TestTheBridgeEqualsPython` and `TestTheSchedulerEqualsPython` compare |
 
 ### Who may do what
 
@@ -527,10 +527,9 @@ All of these leave the answer for ordinary inputs unchanged.
 - **A candidate `document`** on `POST /v1/agents/{agent}/runs` answers `CT-NOTCARRIED` (501), after the person has been checked and before
   anything is opened. S3 supplies the fingerprint, the image rule, the clamp, the person's rule, the grant check and the candidate table;
   the validated parse of a definition document is S4's: `serve` now sets `Gateway.CandidateParse` to the schema read strictly, so the 501 only answers a gateway built without a parser.
-- **The Backstage directory** (`BackstageDirectory`): S5a brought `BACKSTAGE_URL` and the catalog client, but no group lookup is wired. Until it
-  is, an agent's owner group resolves to nobody (see above).
-- **The Prometheus endpoint and the trigger counters' names on it** (`METRICS_PORT`) are S6; the counters are counted behind `triggers.Metrics`
-  and dropped. `serve` warns when `METRICS_PORT` is set.
+- **The Backstage directory** (`BackstageDirectory`): done in S6. `BACKSTAGE_URL` now resolves an agent's owner group for the human inbox and the person controls too
+  (cached a minute; an answer it cannot get is no group).
+- **The Prometheus endpoint** (`METRICS_PORT`): done in S6.
 - **Alert and RabbitMQ event triggers** are in the schema and have no reader in the Python gateway either (`EVENTS_RABBITMQ_ENABLED` refuses to
   start there and here); `GLIDEPATH_API_URL` is accepted only with `EVENTS_ENABLED`, because the glidepath tools (S5b) are not carried.
 
@@ -1114,7 +1113,7 @@ nothing the XR says is trusted. What the pin policy guarantees against an author
 
 - **Only its own app's repository is read.** The XR's repository must be `<owner>/<app>`, `<owner>/gitops-<app>` or `<owner>/gitops-infra-<app>` for the app the namespace
   names, with an owner in `GITHUB_OWNERS`. The gateway has no registry of an app's repositories to ask (the broker and every write tool bind an app to its repositories by their names, `backends.AppOf`,
-  which a test holds equal to the loader's `definitions.RepoApp`; the Backstage directory is S6), so an app whose name makes that mapping ambiguous has no pins: apps named `gitops-*`
+  which a test holds equal to the loader's `definitions.RepoApp`; the catalog is not asked), so an app whose name makes that mapping ambiguous has no pins: apps named `gitops-*`
   or `infra-*` are refused (`gitops-infra-foo` is `foo`'s and never `infra-foo`'s; `gitops-x` is `x`'s gitops repository and never the main repository of an app named `gitops-x`). It is checked before any token is minted, so another app's repository (a `gitops-` repository included) is never fetched. A
   namespace that is not `app-<app>-cicd` is refused: there are no exempt "platform" namespaces (the platform's own agents are the bundled ones, which are not pins).
 - **A published reason never quotes the file.** The reason a rejected pin is published with (to the core, the store and the read API) is a rule id and a place
@@ -1164,7 +1163,7 @@ publish runs at a time. It is **atomic from the gateway's side** (the core repla
 (see above). It uses its own client with the 5 s attempt timeout and its own breaker, so a slow publish never counts against the decision path. A core that
 predates the `bundled` field refuses the request as an unknown field: the set is sent again without it, and without it from then on. What was published is
 logged as `definitions published` with the counts of pins, rejections and bundled definitions, the SHA-256 of the request's content, its size, and what the core
-said it changed and now holds. (The trigger and expiry counters are not served until S6, and neither is a publish counter: the log line is the record.)
+said it changed and now holds. (The trigger counters are served on `METRICS_PORT` since S6; there is no publish counter: the log line is the record.)
 
 ### What a pin may not have (Go only, each in the fixtures with a `why`)
 
@@ -1262,12 +1261,191 @@ changes, and a redirect is never followed.
 ### What S5c, S6 and S7 need from this slice
 
 - **S5c** (done): see [What S5c carries](#what-s5c-carries-the-airframe-tools-2026-11-15). `xr.request` cannot write an Agent XR; `AGENT_XRS_NAMESPACES` is what names the namespaces the loader reads.
-- **S6** (`api`, metrics, logs): the read API's `DefinitionsRefresher` and `Definitions.apply_records` read `gateway_definitions`; the rows the Go loader writes have Python's shape (`{name, state, source, doc | reason}`), so
-  the Python read API reads them. The publish and loader counters are logs until the metrics endpoint exists; `Manager.LastPublished` is what a gauge would read.
+- **S6** (`api`, metrics, logs; done): the read API's refresher (`readapi.Refresher`, `Definitions.apply_records`) reads `gateway_definitions`; the rows the Go loader writes have Python's shape (`{name, state, source, doc | reason}`), so
+  the Python read API reads them. The publish and loader counters stay logs; `Manager.LastPublished` is what a gauge would read.
 - **S7** (cutover): the Go gateway needs `AGENT_XRS_NAMESPACES` set, `AGENT_XRS_NAMES=gate-reader=app-gate-api-cicd` (the one live pin that does not carry its app's name), the ClusterRole that lists every `catalog.hangar.io` kind replaced by a Role per listed namespace, and a clearance core that takes `bundled` (v0.44.0 does). Run both gateways' loaders never at once on one
   database (the writer lock stops it); after the cutover the first poll publishes the set to the core whatever it finds. Pins that the policy above
   refuses (a `*/*` pattern, an unknown tool) must be fixed in their repositories first: before the cutover, run the loader's decision (`definitions.FromPin`) over the
   definitions the tenants repository's Agent XRs pin, and read the rejections.
+
+## What S6 carries: the read API, the metrics and the logs (2026-11-15)
+
+`autopilot-gateway api` is the read API the Backstage Autopilot plugin and Tower call (`src/autopilot/api_serve.py`, `read_api.py`; the same
+image as `serve` with a different entrypoint today). With it the Go gateway carries everything the Python gateway's two Deployments do.
+S6 also brings the Prometheus endpoint (`metrics.py`), the OTLP log export (`otlp_logs.py`), the runtime catalog (`engine/runtimes.py`),
+and the Backstage directory and ownership (`reads.py`) that S3 and S5a left open: an agent's owner group now resolves from the catalog,
+for the read API and for the human inbox and person controls of `serve`.
+
+### The routes, and who may call them
+
+Authentication is decided in one place (`readapi.Access.Viewer`) and the route table is the embedded `contract.json`, generated from Python's
+`ROUTES`, so a route and the roles that may call it cannot drift from Python's contract. A caller is one of: an **auditor** (a principal that
+matches `GATEWAY_API_AUDITORS`: the deployment's admins), a **person** (a signed-in person: kind `user`), a **delegate acting for a person**
+(`X-Hangar-On-Behalf-Of`), or a **notifier** (matches `GATEWAY_API_NOTIFIERS`); everything else is refused (a workload, a run).
+
+| Route | Who may call | What they see |
+|---|---|---|
+| `GET /v1/agents`, `/v1/agents/{name}` | auditor, person, delegate | every definition (they are not secret); `instructions` only with `?full=1` and only for an auditor; the hold on its triggers; where it came from; the pins that were rejected, with the reason |
+| `GET /v1/sessions` | auditor, person, delegate | an auditor: all. A person: their own sessions and those of agents whose `owner` group they are in. Newest first, `limit` 1..200 (default 50), `after` cursor, filters `agent`, `principal`, `task`, `state` |
+| `GET /v1/sessions/{id}`, `/result` | same | the session or its kept result; a session that is not theirs is a 404, exactly as one that does not exist |
+| `GET /v1/tasks/{task_id}` | same | the run tree: only the sessions they may see; none is a 404 |
+| `GET /v1/human/requests` | auditor, person, delegate, notifier | a notifier or auditor: every pending request. A person: their own and their groups' |
+| `GET /v1/events` | auditor, person, delegate | the trigger bridge's history: an auditor all; a person the events of the apps they own and of their teams' agents |
+| `GET /v1/runtimes` | auditor, person, delegate | the runtime catalog and `custom_images` |
+| `GET /v1/contract`, `/healthz`, `/readyz` | anyone | the contract (with `gateway` and `clearance` URLs); the probes |
+
+A route needs a token unless it is one of the last three. Every refusal has the same body, `{"error": "..."}`; a failed read is
+`{"error": "read failed"}` with a 503 (the cause goes to the log, never to the caller). Every answer carries `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`. There is no CORS (an `OPTIONS` is a 405 and no `Access-Control-*` header is ever sent), so a browser page of
+another origin cannot call it with a person's token; Backstage's backend calls it, as Tower does.
+
+### The delegate rule
+
+Tower's backend and Backstage's call as themselves and name the person in `X-Hangar-On-Behalf-Of`. The rule, in `Access.Viewer`:
+
+- only a **delegate** may send the header: a workload that is not a run, whose id matches an `AUTOPILOT_DELEGATES` glob segment by segment
+  (the same `dispatch.IsDelegate` the person controls use; the list is validated at start: literal cluster and namespace, never `*`).
+  A person, a run, an unlisted workload, and a **person whose name merely looks like a delegate's** get 403; a token the authenticator
+  refuses is 401; an authenticator that fails for another reason (the TokenReview API is down) is a 503, never "your token is bad";
+- the delegate is trusted for **the person it names and nothing else**: the named person is then an ordinary person. The auditors list is not
+  consulted for them (a delegate cannot assert an admin into an auditor), and their view is what the catalog says they are;
+- the person must be a principal form, `user:` and 1 to 128 of letters, digits and `._@+:/-`; one header only (two are a 400); no query
+  parameter or other header (`X-Forwarded-User`, `person=`) names anyone.
+
+### Owner-group resolution, and what happens when the catalog cannot answer
+
+A person's groups are the `memberOf` relations of their User entity in Tower's Backstage catalog; the apps they own are the Components whose
+`spec.owner` is the person or one of their groups (`readapi.Backstage`: the gateway's own projected token, re-read on every call, sent only to
+`BACKSTAGE_URL`, no redirect followed, an answer of at most 4 MiB). The agents of their teams are the definitions whose `owner` is one of
+those groups.
+
+- An answer is cached **60 s** per person (Python's); a **failure for 10 s** (Python caches it as "no groups" for 60 s); concurrent reads of
+  one person share one request; the cache is bounded (10,000 people).
+- A person the catalog does not know (404) has no groups: that is an answer.
+- **Anything else is "unknown"** (an error, a status, an unparsable or oversized answer, a missing token file): the person is held to **what is
+  theirs alone** (their own sessions and inbox items), never given a team's, and the response says so with `X-Autopilot-Owners: unknown`. A stale
+  answer is never served past its TTL (a person removed from a group loses the group's sessions within a minute).
+- **An auditor never asks the catalog**, so an outage cannot lock an admin out, and a person never gets an auditor's reach from an outage.
+- The human inbox and person controls of `serve` read the same directory: an error is no group, so only a session's owner and the admins act,
+  as before S6.
+
+### How a list is bounded, and the index behind every query
+
+Every list has a `limit` (1..200), a cursor, a deterministic order (the time, then the id) and its query is scoped by the viewer **inside
+the SQL**, so a row that is not the caller's is never read. Filters are validated (a value that cannot have been stored is the empty answer
+without a query); a cursor is a time the API wrote (`sessions`: the text of `created_at`; `events`: a parsed time), never anything else; `since`,
+`until` and `after` are parsed strictly. The query string is at most 4096 bytes, a request at most 10 s, at most 64 are in flight (more get a
+503 with `Retry-After`), every connection has a 5 s `statement_timeout` and is read-only.
+
+A person's list of sessions (and of events) is a `UNION` of **ordered branches, one for their own principal and one per agent of their teams
+(per app for events), each cut at one page by its own `LIMIT`**: the cost is a few pages however long the history is, and a person with nothing
+reads nothing (an `OR` across two columns scans the history for rows that are not there: the first plan the test showed).
+
+| Query | Index that serves it |
+|---|---|
+| sessions, an auditor | `gateway_sessions_created` ((record->>'created_at') DESC, id DESC) |
+| sessions, a person | `gateway_sessions_principal` and `gateway_sessions_agent` (each with created_at, id) |
+| sessions, `state=live` / `expired` | `gateway_sessions_live` (closed, expires_at), the existing one |
+| sessions by `task`, a run tree | `gateway_sessions_task` ((record->>'task_id'), created_at, id) |
+| a session, a result | the primary keys |
+| the inbox | `gateway_human_requests_pending` (status, expires_at), the existing one |
+| events, an auditor | `gateway_events_received_id` (received_at DESC, id DESC) |
+| events, one app / a person's apps | `gateway_events_app_id` (app, received_at DESC, id DESC) |
+| events, by agent | `gateway_events_outcomes`, GIN on `record->'outcomes'` (containment); it cannot order, so that branch sorts only the agents' own events, which the table's retention (30 days, 200,000 rows) bounds |
+| holds, definitions | small tables (one row per agent; one per pin) |
+
+`TestEveryQueryIsServedByAnIndex` turns sequential scans off, EXPLAINs every query on 4,000 rows and requires the index above in the plan.
+**The indexes are the writer's**: `serve` creates them at start through `pgstate` (`IF NOT EXISTS`, Go only; Python's schema is the shared one and
+does not have them). A plain `CREATE INDEX` blocks **writes** to that table, never reads, for as long as the build takes (some thousands of rows:
+well under a second); the read API's role cannot create anything and never tries. Until `serve` has started once, the queries still work and
+the planner scans.
+
+### The process is read-only
+
+`api` takes **no writer lock**, creates no table or index, and has no statement that is not a `SELECT`: the pool opens every connection with
+`default_transaction_read_only=on`, `statement_timeout=5000` and `idle_in_transaction_session_timeout`, whatever the role allows (a test proves
+an `INSERT`, `DELETE`, `CREATE TABLE`, `CREATE INDEX` and `UPDATE` are refused as writes, and that it works while a writer holds the advisory
+lock); the `api` code does not import `pgstate` (the writer's `Open` takes the lock and creates the schema), and a test fails on any SQL
+string in the read API's package that could write (it fails on a planted `INSERT INTO`). The cluster-pinned definitions are read from
+`gateway_definitions` every `GATEWAY_API_DEFINITIONS_INTERVAL` (30 s) through the same pin decision `serve` makes (a stored row that no longer
+passes it is shown as rejected, with the reason).
+
+### Metrics
+
+`serve` serves the trigger counters on `METRICS_PORT` (default 9090; 0 turns them off; must differ from `PORT` and `MODEL_PORT`), a listener of its
+own that answers `GET /metrics` and nothing else, unauthenticated (a NetworkPolicy admits Prometheus to that port alone), with timeouts. The
+twelve series are Python's: name, type, help text, label names and order, series sorting, escaping, the 128-character cut and the `%g` number
+format (one test renders Python's `TriggerMetrics` and Go's after the same calls and requires the exposition to be equal, byte for byte, for
+five call scripts). Four series are Go's own, after Python's: `autopilot_events_dropped_total{reason}`, `autopilot_trigger_stuck_attempts{agent}`,
+`autopilot_trigger_poisoned_total{agent}`, `autopilot_trigger_handler_panics_total`. The labels are `via`, `result`, `reason` (closed sets) and
+`agent` (a definition's name); no user id, session id, repo or free text is a label. A metric holds at most 5,000 series (Go only: a label that
+grew would fill the process). `api` serves no metrics (Python's does not).
+
+### Logs
+
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` (unset: off), `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`: the resource attributes, scope `autopilot`, severity
+numbers, body (cut at 4096 characters) and the 2000-line queue, 200-line batches and 2 s flush are Python's (a test compares the request).
+`OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1` (Go only, off by default) is needed for a plain `http` collector: **the endpoint must be https**. A full
+queue drops the line and counts it; a post that fails, hangs (5 s) or is answered with a redirect drops its batch and counts it; logging never
+waits. A line is **redacted before it is queued**: a field named like a credential, a prompt or a request body (`token`, `secret`, `password`,
+`authorization`, `api_key`, `prompt`, `body`, `input`, `instructions`...) is `[redacted]`, and so is anything shaped like one in the text (a bearer value,
+a JWT, a GitHub token, a provider key, a PEM header, a long key-like run), and the contents of the credential files the process reads. The gateway
+had no log redaction before S6 (its only redaction, `backends.redact`, is a literal replace on an upstream's answer); this reuses that scheme (a literal
+secret becomes `[redacted]`) and adds the names and shapes.
+
+### What is deliberately not the same as Python (S6)
+
+Each is in the fixtures (`gateway/internal/readapi/testdata/readapi.json`) with a `go` and a `why`, or is a Go-only case, and the test fails on a
+`go` without a `why`.
+
+| Python | Go | Why |
+|---|---|---|
+| Any principal matching a delegate glob (`fnmatch`, across `/`) may assert a person | only a workload that is not a run, matched segment by segment (`dispatch.IsDelegate`) | a person whose name looked like the delegate's could assert anyone |
+| The asserted person is any text starting `user:` up to 200 characters | `user:` and a bounded name form; one header only | a delegate's input is a name, not text |
+| A trailing slash is a 307 with a `Location` built from the caller's `Host` | a 404 | the redirect trusts a caller-supplied header |
+| A failed read is `read failed: <ExceptionClass>` (503) | `read failed` | internal detail |
+| `after` is any text the database is handed as a parameter (a bad timestamp is a 503) | a time of the form the API writes, else a 400 | a cursor is never anything else |
+| `limit=1_0` and any Unicode digit are numbers | a 400 | Python's `int()` |
+| A person's `OR` scan; unbounded run tree, inbox | UNION of ordered branches; at most 1000 pending requests and 1000 sessions of a task | the cost of a request was the length of the history |
+| Ties in `created_at` come back in the planner's order | by id | deterministic order |
+| A person's groups unknown is "no groups" cached for 60 s | no groups, cached 10 s, and `X-Autopilot-Owners: unknown` | the person is told, and an outage is retried sooner |
+| `since` of another offset is compared as written | compared in UTC | the stored times are UTC |
+| No `Cache-Control`, `nosniff`, in-flight or query limits | added | safe on every answer |
+| `GATEWAY_API_AUDITORS` and `NOTIFIERS` take any glob | a glob that matches everyone is refused at start | a catch-all makes every caller an auditor |
+| A stored pin is parsed | parsed and held to the pin policy again | a stored row is state, not trust |
+| Log collector may be `http` | `https` unless `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1`; redaction | a token and a person's data must not cross a network in the clear or leave in a log line |
+| Metric label values of any length and number | cut at 128 characters when recorded; at most 5,000 series | memory |
+| The `thread` log attribute is the thread's name | empty | Go has none |
+
+### Settings
+
+`api`: `GATEWAY_API_DSN` (required), `GATEWAY_API_TABLES` (only `gateway`), `GATEWAY_API_POOL` (1..50, default 5), `GATEWAY_API_AUDITORS`,
+`GATEWAY_API_NOTIFIERS`, `GATEWAY_API_DEFINITIONS_INTERVAL` (1..3600 s, default 30), `AUTOPILOT_DELEGATES`, `AUTOPILOT_AGENTS_DIR`,
+`AUTOPILOT_GATEWAY_URL`, `CLEARANCE_API_URL`, `RUNTIME_IMAGES_EXTRA`, `PORT`, and the auth and catalog settings (`AUTOPILOT_AUDIENCE`,
+`AUTOPILOT_RUN_AUDIENCES`, `AUTOPILOT_OIDC_*`, `TOWER_*`, `BACKSTAGE_URL`, `BACKSTAGE_TOKEN_FILE`). The runtime catalog is `runtime/catalog.yaml` beside
+`agents/` (as Python's). `serve`: `METRICS_PORT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP`, `OTEL_SERVICE_NAME`,
+`OTEL_RESOURCE_ATTRIBUTES`. Retired `CLEARANCE_*` names are refused in `api` too.
+
+### What the proof ran (S6)
+
+`tools/gen_gateway_readapi.py` drives Python's `create_api_app` through Starlette's test client over a seeded store, for 17 callers and 55
+requests (and the odd ones: a wrong method, HEAD, OPTIONS, an unknown path), 939 cases with the store failing as well; `TestTheAPIEqualsPython` answers
+the same requests from the Go API over a **real Postgres seeded with the same rows** (so the SQL is held to Python's semantics), requiring the same
+status, content type, `Allow` and JSON body; 17 cases differ on purpose, 5 more are Go-only refusals. Also `TestOnlyADelegateMayAssertAPerson`,
+`TestAnUnavailableCatalogFailsClosedAndNeverTouchesAnAuditor`, `TestAStaleAnswerIsNeverUsedPastItsTTL`, `TestEveryRouteRefusesTheUnauthenticated`,
+`TestListsAreBoundedAndCursorsAreTimes`, `TestRequestsAreBounded`, `TestEveryQueryIsServedByAnIndex`, `TestTheStoreIsReadOnlyBoundedAndTakesNoLock`,
+`TestPagesAddUpToTheWholeList`, and fuzz targets `FuzzParseISO` (found year 0 with an offset: fixed, kept as a seed), `FuzzCursor`, `FuzzLimit`,
+`FuzzFilter`, `FuzzRequest`.
+
+### What S7 needs from this slice
+
+- Deploy `api` with `GATEWAY_API_DSN` on a **read-only role** (the process also sets it read-only itself), `AUTOPILOT_DELEGATES` naming the
+  Backstage and Tower backends by place, `GATEWAY_API_AUDITORS`, `GATEWAY_API_NOTIFIERS`, `BACKSTAGE_URL` and its token file, and the agents
+  directory with `runtime/catalog.yaml` beside it.
+- `serve` must have started once against the database (it creates the indexes) before `api` takes load; `METRICS_PORT` and the NetworkPolicy for
+  it; `OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP=1` if the collector is still plain `http` in the cluster.
+- Alerts that read the timestamp gauges read Python's six-significant-digit values (`1.73159e+09`): the format is held equal.
+- The Backstage plugin reads the same JSON; the only visible additions are headers.
 
 ## The drift guard
 
@@ -1425,7 +1603,7 @@ is accepted and none panics.
 | a request with a number beyond int64 (11 lines) | Python integers are unbounded; the core's types, and so the Go client's, are int64. The core rejects such a request too, so there is nothing to compare |
 | one `model.call` with no routes | a gateway with no model routes answers `M006` without asking the core (same in both) |
 
-## What is not carried (after S4)
+## What is not carried (after S6)
 
 The Go gateway starts only with what it carries; `serve` refuses to start when the environment asks for something it
 does not (`EVENTS_RABBITMQ_ENABLED`, `AUTOPILOT_EPHEMERAL`), so nobody believes a
@@ -1438,19 +1616,16 @@ reads glidepath-api with the S5b settings, `GLIDEPATH_API_URL` (https unless `GL
 
 Not ported, and still the Python gateway's:
 
-- **The Backstage directory** (`BackstageDirectory`, `reads.py`; S5a classified it S6): the catalog client exists (S5a) but no group lookup is wired, so an agent's owner group resolves to nobody and only a session's person and the admins act until it is.
-- **The runtime catalog** (`runtime/catalog.yaml`, `GET /v1/runtimes`, `runtimes.py`, S6): a candidate's image globs are
+- **The Backstage directory and the runtime catalog** are carried since S6 (the read API's, and the inbox's directory in `serve`). A candidate's image globs are still
   `Gateway.RuntimeImages`, filled from `RUNTIME_IMAGES_EXTRA` alone.
 - **Backends**: `metrics.query`, `logs.query`, `catalog.read`, `argo.app.get`, `app.api.get`, `artifact.put` and `artifact.get`
   are ported with per-backend timeouts and pools; S5b adds every `glidepath.*` tool, `repo.file.get`, `repo.pr.open`,
   `repo.pr.open_upper` and `argo.sync.lower`. The rest have no handler, so a call to them is refused as having no backend,
   as in a Python gateway that does not configure them: `airframe.validate` (as in Python's own deployment) and `chat.*` (Python has none either).
-  Python's read API also uses `BackstageDirectory` and `BackstageOwnership` (S6). S5c adds every `airframe.*` tool but `validate`, and `xr.request`.
+  S5c adds every `airframe.*` tool but `validate`, and `xr.request`.
 - **The field scope of a file's YAML** (`repos.fieldDeny`, `fieldAllow`, AF-9a) is the core's: it needs the file as it was before.
   The gateway decides the repository and the path again, not the fields.
-- **`api`** (clearance-api's runtime reads, `api_serve.py`, `read_api.py`, `reads`), the Prometheus endpoint on `METRICS_PORT` (the
-  trigger counters are counted behind `triggers.Metrics` and not served),
-  OTLP logs, and a `held` outbox reason (since clearance v0.28.0 the core takes every kind the gateway writes).
+- **A `held` outbox reason** (since clearance v0.28.0 the core takes every kind the gateway writes). (`api`, the Prometheus endpoint and the OTLP logs are S6, above.)
 - **Release plumbing**: no `gateway-go-v*` tag, image workflow or Apron change. The Python image stays what
   `gateway-image.yaml` builds.
 

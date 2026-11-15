@@ -196,8 +196,8 @@ type InboxStore interface {
 }
 
 // Directory is the groups a person is in (Backstage group refs), for the owner-group rule. An implementation that cannot tell
-// answers an empty set (the rule fails closed: no group, no access). The deployment's is Tower's catalog (a later slice carries
-// the Backstage client; until then the Go gateway has none, and only a session's owner and the platform admins act).
+// answers an empty set (the rule fails closed: no group, no access). The deployment's is Tower's catalog (readapi.DispatchDirectory,
+// from S6; without BACKSTAGE_URL there is none, and only a session's owner and the platform admins act).
 type Directory interface {
 	Groups(ctx context.Context, principal string) map[string]bool
 }

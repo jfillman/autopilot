@@ -55,6 +55,9 @@ MUST_BE_WATCHED = {
     # S2: the run tree
     "src/autopilot/engine/limits.py", "src/autopilot/engine/results.py", "src/autopilot/kube_runs.py",
     "src/autopilot/manifests.py", "src/autopilot/gateway.py",
+    # S6: the read API, the metrics and the log export
+    "src/autopilot/read_api.py", "src/autopilot/api_serve.py", "src/autopilot/metrics.py", "src/autopilot/otlp_logs.py",
+    "src/autopilot/engine/runtimes.py",
 }
 
 
@@ -199,7 +202,7 @@ def test_the_go_control_interface_is_off_without_the_switch_and_loopback_only(go
 def test_the_go_gateway_refuses_what_it_does_not_carry_yet(go_binary):
     base = {k: v for k, v in os.environ.items() if not k.startswith(("CLEARANCE_", "AUTOPILOT_", "GATEWAY_", "GITHUB_"))}
     r = subprocess.run([str(go_binary), "api"], env=base, capture_output=True, text=True)
-    assert r.returncode == 2 and "not ported yet" in r.stderr
+    assert r.returncode == 2 and "GATEWAY_API_DSN is required" in r.stderr, "A-9 S6 carries the api subcommand"
     env = {**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1", "GITHUB_PR_ENABLED": "1"}
     r = subprocess.run([str(go_binary), "serve"], env=env, capture_output=True, text=True)
     assert r.returncode == 2 and "GITHUB_PR_ENABLED" in r.stderr, "it must not start without a feature it was asked for"
@@ -243,3 +246,18 @@ def test_the_definition_fixtures_carry_a_why_for_every_difference_and_the_schema
     assert not [c for c in doc["cases"] if "why" in c and "go" not in c], "a why without a go"
     assert (GATEWAY / "internal" / "definitions" / "agent-definition.schema.json").read_bytes() == \
         (ROOT / "src" / "autopilot" / "engine" / "schemas" / "agent-definition.schema.json").read_bytes()
+
+
+def test_the_read_api_fixtures_carry_a_why_for_every_difference_and_cover_every_caller():
+    doc = json.loads((GATEWAY / "internal" / "readapi" / "testdata" / "readapi.json").read_text())
+    differing = [c for c in doc["cases"] if "go" in c]
+    assert differing and all(len(c.get("why", "")) >= 40 for c in differing), "every deliberate difference says why"
+    assert not [c for c in doc["cases"] if "why" in c and "go" not in c], "a why without a go"
+    assert all(len(c.get("why", "")) >= 40 for c in doc["go_only"])
+    assert {"admin", "alice", "bob", "carol", "anonymous", "bad-token", "workload", "delegate-for-bob", "delegate-for-nobody", "notifier"} <= set(doc["callers"])
+    assert len(doc["cases"]) >= 800
+    # one operation of the contract per route the cases drive, and the embedded contract is Python's
+    contract = json.loads((GATEWAY / "internal" / "readapi" / "contract.json").read_text())
+    from autopilot import read_api
+    assert contract == read_api.contract()
+    assert {o["operationId"] for o in contract["operations"]} == {r["operationId"] for r in read_api.ROUTES}
