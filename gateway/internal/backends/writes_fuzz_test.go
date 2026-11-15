@@ -65,7 +65,7 @@ func FuzzGitHubRequestTarget(f *testing.F) {
 		f.Add("o", "gate-api", s, s, "a/b.txt", strings.Repeat("a", 40))
 	}
 	f.Fuzz(func(t *testing.T, owner, name, branch, ref, p, sha string) {
-		for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents} {
+		for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo} {
 			r := ghReq{ep: ep, owner: owner, name: name, branch: branch, ref: ref, path: p, sha: sha, state: "all", perPage: 5,
 				body: refBody{Ref: "refs/heads/" + branch, Sha: sha}}
 			method, target, err := r.target()
@@ -80,7 +80,7 @@ func FuzzGitHubRequestTarget(f *testing.F) {
 				t.Fatalf("%q leaves the host: %v", target, err)
 			}
 			segs := strings.Split(strings.TrimPrefix(u.EscapedPath(), "/"), "/")
-			if len(segs) < 4 || segs[0] != "repos" {
+			if len(segs) < 3 || segs[0] != "repos" {
 				t.Fatalf("%q is not under /repos", target)
 			}
 			dec := make([]string, len(segs))
@@ -158,7 +158,7 @@ func FuzzBranchNames(f *testing.F) {
 			}
 		}
 		if ValidNewBranch(s, base) {
-			if !gitRefOK(s) || strings.HasPrefix(s, "-") || strings.HasPrefix(strings.ToLower(s), "refs/") || reservedByOracle(s) || strings.EqualFold(s, base) {
+			if !gitRefOK(s) || strings.HasPrefix(s, "-") || !strings.HasPrefix(s, "agent/") || len(s) == 6 || reservedByOracle(s) || strings.EqualFold(s, base) {
 				t.Fatalf("ValidNewBranch accepts %q (base %q)", s, base)
 			}
 		}
@@ -189,7 +189,7 @@ func FuzzFilePaths(f *testing.F) {
 		"a/../.github/x", "./a", "a//b", "/a", "a/", ".git/x", "a/.GIT/x", "a\\b", "a\x00b", "a\nb", "..", "", "a/./b", "é/ü.txt"} {
 		f.Add(s)
 	}
-	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o"}})
+	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o"}, AllowHTTP: true})
 	deny := []string{".tekton/**", "**/.tekton/**", "CODEOWNERS", "**/CODEOWNERS", ".github/**", "**/appproject*.yaml", "**/AppProject*.yaml", "release.yaml",
 		"**/release.yaml", "*.release.yaml", "**/*.release.yaml"}
 	f.Fuzz(func(t *testing.T, p string) {
@@ -208,6 +208,11 @@ func FuzzFilePaths(f *testing.F) {
 		for _, c := range comps {
 			if c == "" || c == "." || c == ".." || strings.EqualFold(c, ".git") {
 				t.Fatalf("accepted %q", p)
+			}
+		}
+		for _, seg := range comps {
+			if seg != strings.TrimSpace(seg) || strings.HasSuffix(seg, ".") || strings.Contains(seg, ":") || regexp.MustCompile(`~[0-9]`).MatchString(seg) {
+				t.Fatalf("accepted a name a file system reads as another: %q", p)
 			}
 		}
 		if protectedByOracle(p) {
@@ -232,7 +237,7 @@ func mentionByOracle(s string) bool {
 			return true
 		}
 		p := rs[i-1]
-		if !(p >= 'a' && p <= 'z' || p >= 'A' && p <= 'Z' || p >= '0' && p <= '9' || p == '_' || p == '`') {
+		if !(p >= 'a' && p <= 'z' || p >= 'A' && p <= 'Z' || p >= '0' && p <= '9' || p == '_') {
 			return true
 		}
 	}
@@ -245,11 +250,15 @@ func FuzzDefang(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		out := defang(s)
-		if mentionByOracle(out) {
-			t.Fatalf("defang(%q) = %q still mentions", s, out)
+		if mentionByOracle(out) || strings.Contains(out, "<!--") || strings.Contains(out, "![") || strings.Contains(out, "<") ||
+			regexp.MustCompile(`#[0-9]`).MatchString(out) || regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b`).MatchString(out) {
+			t.Fatalf("defang(%q) = %q still notifies, links, closes or hides", s, out)
 		}
-		if !strings.Contains(s, "@") && out != s {
-			t.Fatalf("text with no @ changed: %q", s)
+		if len([]rune(out)) > 60000 {
+			t.Fatalf("%d runes", len([]rune(out)))
+		}
+		if !strings.ContainsAny(s, "@#<!") && len([]rune(s)) < 1000 && !regexp.MustCompile(`(?i)close|fix|resolve`).MatchString(s) && out != s {
+			t.Fatalf("plain text changed: %q", s)
 		}
 	})
 }
@@ -258,14 +267,14 @@ func FuzzSplitRepo(f *testing.F) {
 	for _, s := range []string{"o/r", "O/r", "o/", "/r", "o/r/x", "o/..", "o/.", "o/r\n", "evil/r", "o/" + strings.Repeat("r", 101), "o\\r", "o/r r", "ö/r"} {
 		f.Add(s)
 	}
-	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o", "Acme"}})
+	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o", "Acme"}, AllowHTTP: true})
 	f.Fuzz(func(t *testing.T, s string) {
 		owner, name, err := g.SplitRepo(s)
 		if err != nil {
 			return
 		}
 		parts := strings.Split(s, "/")
-		if len(parts) != 2 || !strings.EqualFold(parts[0], owner) || parts[1] != name || (owner != "o" && owner != "Acme") ||
+		if len(parts) != 2 || !strings.EqualFold(parts[0], owner) || !strings.EqualFold(parts[1], name) || name != strings.ToLower(name) || strings.HasSuffix(name, ".git") || (owner != "o" && owner != "acme") ||
 			name == "." || name == ".." || !regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`).MatchString(name) {
 			t.Fatalf("SplitRepo(%q) = %q %q", s, owner, name)
 		}
@@ -290,5 +299,25 @@ func FuzzGlidepathBodies(f *testing.F) {
 			}
 		}
 		_ = context.Background()
+	})
+}
+
+func FuzzCanonicalRepo(f *testing.F) {
+	for _, s := range []string{"o/r", "O/R", "O/GitOps-X", "o/r.git", "o/r.GIT", "o/.", "o/..", "./r", "o/r\n", "o/r ", "ö/r", "o/r/x", ""} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		c, ok := CanonicalRepo(s)
+		if !ok {
+			return
+		}
+		o, n, found := strings.Cut(c, "/")
+		if !found || c != strings.ToLower(c) || !regexp.MustCompile(`^[a-z0-9._-]{1,100}$`).MatchString(o) || !regexp.MustCompile(`^[a-z0-9._-]{1,100}$`).MatchString(n) ||
+			o == "." || o == ".." || n == "." || n == ".." || strings.HasSuffix(n, ".git") || strings.ToLower(s) != c {
+			t.Fatalf("CanonicalRepo(%q) = %q", s, c)
+		}
+		if again, ok := CanonicalRepo(c); !ok || again != c {
+			t.Fatalf("not a fixed point: %q", c)
+		}
 	})
 }

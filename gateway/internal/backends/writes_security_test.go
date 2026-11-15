@@ -136,7 +136,7 @@ func TestEveryWriteIsRefusedOutsideTheSessionsGrantAndTheDefinitionsScope(t *tes
 	})
 	t.Run("a repository outside repos.allow", func(t *testing.T) {
 		e := run(narrowDefinition(), allTools(), "T3")
-		for _, repo := range []string{"o/other", "p/gate-api", "o/gate", "O/gate-api", "o/gate-api/x", "o/", "gate-api"} {
+		for _, repo := range []string{"o/other", "p/gate-api", "o/gate", "o/gate-api/x", "o/", "gate-api"} {
 			a := prArgs("agent/t-3")
 			a["repo"] = repo
 			_, err := e.call("repo.pr.open", a)
@@ -290,7 +290,7 @@ func TestAnAgentCannotForgeTheTrailersOrMentionPeople(t *testing.T) {
 	// the text a verdict or an agent hands the pull request notifies nobody
 	for in, want := range map[string]string{
 		"thanks @alice": "thanks @​alice", "@bob and @org/team": "@​bob and @​org/team", "mail a@b.c": "mail a@b.c",
-		"`@code`": "`@code`", "line\n@carol": "line\n@​carol", "@@x": "@@​x", "no mention": "no mention", "@": "@",
+		"`@code`": "`@\u200bcode`", "line\n@carol": "line\n@​carol", "@@x": "@@​x", "no mention": "no mention", "@": "@",
 	} {
 		if got := defang(in); got != want {
 			t.Errorf("defang(%q) = %q, want %q", in, got, want)
@@ -327,10 +327,10 @@ func (r *recTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 func recordingGlidepath(t testing.TB) (*Glidepath, *recTransport) {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "tok")
-	if err := os.WriteFile(p, []byte("gp-token\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte("gp-token-value-1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	gp, err := NewGlidepath("https://glidepath.example/gp", p, true, time.Second)
+	gp, err := NewGlidepath("https://glidepath.example/gp", p, true, time.Second, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,6 +473,7 @@ var allowedGitHub = []*regexp.Regexp{
 	regexp.MustCompile(`^POST /repos/o/[A-Za-z0-9._-]+/pulls$`),
 	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+/pulls$`),
 	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+/contents/[A-Za-z0-9._%/-]*$`),
+	regexp.MustCompile(`^GET /repos/o/[A-Za-z0-9._-]+$`),
 }
 
 func TestTheGitHubRequestsAreTheClosedList(t *testing.T) {
@@ -567,14 +568,14 @@ func TestAWriteBackendsRedirectIsNeverFollowedAndNoCredentialGoesToItsTarget(t *
 	dir := t.TempDir()
 	tok := filepath.Join(dir, "tok")
 	_ = os.WriteFile(tok, []byte("secret-token-value\n"), 0o600)
-	gp, _ := NewGlidepath(redirect.URL, tok, true, 5*time.Second)
+	gp, _ := NewGlidepath(redirect.URL, tok, true, 5*time.Second, true)
 	if _, err := gp.Contract(context.Background(), "p"); err == nil || !strings.Contains(err.Error(), "302") {
 		t.Fatalf("glidepath: %v", err)
 	}
 	if _, err := gp.Rerun(context.Background(), "gate-api", "x-1", "clearance.k", "p"); err == nil || !strings.Contains(err.Error(), "302") {
 		t.Fatalf("glidepath write: %v", err)
 	}
-	g, _ := NewGitHub(GitHubOptions{API: redirect.URL, BrokerURL: redirect.URL + "/b", TokenFile: tok, Owners: []string{"o"}})
+	g, _ := NewGitHub(GitHubOptions{API: redirect.URL, BrokerURL: redirect.URL + "/b", TokenFile: tok, Owners: []string{"o"}, AllowHTTP: true})
 	_, err := g.OpenPR(context.Background(), OpenPRInput{Repo: "o/gate-api", Branch: "agent/x", Title: "t", Base: "main", Files: []File{{Path: "a", Content: "a"}}})
 	var ge *GitHubError
 	if !errors.As(err, &ge) || ge.Status != 302 {
@@ -583,7 +584,7 @@ func TestAWriteBackendsRedirectIsNeverFollowedAndNoCredentialGoesToItsTarget(t *
 	k := &KubeReader{Server: redirect.URL, TokenFile: tok, Timeout: 5 * time.Second}
 	k.hc = client(nil, time.Second, 4)
 	as, _ := NewArgoSync(k, []string{"argocd-apps"})
-	_, err = as.Sync(context.Background(), "gate-api-dev", "gate-api-lower", map[string]string{"agent": "a"})
+	_, err = as.Sync(context.Background(), "gate-api-dev", "gate-api-lower", map[string]string{"agent": "a"}, nil)
 	if err == nil {
 		t.Fatal("the Kubernetes redirect was followed")
 	}
@@ -600,13 +601,13 @@ func TestTokensAreReadOnEveryCallAndNeverEscape(t *testing.T) {
 	e := newFakeEnv(t, gh, gpf, nil, "s-1")
 	// the token files are re-read: change them and the next call carries the new value
 	gpFile := filepath.Join(t.TempDir(), "gp")
-	_ = os.WriteFile(gpFile, []byte("first\n"), 0o600)
-	gp, _ := NewGlidepath(gpf.Srv.URL, gpFile, false, 5*time.Second)
+	_ = os.WriteFile(gpFile, []byte("first-token-value\n"), 0o600)
+	gp, _ := NewGlidepath(gpf.Srv.URL, gpFile, false, 5*time.Second, true)
 	_, _ = gp.Contract(context.Background(), "p")
-	_ = os.WriteFile(gpFile, []byte("second\n"), 0o600)
+	_ = os.WriteFile(gpFile, []byte("second-token-value\n"), 0o600)
 	_, _ = gp.Contract(context.Background(), "p")
 	calls := gpf.Calls()
-	if got := calls[len(calls)-2].Header.Get("Authorization") + "," + calls[len(calls)-1].Header.Get("Authorization"); got != "Bearer first,Bearer second" {
+	if got := calls[len(calls)-2].Header.Get("Authorization") + "," + calls[len(calls)-1].Header.Get("Authorization"); got != "Bearer first-token-value,Bearer second-token-value" {
 		t.Fatalf("the token is not read per call: %s", got)
 	}
 	// a token is never in what an upstream's error says, even when the upstream echoes the credentials it was given
@@ -617,12 +618,12 @@ func TestTokensAreReadOnEveryCallAndNeverEscape(t *testing.T) {
 	defer echo.Close()
 	tokf := filepath.Join(t.TempDir(), "t")
 	_ = os.WriteFile(tokf, []byte("projected-secret-token\n"), 0o600)
-	g, _ := NewGitHub(GitHubOptions{API: echo.URL, BrokerURL: echo.URL + "/b", TokenFile: tokf, Owners: []string{"o"}})
+	g, _ := NewGitHub(GitHubOptions{API: echo.URL, BrokerURL: echo.URL + "/b", TokenFile: tokf, Owners: []string{"o"}, AllowHTTP: true})
 	_, err := g.OpenPR(context.Background(), OpenPRInput{Repo: "o/x", Branch: "agent/x", Title: "t", Base: "main", Files: []File{{Path: "a", Content: "a"}}})
 	if err == nil || strings.Contains(dispatch.BackendError(err)+dispatch.ErrorResult(err)+err.Error(), "projected-secret-token") {
 		t.Fatalf("the credential came back in %v", err)
 	}
-	gp2, _ := NewGlidepath(echo.URL, tokf, false, 5*time.Second)
+	gp2, _ := NewGlidepath(echo.URL, tokf, false, 5*time.Second, true)
 	_, err = gp2.Contract(context.Background(), "p")
 	if err != nil && strings.Contains(err.Error()+dispatch.ErrorResult(err), "projected-secret-token") {
 		t.Fatalf("glidepath: %v", err)
@@ -633,7 +634,7 @@ func TestTokensAreReadOnEveryCallAndNeverEscape(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"rule":"GP-AUTHZ-001","error":"you are %s","hint":"%s"}`, r.Header.Get("Authorization"), r.Header.Get("X-Glidepath-Authorization"))
 	}))
 	defer deny.Close()
-	gp3, _ := NewGlidepath(deny.URL, tokf, false, 5*time.Second)
+	gp3, _ := NewGlidepath(deny.URL, tokf, false, 5*time.Second, true)
 	_, err = gp3.Contract(context.Background(), "p")
 	den := refusedWith(t, err, "GP-AUTHZ-001")
 	if strings.Contains(den.Message+den.Hint, "projected-secret-token") {
@@ -675,7 +676,7 @@ func TestResponsesAreCappedWhileTheyAreRead(t *testing.T) {
 		t.Fatalf("an answer is read to %d bytes: %d %v", maxAPIOK, len(rp.body), err)
 	}
 	// a glidepath answer over the cap is not JSON: a JSONDecodeError, nothing echoed
-	gp, _ := NewGlidepath(big.URL+"/ok", writeTemp(t, "t"), false, 10*time.Second)
+	gp, _ := NewGlidepath(big.URL+"/ok", writeTemp(t, "a-token-value-1"), false, 10*time.Second, true)
 	_, err = gp.Contract(context.Background(), "p")
 	if err == nil || dispatch.ErrorResult(err) != "error:JSONDecodeError" {
 		t.Fatalf("%v", err)
@@ -709,7 +710,7 @@ func TestABackendThatIsSlowHoldsOnlyItsOwnShareOfTheGatewaysCalls(t *testing.T) 
 	defer slow.Close()
 	fast := fakes.NewGitHub("o/gate-api")
 	defer fast.Close()
-	gp, _ := NewGlidepath(slow.URL, writeTemp(t, "t"), false, 30*time.Second)
+	gp, _ := NewGlidepath(slow.URL, writeTemp(t, "a-token-value-1"), false, 30*time.Second, true)
 	var wg sync.WaitGroup
 	for i := 0; i < 60; i++ {
 		wg.Add(1)
@@ -722,7 +723,7 @@ func TestABackendThatIsSlowHoldsOnlyItsOwnShareOfTheGatewaysCalls(t *testing.T) 
 	}
 	time.Sleep(300 * time.Millisecond)
 	// the saturated backend does not stop another from answering
-	g, _ := NewGitHub(GitHubOptions{API: fast.Srv.URL, BrokerURL: fast.BrokerURL(), TokenFile: writeTemp(t, "t"), Owners: []string{"o"}, Timeout: 5 * time.Second})
+	g, _ := NewGitHub(GitHubOptions{API: fast.Srv.URL, BrokerURL: fast.BrokerURL(), TokenFile: writeTemp(t, "a-token-value-1"), Owners: []string{"o"}, AllowHTTP: true, Timeout: 5 * time.Second})
 	done := make(chan error, 1)
 	go func() { _, err := g.ReadFile(context.Background(), "o/gate-api", "a", "main"); done <- err }()
 	select {

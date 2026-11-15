@@ -128,8 +128,11 @@ type Glidepath struct {
 
 // NewGlidepath is the client for base (an http(s) URL; a path in it is kept: an API server's services/proxy path) reading
 // its token from tokenFile.
-func NewGlidepath(base, tokenFile string, onBehalfOf bool, timeout time.Duration) (*Glidepath, error) {
+func NewGlidepath(base, tokenFile string, onBehalfOf bool, timeout time.Duration, allowHTTP bool) (*Glidepath, error) {
 	b, err := checkBase("GLIDEPATH_API_URL", base)
+	if err == nil {
+		err = requireHTTPS("GLIDEPATH_API_URL", b, allowHTTP)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +245,7 @@ func (g *Glidepath) url(r gpReq) (string, error) {
 }
 
 func (g *Glidepath) headers(r gpReq) (http.Header, string, error) {
-	tok, err := readToken(g.tokenFile)
+	tok, err := readTokenMin(g.tokenFile)
 	if err != nil {
 		return nil, "", err
 	}

@@ -211,7 +211,7 @@ def test_the_go_gateway_wants_the_settings_the_github_tools_need_and_still_refus
            "AGENT_XRS_ENABLED": "0", "XR_REQUEST_ENABLED": "0"}
     r = subprocess.run([str(go_binary), "serve"], env=env, capture_output=True, text=True)
     assert r.returncode == 2 and "BROKER_URL" in r.stderr, "the Python default is a lab Service name: the Go gateway has none"
-    r = subprocess.run([str(go_binary), "serve"], env={**env, "BROKER_URL": "http://broker:8080"}, capture_output=True, text=True)
+    r = subprocess.run([str(go_binary), "serve"], env={**env, "BROKER_URL": "https://broker:8080"}, capture_output=True, text=True)
     assert r.returncode == 2 and "GITHUB_OWNERS" in r.stderr, "no argument chooses the owner: the deployment names them"
     r = subprocess.run([str(go_binary), "serve"], env={**base, "GATEWAY_DSN": "postgresql://x", "CLEARANCE_CORE_URL": "http://127.0.0.1:1",
                                                         "EVENTS_ENABLED": "1", "GLIDEPATH_API_URL": "http://g:8080"},

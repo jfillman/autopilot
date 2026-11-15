@@ -10000,10 +10000,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -10197,10 +10212,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -10394,10 +10424,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gitops-gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gitops-gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gitops-gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -10480,6 +10525,28 @@
    },
    "git": true,
    "glidepath": true,
+   "go": {
+    "denied": {
+     "hint": "Leave base out; an agent's definition cannot name another.",
+     "message": "a pull request is based on the repository's default branch, 'main', not 'release/1.x'",
+     "rule": "GH-BASE"
+    },
+    "requests": [
+     {
+      "body": {
+       "app": "gate-api",
+       "owner": "o",
+       "repo": "gate-api"
+      },
+      "headers": {
+       "authorization": "Bearer agent-fixture-token",
+       "content-type": "application/json"
+      },
+      "method": "POST",
+      "target": "/b/agent-installation-token"
+     }
+    ]
+   },
    "name": "open a pull request on a base branch",
    "obo": false,
    "requests": [
@@ -10592,10 +10659,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -10655,7 +10737,8 @@
     "run": "r-1",
     "task": "t-abc123"
    },
-   "tool": "repo.pr.open"
+   "tool": "repo.pr.open",
+   "why": "Go bases a pull request on the repository's default branch only (the definition has no field that allows another)"
   },
   {
    "args": {
@@ -10808,10 +10891,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11005,10 +11103,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11176,10 +11289,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11349,10 +11477,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11491,10 +11634,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11648,10 +11806,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11835,10 +12008,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -11943,10 +12131,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -12059,11 +12262,26 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "message": "Not Found"
      },
      "status": 404
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
+      }
+     },
+     "status": 200
     },
     "GET /repos/o/gate-api/git/ref/heads/main": {
      "body": {
@@ -12244,10 +12462,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -12430,10 +12663,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -12623,10 +12871,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -12886,10 +13149,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gitops-gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gitops-gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gitops-gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -13278,10 +13556,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -13475,10 +13768,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -13748,10 +14056,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -14055,10 +14378,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -14249,10 +14587,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -14446,10 +14799,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -14505,7 +14873,7 @@
   },
   {
    "args": {
-    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "branch": "agent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "files": [
      {
       "content": "print('fixed')\n",
@@ -14521,7 +14889,7 @@
     "status": 404
    },
    "effect": {
-    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "branch": "agent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commit": "00000000000000000000000000000000000000d1",
     "paths": [
      "src/app.py"
@@ -14531,7 +14899,7 @@
    },
    "git": true,
    "glidepath": true,
-   "name": "branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "name": "branch agent/aaaaaaaaaaaaaaaaaaaaaaaa",
    "obo": false,
    "requests": [
     {
@@ -14607,7 +14975,7 @@
     },
     {
      "body": {
-      "ref": "refs/heads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ref": "refs/heads/agent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "sha": "00000000000000000000000000000000000000d1"
      },
      "headers": {
@@ -14623,7 +14991,7 @@
      "body": {
       "base": "main",
       "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `fixture-agent`\n- run: `r-1`\n- session: `s-1`\n- task: `t-abc123`",
-      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "head": "agent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "title": "Fix the probe"
      },
      "headers": {
@@ -14637,16 +15005,31 @@
     }
    ],
    "result": {
-    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "branch": "agent/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commit": "00000000000000000000000000000000000000d1",
     "pr": 7,
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -14728,6 +15111,14 @@
    },
    "git": true,
    "glidepath": true,
+   "go": {
+    "denied": {
+     "hint": "Use a plain branch name like agent/t-1234.",
+     "message": "'feature/deep/er/branch' is not a branch name",
+     "rule": "GH-BRANCH"
+    },
+    "requests": []
+   },
    "name": "branch feature/deep/er/branch",
    "obo": false,
    "requests": [
@@ -14840,10 +15231,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -14895,7 +15301,229 @@
     "run": "r-1",
     "task": "t-abc123"
    },
-   "tool": "repo.pr.open"
+   "tool": "repo.pr.open",
+   "why": "Go lets an agent create branches in the gateway's own namespace, agent/, only"
+  },
+  {
+   "args": {
+    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "files": [
+     {
+      "content": "print('fixed')\n",
+      "path": "src/app.py"
+     }
+    ],
+    "repo": "o/gate-api",
+    "title": "Fix the probe"
+   },
+   "clock": false,
+   "default": {
+    "body": {},
+    "status": 404
+   },
+   "effect": {
+    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commit": "00000000000000000000000000000000000000d1",
+    "paths": [
+     "src/app.py"
+    ],
+    "pr": 7,
+    "repo": "o/gate-api"
+   },
+   "git": true,
+   "glidepath": true,
+   "go": {
+    "denied": {
+     "hint": "Use a plain branch name like agent/t-1234.",
+     "message": "'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'... is not a branch name",
+     "rule": "GH-BRANCH"
+    },
+    "requests": []
+   },
+   "name": "branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "obo": false,
+   "requests": [
+    {
+     "body": {
+      "app": "gate-api",
+      "owner": "o",
+      "repo": "gate-api"
+     },
+     "headers": {
+      "authorization": "Bearer agent-fixture-token",
+      "content-type": "application/json"
+     },
+     "method": "POST",
+     "target": "/b/agent-installation-token"
+    },
+    {
+     "body": null,
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "GET",
+     "target": "/repos/o/gate-api/git/ref/heads/main"
+    },
+    {
+     "body": null,
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "GET",
+     "target": "/repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0"
+    },
+    {
+     "body": {
+      "base_tree": "00000000000000000000000000000000000000c0",
+      "tree": [
+       {
+        "content": "print('fixed')\n",
+        "mode": "100644",
+        "path": "src/app.py",
+        "type": "blob"
+       }
+      ]
+     },
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "POST",
+     "target": "/repos/o/gate-api/git/trees"
+    },
+    {
+     "body": {
+      "message": "Fix the probe\n\nHangar-Agent: fixture-agent\nHangar-Run: r-1\nHangar-Session: s-1\nHangar-Task: t-abc123",
+      "parents": [
+       "00000000000000000000000000000000000000b0"
+      ],
+      "tree": "00000000000000000000000000000000000000c1"
+     },
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "POST",
+     "target": "/repos/o/gate-api/git/commits"
+    },
+    {
+     "body": {
+      "ref": "refs/heads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sha": "00000000000000000000000000000000000000d1"
+     },
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "POST",
+     "target": "/repos/o/gate-api/git/refs"
+    },
+    {
+     "body": {
+      "base": "main",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `fixture-agent`\n- run: `r-1`\n- session: `s-1`\n- task: `t-abc123`",
+      "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "Fix the probe"
+     },
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "POST",
+     "target": "/repos/o/gate-api/pulls"
+    }
+   ],
+   "result": {
+    "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commit": "00000000000000000000000000000000000000d1",
+    "pr": 7,
+    "url": "https://github.com/o/gate-api/pull/7"
+   },
+   "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
+     "body": {
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/ref/heads/main": {
+     "body": {
+      "object": {
+       "sha": "00000000000000000000000000000000000000b0"
+      },
+      "ref": "refs/heads/main"
+     },
+     "status": 200
+    },
+    "POST /b/agent-installation-token": {
+     "body": {
+      "expiresAt": "z",
+      "token": "ghs_fixturetoken"
+     },
+     "status": 200
+    },
+    "POST /repos/o/gate-api/git/commits": {
+     "body": {
+      "sha": "00000000000000000000000000000000000000d1"
+     },
+     "status": 201
+    },
+    "POST /repos/o/gate-api/git/refs": {
+     "body": {},
+     "status": 201
+    },
+    "POST /repos/o/gate-api/git/trees": {
+     "body": {
+      "sha": "00000000000000000000000000000000000000c1"
+     },
+     "status": 201
+    },
+    "POST /repos/o/gate-api/pulls": {
+     "body": {
+      "html_url": "https://github.com/o/gate-api/pull/7",
+      "number": 7
+     },
+     "status": 201
+    }
+   },
+   "session": {
+    "agent": "fixture-agent",
+    "id": "s-1",
+    "principal": "user:jfillman",
+    "run": "r-1",
+    "task": "t-abc123"
+   },
+   "tool": "repo.pr.open",
+   "why": "Go lets an agent create branches in the gateway's own namespace, agent/, only"
   },
   {
    "args": {
@@ -15037,10 +15665,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -15234,10 +15877,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -15340,6 +15998,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "content": "aGVsbG8K",
@@ -15354,6 +16018,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -15456,6 +16129,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "content": "aGVs\nbG8K\n",
@@ -15470,6 +16149,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -15572,6 +16260,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "content": "Y2Fmw6kg4piD",
@@ -15586,6 +16280,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -15697,6 +16400,12 @@
     "type": "dir"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/test?ref=main": {
      "body": [
       {
@@ -15716,6 +16425,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -18317,6 +19035,12 @@
     "type": "dir"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/test?ref=main": {
      "body": [
       {
@@ -20930,6 +21654,15 @@
      },
      "status": 200
     },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
+      }
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/ref/heads/main": {
      "body": {
       "object": {
@@ -21031,6 +21764,12 @@
     "type": "dir"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/?ref=main": {
      "body": [
       {
@@ -21045,6 +21784,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21145,6 +21893,12 @@
     "type": "dir"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/?ref=main": {
      "body": [],
      "status": 200
@@ -21153,6 +21907,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21252,6 +22015,12 @@
     "ref": "main"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {},
      "status": 404
@@ -21260,6 +22029,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21358,6 +22136,12 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "message": "rate limited"
@@ -21368,6 +22152,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21470,6 +22263,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "content": "//4AAQ==",
@@ -21484,6 +22283,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21586,6 +22394,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "content": "",
@@ -21600,6 +22414,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21702,6 +22525,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "content": "",
@@ -21716,6 +22545,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21815,6 +22653,12 @@
     "type": "symlink"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "target": "x",
@@ -21826,6 +22670,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -21925,6 +22778,12 @@
     "type": null
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {
       "raw": "<html>"
@@ -21935,6 +22794,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22038,6 +22906,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/a/b.txt?ref=release%2F1.x": {
      "body": {
       "content": "eA==",
@@ -22052,6 +22926,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22154,6 +23037,12 @@
     "type": "file"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/docs/a%20b%23c%3Fd%25e.md?ref=main": {
      "body": {
       "content": "eA==",
@@ -22168,6 +23057,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22267,6 +23165,12 @@
     "ref": "main"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {},
      "status": 404
@@ -22275,6 +23179,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22382,6 +23295,12 @@
     "ref": "main"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "body": {},
      "status": 404
@@ -22390,6 +23309,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22540,6 +23468,12 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/app.js?ref=main": {
      "fail": "timeout"
     },
@@ -22547,6 +23481,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22622,10 +23565,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22701,10 +23659,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22794,10 +23767,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22888,10 +23876,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -22982,10 +23985,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23076,10 +24094,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23170,10 +24203,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23256,10 +24304,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23341,10 +24404,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23458,10 +24536,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23552,10 +24645,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23646,10 +24754,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23732,10 +24855,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23817,10 +24955,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23902,10 +25055,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -23987,10 +25155,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24072,10 +25255,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24157,10 +25355,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24242,10 +25455,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24327,10 +25555,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24412,10 +25655,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24497,10 +25755,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24582,10 +25855,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24667,10 +25955,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24752,10 +26055,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24837,10 +26155,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -24922,10 +26255,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25007,10 +26355,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25092,10 +26455,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25185,10 +26563,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25271,10 +26664,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25356,10 +26764,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25442,10 +26865,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25528,10 +26966,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25614,10 +27067,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25700,10 +27168,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25786,10 +27269,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25866,10 +27364,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -25950,10 +27463,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -26034,10 +27562,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -26119,10 +27662,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -26204,10 +27762,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -26296,10 +27869,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -26581,10 +28169,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -26792,10 +28395,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -27528,10 +29146,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -27733,10 +29366,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -27939,10 +29587,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -28145,10 +29808,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -28351,10 +30029,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -28557,10 +30250,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -28763,10 +30471,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -28980,10 +30703,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -29186,10 +30924,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -29606,10 +31359,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -29813,10 +31581,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -29932,10 +31715,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -30139,10 +31937,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -30346,10 +32159,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -30553,10 +32381,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -30760,10 +32603,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -30967,10 +32825,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -31174,10 +33047,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -31381,10 +33269,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -31588,10 +33491,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -31794,10 +33712,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -32000,10 +33933,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -32206,10 +34154,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -32412,10 +34375,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/evil/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/evil/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/evil/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -32646,10 +34624,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -32903,10 +34896,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -33158,10 +35166,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -33413,10 +35436,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -33680,10 +35718,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -34183,10 +36236,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -34707,10 +36775,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -34976,10 +37059,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35072,10 +37170,25 @@
    "obo": false,
    "requests": [],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35335,10 +37448,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35352,10 +37480,25 @@
      },
      "status": 200
     },
+    "GET /repos/o/gitops-infra-gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gitops-infra-gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gitops-infra-gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35502,10 +37645,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35623,10 +37781,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35737,10 +37910,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35855,10 +38043,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -35966,10 +38169,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -36076,10 +38294,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -36183,10 +38416,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -36381,10 +38629,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -36522,10 +38785,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -36748,10 +39026,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -36982,10 +39275,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -37202,10 +39510,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -37461,10 +39784,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -37682,10 +40020,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -37699,10 +40052,25 @@
      },
      "status": 200
     },
+    "GET /repos/o/gitops-gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gitops-gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gitops-gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -37957,10 +40325,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -37974,10 +40357,25 @@
      },
      "status": 200
     },
+    "GET /repos/o/gitops-infra-gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gitops-infra-gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gitops-infra-gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38121,10 +40519,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38239,10 +40652,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38462,10 +40890,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38570,10 +41013,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38679,10 +41137,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38895,10 +41368,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -38992,6 +41480,43 @@
    },
    "git": true,
    "glidepath": true,
+   "go": {
+    "denied": {
+     "hint": "Leave base out; an agent's definition cannot name another.",
+     "message": "a pull request is based on the repository's default branch, 'main', not 'release/1.x'",
+     "rule": "GH-BASE"
+    },
+    "requests": [
+     {
+      "body": {
+       "agent": true,
+       "baseRef": "release/1.x",
+       "content": "limits:\n  cpu: '1'\n"
+      },
+      "headers": {
+       "accept": "application/json",
+       "authorization": "Bearer gp-fixture-token",
+       "content-type": "application/json",
+       "x-glidepath-authorization": "Bearer gp-fixture-token"
+      },
+      "method": "POST",
+      "target": "/gp/v1/apps/gate-api/cicd/validations"
+     },
+     {
+      "body": {
+       "app": "gate-api",
+       "owner": "o",
+       "repo": "gate-api"
+      },
+      "headers": {
+       "authorization": "Bearer agent-fixture-token",
+       "content-type": "application/json"
+      },
+      "method": "POST",
+      "target": "/b/agent-installation-token"
+     }
+    ]
+   },
    "name": "the guard sends the base",
    "obo": false,
    "requests": [
@@ -39119,10 +41644,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -39205,7 +41745,8 @@
     "run": "r-1",
     "task": "t-abc123"
    },
-   "tool": "repo.pr.open"
+   "tool": "repo.pr.open",
+   "why": "the verdict is asked for as Python asks; Go then bases the pull request on the default branch only"
   },
   {
    "args": {
@@ -39347,10 +41888,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -39439,6 +41995,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -39530,7 +42087,7 @@
     },
     {
      "body": {
-      "message": "Step 1\n\nHangar-Agent: a\nHangar-Task: t-1",
+      "message": "Step 1\n\nHangar-Agent: a\nHangar-Session: s-1\nHangar-Task: t-1",
       "parents": [
        "00000000000000000000000000000000000000b0"
       ],
@@ -39562,7 +42119,7 @@
     {
      "body": {
       "base": "main",
-      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- task: `t-1`\n\nwhy",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- session: `s-1`\n- task: `t-1`\n\nwhy",
       "head": "agent/airframe-step-1",
       "title": "Step 1"
      },
@@ -39585,10 +42142,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -39662,6 +42234,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -39710,10 +42283,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -39794,6 +42382,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -39842,10 +42431,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -39936,6 +42540,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -40037,7 +42642,7 @@
     },
     {
      "body": {
-      "message": "Step 1\n\nHangar-Agent: a\nHangar-Task: t-1",
+      "message": "Step 1\n\nHangar-Agent: a\nHangar-Session: s-1\nHangar-Task: t-1",
       "parents": [
        "00000000000000000000000000000000000000b0"
       ],
@@ -40069,7 +42674,7 @@
     {
      "body": {
       "base": "main",
-      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- task: `t-1`\n\nwhy",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- session: `s-1`\n- task: `t-1`\n\nwhy",
       "head": "agent/airframe-step-1",
       "title": "Step 1"
      },
@@ -40092,10 +42697,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -40180,6 +42800,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -40238,10 +42859,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -40330,6 +42966,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -40385,10 +43022,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -40475,6 +43127,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -40566,7 +43219,7 @@
     },
     {
      "body": {
-      "message": "Step 1\n\nHangar-Agent: a\nHangar-Task: t-1",
+      "message": "Step 1\n\nHangar-Agent: a\nHangar-Session: s-1\nHangar-Task: t-1",
       "parents": [
        "00000000000000000000000000000000000000b0"
       ],
@@ -40598,7 +43251,7 @@
     {
      "body": {
       "base": "main",
-      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- task: `t-1`\n\nwhy",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- session: `s-1`\n- task: `t-1`\n\nwhy",
       "head": "agent/airframe-step-1",
       "title": "Step 1"
      },
@@ -40621,10 +43274,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -40708,6 +43376,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -40769,7 +43438,7 @@
     {
      "body": {
       "base": "main",
-      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- task: `t-1`\n\nwhy",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- session: `s-1`\n- task: `t-1`\n\nwhy",
       "head": "agent/airframe-step-1",
       "title": "Step 1"
      },
@@ -40792,6 +43461,12 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1": {
      "body": {
       "content": "cHJpbnQoJ2ZpeGVkJykK",
@@ -40803,6 +43478,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -40880,6 +43564,248 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
+     "task": "t-1"
+    },
+    "repo": "o/gate-api",
+    "title": "Step 1"
+   },
+   "clock": false,
+   "default": {
+    "body": {},
+    "status": 404
+   },
+   "git": true,
+   "glidepath": false,
+   "go": {
+    "denied": {
+     "hint": "A person looks at the branch; the tool never builds on, pushes to or deletes a branch it did not make.",
+     "message": "branch agent/airframe-step-1 was not made by this session",
+     "rule": "APPLY-BRANCH-FOREIGN"
+    },
+    "requests": [
+     {
+      "body": {
+       "app": "gate-api",
+       "owner": "o",
+       "repo": "gate-api"
+      },
+      "headers": {
+       "authorization": "Bearer agent-fixture-token",
+       "content-type": "application/json"
+      },
+      "method": "POST",
+      "target": "/b/agent-installation-token"
+     },
+     {
+      "body": null,
+      "headers": {
+       "accept": "application/vnd.github+json",
+       "authorization": "Bearer ghs_fixturetoken",
+       "x-github-api-version": "2022-11-28"
+      },
+      "method": "GET",
+      "target": "/repos/o/gate-api/pulls?head=o%3Aagent%2Fairframe-step-1&state=all&per_page=5"
+     },
+     {
+      "body": null,
+      "headers": {
+       "accept": "application/vnd.github+json",
+       "authorization": "Bearer ghs_fixturetoken",
+       "x-github-api-version": "2022-11-28"
+      },
+      "method": "GET",
+      "target": "/repos/o/gate-api/git/ref/heads/agent/airframe-step-1"
+     },
+     {
+      "body": null,
+      "headers": {
+       "accept": "application/vnd.github+json",
+       "authorization": "Bearer ghs_fixturetoken",
+       "x-github-api-version": "2022-11-28"
+      },
+      "method": "GET",
+      "target": "/repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1"
+     }
+    ]
+   },
+   "name": "ensure: a branch another session made",
+   "obo": false,
+   "requests": [
+    {
+     "body": {
+      "app": "gate-api",
+      "owner": "o",
+      "repo": "gate-api"
+     },
+     "headers": {
+      "authorization": "Bearer agent-fixture-token",
+      "content-type": "application/json"
+     },
+     "method": "POST",
+     "target": "/b/agent-installation-token"
+    },
+    {
+     "body": null,
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "GET",
+     "target": "/repos/o/gate-api/pulls?head=o%3Aagent%2Fairframe-step-1&state=all&per_page=5"
+    },
+    {
+     "body": null,
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "GET",
+     "target": "/repos/o/gate-api/git/ref/heads/agent/airframe-step-1"
+    },
+    {
+     "body": null,
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "GET",
+     "target": "/repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1"
+    },
+    {
+     "body": {
+      "base": "main",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- session: `s-1`\n- task: `t-1`\n\nwhy",
+      "head": "agent/airframe-step-1",
+      "title": "Step 1"
+     },
+     "headers": {
+      "accept": "application/vnd.github+json",
+      "authorization": "Bearer ghs_fixturetoken",
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28"
+     },
+     "method": "POST",
+     "target": "/repos/o/gate-api/pulls"
+    }
+   ],
+   "result": {
+    "branch": "agent/airframe-step-1",
+    "commit": "00000000000000000000000000000000000000d1",
+    "pr": 7,
+    "resumed": true,
+    "state": "open",
+    "url": "https://github.com/o/gate-api/pull/7"
+   },
+   "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1": {
+     "body": {
+      "content": "cHJpbnQoJ2ZpeGVkJykK",
+      "encoding": "base64"
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
+     "body": {
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-2",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/ref/heads/agent/airframe-step-1": {
+     "body": {
+      "object": {
+       "sha": "00000000000000000000000000000000000000d1"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/ref/heads/main": {
+     "body": {
+      "object": {
+       "sha": "00000000000000000000000000000000000000b0"
+      },
+      "ref": "refs/heads/main"
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/pulls?head=o%3Aagent%2Fairframe-step-1&state=all&per_page=5": {
+     "body": [],
+     "status": 200
+    },
+    "POST /b/agent-installation-token": {
+     "body": {
+      "expiresAt": "z",
+      "token": "ghs_fixturetoken"
+     },
+     "status": 200
+    },
+    "POST /repos/o/gate-api/git/commits": {
+     "body": {
+      "sha": "00000000000000000000000000000000000000d1"
+     },
+     "status": 201
+    },
+    "POST /repos/o/gate-api/git/refs": {
+     "body": {},
+     "status": 201
+    },
+    "POST /repos/o/gate-api/git/trees": {
+     "body": {
+      "sha": "00000000000000000000000000000000000000c1"
+     },
+     "status": 201
+    },
+    "POST /repos/o/gate-api/pulls": {
+     "body": {
+      "html_url": "https://github.com/o/gate-api/pull/7",
+      "number": 7
+     },
+     "status": 201
+    }
+   },
+   "session": {
+    "agent": "fixture-agent",
+    "id": "s-1",
+    "principal": "user:jfillman",
+    "run": "r-1",
+    "task": "t-abc123"
+   },
+   "tool": "direct:ensure_pr",
+   "why": "Go resumes only a branch whose head commit carries this session's trailer; Python takes any branch whose files match"
+  },
+  {
+   "args": {
+    "body": "why",
+    "branch": "agent/airframe-step-1",
+    "files": [
+     {
+      "content": "print('fixed')\n",
+      "path": "src/app.py"
+     }
+    ],
+    "meta": {
+     "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -40945,6 +43871,12 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1": {
      "body": {
       "content": "b3RoZXI=",
@@ -40956,6 +43888,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41033,6 +43974,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -41098,6 +44040,12 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1": {
      "body": {},
      "status": 404
@@ -41106,6 +44054,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41183,6 +44140,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -41248,6 +44206,12 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1": {
      "body": {
       "content": "//4=",
@@ -41259,6 +44223,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41336,6 +44309,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -41401,6 +44375,12 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/contents/src/app.py?ref=agent%2Fairframe-step-1": {
      "body": {
       "message": "x"
@@ -41411,6 +44391,15 @@
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41488,6 +44477,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -41533,10 +44523,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41608,6 +44613,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -41699,7 +44705,7 @@
     },
     {
      "body": {
-      "message": "Step 1\n\nHangar-Agent: a\nHangar-Task: t-1",
+      "message": "Step 1\n\nHangar-Agent: a\nHangar-Session: s-1\nHangar-Task: t-1",
       "parents": [
        "00000000000000000000000000000000000000b0"
       ],
@@ -41731,7 +44737,7 @@
     {
      "body": {
       "base": "main",
-      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- task: `t-1`\n\nwhy",
+      "body": "Opened by a Hangar agent through Clearance.\n\n- agent: `a`\n- session: `s-1`\n- task: `t-1`\n\nwhy",
       "head": "agent/airframe-step-1",
       "title": "Step 1"
      },
@@ -41754,10 +44760,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41833,6 +44854,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -41888,10 +44910,25 @@
     }
    ],
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -41967,6 +45004,7 @@
     ],
     "meta": {
      "agent": "a",
+     "session": "s-1",
      "task": "t-1"
     },
     "repo": "o/gate-api",
@@ -42065,10 +45103,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -42178,10 +45231,25 @@
    ],
    "result": null,
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200
@@ -42286,10 +45354,25 @@
     "url": "https://github.com/o/gate-api/pull/7"
    },
    "routes": {
+    "GET /repos/o/gate-api": {
+     "body": {
+      "default_branch": "main"
+     },
+     "status": 200
+    },
     "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000b0": {
      "body": {
       "tree": {
        "sha": "00000000000000000000000000000000000000c0"
+      }
+     },
+     "status": 200
+    },
+    "GET /repos/o/gate-api/git/commits/00000000000000000000000000000000000000d1": {
+     "body": {
+      "message": "t\n\nHangar-Session: s-1",
+      "tree": {
+       "sha": "00000000000000000000000000000000000000c1"
       }
      },
      "status": 200

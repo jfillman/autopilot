@@ -235,6 +235,9 @@ def gh_routes(repo="o/gate-api", **over):
         "POST /b/agent-installation-token": {"status": 200, "body": {"token": GH_TOKEN, "expiresAt": "z"}},
         f"GET /repos/{repo}/git/ref/heads/main": {"status": 200, "body": {"ref": "refs/heads/main", "object": {"sha": BASE}}},
         f"GET /repos/{repo}/git/commits/{BASE}": {"status": 200, "body": {"tree": {"sha": TREE0}}},
+        # what only Go asks (its default branch, a commit's trailer): Python never sends these, the Go test drops them
+        f"GET /repos/{repo}": {"status": 200, "body": {"default_branch": "main"}},
+        f"GET /repos/{repo}/git/commits/{C1}": {"status": 200, "body": {"tree": {"sha": TREE1}, "message": "t\n\nHangar-Session: s-1"}},
         f"POST /repos/{repo}/git/trees": {"status": 201, "body": {"sha": TREE1}},
         f"POST /repos/{repo}/git/commits": {"status": 201, "body": {"sha": C1}},
         f"POST /repos/{repo}/git/refs": {"status": 201, "body": {}},
@@ -546,6 +549,9 @@ def repo_cases():
     run_case("open_upper", "repo.pr.open_upper", pr_args(repo="o/gitops-gate-api"), gh_routes("o/gitops-gate-api"))
     run_case("open a pull request on a base branch", "repo.pr.open", pr_args(base="release/1.x"),
              gh_routes(**{f"GET /repos/{R}/git/ref/heads/release/1.x": jsr(200, {"object": {"sha": BASE}})}))
+    CASES[-1]["go"] = {"denied": {"rule": "GH-BASE", "message": "a pull request is based on the repository's default branch, 'main', not 'release/1.x'",
+                                  "hint": "Leave base out; an agent's definition cannot name another."}, "requests": CASES[-1]["requests"][:1]}
+    CASES[-1]["why"] = "Go bases a pull request on the repository's default branch only (the definition has no field that allows another)"
     run_case("two files", "repo.pr.open", pr_args(files=[{"path": "a.txt", "content": "a"}, {"path": "dir/b.txt", "content": "b é"}]), gh_routes())
     run_case("empty content is fine", "repo.pr.open", pr_args(files=[{"path": "a.txt", "content": ""}]), gh_routes())
     run_case("the branch exists (422 on the ref)", "repo.pr.open", pr_args(), gh_routes(**{f"POST /repos/{R}/git/refs": jsr(422, {"message": "Reference already exists"})}))
@@ -585,8 +591,12 @@ def repo_cases():
              go_error=("GitHubError", "GitHub unreachable: TimeoutError" + lost_note),
              go_extra=[gget(f"/repos/{R}/pulls?head=o%3Aagent%2Ft-abc123&state=all&per_page=5")])
     # a few of the same on branch / ref / path shapes
-    for branch in ("agent/x", "agent/x-1.2_y", "a" * 200, "feature/deep/er/branch"):
-        run_case(f"branch {branch[:30]}", "repo.pr.open", pr_args(branch=branch), gh_routes(**{}))
+    for branch in ("agent/x", "agent/x-1.2_y", "agent/" + "a" * 190, "feature/deep/er/branch", "a" * 200):
+        extra = {}
+        if not branch.startswith("agent/"):
+            extra = go_denied({"rule": "GH-BRANCH", "message": go_echo(branch) + " is not a branch name", "hint": "Use a plain branch name like agent/t-1234."},
+                              why="Go lets an agent create branches in the gateway's own namespace, agent/, only")
+        run_case(f"branch {branch[:30]}", "repo.pr.open", pr_args(branch=branch), gh_routes(**{}), **extra)
     run_case("a long title", "repo.pr.open", pr_args(title="T" * 200), gh_routes())
     run_case("a title with a quote and unicode", "repo.pr.open", pr_args(title="Fix \"the\" probe ☃"), gh_routes())
     # repo.file.get
@@ -738,6 +748,9 @@ def cicd_cases():
     run_case("the guard: warnings pass", "repo.pr.open", pr_args(files=[cy]), {**routes, f"POST {G}": jsr(200, {"problems": [{"severity": "warning", "message": "w"}]})})
     run_case("the guard sends the base", "repo.pr.open", pr_args(files=[cy], base="release/1.x"),
              {**routes, f"GET /repos/{R}/git/ref/heads/release/1.x": jsr(200, {"object": {"sha": BASE}})})
+    CASES[-1]["go"] = {"denied": {"rule": "GH-BASE", "message": "a pull request is based on the repository's default branch, 'main', not 'release/1.x'",
+                                  "hint": "Leave base out; an agent's definition cannot name another."}, "requests": CASES[-1]["requests"][:2]}
+    CASES[-1]["why"] = "the verdict is asked for as Python asks; Go then bases the pull request on the default branch only"
     run_case("no glidepath: a cicd.yaml goes straight to the pull request", "repo.pr.open", pr_args(files=[cy]), routes, glidepath=False)
 
 
@@ -747,7 +760,7 @@ def direct_cases():
     R = "o/gate-api"
     br = "agent/airframe-step-1"
     head = f"GET /repos/{R}/pulls?head=o%3A{br.replace('/', '%2F')}&state=all&per_page=5"
-    args = {"repo": R, "branch": br, "title": "Step 1", "files": FILES, "meta": {"agent": "a", "task": "t-1"}, "body": "why"}
+    args = {"repo": R, "branch": br, "title": "Step 1", "files": FILES, "meta": {"agent": "a", "task": "t-1", "session": "s-1"}, "body": "why"}
     open_pr = {"number": 7, "html_url": PR_URL, "state": "open", "merged_at": None, "head": {"ref": br, "sha": C1}}
     run_direct("ensure: a new branch is built", "ensure_pr", args, gh_routes(**{head: jsr(200, []), f"GET /repos/{R}/git/ref/heads/{br}": jsr(404, {})}))
     run_direct("ensure: an open PR is resumed", "ensure_pr", args, gh_routes(**{head: jsr(200, [open_pr])}))
@@ -766,6 +779,15 @@ def direct_cases():
     run_direct("ensure: a branch left without its PR gets one", "ensure_pr", args,
                gh_routes(**{head: jsr(200, []), f"GET /repos/{R}/git/ref/heads/{br}": jsr(200, {"object": {"sha": C1}}),
                             contents: jsr(200, {"encoding": "base64", "content": b64("print('fixed')\n")})}))
+    run_direct("ensure: a branch another session made", "ensure_pr", args,
+               gh_routes(**{head: jsr(200, []), f"GET /repos/{R}/git/ref/heads/{br}": jsr(200, {"object": {"sha": C1}}),
+                            f"GET /repos/{R}/git/commits/{C1}": jsr(200, {"tree": {"sha": TREE1}, "message": "t\n\nHangar-Session: s-2"}),
+                            contents: jsr(200, {"encoding": "base64", "content": b64("print('fixed')\n")})}))
+    CASES[-1]["go"] = {"denied": {"rule": "APPLY-BRANCH-FOREIGN", "message": f"branch {br} was not made by this session",
+                                  "hint": "A person looks at the branch; the tool never builds on, pushes to or deletes a branch it did not make."},
+                       "requests": CASES[-1]["requests"][:3] + [{"method": "GET", "target": f"/repos/{R}/git/commits/{C1}", "headers": {
+                           "accept": "application/vnd.github+json", "authorization": "Bearer " + GH_TOKEN, "x-github-api-version": "2022-11-28"}, "body": None}]}
+    CASES[-1]["why"] = "Go resumes only a branch whose head commit carries this session's trailer; Python takes any branch whose files match"
     run_direct("ensure: a branch whose file differs", "ensure_pr", args,
                gh_routes(**{head: jsr(200, []), f"GET /repos/{R}/git/ref/heads/{br}": jsr(200, {"object": {"sha": C1}}),
                             contents: jsr(200, {"encoding": "base64", "content": b64("other")})}))

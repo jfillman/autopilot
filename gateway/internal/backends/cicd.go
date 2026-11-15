@@ -183,9 +183,14 @@ func checkFiles(ctx context.Context, gp *Glidepath, principal string, repo any, 
 	if !repoIsApps(rs, app) {
 		return nil
 	}
-	b := base
-	if !pyTruthy(b) {
-		b = "main"
+	// The base ref goes on to glidepath-api only as a ref, and a bounded one.
+	var b any = "main"
+	if pyTruthy(base) {
+		bs, ok := base.(string)
+		if !ok || !ValidRef(bs) {
+			return deniedBranch(base)
+		}
+		b = bs
 	}
 	verdict, err := gp.ValidateCICD(ctx, app, map[string]any{"content": f["content"], "agent": true, "baseRef": b}, principal)
 	if err != nil {
@@ -309,7 +314,7 @@ func proposeCICD(ctx context.Context, git *GitHub, gp *Glidepath, f SessionFacts
 	if len(needs) > 0 {
 		meta["merge"] = mergePerson
 	}
-	pr, err := git.OpenPR(ctx, OpenPRInput{Repo: repo, Branch: branch, Title: pyStrip(title), Base: "main",
+	pr, err := git.OpenPR(ctx, OpenPRInput{Repo: repo, Branch: branch, Title: pyStrip(title), Base: "",
 		Files: []File{{Path: "cicd.yaml", Content: resulting}}, Meta: meta, Body: prBody(vm, why), DenyPaths: denyPaths})
 	if err != nil {
 		return nil, err

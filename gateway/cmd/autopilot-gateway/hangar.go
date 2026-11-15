@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 
@@ -11,8 +14,9 @@ import (
 // hangarSettings are the settings of the S5b tools (the Glidepath, repository and Argo CD sync tools), as Python's
 // config_from_env reads them, and the three Go adds (below).
 type hangarSettings struct {
-	glidepathURL, glidepathTokenFile string
-	glidepathOnBehalfOf              bool
+	glidepathURL, glidepathTokenFile    string
+	glidepathOnBehalfOf                 bool
+	glidepathAllowHTTP, brokerAllowHTTP bool // GLIDEPATH_API_ALLOW_HTTP, BROKER_ALLOW_HTTP (Go only, off): a bearer token over plain http
 
 	githubPRs                 bool
 	agentTokenFile, brokerURL string
@@ -53,8 +57,14 @@ func flagEnv(env func(string) string, k string, d bool) (bool, error) {
 func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, error) {
 	var h hangarSettings
 	var err error
+	if h.glidepathAllowHTTP, err = flagEnv(env, "GLIDEPATH_API_ALLOW_HTTP", false); err != nil {
+		return h, err
+	}
+	if h.brokerAllowHTTP, err = flagEnv(env, "BROKER_ALLOW_HTTP", false); err != nil {
+		return h, err
+	}
 	if u := env("GLIDEPATH_API_URL"); u != "" {
-		if _, err = backends.NewGlidepath(u, "x", false, 0); err != nil {
+		if _, err = backends.NewGlidepath(u, "x", false, 0, h.glidepathAllowHTTP); err != nil {
 			return h, configError(err.Error())
 		}
 		h.glidepathURL = u
@@ -89,7 +99,7 @@ func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, e
 				h.githubOwners = append(h.githubOwners, o)
 			}
 		}
-		if _, err = backends.NewGitHub(backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners}); err != nil {
+		if _, err = backends.NewGitHub(backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners, AllowHTTP: h.brokerAllowHTTP}); err != nil {
 			return h, configError("GITHUB_PR_ENABLED: " + err.Error())
 		}
 	}
@@ -106,13 +116,30 @@ func hangarFromEnv(env func(string) string, argoEnabled bool) (hangarSettings, e
 func hangarConfig(h hangarSettings, argoNamespaces []string, reg *tools.Registry, def backends.DefinitionOf) (backends.HangarConfig, error) {
 	c := backends.HangarConfig{Definition: def, Tools: reg}
 	var err error
+	// A credential too short to be one is refused at the start, not skipped when an answer is cleaned (a file that is not there
+	// yet is the call's own error).
+	for _, f := range []struct {
+		on   bool
+		file string
+	}{{h.glidepathURL != "", h.glidepathTokenFile}, {h.githubPRs, h.agentTokenFile}} {
+		if !f.on {
+			continue
+		}
+		if b, rerr := os.ReadFile(f.file); rerr == nil && len(strings.TrimSpace(string(b))) < backends.MinToken {
+			return c, fmt.Errorf("%s holds a token shorter than %d characters: not a credential", f.file, backends.MinToken)
+		}
+	}
+	if h.glidepathAllowHTTP || h.brokerAllowHTTP {
+		slog.Warn("a bearer token is sent over plain http (GLIDEPATH_API_ALLOW_HTTP or BROKER_ALLOW_HTTP is on): anyone on the path can read it",
+			"glidepath", h.glidepathAllowHTTP, "broker", h.brokerAllowHTTP)
+	}
 	if h.glidepathURL != "" {
-		if c.Glidepath, err = backends.NewGlidepath(h.glidepathURL, h.glidepathTokenFile, h.glidepathOnBehalfOf, 0); err != nil {
+		if c.Glidepath, err = backends.NewGlidepath(h.glidepathURL, h.glidepathTokenFile, h.glidepathOnBehalfOf, 0, h.glidepathAllowHTTP); err != nil {
 			return c, err
 		}
 	}
 	if h.githubPRs {
-		if c.GitHub, err = backends.NewGitHub(backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners}); err != nil {
+		if c.GitHub, err = backends.NewGitHub(backends.GitHubOptions{BrokerURL: h.brokerURL, TokenFile: h.agentTokenFile, Owners: h.githubOwners, AllowHTTP: h.brokerAllowHTTP}); err != nil {
 			return c, err
 		}
 	}

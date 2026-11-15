@@ -7,6 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/jfillman/autopilot/gateway/internal/dispatch"
 	"io"
 	"net"
 	"net/http"
@@ -203,11 +205,38 @@ func sendRead(ctx context.Context, p retryPolicy, hc *http.Client, lim limiter, 
 
 func jsonBytes(v any) ([]byte, error) { return json.Marshal(v) }
 
+// MinToken is the shortest credential the write backends will send. A shorter one is not a token (an empty or a stub file),
+// and could not be taken out of an answer without taking out ordinary text.
+// MinToken is exported for the start-up check.
+const MinToken = 12
+
+// requireHTTPS refuses a plain http base URL unless the deployment said it may be (GLIDEPATH_API_ALLOW_HTTP,
+// BROKER_ALLOW_HTTP): a bearer token does not cross a network in the clear by default, and nothing here treats a host name
+// as special.
+func requireHTTPS(name, base string, allow bool) error {
+	if allow || strings.HasPrefix(base, "https://") {
+		return nil
+	}
+	return fmt.Errorf("%s must be an https URL: a bearer token is sent to it (a plain http URL needs its ALLOW_HTTP setting)", name)
+}
+
+// readTokenMin is readToken for a credential the write backends send: one that is too short is refused, not sent.
+func readTokenMin(file string) (string, error) {
+	tok, err := readToken(file)
+	if err != nil {
+		return "", err
+	}
+	if len(tok) < MinToken {
+		return "", &dispatch.KindError{Kind: "ValueError", Err: errors.New("the credential file holds a token too short to be one")}
+	}
+	return tok, nil
+}
+
 // redact removes a credential from an upstream's answer before the answer is read for text: an upstream that echoes the
 // Authorization header into an error message cannot put the token into an error, a record or a result.
 func redact(b []byte, secrets ...string) []byte {
 	for _, s := range secrets {
-		if len(s) >= 8 {
+		if s != "" {
 			b = bytes.ReplaceAll(b, []byte(s), []byte("[redacted]"))
 		}
 	}

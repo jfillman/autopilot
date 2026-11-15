@@ -85,6 +85,7 @@ var (
 	reRefs     = regexp.MustCompile(`^/repos/([^/]+/[^/]+)/git/refs$`)
 	rePulls    = regexp.MustCompile(`^/repos/([^/]+/[^/]+)/pulls$`)
 	reContents = regexp.MustCompile(`^/repos/([^/]+/[^/]+)/contents/(.*)$`)
+	reRepo     = regexp.MustCompile(`^/repos/([^/]+/[^/]+)$`)
 )
 
 // NewGitHub is a fake with one repository's worth of state per onboarded name; each has a main branch.
@@ -128,12 +129,23 @@ func (g *GitHub) Branches(repo string) []string {
 	return out
 }
 
-// SeedBranch makes a branch of the commit a call would have made (a crash left it there): the commit holds these files.
-func (g *GitHub) SeedBranch(repo, name string, files map[string]string) string {
+// SeedFiles puts files in the base commit of a repository's main branch (what the repository already holds).
+func (g *GitHub) SeedFiles(repo string, files map[string]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	base := g.branches[repo]["main"]
+	for k, v := range files {
+		g.files[repo][base][k] = v
+	}
+}
+
+// SeedBranch makes a branch of the commit a call would have made (a crash left it there): the commit holds these files and
+// carries this message.
+func (g *GitHub) SeedBranch(repo, name string, files map[string]string, message string) string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	c := sha(repo, "seed", name)
-	g.commits[repo][c] = map[string]any{"tree": sha(repo, "seedtree", name), "message": "seed"}
+	g.commits[repo][c] = map[string]any{"tree": sha(repo, "seedtree", name), "message": message}
 	g.files[repo][c] = files
 	g.branches[repo][name] = c
 	return c
@@ -205,6 +217,13 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 		return
 	}
 	switch {
+	case reRepo.MatchString(p) && r.Method == "GET":
+		m := reRepo.FindStringSubmatch(p)
+		if _, ok := g.branches[m[1]]; !ok {
+			reply(w, 404, map[string]string{"message": "Not Found"})
+			return
+		}
+		reply(w, 200, map[string]any{"default_branch": "main", "full_name": m[1]})
 	case reRef.MatchString(p) && r.Method == "GET":
 		m := reRef.FindStringSubmatch(p)
 		if c, ok := g.branches[m[1]][m[2]]; ok {
@@ -215,7 +234,7 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 	case reCommit.MatchString(p) && r.Method == "GET":
 		m := reCommit.FindStringSubmatch(p)
 		if c, ok := g.commits[m[1]][m[2]]; ok {
-			reply(w, 200, map[string]any{"sha": m[2], "tree": map[string]any{"sha": c["tree"]}})
+			reply(w, 200, map[string]any{"sha": m[2], "tree": map[string]any{"sha": c["tree"]}, "message": c["message"]})
 			return
 		}
 		reply(w, 404, map[string]string{"message": "Not Found"})
@@ -278,7 +297,20 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 	case reContents.MatchString(p) && r.Method == "GET":
 		m := reContents.FindStringSubmatch(p)
 		ref := r.URL.Query().Get("ref")
-		c := g.branches[m[1]][ref]
+		c, isBranch := g.branches[m[1]][ref]
+		if !isBranch {
+			c = ref
+		}
+		var entries []any
+		for p := range g.files[m[1]][c] {
+			if strings.HasPrefix(p, strings.TrimRight(m[2], "/")+"/") {
+				entries = append(entries, map[string]any{"name": p, "type": "file"})
+			}
+		}
+		if len(entries) > 0 {
+			reply(w, 200, entries)
+			return
+		}
 		if content, ok := g.files[m[1]][c][m[2]]; ok {
 			reply(w, 200, map[string]any{"type": "file", "size": len(content), "sha": "f", "encoding": "base64", "content": b64(content)})
 			return

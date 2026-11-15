@@ -69,17 +69,40 @@ func (sc *scope) check(tool string, s *session.Session) (*definitions.Definition
 	return d, f, nil
 }
 
-// repo is the scope of a call that names a repository: it is on the agent's allowlist (repos.allow), and a tool for lower
-// environments does not write to a release repository.
-func (sc *scope) repo(d *definitions.Definition, repo any, lowerOnly bool) error {
+// repo is the scope of a call that names a repository, and the one canonical (lower case) spelling of it that every later
+// step uses: the allowlist match (repos.allow, matched without case), the rule that a tool for lower environments does not
+// write to a release repository, the app the broker is asked about, the URL and the receipt. GitHub resolves names without
+// case, so a check made on any other spelling would not hold for the repository the request reaches.
+func (sc *scope) repo(d *definitions.Definition, repo any, lowerOnly bool) (string, error) {
 	r, ok := repo.(string)
-	if !ok || !repoAllowed(r, d.ReposAllow) {
-		return refuse("R014", "repository is not on this agent's allowlist", "Work only in repositories your definition names.")
+	if !ok || strings.Count(r, "/") != 1 || strings.HasPrefix(r, "/") || strings.HasSuffix(r, "/") {
+		return "", refuse("R014", "repository is not on this agent's allowlist", "Work only in repositories your definition names.")
 	}
-	if lowerOnly && strings.HasPrefix(r[strings.LastIndex(r, "/")+1:], UpperRepoPrefix) {
-		return refuse("R012", "this tool acts on lower environments only, but the target is an upper environment", "Use repo.pr.open_upper to propose the change; a human merge applies it.")
+	canon, ok := CanonicalRepo(r)
+	if !ok {
+		return "", deniedRepo(repo)
 	}
-	return nil
+	lower := make([]string, len(d.ReposAllow))
+	for i, g := range d.ReposAllow {
+		lower[i] = strings.ToLower(g)
+	}
+	if !repoAllowed(canon, lower) {
+		return "", refuse("R014", "repository is not on this agent's allowlist", "Work only in repositories your definition names.")
+	}
+	if lowerOnly && strings.HasPrefix(canon[strings.LastIndex(canon, "/")+1:], UpperRepoPrefix) {
+		return "", refuse("R012", "this tool acts on lower environments only, but the target is an upper environment", "Use repo.pr.open_upper to propose the change; a human merge applies it.")
+	}
+	return canon, nil
+}
+
+// withRepo is the call's arguments with the repository in its canonical spelling.
+func withRepo(a map[string]any, canon string) map[string]any {
+	out := make(map[string]any, len(a))
+	for k, v := range a {
+		out[k] = v
+	}
+	out["repo"] = canon
+	return out
 }
 
 // app is the scope of a glidepath tool: the app is one the definition names under profile.glidepath.apps (fnmatch globs).
@@ -255,7 +278,8 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 			if err != nil {
 				return nil, err
 			}
-			if err := sc.repo(d, a["repo"], false); err != nil {
+			canon, err := sc.repo(d, a["repo"], false)
+			if err != nil {
 				return nil, err
 			}
 			path := ""
@@ -274,7 +298,7 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 			if !isStr {
 				return nil, &core.Denied{Rule: "GH-REF", Message: echo(ref) + " is not a ref", Hint: "Pass a branch, tag or commit sha."}
 			}
-			return git.ReadFile(ctx, a["repo"], path, rs)
+			return git.ReadFile(ctx, canon, path, rs)
 		}
 		open := func(tool string, lowerOnly bool) dispatch.Handler {
 			return func(ctx context.Context, s *session.Session, a map[string]any) (any, error) {
@@ -282,9 +306,11 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 				if err != nil {
 					return nil, err
 				}
-				if err := sc.repo(d, a["repo"], lowerOnly); err != nil {
+				canon, err := sc.repo(d, a["repo"], lowerOnly)
+				if err != nil {
 					return nil, err
 				}
+				a = withRepo(a, canon)
 				// A pull request that carries the app's cicd.yaml gets glidepath-api's verdict first, whichever tool carries it.
 				if gp != nil {
 					if err := checkFiles(ctx, gp, f.Principal, a["repo"], a["files"], baseOf(a)); err != nil {
@@ -309,19 +335,22 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 				if err := sc.app(d, a["app"]); err != nil {
 					return nil, err
 				}
-				if err := sc.repo(d, a["repo"], true); err != nil {
+				canon, err := sc.repo(d, a["repo"], true)
+				if err != nil {
 					return nil, err
 				}
-				return proposeCICD(ctx, git, gp, f, d.DenyPaths, a)
+				return proposeCICD(ctx, git, gp, f, d.DenyPaths, withRepo(a, canon))
 			}
 		}
 	}
 	if c.ArgoSync != nil {
 		syncer := c.ArgoSync
 		h["argo.sync.lower"] = func(ctx context.Context, s *session.Session, a map[string]any) (any, error) {
-			if _, _, err := sc.check("argo.sync.lower", s); err != nil {
+			d, _, err := sc.check("argo.sync.lower", s)
+			if err != nil {
 				return nil, err
 			}
+			appOK := func(app string) error { return sc.app(d, app) }
 			s.Lock()
 			who := SessionFacts{ID: s.ID, Principal: s.Principal, Agent: s.Agent, Task: s.TaskID}
 			if s.Run != nil {
@@ -330,7 +359,7 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 			s.Unlock()
 			m := who.Meta()
 			m["principal"] = who.Principal
-			return syncer.Sync(ctx, a["app"], a["project"], m)
+			return syncer.Sync(ctx, a["app"], a["project"], m, appOK)
 		}
 	}
 	return h
@@ -338,12 +367,12 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 
 func dryRun(a map[string]any) bool { b, _ := a["dryRun"].(bool); return b }
 
-// baseOf is a.get("base", "main").
+// baseOf is a.get("base"): absent means the repository's default branch (Python says "main"), which the backend resolves.
 func baseOf(a map[string]any) any {
 	if b, ok := a["base"]; ok {
 		return b
 	}
-	return "main"
+	return ""
 }
 
 // openInput reads repo.pr.open's arguments.
@@ -354,7 +383,7 @@ func openInput(a map[string]any, meta map[string]string, deny []string) (OpenPRI
 		return in, deniedRepo(a["repo"])
 	}
 	base, isStr := baseOf(a).(string)
-	if !isStr {
+	if _, present := a["base"]; !isStr || (present && base == "") {
 		return in, deniedBranch(baseOf(a))
 	}
 	in.Base = base

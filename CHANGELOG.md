@@ -14,7 +14,7 @@ says what each gateway tag adds. The manager cuts the tags.
   `ensure_pr` and `find_pr` (for `airframe.apply`, S5c) are built and tested but no tool calls them yet.
 - Decided again by the gateway, from the session's grant and the agent's definition, before any request: the repository
   allowlist, the glidepath app allowlist, protected paths (in any case), a lower tool on a release repository, the tool's grant and tier,
-  and the owners the deployment names. The GitHub requests the gateway can send are a closed list of eight (GET and POST only: no
+  and the owners the deployment names. The GitHub requests the gateway can send are a closed list of nine (GET and POST only: no
   merge, review, delete, protection change or move of a ref), the glidepath-api and Kubernetes ones too; branch names, paths, titles and
   every glidepath argument are validated before a request exists (fuzz targets with independent oracles for each builder).
 - Credentials are the gateway's projected tokens, re-read per call, and one installation token per call from Glidepath's broker, never
@@ -25,7 +25,13 @@ says what each gateway tag adds. The manager cuts the tags.
   (Python's names a lab Service), `GITHUB_OWNERS` (Go only) names the owners, `GITHUB_PR_ENABLED` needs `AGENT_XRS_ENABLED=0` and
   `XR_REQUEST_ENABLED=0`, `ARGO_SYNC_ENABLED` needs `ARGO_ENABLED`, stricter names, paths and titles, an `@mention` in text that
   goes to a pull request is defanged, a 120 s watch is cut to the call's deadline, and a read answered 429 or 5xx is tried again.
-- `tools/gen_gateway_writes.py` (called by `tools/gen_gateway_registry.py`) writes the equivalence fixture (318 cases) by driving the
+- After an independent security review: one lower-case canonical spelling of a repository for every check, request and receipt
+  (`o/GITOPS-x` is a release repository); a file is never written where the base has a directory (the base's contents are read) or
+  above a protected path; the base is the default branch and heads are under `agent/`; a resumed branch must carry this session's trailer;
+  `GLIDEPATH_API_ALLOW_HTTP` and `BROKER_ALLOW_HTTP` (Go only, off) are needed for plain http, and a token under 12 characters is refused;
+  pull request text neutralises mentions (also after a backtick), `#n` references, closing keywords, HTML comments, raw HTML and images;
+  `argo.sync.lower` is scoped to the definition's apps. A ninth GitHub request (`GET /repos/{owner}/{repo}`, the default branch).
+- `tools/gen_gateway_writes.py` (called by `tools/gen_gateway_registry.py`) writes the equivalence fixture (320 cases) by driving the
   Python handlers over canned upstream answers; the drift guard now watches `glidepath_api.py`, `glidepath_live.py`, `github_pr.py`,
   `argo_sync.py` and `cicd_propose.py`.
 

@@ -103,8 +103,10 @@ func infoText(v string) string {
 	return clipRunes(cleanMeta(v), 256)
 }
 
-// Sync is ArgoSync.sync. who names the agent, task, session, run and principal: Argo CD's own history shows who asked.
-func (s *ArgoSync) Sync(ctx context.Context, app, project any, who map[string]string) (any, error) {
+// Sync is ArgoSync.sync. who names the agent, task, session, run and principal: Argo CD's own history shows who asked. appOK
+// is the agent's own scope: the app a `<app>-lower` project belongs to must be one its definition names (the Application's
+// hangar.io/app label too, when it has one); nil asks nothing.
+func (s *ArgoSync) Sync(ctx context.Context, app, project any, who map[string]string, appOK func(app string) error) (any, error) {
 	proj, isStr := project.(string)
 	if !isStr || !strings.HasSuffix(proj, LowerSuffix) {
 		return nil, &core.Denied{Rule: "ARGO-PROJECT", Message: echo(project) + " is not a lower-environment project",
@@ -114,6 +116,11 @@ func (s *ArgoSync) Sync(ctx context.Context, app, project any, who map[string]st
 	if !isStr || !segPattern.MatchString(name) {
 		return nil, &core.Denied{Rule: "READ-ARGO-NAME", Message: echo(app) + " is not an Application name",
 			Hint: "Pass the Argo CD Application's name, e.g. flight-api-dev."}
+	}
+	if appOK != nil {
+		if err := appOK(strings.TrimSuffix(proj, LowerSuffix)); err != nil {
+			return nil, err
+		}
 	}
 	var found map[string]any
 	ns := ""
@@ -134,6 +141,13 @@ func (s *ArgoSync) Sync(ctx context.Context, app, project any, who map[string]st
 	if actual != proj {
 		return nil, &core.Denied{Rule: "ARGO-PROJECT", Message: fmt.Sprintf("%s is in project %s, not %s", name, pyRepr(actual), pyStrRepr(proj)),
 			Hint: "Pass the Application's own project (argo.app.get shows it); only -lower projects sync."}
+	}
+	if appOK != nil {
+		if l, ok := obj(obj(found["metadata"])["labels"])[appLabel].(string); ok && l != "" {
+			if err := appOK(l); err != nil {
+				return nil, err
+			}
+		}
 	}
 	state := obj(obj(found["status"])["operationState"])
 	if pyTruthy(found["operation"]) || state["phase"] == "Running" {
@@ -205,7 +219,7 @@ func (s *ArgoSync) patch(ctx context.Context, ns, name string, body map[string]a
 	if !ok {
 		return 0, refusedPath(path)
 	}
-	tok, err := readToken(s.Kube.TokenFile)
+	tok, err := readTokenMin(s.Kube.TokenFile)
 	if err != nil {
 		return 0, err
 	}

@@ -55,7 +55,7 @@ func newFakeEnvWith(t *testing.T, gh *fakes.GitHub, gpf *fakes.Glidepath, kube *
 	}, Tools: tools.Default()}
 	e := &fakeEnv{}
 	if gh != nil {
-		g, err := NewGitHub(GitHubOptions{API: gh.Srv.URL, BrokerURL: gh.BrokerURL(), TokenFile: write("agent", "agent-token"), Owners: []string{"o"}, Timeout: 5 * time.Second})
+		g, err := NewGitHub(GitHubOptions{API: gh.Srv.URL, BrokerURL: gh.BrokerURL(), TokenFile: write("agent", "agent-token-value"), Owners: []string{"o"}, AllowHTTP: true, Timeout: 5 * time.Second})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,14 +63,14 @@ func newFakeEnvWith(t *testing.T, gh *fakes.GitHub, gpf *fakes.Glidepath, kube *
 		cfg.GitHub, e.git = g, g
 	}
 	if gpf != nil {
-		g, err := NewGlidepath(gpf.Srv.URL, write("gp", "gp-token"), true, 5*time.Second)
+		g, err := NewGlidepath(gpf.Srv.URL, write("gp", "gp-token-value-1"), true, 5*time.Second, true)
 		if err != nil {
 			t.Fatal(err)
 		}
 		cfg.Glidepath, e.gp = g, g
 	}
 	if kube != nil {
-		k := &KubeReader{Server: kube.Srv.URL, TokenFile: write("kube", "kube-token"), Timeout: 5 * time.Second}
+		k := &KubeReader{Server: kube.Srv.URL, TokenFile: write("kube", "kube-token-value"), Timeout: 5 * time.Second}
 		k.hc = client(nil, time.Second, 4)
 		as, err := NewArgoSync(k, []string{"argocd-apps"})
 		if err != nil {
@@ -223,9 +223,9 @@ func TestEnsurePRResumesABranchLeftWithoutItsPullRequest(t *testing.T) {
 	gh := fakes.NewGitHub("o/gate-api")
 	defer gh.Close()
 	// the call died between the ref and the pull request: the branch holds the files, no pull request exists
-	gh.SeedBranch("o/gate-api", "agent/step-1", map[string]string{"src/app.py": "print('fixed')\n"})
+	gh.SeedBranch("o/gate-api", "agent/step-1", map[string]string{"src/app.py": "print('fixed')\n"}, "step\n\nHangar-Session: s-1")
 	e := newFakeEnv(t, gh, nil, nil, "s-1")
-	in := OpenPRInput{Repo: "o/gate-api", Branch: "agent/step-1", Title: "Step 1", Base: "main", Files: []File{{Path: "src/app.py", Content: "print('fixed')\n"}}}
+	in := OpenPRInput{Repo: "o/gate-api", Branch: "agent/step-1", Title: "Step 1", Files: []File{{Path: "src/app.py", Content: "print('fixed')\n"}}, Meta: map[string]string{"session": "s-1"}}
 	ctx := context.Background()
 	// open_pr refuses (the branch exists) and opens nothing
 	if _, err := e.git.OpenPR(ctx, in); err == nil {
@@ -246,7 +246,7 @@ func TestEnsurePRResumesABranchLeftWithoutItsPullRequest(t *testing.T) {
 		t.Fatalf("%d pull requests", len(gh.PullRequests("o/gate-api")))
 	}
 	// a branch whose files are not the ones asked for is a person's to look at: nothing is pushed to it
-	gh.SeedBranch("o/gate-api", "agent/step-2", map[string]string{"src/app.py": "other\n"})
+	gh.SeedBranch("o/gate-api", "agent/step-2", map[string]string{"src/app.py": "other\n"}, "step\n\nHangar-Session: s-1")
 	in.Branch = "agent/step-2"
 	_, err = e.git.EnsurePR(ctx, in)
 	var den *core.Denied

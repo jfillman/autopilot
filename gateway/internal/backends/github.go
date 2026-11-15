@@ -27,7 +27,7 @@ import (
 // dropped; never cached, logged, written, put in an error or returned.
 //
 // The pull request is built with the Git data API, so nothing is cloned and nothing is written to disk. The whole of what
-// this client can send to GitHub is the closed list in endpoint (below): eight requests, GET or POST, each built from
+// this client can send to GitHub is the closed list in endpoint (below): nine requests, GET or POST, each built from
 // validated parts. There is no merge, no review, no PATCH, no PUT and no DELETE in it, so by no combination of calls can
 // the gateway merge, approve, force-push, delete or move a branch, change protection, or write to an existing branch.
 
@@ -56,7 +56,7 @@ var (
 	reserved = map[string]bool{"main": true, "master": true, "head": true, "develop": true, "development": true, "trunk": true,
 		"production": true, "prod": true, "staging": true, "release": true, "gh-pages": true}
 	// mention is an @name GitHub would read as a mention: at the start or after a character that is not part of a word.
-	mention = regexp.MustCompile("(^|[^A-Za-z0-9_`])@([A-Za-z0-9])")
+	mention = regexp.MustCompile("(^|[^A-Za-z0-9_])@([A-Za-z0-9])")
 )
 
 // GitHubError is the broker or GitHub failing. Its text (a status and the other side's own reason, never a token: both
@@ -121,7 +121,7 @@ type GitHub struct {
 	api       string
 	broker    string
 	tokenFile string
-	owners    map[string]string // lower case -> the spelling the deployment configured
+	owners    map[string]string // lower case -> lower case: the one spelling every request and receipt uses
 	timeout   time.Duration
 	apiHC     *http.Client
 	brokerHC  *http.Client
@@ -138,6 +138,9 @@ type GitHubOptions struct {
 	API, BrokerURL, TokenFile string
 	Owners                    []string
 	Timeout                   time.Duration
+	// AllowHTTP lets the broker URL (and an API URL) be plain http: for a lab that serves them so (BROKER_ALLOW_HTTP). Off by
+	// default: a bearer token does not cross the network in the clear.
+	AllowHTTP bool
 }
 
 // NewGitHub is the backend, or says why its configuration is not usable.
@@ -147,10 +150,16 @@ func NewGitHub(o GitHubOptions) (*GitHub, error) {
 		api = GitHubAPI
 	}
 	a, err := checkBase("the GitHub API URL", api)
+	if err == nil {
+		err = requireHTTPS("the GitHub API URL", a, o.AllowHTTP)
+	}
 	if err != nil {
 		return nil, err
 	}
 	b, err := checkBase("BROKER_URL", o.BrokerURL)
+	if err == nil {
+		err = requireHTTPS("BROKER_URL", b, o.AllowHTTP)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +171,7 @@ func NewGitHub(o GitHubOptions) (*GitHub, error) {
 		if !repoSeg.MatchString(ow) || ow == "." || ow == ".." {
 			return nil, fmt.Errorf("GITHUB_OWNERS: %s is not a GitHub owner name", pyStrRepr(ow))
 		}
-		owners[strings.ToLower(ow)] = ow
+		owners[strings.ToLower(ow)] = strings.ToLower(ow)
 	}
 	if len(owners) == 0 {
 		return nil, errors.New("GITHUB_OWNERS names the GitHub owners the agents' pull requests go to (at least one)")
@@ -181,19 +190,32 @@ func deniedRepo(v any) error {
 	return &core.Denied{Rule: "GH-REPO", Message: echo(v) + " is not <owner>/<repo>", Hint: "Name the repository as owner/name."}
 }
 
-// SplitRepo is _split, and the owner rule: the repository is owner/name, each of 1 to 100 of letters, digits, `.`, `_`
-// and `-`, the name not `.` or `..`, and the owner one the deployment is configured for. The owner comes back as
-// configured.
-func (g *GitHub) SplitRepo(repo any) (owner, name string, err error) {
+// CanonicalRepo is the one spelling of a repository every check, request and receipt uses: owner/name, each of 1 to 100 ASCII
+// letters, digits, `.`, `_` and `-`, the name not `.` or `..` and not another spelling of itself (a `.git` suffix), in lower
+// case (GitHub resolves names without case, so a check made on one spelling must hold for all of them). Nothing is trimmed:
+// a name that is not already this shape is refused.
+func CanonicalRepo(repo any) (string, bool) {
 	s, ok := repo.(string)
+	if !ok {
+		return "", false
+	}
+	o, n, found := strings.Cut(s, "/")
+	if !found || !repoSeg.MatchString(o) || !repoSeg.MatchString(n) || o == "." || o == ".." || n == "." || n == ".." ||
+		strings.HasSuffix(strings.ToLower(n), ".git") {
+		return "", false
+	}
+	return strings.ToLower(o) + "/" + strings.ToLower(n), true
+}
+
+// SplitRepo is _split, and the owner rule: the canonical repository (CanonicalRepo) whose owner is one the deployment is
+// configured for. Owner and name come back in lower case.
+func (g *GitHub) SplitRepo(repo any) (owner, name string, err error) {
+	c, ok := CanonicalRepo(repo)
 	if !ok {
 		return "", "", deniedRepo(repo)
 	}
-	o, n, found := strings.Cut(s, "/")
-	if !found || !repoSeg.MatchString(o) || !repoSeg.MatchString(n) || n == "." || n == ".." {
-		return "", "", deniedRepo(repo)
-	}
-	canon, ok := g.owners[strings.ToLower(o)]
+	o, n, _ := strings.Cut(c, "/")
+	canon, ok := g.owners[o]
 	if !ok {
 		return "", "", &core.Denied{Rule: "GH-OWNER", Message: pyStrRepr(clipRunes(o, 100)) + " is not an owner this gateway opens pull requests for",
 			Hint: "Name a repository of an owner the deployment is configured for (GITHUB_OWNERS)."}
@@ -219,11 +241,15 @@ func ValidRef(s string) bool {
 	return true
 }
 
-// ValidNewBranch is ValidRef and what a branch the agent creates may be: not under `refs/`, not a name a person or a
-// protection rule treats as a line of release (main, master, develop, trunk, production, staging, release, gh-pages, HEAD,
-// in any case), and not the base.
+// AgentBranchPrefix is the namespace of the branches this gateway makes (branch_for's `agent/cicd-...`, the examples
+// `agent/t-1234`): an agent cannot name, squat on or build on a person's branch.
+const AgentBranchPrefix = "agent/"
+
+// ValidNewBranch is ValidRef and what a branch the agent creates may be: in the gateway's own namespace (`agent/`, with
+// something after it), not under `refs/`, not a name a person or a protection rule treats as a line of release (main,
+// master, develop, trunk, production, staging, release, gh-pages, HEAD, in any case), and not the base.
 func ValidNewBranch(s, base string) bool {
-	if !ValidRef(s) || strings.HasPrefix(strings.ToLower(s), "refs/") || reserved[strings.ToLower(s)] || strings.EqualFold(s, base) {
+	if !strings.HasPrefix(s, AgentBranchPrefix) || len(s) == len(AgentBranchPrefix) || !ValidRef(s) || strings.HasPrefix(strings.ToLower(s), "refs/") || reserved[strings.ToLower(s)] || strings.EqualFold(s, base) {
 		return false
 	}
 	return true
@@ -255,6 +281,7 @@ const (
 	epPostPull                    // POST /repos/{o}/{r}/pulls
 	epListPulls                   // GET  /repos/{o}/{r}/pulls?head={o}:{branch}&state=all|open&per_page=n
 	epGetContents                 // GET  /repos/{o}/{r}/contents/{path}?ref={ref}
+	epGetRepo                     // GET  /repos/{o}/{r}
 )
 
 // AllowedGitHubRequests is the list, for the documentation and for a test that holds what is sent to it.
@@ -267,6 +294,7 @@ var AllowedGitHubRequests = []string{
 	"POST /repos/{owner}/{repo}/pulls",
 	"GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state={all|open}&per_page={5|10}",
 	"GET /repos/{owner}/{repo}/contents/{path}?ref={ref}",
+	"GET /repos/{owner}/{repo}",
 }
 
 type ghReq struct {
@@ -310,6 +338,8 @@ func (r ghReq) target() (method, target string, err error) {
 			return "", "", errors.New("sha")
 		}
 		return http.MethodGet, root + "/git/commits/" + r.sha, nil
+	case epGetRepo:
+		return http.MethodGet, root, nil
 	case epPostTree:
 		return http.MethodPost, root + "/git/trees", nil
 	case epPostCommit:
@@ -424,7 +454,7 @@ func docMap(v any) map[string]any {
 // AppOf is app_of: the app a repository belongs to by Glidepath's naming (<app>, gitops-<app>, gitops-infra-<app>).
 func AppOf(repo string) string {
 	for _, p := range []string{"gitops-infra-", "gitops-"} {
-		if strings.HasPrefix(repo, p) {
+		if strings.HasPrefix(strings.ToLower(repo), p) {
 			return repo[len(p):]
 		}
 	}
@@ -433,7 +463,7 @@ func AppOf(repo string) string {
 
 // mint asks the broker for an installation token for this one repository, as an app's own. Each call asks anew.
 func (g *GitHub) mint(ctx context.Context, owner, name string) (string, error) {
-	tok, err := readToken(g.tokenFile)
+	tok, err := readTokenMin(g.tokenFile)
 	if err != nil {
 		return "", err
 	}
@@ -526,16 +556,33 @@ func commitMessage(title string, meta map[string]string) string {
 	return title + "\n" + tr.String()
 }
 
-// defang stops text an agent (or an answer) wrote from notifying people: an @name that GitHub would read as a mention gets a
-// zero-width space after the @. Text that holds no @name is unchanged.
-func defang(s string) string { return mention.ReplaceAllString(s, "$1@​$2") }
+var (
+	htmlComment = regexp.MustCompile(`(?s)<!--.*?(?:-->|$)`)
+	crossRef    = regexp.MustCompile(`#([0-9])`)
+	closing     = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b`)
+)
+
+// defang makes text that an agent (or glidepath-api, from the agent's patch) wrote safe to put in a pull request: nobody is
+// notified, no issue is linked or closed, nothing is hidden or raw. An @name that GitHub would read as a mention (also after a
+// backtick: an unclosed code span still notifies), a `#12` or `owner/repo#12` reference and a closing keyword each get a
+// zero-width space; HTML comments are removed, `<` is escaped and an image's `![` is broken. The cap is applied after, on what
+// goes out.
+func defang(s string) string {
+	s = htmlComment.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, "![", "!\u200b[")
+	s = mention.ReplaceAllString(s, "$1@\u200b$2")
+	s = crossRef.ReplaceAllString(s, "#\u200b$1")
+	s = closing.ReplaceAllStringFunc(s, func(w string) string { return w[:1] + "\u200b" + w[1:] })
+	return clipRunes(s, maxPRBody)
+}
 
 // checkInput is the validation every pull request passes before any request exists.
 func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []treeEntry, err error) {
 	if owner, name, err = g.SplitRepo(in.Repo); err != nil {
 		return
 	}
-	if !ValidRef(in.Base) {
+	if in.Base != "" && !ValidRef(in.Base) {
 		return "", "", nil, deniedBranch(in.Base)
 	}
 	if !ValidNewBranch(in.Branch, in.Base) {
@@ -557,6 +604,10 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 		if !ok || n != f.Path || !utf8.ValidString(f.Path) || strings.IndexFunc(f.Path, unicode.IsControl) >= 0 {
 			return "", "", nil, deniedFiles("each file needs a normal repository path and text content under 1 MiB", "Fix the files list.")
 		}
+		if oddName(n) {
+			return "", "", nil, &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " has a name a file system reads as another name",
+				Hint: "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}
+		}
 		for _, seg := range strings.Split(n, "/") {
 			if strings.EqualFold(seg, ".git") {
 				return "", "", nil, deniedFiles("a path may not hold a .git component", "Fix the files list.")
@@ -568,7 +619,7 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 		seen[strings.ToLower(n)] = true
 		// A blob written at a path replaces whatever tree is there, so a path that is a protected directory itself (`.github`,
 		// `.tekton`) would delete it from the new tree: the path is also tried as the directory that holds a protected file.
-		if pathDenied(n, in.DenyPaths) || pathDenied(n+"/x", in.DenyPaths) {
+		if pathDenied(n, in.DenyPaths) || pathDenied(n+"/x", in.DenyPaths) || ancestorOfDenied(n, in.DenyPaths) {
 			return "", "", nil, &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is a protected path",
 				Hint: "An agent does not change protected paths (CI, ownership, release files); ask a person."}
 		}
@@ -578,6 +629,131 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 		entries = append(entries, treeEntry{Path: f.Path, Mode: "100644", Type: "blob", Content: f.Content})
 	}
 	return
+}
+
+var shortName = regexp.MustCompile(`~[0-9]`)
+
+// oddName says a path has a segment that a file system may read as another name: a space or dot at an end (Windows drops
+// them, so `.github ` is `.github`), an 8.3 short name (`GITHUB~1`), or a `:` (a stream, `.github::$DATA`).
+func oddName(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg != strings.TrimSpace(seg) || strings.HasSuffix(seg, ".") || shortName.MatchString(seg) || strings.Contains(seg, ":") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWildcard(s string) bool { return strings.ContainsAny(s, "*?[") }
+
+// ancestorOfDenied says a path is a proper ancestor of what a deny pattern names by its literal leading directories: a
+// blob written at `deploy` replaces the directory `deploy` and takes `deploy/prod/values.yaml` with it. Patterns that start
+// with a wildcard (`**/release.yaml`) name no directory; for those the base tree is read (refuseDirectories). Matching is
+// without case.
+func ancestorOfDenied(p string, deny []string) bool {
+	segs := strings.Split(strings.ToLower(p), "/")
+	for _, g := range deny {
+		gs := strings.Split(strings.ToLower(g), "/")
+		lit := 0
+		for lit < len(gs) && !hasWildcard(gs[lit]) {
+			lit++
+		}
+		bound := lit
+		if lit == len(gs) { // fully literal: only a proper ancestor, the path itself is matched on its own
+			bound = lit - 1
+		}
+		if len(segs) > bound {
+			continue
+		}
+		same := true
+		for i := range segs {
+			same = same && segs[i] == gs[i]
+		}
+		if same {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseDirectories reads, for each file, what the base commit has at its path (the contents request of the closed list): a
+// blob sent with a base tree replaces a directory the base has there, with every file beneath it, protected or not.
+func (g *GitHub) refuseDirectories(ctx context.Context, token, owner, name, baseSha string, files []treeEntry) error {
+	for _, f := range files {
+		status, doc, err := g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: f.Path, ref: baseSha})
+		if err != nil {
+			return err
+		}
+		if status == 404 {
+			continue
+		}
+		if status != 200 {
+			return ghErrorOf("contents", status, doc, "message")
+		}
+		if _, isDir := doc.([]any); isDir {
+			return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is a directory in the base",
+				Hint: "A file cannot take the place of a directory; name a file inside it."}
+		}
+	}
+	return nil
+}
+
+// defaultBranch is the repository's default branch, the only base an agent's pull request has.
+func (g *GitHub) defaultBranch(ctx context.Context, token, owner, name string) (string, error) {
+	status, doc, err := g.gh(ctx, token, ghReq{ep: epGetRepo, owner: owner, name: name})
+	if err != nil {
+		return "", err
+	}
+	if status != 200 {
+		return "", ghErrorOf("repository", status, doc, "message")
+	}
+	b, _ := docMap(doc)["default_branch"].(string)
+	if !ValidRef(b) {
+		return "", badAnswer("repository")
+	}
+	return b, nil
+}
+
+// resolveBase is the base of a pull request: the default branch, which an empty base means; any other is refused (the
+// definition has no field that allows another).
+func (g *GitHub) resolveBase(ctx context.Context, token, owner, name string, in *OpenPRInput) error {
+	def, err := g.defaultBranch(ctx, token, owner, name)
+	if err != nil {
+		return err
+	}
+	if in.Base != "" && in.Base != def {
+		return &core.Denied{Rule: "GH-BASE", Message: "a pull request is based on the repository's default branch, " + pyStrRepr(def) + ", not " + echo(in.Base),
+			Hint: "Leave base out; an agent's definition cannot name another."}
+	}
+	in.Base = def
+	if strings.EqualFold(in.Branch, def) {
+		return deniedBranch(in.Branch)
+	}
+	return nil
+}
+
+// ownedBy checks that the commit a branch holds was made by this gateway for this session: its message carries the
+// Hangar-Session trailer the gateway wrote (a title is one line, so an agent cannot write one).
+func (g *GitHub) ownedBy(ctx context.Context, token, owner, name, sha, session, branch string) error {
+	foreign := &core.Denied{Rule: "APPLY-BRANCH-FOREIGN", Message: "branch " + branch + " was not made by this session",
+		Hint: "A person looks at the branch; the tool never builds on, pushes to or deletes a branch it did not make."}
+	if session == "" || !shaRx.MatchString(sha) {
+		return foreign
+	}
+	status, doc, err := g.gh(ctx, token, ghReq{ep: epGetCommit, owner: owner, name: name, sha: sha})
+	if err != nil {
+		return err
+	}
+	if status != 200 {
+		return foreign
+	}
+	msg, _ := docMap(doc)["message"].(string)
+	for _, l := range strings.Split(msg, "\n") {
+		if l == "Hangar-Session: "+session {
+			return nil
+		}
+	}
+	return foreign
 }
 
 func badAnswer(what string) error {
@@ -610,6 +786,9 @@ func (g *GitHub) OpenPR(ctx context.Context, in OpenPRInput) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
+	if err := g.resolveBase(ctx, token, owner, name, &in); err != nil {
+		return nil, err
+	}
 	pr, err := g.openPR(ctx, token, owner, name, in, entries)
 	if err != nil {
 		return nil, err
@@ -639,6 +818,9 @@ func (g *GitHub) openPR(ctx context.Context, token, owner, name string, in OpenP
 	baseTree, ok := shaAt(commit, "tree", "sha")
 	if !ok {
 		return nil, badAnswer("base commit")
+	}
+	if err := g.refuseDirectories(ctx, token, owner, name, baseSha, entries); err != nil {
+		return nil, err
 	}
 	status, tree, err := g.gh(ctx, token, ghReq{ep: epPostTree, owner: owner, name: name,
 		body: map[string]any{"base_tree": baseTree, "tree": entries}})
@@ -737,7 +919,7 @@ func (g *GitHub) createPR(ctx context.Context, token, owner, name, title, branch
 		sb.WriteString("- " + k + ": `" + cleanMeta(meta[k]) + "`")
 	}
 	if body != "" {
-		sb.WriteString("\n\n" + defang(clipRunes(body, maxPRBody)))
+		sb.WriteString("\n\n" + defang(body))
 	}
 	status, pr, err := g.gh(ctx, token, ghReq{ep: epPostPull, owner: owner, name: name,
 		body: map[string]any{"title": title, "head": branch, "base": base, "body": sb.String()}})
@@ -889,11 +1071,17 @@ func (g *GitHub) EnsurePR(ctx context.Context, in OpenPRInput) (map[string]any, 
 	if err != nil {
 		return nil, err
 	}
+	if err := g.resolveBase(ctx, token, owner, name, &in); err != nil {
+		return nil, err
+	}
 	found, err := g.prOf(ctx, token, owner, name, in.Branch)
 	if err != nil {
 		return nil, err
 	}
 	if found != nil {
+		if err := g.ownedBy(ctx, token, owner, name, found.Commit, in.Meta["session"], in.Branch); err != nil {
+			return nil, err
+		}
 		return found.result([2]any{"state", found.State}, [2]any{"resumed", true}), nil
 	}
 	status, ref, err := g.gh(ctx, token, ghReq{ep: epGetRef, owner: owner, name: name, branch: in.Branch})
@@ -902,6 +1090,10 @@ func (g *GitHub) EnsurePR(ctx context.Context, in OpenPRInput) (map[string]any, 
 	}
 	switch {
 	case status == 200:
+		sha, _ := shaAt(ref, "object", "sha")
+		if err := g.ownedBy(ctx, token, owner, name, sha, in.Meta["session"], in.Branch); err != nil {
+			return nil, err
+		}
 		for _, f := range in.Files {
 			got, ok, err := g.textAt(ctx, token, owner, name, f.Path, in.Branch)
 			if err != nil {
@@ -916,7 +1108,6 @@ func (g *GitHub) EnsurePR(ctx context.Context, in OpenPRInput) (map[string]any, 
 		if err != nil {
 			return nil, err
 		}
-		sha, _ := shaAt(ref, "object", "sha")
 		pr.Commit = sha
 		return pr.result([2]any{"state", "open"}, [2]any{"resumed", true}), nil
 	case status != 404:
