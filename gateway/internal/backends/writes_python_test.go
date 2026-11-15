@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,6 +57,7 @@ type writesCase struct {
 	Clock      bool                       `json:"clock"`
 	Namespaces []string                   `json:"namespaces"`
 	Requests   []wsReq                    `json:"requests"`
+	GoRequests []wsReq                    `json:"go_requests"`
 	Result     any                        `json:"result"`
 	Effect     any                        `json:"effect"`
 	Denied     *wsDenied                  `json:"denied"`
@@ -312,7 +312,7 @@ func newEnv(t *testing.T, tok map[string]string, c *writesCase, session map[stri
 		cfg.Glidepath, e.gp = gp, gp
 	}
 	if c.Git {
-		g, err := NewGitHub(GitHubOptions{API: w.srv.URL, BrokerURL: w.srv.URL + "/b", TokenFile: write("agent", tok["agent"]), Owners: []string{"o"}, AllowHTTP: true, Timeout: 5 * time.Second})
+		g, err := NewGitHub(GitHubOptions{API: w.srv.URL, BrokerURL: w.srv.URL + "/b", TokenFile: write("agent", tok["agent"]), Owners: []string{"o"}, AllowHTTP: true, AllowHTTPAPI: true, Timeout: 5 * time.Second})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -324,6 +324,7 @@ func newEnv(t *testing.T, tok map[string]string, c *writesCase, session map[stri
 	if len(c.Namespaces) > 0 {
 		kube := &KubeReader{Server: w.srv.URL + "/k", TokenFile: write("kube", tok["kube"]), Timeout: 5 * time.Second}
 		kube.hc = client(nil, time.Second, 4)
+		kube.AllowHTTP = true
 		asClient(w, kube.hc)
 		as, err := NewArgoSync(kube, c.Namespaces)
 		if err != nil {
@@ -413,6 +414,10 @@ func TestWriteToolsEqualPython(t *testing.T) {
 				got, err = h(ctx, e.sess, args)
 			}
 			wantReqs, wantResult, wantDenied, wantErr := c.Requests, c.Result, c.Denied, c.Error
+			if c.GoRequests != nil {
+				// the same call, with the reads of the closed list only Go makes and the check asked after the base (exact)
+				wantReqs = c.GoRequests
+			}
 			_ = wantResult
 			if c.Go != nil {
 				if c.Why == "" {
@@ -423,7 +428,7 @@ func TestWriteToolsEqualPython(t *testing.T) {
 					wantReqs = *c.Go.Requests
 				}
 			}
-			gotReqs := dropGoOnlyReads(e.requests(), wantReqs)
+			gotReqs := e.requests()
 			if len(wantReqs) == 0 {
 				wantReqs = nil
 			}
@@ -506,30 +511,4 @@ func runDirect(ctx context.Context, e *env, method string, a map[string]any) (an
 		return m, err
 	}
 	return nil, errors.New("no such method " + method)
-}
-
-var goOnlyRead = regexp.MustCompile(`^GET /repos/[^/]+/[^/?]+$|^GET /repos/[^/]+/[^/]+/contents/[^?]*\?ref=[0-9a-f]{40}$|^GET /repos/[^/]+/[^/]+/git/commits/[0-9a-f]{40}$`)
-
-// dropGoOnlyReads takes out of what Go sent the reads Python never makes and the fixtures do not carry: the repository (its
-// default branch), the base commit's contents (a file may not take a directory's place) and a head commit's trailer. They
-// are GETs of the closed list; each has its own test (review_fixes_test.go). A read the case expects is kept.
-func dropGoOnlyReads(got, want []wsReq) []wsReq {
-	left := map[string]int{}
-	for _, w := range want {
-		left[w.Method+" "+w.Target]++
-	}
-	var out []wsReq
-	for _, g := range got {
-		k := g.Method + " " + g.Target
-		if left[k] > 0 {
-			left[k]--
-			out = append(out, g)
-			continue
-		}
-		if goOnlyRead.MatchString(k) {
-			continue
-		}
-		out = append(out, g)
-	}
-	return out
 }

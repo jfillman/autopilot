@@ -2,6 +2,8 @@ package backends
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path"
 	"regexp"
@@ -47,7 +49,10 @@ func branchFor(task, session string) string {
 	if r := []rune(s); len(r) > 40 {
 		s = string(r[:40])
 	}
-	return "agent/cicd-" + strings.Trim(s, "-")
+	// The name still depends only on the task and the session, so a retry of the same session finds its own branch; the session's
+	// own part keeps another session from making this one's name first.
+	h := sha256.Sum256([]byte(session))
+	return "agent/cicd-" + strings.Trim(s, "-") + "-" + hex.EncodeToString(h[:])[:8]
 }
 
 func needsPersonOf(verdict map[string]any) []map[string]any {
@@ -168,47 +173,41 @@ func firstError(verdict map[string]any) (map[string]any, []string) {
 	return first, msgs
 }
 
-// checkFiles is check_files: repo.pr.open with the app's cicd.yaml among its files gets glidepath-api's verdict first, the one
-// propose gets, so every cicd.yaml that reaches GitHub through the gateway has had the schema and convention rules too. Only
-// the repo-root file of the app's own repo (<app>, or gitops-infra-<app>) is the app's config; a gitops-<app> release repo's is
-// not. An app glidepath-api does not know (404: not onboarded) has no cicd-validate check either, so its PR goes ahead.
-func checkFiles(ctx context.Context, gp *Glidepath, principal string, repo any, files any, base any) error {
+// cicdCheck is check_files as a check that runs once the pull request's base is known: repo.pr.open with the app's cicd.yaml
+// among its files gets glidepath-api's verdict first, the one propose gets, so every cicd.yaml that reaches GitHub through the
+// gateway has had the schema and convention rules too, asked about the base the pull request really has (the default branch).
+// Only the repo-root file of the app's own repo (<app>, or gitops-infra-<app>) is the app's config; a gitops-<app> release repo's
+// is not. An app glidepath-api does not know (404: not onboarded) has no cicd-validate check either, so its PR goes ahead. nil
+// means nothing applies.
+func cicdCheck(gp *Glidepath, principal string, repo any, files any) func(ctx context.Context, base string) error {
 	f, ok := rootCICDFile(files)
 	if !ok {
 		return nil
 	}
 	rs, _ := repo.(string)
-	name := rs[strings.LastIndex(rs, "/")+1:]
-	app := AppOf(name)
+	app := AppOf(rs[strings.LastIndex(rs, "/")+1:])
 	if !repoIsApps(rs, app) {
 		return nil
 	}
-	// The base ref goes on to glidepath-api only as a ref, and a bounded one.
-	var b any = "main"
-	if pyTruthy(base) {
-		bs, ok := base.(string)
-		if !ok || !ValidRef(bs) {
-			return deniedBranch(base)
+	return func(ctx context.Context, base string) error {
+		verdict, err := gp.ValidateCICD(ctx, app, map[string]any{"content": f["content"], "agent": true, "baseRef": base}, principal)
+		if err != nil {
+			return err
 		}
-		b = bs
-	}
-	verdict, err := gp.ValidateCICD(ctx, app, map[string]any{"content": f["content"], "agent": true, "baseRef": b}, principal)
-	if err != nil {
-		return err
-	}
-	vm, _ := verdict.(map[string]any)
-	if e, isErr := vm["error"]; isErr {
-		em := obj(e)
-		if em["rule"] == "GP-API-404" {
-			return nil
+		vm, _ := verdict.(map[string]any)
+		if e, isErr := vm["error"]; isErr {
+			em := obj(e)
+			if em["rule"] == "GP-API-404" {
+				return nil
+			}
+			return &core.Denied{Rule: or(text(em, "rule"), "GP-API-400"), Message: or(text(em, "message"), "glidepath-api refused the cicd.yaml"), Hint: text(em, "hint")}
 		}
-		return &core.Denied{Rule: or(text(em, "rule"), "GP-API-400"), Message: or(text(em, "message"), "glidepath-api refused the cicd.yaml"), Hint: text(em, "hint")}
+		if first, msgs := firstError(vm); first != nil {
+			return &core.Denied{Rule: or(ruleOf(first), "GP-SCHEMA-001"), Message: "cicd.yaml: " + strings.Join(msgs, "; "),
+				Hint: or(text(first, "hint"), "Fix cicd.yaml (glidepath.cicd.validate shows the verdict before you open a PR).")}
+		}
+		return nil
 	}
-	if first, msgs := firstError(vm); first != nil {
-		return &core.Denied{Rule: or(ruleOf(first), "GP-SCHEMA-001"), Message: "cicd.yaml: " + strings.Join(msgs, "; "),
-			Hint: or(text(first, "hint"), "Fix cicd.yaml (glidepath.cicd.validate shows the verdict before you open a PR).")}
-	}
-	return nil
 }
 
 // validateCICD is validate: the verdict glidepath-api gives a change.

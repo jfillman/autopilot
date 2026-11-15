@@ -521,7 +521,7 @@ func TestTheGitHubRequestsAreTheClosedList(t *testing.T) {
 }
 
 func TestNoGitHubRequestExistsForAMergeAReviewADeleteOrAProtectionChange(t *testing.T) {
-	for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents} {
+	for _, ep := range []endpoint{epGetRef, epGetCommit, epPostTree, epPostCommit, epPostRef, epPostPull, epListPulls, epGetContents, epGetRepo} {
 		r := ghReq{ep: ep, owner: "o", name: "r", branch: "agent/x", sha: strings.Repeat("a", 40), state: "all", perPage: 5, ref: "main", path: "a",
 			body: refBody{Ref: "refs/heads/agent/x", Sha: strings.Repeat("a", 40)}}
 		m, target, err := r.target()
@@ -575,7 +575,7 @@ func TestAWriteBackendsRedirectIsNeverFollowedAndNoCredentialGoesToItsTarget(t *
 	if _, err := gp.Rerun(context.Background(), "gate-api", "x-1", "clearance.k", "p"); err == nil || !strings.Contains(err.Error(), "302") {
 		t.Fatalf("glidepath write: %v", err)
 	}
-	g, _ := NewGitHub(GitHubOptions{API: redirect.URL, BrokerURL: redirect.URL + "/b", TokenFile: tok, Owners: []string{"o"}, AllowHTTP: true})
+	g, _ := NewGitHub(GitHubOptions{API: redirect.URL, BrokerURL: redirect.URL + "/b", TokenFile: tok, Owners: []string{"o"}, AllowHTTP: true, AllowHTTPAPI: true})
 	_, err := g.OpenPR(context.Background(), OpenPRInput{Repo: "o/gate-api", Branch: "agent/x", Title: "t", Base: "main", Files: []File{{Path: "a", Content: "a"}}})
 	var ge *GitHubError
 	if !errors.As(err, &ge) || ge.Status != 302 {
@@ -583,6 +583,7 @@ func TestAWriteBackendsRedirectIsNeverFollowedAndNoCredentialGoesToItsTarget(t *
 	}
 	k := &KubeReader{Server: redirect.URL, TokenFile: tok, Timeout: 5 * time.Second}
 	k.hc = client(nil, time.Second, 4)
+	k.AllowHTTP = true
 	as, _ := NewArgoSync(k, []string{"argocd-apps"})
 	_, err = as.Sync(context.Background(), "gate-api-dev", "gate-api-lower", map[string]string{"agent": "a"}, nil)
 	if err == nil {
@@ -618,7 +619,7 @@ func TestTokensAreReadOnEveryCallAndNeverEscape(t *testing.T) {
 	defer echo.Close()
 	tokf := filepath.Join(t.TempDir(), "t")
 	_ = os.WriteFile(tokf, []byte("projected-secret-token\n"), 0o600)
-	g, _ := NewGitHub(GitHubOptions{API: echo.URL, BrokerURL: echo.URL + "/b", TokenFile: tokf, Owners: []string{"o"}, AllowHTTP: true})
+	g, _ := NewGitHub(GitHubOptions{API: echo.URL, BrokerURL: echo.URL + "/b", TokenFile: tokf, Owners: []string{"o"}, AllowHTTP: true, AllowHTTPAPI: true})
 	_, err := g.OpenPR(context.Background(), OpenPRInput{Repo: "o/x", Branch: "agent/x", Title: "t", Base: "main", Files: []File{{Path: "a", Content: "a"}}})
 	if err == nil || strings.Contains(dispatch.BackendError(err)+dispatch.ErrorResult(err)+err.Error(), "projected-secret-token") {
 		t.Fatalf("the credential came back in %v", err)
@@ -723,7 +724,7 @@ func TestABackendThatIsSlowHoldsOnlyItsOwnShareOfTheGatewaysCalls(t *testing.T) 
 	}
 	time.Sleep(300 * time.Millisecond)
 	// the saturated backend does not stop another from answering
-	g, _ := NewGitHub(GitHubOptions{API: fast.Srv.URL, BrokerURL: fast.BrokerURL(), TokenFile: writeTemp(t, "a-token-value-1"), Owners: []string{"o"}, AllowHTTP: true, Timeout: 5 * time.Second})
+	g, _ := NewGitHub(GitHubOptions{API: fast.Srv.URL, BrokerURL: fast.BrokerURL(), TokenFile: writeTemp(t, "a-token-value-1"), Owners: []string{"o"}, AllowHTTP: true, AllowHTTPAPI: true, Timeout: 5 * time.Second})
 	done := make(chan error, 1)
 	go func() { _, err := g.ReadFile(context.Background(), "o/gate-api", "a", "main"); done <- err }()
 	select {

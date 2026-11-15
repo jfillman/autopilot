@@ -356,7 +356,7 @@ by `tools/gen_gateway_registry.py`; `tests/test_gateway_go.py` fails when it is 
 (`gateway.hangar_handlers` over the real adapters with a fake transport) over canned answers and records, for 320 cases, each request
 (method, target, the headers that matter, the JSON body) and what the call returned, refused or raised, with the receipt the
 outcome would carry (`dispatch._effect`). The Go test serves the same answers and requires the same requests, result, refusal or
-error (class, outcome text and the text the agent is told) and the same receipt. 54 cases carry `go` and `why`: the places Go differs.
+error (class, outcome text and the text the agent is told) and the same receipt. 63 cases carry `go` and `why` and 53 more carry the exact list of reads only Go makes (`go_requests`): the places Go differs.
 
 ### The scope of every write
 
@@ -378,8 +378,9 @@ refusal reads the same either way.
 | the Application is in a `-lower` project, named exactly, with no operation in flight | the Application as read just before the patch | `ARGO-PROJECT`, `ARGO-BUSY` |
 | the Application's app is one the definition names (`argo.sync.lower`) | `profile.glidepath.apps`: the app of the `<app>-lower` project, and the Application's `hangar.io/app` label when it has one, both before anything is patched (the definition has no field of its own for Argo CD) | `R022` |
 | the base is the repository's default branch | `GET /repos/{owner}/{repo}` `default_branch`; `base` may be left out or be that branch (the definition has no field that allows another) | `GH-BASE` |
-| a file does not take a directory's place | for each file, the base commit's contents at that path are read (the `contents` request of the list): a directory there refuses the file (`GH-PATH`); and a path that is a proper ancestor of what a deny pattern names by its literal leading directories (`deploy` for `deploy/prod/values.yaml`) is refused without a read; names a file system reads as another (a trailing space or dot, `GITHUB~1`, `:`) are refused | `GH-PATH` |
-| a branch that is resumed (`EnsurePR`) is this session's own | the head commit's message carries `Hangar-Session: <session>`, which only the gateway writes (a title is one line) | `APPLY-BRANCH-FOREIGN` |
+| a file does not take a directory's place, and nothing is written under a file | no proper ancestor of a path may itself be denied (`CODEOWNERS/x` would replace `CODEOWNERS` with a tree); for each file the base commit's contents are read at the path and at each ancestor (the `contents` request of the list, each path once, at most 200 reads in all, past that `GH-FILES`): a directory at the path, or a file at an ancestor, refuses the file whatever the deny list says; a path that is a proper ancestor of what a deny pattern names by its literal leading directories (`deploy` for `deploy/prod/values.yaml`) is refused without a read; names a file system reads as another (a trailing space or dot, `GITHUB~1`, `:`) are refused | `GH-PATH`, `GH-FILES` |
+| a branch or pull request that is resumed (`EnsurePR`) is this session's own | the head commit's message is exactly one subject line, a blank line and the trailers the gateway writes for this call's metadata (agent, run, session, task), in order and nothing else; a title that starts like a `Hangar-` trailer is refused (`GH-TITLE`); a pull request found for the branch must also hold the files asked for, read at its head commit | `APPLY-BRANCH-FOREIGN`, `APPLY-BRANCH-DIVERGED` |
+| the Application has an app | its `hangar.io/app` label must be there (and on the definition's apps) | `ARGO-UNLABELLED`, `R022` |
 
 What stays with the core and glidepath-api and is not decided again here: the budgets (calls, GitHub calls, open PRs), the
 `repos.fieldDeny` and `fieldAllow` field scope of a file's YAML (it needs the file's content before the change), and Glidepath's own
@@ -501,7 +502,11 @@ Each is a case in the fixture with `go` and `why`, or a test named here.
 | Input | Python | Go |
 |---|---|---|
 | `BROKER_URL`, `GLIDEPATH_API_URL` | any http(s) URL; `BROKER_URL` defaults to a lab Service name | `BROKER_URL` has no default; both must be https unless `BROKER_ALLOW_HTTP` or `GLIDEPATH_API_ALLOW_HTTP` is set; a token under 12 characters is refused |
-| a repository's spelling | whatever the argument says, checked as written | one lower-case canonical spelling for every check, request and receipt; `.git` suffixes refused |
+| a repository's spelling | whatever the argument says, checked as written | one lower-case canonical spelling for every check, request and receipt, so a result's `repo` and the receipt carry the lower-cased name (a canary difference for a repository written with capitals); the definition's `repos.allow` patterns are matched without case; `.git` suffixes refused |
+| the default branch name of a `cicd.yaml` proposal | `agent/cicd-<task>` | `agent/cicd-<task>-<8 hex of the session's id>`: the same session's retry finds its own branch, another session cannot make it first |
+| the check of a `cicd.yaml` among a pull request's files | asked before the broker, about `main` | asked after the base is known, about the repository's default branch (one broker token per call) |
+| the GitHub API URL and the Kubernetes API URL | any http(s) URL | https only; `BROKER_ALLOW_HTTP` does not reach the GitHub API URL (it has no setting: github.com), and the in-cluster API server is https, so the lab render needs nothing more than `BROKER_ALLOW_HTTP` and `GLIDEPATH_API_ALLOW_HTTP` for its plain-http services |
+| an Application with no `hangar.io/app` label | synced | refused |
 | the base branch, the head branch | any valid ref as base; any new valid name as head | the default branch only as base; heads under `agent/` only |
 | a file at a directory's path, or an ancestor of a protected path | sent (a blob then replaces the directory) | refused: the base commit's contents are read first; literal-prefix ancestors of the deny patterns are refused |
 | `EnsurePR` on a branch that exists | any branch whose files match is resumed | only one whose head commit carries this session's `Hangar-Session` trailer |

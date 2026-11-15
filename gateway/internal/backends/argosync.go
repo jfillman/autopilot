@@ -73,6 +73,9 @@ func NewArgoSync(kube *KubeReader, namespaces []string) (*ArgoSync, error) {
 	if kube == nil {
 		kube = NewKubeReader()
 	}
+	if err := requireHTTPS("the Kubernetes API URL", strings.TrimRight(kube.Server, "/"), kube.AllowHTTP); err != nil {
+		return nil, err
+	}
 	return &ArgoSync{Kube: kube, Namespaces: namespaces}, nil
 }
 
@@ -143,10 +146,13 @@ func (s *ArgoSync) Sync(ctx context.Context, app, project any, who map[string]st
 			Hint: "Pass the Application's own project (argo.app.get shows it); only -lower projects sync."}
 	}
 	if appOK != nil {
-		if l, ok := obj(obj(found["metadata"])["labels"])[appLabel].(string); ok && l != "" {
-			if err := appOK(l); err != nil {
-				return nil, err
-			}
+		l, _ := obj(obj(found["metadata"])["labels"])[appLabel].(string)
+		if l == "" {
+			return nil, &core.Denied{Rule: "ARGO-UNLABELLED", Message: name + " has no " + appLabel + " label, so its app is not known",
+				Hint: "Only Applications that tenant onboarding labelled with their app can be synced by an agent."}
+		}
+		if err := appOK(l); err != nil {
+			return nil, err
 		}
 	}
 	state := obj(obj(found["status"])["operationState"])

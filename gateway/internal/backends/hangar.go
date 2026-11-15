@@ -311,15 +311,14 @@ func hangarHandlers(c HangarConfig) map[string]dispatch.Handler {
 					return nil, err
 				}
 				a = withRepo(a, canon)
-				// A pull request that carries the app's cicd.yaml gets glidepath-api's verdict first, whichever tool carries it.
-				if gp != nil {
-					if err := checkFiles(ctx, gp, f.Principal, a["repo"], a["files"], baseOf(a)); err != nil {
-						return nil, err
-					}
-				}
 				in, err := openInput(a, f.Meta(), d.DenyPaths)
 				if err != nil {
 					return nil, err
+				}
+				// A pull request that carries the app's cicd.yaml gets glidepath-api's verdict first, whichever tool carries it, asked
+				// about the base the pull request has once the gateway knows it.
+				if gp != nil {
+					in.Check = cicdCheck(gp, f.Principal, a["repo"], a["files"])
 				}
 				return git.OpenPR(ctx, in)
 			}

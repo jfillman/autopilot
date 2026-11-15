@@ -169,9 +169,11 @@ func FuzzBranchNames(f *testing.F) {
 // from its words, in any case, at the depth each applies to.
 func protectedByOracle(p string) bool {
 	comps := strings.Split(strings.ToLower(p), "/")
-	last := comps[len(comps)-1]
-	if last == "codeowners" || last == "release.yaml" || strings.HasSuffix(last, ".release.yaml") || (strings.HasPrefix(last, "appproject") && strings.HasSuffix(last, ".yaml")) {
-		return true
+	// a protected file at any level: the path is it, or is under it (a tree written there replaces the file)
+	for _, last := range comps {
+		if last == "codeowners" || last == "release.yaml" || strings.HasSuffix(last, ".release.yaml") || (strings.HasPrefix(last, "appproject") && strings.HasSuffix(last, ".yaml")) {
+			return true
+		}
 	}
 	if comps[0] == ".github" {
 		return true
@@ -189,7 +191,7 @@ func FuzzFilePaths(f *testing.F) {
 		"a/../.github/x", "./a", "a//b", "/a", "a/", ".git/x", "a/.GIT/x", "a\\b", "a\x00b", "a\nb", "..", "", "a/./b", "é/ü.txt"} {
 		f.Add(s)
 	}
-	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o"}, AllowHTTP: true})
+	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o"}, AllowHTTP: true, AllowHTTPAPI: true})
 	deny := []string{".tekton/**", "**/.tekton/**", "CODEOWNERS", "**/CODEOWNERS", ".github/**", "**/appproject*.yaml", "**/AppProject*.yaml", "release.yaml",
 		"**/release.yaml", "*.release.yaml", "**/*.release.yaml"}
 	f.Fuzz(func(t *testing.T, p string) {
@@ -267,7 +269,7 @@ func FuzzSplitRepo(f *testing.F) {
 	for _, s := range []string{"o/r", "O/r", "o/", "/r", "o/r/x", "o/..", "o/.", "o/r\n", "evil/r", "o/" + strings.Repeat("r", 101), "o\\r", "o/r r", "ö/r"} {
 		f.Add(s)
 	}
-	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o", "Acme"}, AllowHTTP: true})
+	g, _ := NewGitHub(GitHubOptions{BrokerURL: "http://b", TokenFile: "x", Owners: []string{"o", "Acme"}, AllowHTTP: true, AllowHTTPAPI: true})
 	f.Fuzz(func(t *testing.T, s string) {
 		owner, name, err := g.SplitRepo(s)
 		if err != nil {
@@ -318,6 +320,25 @@ func FuzzCanonicalRepo(f *testing.F) {
 		}
 		if again, ok := CanonicalRepo(c); !ok || again != c {
 			t.Fatalf("not a fixed point: %q", c)
+		}
+	})
+}
+
+func FuzzTrailerOwnership(f *testing.F) {
+	good := "t\n\nHangar-Agent: a\nHangar-Session: s-1"
+	for _, m := range []string{good, good + "\n", "Hangar-Session: s-1\n\nHangar-Agent: a", good + "\nHangar-Merge: person", "t\nHangar-Agent: a\nHangar-Session: s-1", "", "\n\n", good + "\n\nHangar-Session: s-1", "a\nb\n\nHangar-Agent: a\nHangar-Session: s-1"} {
+		f.Add(m)
+	}
+	meta := map[string]string{"agent": "a", "session": "s-1"}
+	f.Fuzz(func(t *testing.T, msg string) {
+		if !trailerBlockOwned(msg, meta) {
+			return
+		}
+		// read it independently: the message is one subject line, a blank line and the trailers, whole
+		trimmed := strings.TrimRight(msg, "\n")
+		const block = "\n\nHangar-Agent: a\nHangar-Session: s-1"
+		if !strings.HasSuffix(trimmed, block) || strings.Contains(strings.TrimSuffix(trimmed, block), "\n") {
+			t.Fatalf("accepted %q", msg)
 		}
 	})
 }

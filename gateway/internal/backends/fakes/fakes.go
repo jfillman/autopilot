@@ -74,6 +74,7 @@ type GitHub struct {
 	// number of times it has seen that request (1 for the first).
 	DropAfter func(key string, n int) bool
 	counts    map[string]int
+	defaults  map[string]string
 	Minted    int
 }
 
@@ -134,9 +135,31 @@ func (g *GitHub) SeedFiles(repo string, files map[string]string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	base := g.branches[repo]["main"]
+	if base == "" {
+		base = g.branches[repo][g.defaults[repo]]
+	}
 	for k, v := range files {
 		g.files[repo][base][k] = v
 	}
+}
+
+// SetDefaultBranch renames the repository's main branch: the default branch the fake reports.
+func (g *GitHub) SetDefaultBranch(repo, name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.branches[repo][name] = g.branches[repo]["main"]
+	delete(g.branches[repo], "main")
+	if g.defaults == nil {
+		g.defaults = map[string]string{}
+	}
+	g.defaults[repo] = name
+}
+
+// SeedPR is a pull request that already exists for a branch.
+func (g *GitHub) SeedPR(repo, branch string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.PRs[repo] = append(g.PRs[repo], &PullRequest{Number: len(g.PRs[repo]) + 1, Head: branch, Base: "main", State: "open", CommitSHA: g.branches[repo][branch]})
 }
 
 // SeedBranch makes a branch of the commit a call would have made (a crash left it there): the commit holds these files and
@@ -223,7 +246,11 @@ func (g *GitHub) handle(w http.ResponseWriter, r *http.Request, body []byte) {
 			reply(w, 404, map[string]string{"message": "Not Found"})
 			return
 		}
-		reply(w, 200, map[string]any{"default_branch": "main", "full_name": m[1]})
+		def := "main"
+		if d, ok := g.defaults[m[1]]; ok {
+			def = d
+		}
+		reply(w, 200, map[string]any{"default_branch": def, "full_name": m[1]})
 	case reRef.MatchString(p) && r.Method == "GET":
 		m := reRef.FindStringSubmatch(p)
 		if c, ok := g.branches[m[1]][m[2]]; ok {

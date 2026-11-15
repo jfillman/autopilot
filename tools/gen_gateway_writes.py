@@ -13,6 +13,7 @@ root is the GitHub API, /k the Kubernetes API.
 from __future__ import annotations
 
 import base64
+import hashlib
 import http.client
 import json
 import socket
@@ -164,17 +165,35 @@ def run_case(name, tool, args, routes=None, *, sess=None, obo=False, git=True, g
         out = _outcome(lambda: h[tool](sess, args))
     finally:
         glidepath_live.watch.__defaults__ = (glidepath_live.time.monotonic, glidepath_live.time.sleep)
+    gr = go_requests(tool, args, world.seen)
     if go_error:
         cls, msg = go_error
         extra["go"] = {"error": {"class": cls, "outcome_result": f"error:{cls}: {msg[:160]}", "agent_error": "backend error: " + msg[:360]},
-                       "requests": world.seen + (go_extra or [])}
+                       "requests": (gr or world.seen) + (go_extra or [])}
         extra["why"] = ("a write that was sent and not answered says it may have been made, and Go looks once (a GET) for the branch or the "
                         "pull request it would have made before saying so")
     if "result" in out and tool in TOOL_REGISTRY:
         # the receipt the outcome carries (dispatch._effect), which the Go dispatch must make of the same result
         out["effect"] = dispatch._effect(TOOL_REGISTRY[tool], args, out["result"])
-    CASES.append({"name": name, "tool": tool, "args": args, "session": sess.as_dict(), "routes": routes or {}, "default": world.default,
-                  "obo": obo, "git": git, "glidepath": glidepath, "clock": bool(clock), "requests": world.seen, **_norm(out), **extra})
+    case = {"name": name, "tool": tool, "args": args, "session": sess.as_dict(), "routes": routes or {}, "default": world.default,
+            "obo": obo, "git": git, "glidepath": glidepath, "clock": bool(clock), "requests": world.seen, **_norm(out), **extra}
+    if tool == "glidepath.cicd.propose" and not args.get("branch") and "go" not in extra:
+        # Go's default branch name carries a part of the session's own, so another session cannot make this one's name first
+        py_b = cicd_propose.branch_for(sess.task_id, sess.id)
+        go_b = py_b + "-" + hashlib.sha256(sess.id.encode()).hexdigest()[:8]
+
+        def swap(v):
+            return json.loads(json.dumps(v).replace(py_b.replace("/", "%2F"), go_b.replace("/", "%2F")).replace(py_b, go_b))
+        if py_b in json.dumps({k: case.get(k) for k in ("result", "denied", "error", "requests", "effect")}):
+            case["go"] = {**{k: swap(case[k]) for k in ("result", "denied", "error") if k in case}, "requests": swap(gr or world.seen)}
+            case["why"] = ("Go's default branch name for a proposal adds a part made from the session's id (the same session's retry finds its "
+                           "own branch; another session cannot make it first), and Go adds the reads of the closed list")
+            gr = None
+    if gr is not None and "go" not in case:
+        case["go_requests"] = gr
+    elif gr is not None and "requests" not in case["go"]:
+        case["go"]["requests"] = gr
+    CASES.append(case)
 
 
 def run_direct(name, method, args, routes=None, **extra):
@@ -182,9 +201,13 @@ def run_direct(name, method, args, routes=None, **extra):
     world = World(routes or {})
     g = GitHubPRs(TMP / "agent", broker_url="http://gh.test/b", api="https://api.github.test", opener=lambda req, t: world(req, t))
     out = _outcome(lambda: getattr(g, method)(**args))
-    CASES.append({"name": name, "tool": "direct:" + method, "args": args, "session": Sess().as_dict(), "routes": routes or {},
-                  "default": world.default, "obo": False, "git": True, "glidepath": False, "clock": False, "requests": world.seen,
-                  **out, **extra})
+    case = {"name": name, "tool": "direct:" + method, "args": args, "session": Sess().as_dict(), "routes": routes or {},
+            "default": world.default, "obo": False, "git": True, "glidepath": False, "clock": False, "requests": world.seen,
+            **out, **extra}
+    gr = go_requests_direct(method, args, world.seen, routes or {}, out.get("result"))
+    if gr is not None and "go" not in case:
+        case["go_requests"] = gr
+    CASES.append(case)
 
 
 def run_argo(name, app, project, objs, patch_status=200, *, who=None, patch_fail=None, namespaces=("argocd", "argocd-apps"), **extra):
@@ -228,6 +251,107 @@ def go_echo(v):
     return (repr(v[:100]) + "...") if isinstance(v, str) and len(v) > 100 else r
 
 
+GH_HEADERS = {"accept": "application/vnd.github+json", "authorization": "Bearer " + GH_TOKEN, "x-github-api-version": "2022-11-28"}
+
+
+def gh_get(target):
+    return {"method": "GET", "target": target, "headers": dict(GH_HEADERS), "body": None}
+
+
+def broker_request(repo):
+    owner, name = repo.split("/")
+    app = name
+    for pre in ("gitops-infra-", "gitops-"):
+        if name.startswith(pre):
+            app = name[len(pre):]
+            break
+    return {"method": "POST", "target": "/b/agent-installation-token", "headers": {"authorization": "Bearer " + AGENT_TOKEN,
+            "content-type": "application/json"}, "body": {"owner": owner, "repo": name, "app": app}}
+
+
+def base_reads(repo, files):
+    """The reads of the base Go makes before it writes (with every path new): the first directory of each path, or the path itself."""
+    seen, out = set(), []
+    for f in files or []:
+        segs = f["path"].split("/")
+        first = segs[0] if len(segs) > 1 else f["path"]
+        if first not in seen:
+            seen.add(first)
+            out.append(gh_get(f"/repos/{repo}/contents/{first}?ref={BASE}"))
+    return out
+
+
+def go_requests(tool, args, py):
+    """What Go sends for the same call as Python's `py`: its own reads added (the default branch, the base's contents), and the
+    cicd.yaml check asked after the base is known. None when it sends what Python sends."""
+    if tool not in ("repo.pr.open", "repo.pr.open_upper", "glidepath.cicd.propose") or not isinstance(args.get("repo"), str):
+        return None
+    repo = args["repo"].lower()
+    brk = next((i for i, r in enumerate(py) if r["target"].endswith("/agent-installation-token")), None)
+    guard = tool != "glidepath.cicd.propose" and py and py[0]["target"].endswith("/cicd/validations")
+    if brk is None and not guard:
+        return None
+    files = args.get("files") if tool != "glidepath.cicd.propose" else [{"path": "cicd.yaml"}]
+    out = []
+    if guard:
+        validate = py[0]
+        rest = py[1:] if brk is not None else []
+        out += [py[brk] if brk is not None else broker_request(repo), gh_get(f"/repos/{repo}")]
+        out.append(validate)
+        py_after = rest[1:] if brk is not None else []
+    else:
+        out += py[:brk + 1]
+        if brk < len(py) - 1:
+            out.append(gh_get(f"/repos/{repo}"))
+        py_after = py[brk + 1:]
+    for r in py_after:
+        if r["method"] == "POST" and r["target"].endswith("/git/trees"):
+            out += base_reads(repo, files)
+        out.append(r)
+    return out if out != py else None
+
+
+def go_requests_direct(method, args, py, routes, result):
+    if method != "ensure_pr":
+        return None
+    repo, br = args["repo"].lower(), args["branch"]
+    brk = next((i for i, r in enumerate(py) if r["target"].endswith("/agent-installation-token")), None)
+    if brk is None:
+        return None
+    out = py[:brk + 1]
+    if brk == len(py) - 1:
+        return out if out != py else None
+    out.append(gh_get(f"/repos/{repo}"))
+    rest = py[brk + 1:]
+    head_key = next((r["target"] for r in rest if "/pulls?head=" in r["target"]), None)
+    listed = routes.get(f"GET {head_key}", {}).get("body") if head_key else None
+    prs = [x for x in (listed if isinstance(listed, list) else []) if isinstance(x, dict) and (x.get("head") or {}).get("ref") == br]
+    refs = [(i, r) for i, r in enumerate(rest) if r["target"].endswith(f"/git/ref/heads/{br.replace('/', '%2F')}") or r["target"] == f"/repos/{repo}/git/ref/heads/{br}"]
+    found = isinstance(result, dict) and result.get("resumed") is True and not any(r["method"] == "POST" for r in rest)
+    commit_get_index = None
+    if found:
+        out += rest
+        sha = result["commit"]
+        out.append(gh_get(f"/repos/{repo}/git/commits/{sha}"))
+        for f in args["files"]:
+            out.append(gh_get(f"/repos/{repo}/contents/{f['path']}?ref={sha}"))
+        return out
+    ok_ref = [i for i, r in refs if routes.get(f"GET {r['target']}", {}).get("status") == 200 and not prs]
+    for i, r in enumerate(rest):
+        out.append(r)
+        if ok_ref and i == ok_ref[-1]:
+            out.append(gh_get(f"/repos/{repo}/git/commits/{C1}"))
+        if r["method"] == "POST" and False:
+            pass
+    # a fresh branch: the base's contents are read before the tree is written
+    final = []
+    for r in out:
+        if r["method"] == "POST" and r["target"].endswith("/git/trees"):
+            final += base_reads(repo, args["files"])
+        final.append(r)
+    return final if final != py else None
+
+
 # -- builders ---------------------------------------------------------------------------------------------------------
 
 def gh_routes(repo="o/gate-api", **over):
@@ -237,7 +361,8 @@ def gh_routes(repo="o/gate-api", **over):
         f"GET /repos/{repo}/git/commits/{BASE}": {"status": 200, "body": {"tree": {"sha": TREE0}}},
         # what only Go asks (its default branch, a commit's trailer): Python never sends these, the Go test drops them
         f"GET /repos/{repo}": {"status": 200, "body": {"default_branch": "main"}},
-        f"GET /repos/{repo}/git/commits/{C1}": {"status": 200, "body": {"tree": {"sha": TREE1}, "message": "t\n\nHangar-Session: s-1"}},
+        f"GET /repos/{repo}/git/commits/{C1}": {"status": 200, "body": {"tree": {"sha": TREE1}, "message": "t\n\nHangar-Agent: a\nHangar-Session: s-1\nHangar-Task: t-1"}},
+        f"GET /repos/{repo}/contents/src/app.py?ref={C1}": {"status": 200, "body": {"encoding": "base64", "content": base64.b64encode(b"print('fixed')\n").decode()}},
         f"POST /repos/{repo}/git/trees": {"status": 201, "body": {"sha": TREE1}},
         f"POST /repos/{repo}/git/commits": {"status": 201, "body": {"sha": C1}},
         f"POST /repos/{repo}/git/refs": {"status": 201, "body": {}},
@@ -550,7 +675,7 @@ def repo_cases():
     run_case("open a pull request on a base branch", "repo.pr.open", pr_args(base="release/1.x"),
              gh_routes(**{f"GET /repos/{R}/git/ref/heads/release/1.x": jsr(200, {"object": {"sha": BASE}})}))
     CASES[-1]["go"] = {"denied": {"rule": "GH-BASE", "message": "a pull request is based on the repository's default branch, 'main', not 'release/1.x'",
-                                  "hint": "Leave base out; an agent's definition cannot name another."}, "requests": CASES[-1]["requests"][:1]}
+                                  "hint": "Leave base out; an agent's definition cannot name another."}, "requests": [CASES[-1]["requests"][0], gh_get(f"/repos/{R}")]}
     CASES[-1]["why"] = "Go bases a pull request on the repository's default branch only (the definition has no field that allows another)"
     run_case("two files", "repo.pr.open", pr_args(files=[{"path": "a.txt", "content": "a"}, {"path": "dir/b.txt", "content": "b é"}]), gh_routes())
     run_case("empty content is fine", "repo.pr.open", pr_args(files=[{"path": "a.txt", "content": ""}]), gh_routes())
@@ -733,8 +858,8 @@ def cicd_cases():
     run_case("the nested cicd.yaml is not validated", "repo.pr.open", pr_args(files=[{"path": "apps/x/cicd.yaml", "content": "a: 1"}]), routes)
     run_case("a ./cicd.yaml is validated", "repo.pr.open", pr_args(files=[{"path": "./cicd.yaml", "content": "a: 1"}]), routes)
     CASES[-1]["go"] = {"denied": {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."},
-                       "requests": CASES[-1]["requests"][:1]}
-    CASES[-1]["why"] = "Go refuses a path that is not normal after the validation Python and Go both ask for (Python writes it as it is)"
+                       "requests": []}
+    CASES[-1]["why"] = "Go refuses a path that is not normal before any request (Python writes it as it is)"
     run_case("a gitops repo's cicd.yaml is not validated", "repo.pr.open_upper", pr_args(repo="o/gitops-gate-api", files=[cy]),
              {**routes, **gh_routes("o/gitops-gate-api")})
     run_case("the infra repo's cicd.yaml is validated", "repo.pr.open_upper", pr_args(repo="o/gitops-infra-gate-api", files=[cy]),
@@ -749,8 +874,8 @@ def cicd_cases():
     run_case("the guard sends the base", "repo.pr.open", pr_args(files=[cy], base="release/1.x"),
              {**routes, f"GET /repos/{R}/git/ref/heads/release/1.x": jsr(200, {"object": {"sha": BASE}})})
     CASES[-1]["go"] = {"denied": {"rule": "GH-BASE", "message": "a pull request is based on the repository's default branch, 'main', not 'release/1.x'",
-                                  "hint": "Leave base out; an agent's definition cannot name another."}, "requests": CASES[-1]["requests"][:2]}
-    CASES[-1]["why"] = "the verdict is asked for as Python asks; Go then bases the pull request on the default branch only"
+                                  "hint": "Leave base out; an agent's definition cannot name another."}, "requests": [CASES[-1]["requests"][1], gh_get(f"/repos/{R}")]}
+    CASES[-1]["why"] = "Go bases a pull request on the default branch only, and says so before it asks the cicd.yaml check"
     run_case("no glidepath: a cicd.yaml goes straight to the pull request", "repo.pr.open", pr_args(files=[cy]), routes, glidepath=False)
 
 
@@ -785,7 +910,7 @@ def direct_cases():
                             contents: jsr(200, {"encoding": "base64", "content": b64("print('fixed')\n")})}))
     CASES[-1]["go"] = {"denied": {"rule": "APPLY-BRANCH-FOREIGN", "message": f"branch {br} was not made by this session",
                                   "hint": "A person looks at the branch; the tool never builds on, pushes to or deletes a branch it did not make."},
-                       "requests": CASES[-1]["requests"][:3] + [{"method": "GET", "target": f"/repos/{R}/git/commits/{C1}", "headers": {
+                       "requests": [CASES[-1]["requests"][0], gh_get(f"/repos/{R}")] + CASES[-1]["requests"][1:3] + [{"method": "GET", "target": f"/repos/{R}/git/commits/{C1}", "headers": {
                            "accept": "application/vnd.github+json", "authorization": "Bearer " + GH_TOKEN, "x-github-api-version": "2022-11-28"}, "body": None}]}
     CASES[-1]["why"] = "Go resumes only a branch whose head commit carries this session's trailer; Python takes any branch whose files match"
     run_direct("ensure: a branch whose file differs", "ensure_pr", args,
@@ -813,7 +938,8 @@ def argo_cases():
     PATH = "/apis/argoproj.io/v1alpha1/namespaces/argocd-apps/applications/gate-api-dev"
 
     def app(project="gate-api-lower", rv="42", **extra):
-        return {"metadata": {"name": "gate-api-dev", "namespace": "argocd-apps", "resourceVersion": rv}, "spec": {"project": project}, "status": {}, **extra}
+        return {"metadata": {"name": "gate-api-dev", "namespace": "argocd-apps", "resourceVersion": rv, "labels": {"hangar.io/app": "gate-api"}},
+                "spec": {"project": project}, "status": {}, **extra}
     A, P = "gate-api-dev", "gate-api-lower"
     run_argo("a lower app gets one merge patch", A, P, {PATH: app()})
     run_argo("the app is in the first namespace", A, P, {PATH.replace("argocd-apps", "argocd"): app()})

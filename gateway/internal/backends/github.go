@@ -32,6 +32,9 @@ import (
 // the gateway merge, approve, force-push, delete or move a branch, change protection, or write to an existing branch.
 
 const (
+	// maxBaseReads bounds the reads of the base tree for one pull request; past it the call is refused.
+	maxBaseReads = 200
+
 	// GitHubAPI is the public GitHub API. A deployment on another host (GitHub Enterprise) is GitHubOptions.API.
 	GitHubAPI = "https://api.github.com"
 
@@ -141,6 +144,9 @@ type GitHubOptions struct {
 	// AllowHTTP lets the broker URL (and an API URL) be plain http: for a lab that serves them so (BROKER_ALLOW_HTTP). Off by
 	// default: a bearer token does not cross the network in the clear.
 	AllowHTTP bool
+	// AllowHTTPAPI is the same for the GitHub API URL, which only a test or an Enterprise lab sets: BROKER_ALLOW_HTTP does not
+	// reach it.
+	AllowHTTPAPI bool
 }
 
 // NewGitHub is the backend, or says why its configuration is not usable.
@@ -151,7 +157,7 @@ func NewGitHub(o GitHubOptions) (*GitHub, error) {
 	}
 	a, err := checkBase("the GitHub API URL", api)
 	if err == nil {
-		err = requireHTTPS("the GitHub API URL", a, o.AllowHTTP)
+		err = requireHTTPS("the GitHub API URL", a, o.AllowHTTPAPI)
 	}
 	if err != nil {
 		return nil, err
@@ -528,6 +534,8 @@ type OpenPRInput struct {
 	Body                      string
 	// DenyPaths are the paths the agent may not write (its definition's, with the baseline).
 	DenyPaths []string
+	// Check runs once the base is known and before anything is written: the cicd.yaml check, asked about the resolved base.
+	Check func(ctx context.Context, base string) error
 }
 
 func cleanMeta(v string) string {
@@ -588,6 +596,9 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 	if !ValidNewBranch(in.Branch, in.Base) {
 		return "", "", nil, deniedBranch(in.Branch)
 	}
+	if reservedTitle.MatchString(in.Title) {
+		return "", "", nil, &core.Denied{Rule: "GH-TITLE", Message: "a title does not look like one of the gateway's trailers", Hint: "Give the pull request a plain one-line title."}
+	}
 	if t := pyStrip(in.Title); t == "" || utf8.RuneCountInString(in.Title) > maxTitle || strings.IndexFunc(in.Title, unicode.IsControl) >= 0 || !utf8.ValidString(in.Title) {
 		return "", "", nil, &core.Denied{Rule: "GH-TITLE", Message: "a title is one line of 1 to 200 characters", Hint: "Give the pull request a short one-line title."}
 	}
@@ -619,7 +630,13 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 		seen[strings.ToLower(n)] = true
 		// A blob written at a path replaces whatever tree is there, so a path that is a protected directory itself (`.github`,
 		// `.tekton`) would delete it from the new tree: the path is also tried as the directory that holds a protected file.
-		if pathDenied(n, in.DenyPaths) || pathDenied(n+"/x", in.DenyPaths) || ancestorOfDenied(n, in.DenyPaths) {
+		denied := pathDenied(n, in.DenyPaths) || pathDenied(n+"/x", in.DenyPaths) || ancestorOfDenied(n, in.DenyPaths)
+		// A tree written under a protected FILE replaces the file (`CODEOWNERS/x` takes the place of `CODEOWNERS`), so no ancestor
+		// of a path may be a denied path either.
+		for _, a := range properAncestors(n) {
+			denied = denied || pathDenied(a, in.DenyPaths)
+		}
+		if denied {
 			return "", "", nil, &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is a protected path",
 				Hint: "An agent does not change protected paths (CI, ownership, release files); ask a person."}
 		}
@@ -632,6 +649,18 @@ func (g *GitHub) checkInput(in *OpenPRInput) (owner, name string, entries []tree
 }
 
 var shortName = regexp.MustCompile(`~[0-9]`)
+
+// reservedTitle is a title that starts like one of the trailers the gateway writes (Hangar-Session: ...).
+var reservedTitle = regexp.MustCompile(`(?i)^\s*hangar-[a-z]+\s*:`)
+
+func properAncestors(p string) []string {
+	segs := strings.Split(p, "/")
+	var out []string
+	for i := 1; i < len(segs); i++ {
+		out = append(out, strings.Join(segs[:i], "/"))
+	}
+	return out
+}
 
 // oddName says a path has a segment that a file system may read as another name: a space or dot at an end (Windows drops
 // them, so `.github ` is `.github`), an 8.3 short name (`GITHUB~1`), or a `:` (a stream, `.github::$DATA`).
@@ -676,23 +705,61 @@ func ancestorOfDenied(p string, deny []string) bool {
 	return false
 }
 
-// refuseDirectories reads, for each file, what the base commit has at its path (the contents request of the closed list): a
-// blob sent with a base tree replaces a directory the base has there, with every file beneath it, protected or not.
+// refuseDirectories reads what the base commit has at each file's path and at each ancestor of it (the contents request of the
+// closed list, once for each path, at most maxBaseReads in all, and past that the call is refused): a blob sent with a base tree
+// replaces a directory the base has there, with every file beneath it, and a tree sent under a path the base has as a file
+// replaces that file. Whatever the deny list says, a file does not take a directory's place and nothing is written under a file.
 func (g *GitHub) refuseDirectories(ctx context.Context, token, owner, name, baseSha string, files []treeEntry) error {
-	for _, f := range files {
-		status, doc, err := g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: f.Path, ref: baseSha})
+	state := map[string]string{} // path -> "tree", "blob" or "none"
+	reads := 0
+	read := func(p string) (string, error) {
+		if st, ok := state[p]; ok {
+			return st, nil
+		}
+		if reads >= maxBaseReads {
+			return "", deniedFiles("the change touches more of the base than the gateway reads", "Split the change.")
+		}
+		reads++
+		status, doc, err := g.gh(ctx, token, ghReq{ep: epGetContents, owner: owner, name: name, path: p, ref: baseSha})
 		if err != nil {
-			return err
+			return "", err
 		}
-		if status == 404 {
-			continue
+		st := "blob"
+		switch {
+		case status == 404:
+			st = "none"
+		case status != 200:
+			return "", ghErrorOf("contents", status, doc, "message")
+		default:
+			if _, isDir := doc.([]any); isDir {
+				st = "tree"
+			}
 		}
-		if status != 200 {
-			return ghErrorOf("contents", status, doc, "message")
-		}
-		if _, isDir := doc.([]any); isDir {
-			return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is a directory in the base",
-				Hint: "A file cannot take the place of a directory; name a file inside it."}
+		state[p] = st
+		return st, nil
+	}
+	for _, f := range files {
+		segs := strings.Split(f.Path, "/")
+		for k := 1; k <= len(segs); k++ {
+			p := strings.Join(segs[:k], "/")
+			st, err := read(p)
+			if err != nil {
+				return err
+			}
+			if k == len(segs) {
+				if st == "tree" {
+					return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is a directory in the base",
+						Hint: "A file cannot take the place of a directory; name a file inside it."}
+				}
+				break
+			}
+			switch st {
+			case "none":
+				k = len(segs) // nothing below a path the base does not have
+			case "blob":
+				return &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(f.Path, 100)) + " is under " + pyStrRepr(clipRunes(p, 100)) + ", a file in the base",
+					Hint: "Nothing is written under a file; name another path."}
+			}
 		}
 	}
 	return nil
@@ -734,10 +801,10 @@ func (g *GitHub) resolveBase(ctx context.Context, token, owner, name string, in 
 
 // ownedBy checks that the commit a branch holds was made by this gateway for this session: its message carries the
 // Hangar-Session trailer the gateway wrote (a title is one line, so an agent cannot write one).
-func (g *GitHub) ownedBy(ctx context.Context, token, owner, name, sha, session, branch string) error {
+func (g *GitHub) ownedBy(ctx context.Context, token, owner, name, sha string, meta map[string]string, branch string) error {
 	foreign := &core.Denied{Rule: "APPLY-BRANCH-FOREIGN", Message: "branch " + branch + " was not made by this session",
 		Hint: "A person looks at the branch; the tool never builds on, pushes to or deletes a branch it did not make."}
-	if session == "" || !shaRx.MatchString(sha) {
+	if meta["session"] == "" || !shaRx.MatchString(sha) {
 		return foreign
 	}
 	status, doc, err := g.gh(ctx, token, ghReq{ep: epGetCommit, owner: owner, name: name, sha: sha})
@@ -747,13 +814,38 @@ func (g *GitHub) ownedBy(ctx context.Context, token, owner, name, sha, session, 
 	if status != 200 {
 		return foreign
 	}
+	// The message is the one the gateway writes: a subject line, a blank line and exactly the trailers this call's metadata makes,
+	// in order. A line anywhere else (a subject that looks like a trailer, a second block) is not the gateway's.
 	msg, _ := docMap(doc)["message"].(string)
-	for _, l := range strings.Split(msg, "\n") {
-		if l == "Hangar-Session: "+session {
-			return nil
+	if !trailerBlockOwned(msg, meta) {
+		return foreign
+	}
+	return nil
+}
+
+// trailerBlockOwned says a commit message is the one the gateway writes for this metadata: one subject line, a blank line, and
+// exactly the trailers commitMessage makes, in order, and nothing after them.
+func trailerBlockOwned(msg string, meta map[string]string) bool {
+	lines := strings.Split(strings.TrimRight(msg, "\n"), "\n")
+	want := trailerLines(meta)
+	if len(want) == 0 || len(lines) != 2+len(want) || lines[1] != "" {
+		return false
+	}
+	for i, w := range want {
+		if lines[2+i] != w {
+			return false
 		}
 	}
-	return foreign
+	return true
+}
+
+// trailerLines are the trailers commitMessage writes for this metadata, in its order.
+func trailerLines(meta map[string]string) []string {
+	var out []string
+	for _, k := range metaKeys(meta) {
+		out = append(out, "Hangar-"+strings.ToUpper(k[:1])+k[1:]+": "+cleanMeta(meta[k]))
+	}
+	return out
 }
 
 func badAnswer(what string) error {
@@ -788,6 +880,11 @@ func (g *GitHub) OpenPR(ctx context.Context, in OpenPRInput) (map[string]any, er
 	}
 	if err := g.resolveBase(ctx, token, owner, name, &in); err != nil {
 		return nil, err
+	}
+	if in.Check != nil {
+		if err := in.Check(ctx, in.Base); err != nil {
+			return nil, err
+		}
 	}
 	pr, err := g.openPR(ctx, token, owner, name, in, entries)
 	if err != nil {
@@ -1079,8 +1176,19 @@ func (g *GitHub) EnsurePR(ctx context.Context, in OpenPRInput) (map[string]any, 
 		return nil, err
 	}
 	if found != nil {
-		if err := g.ownedBy(ctx, token, owner, name, found.Commit, in.Meta["session"], in.Branch); err != nil {
+		if err := g.ownedBy(ctx, token, owner, name, found.Commit, in.Meta, in.Branch); err != nil {
 			return nil, err
+		}
+		// and its files are the ones asked for (read at the head commit, which a merged PR's deleted branch still has)
+		for _, f := range in.Files {
+			got, ok, err := g.textAt(ctx, token, owner, name, f.Path, found.Commit)
+			if err != nil {
+				return nil, err
+			}
+			if !ok || got != f.Content {
+				return nil, &core.Denied{Rule: "APPLY-BRANCH-DIVERGED", Message: "the pull request of branch " + in.Branch + " holds a " + f.Path + " that is not what this change would write",
+					Hint: "A person looks at the branch; the tool never pushes to or deletes an existing one."}
+			}
 		}
 		return found.result([2]any{"state", found.State}, [2]any{"resumed", true}), nil
 	}
@@ -1091,7 +1199,7 @@ func (g *GitHub) EnsurePR(ctx context.Context, in OpenPRInput) (map[string]any, 
 	switch {
 	case status == 200:
 		sha, _ := shaAt(ref, "object", "sha")
-		if err := g.ownedBy(ctx, token, owner, name, sha, in.Meta["session"], in.Branch); err != nil {
+		if err := g.ownedBy(ctx, token, owner, name, sha, in.Meta, in.Branch); err != nil {
 			return nil, err
 		}
 		for _, f := range in.Files {

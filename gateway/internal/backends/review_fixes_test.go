@@ -170,8 +170,8 @@ func TestAResumedBranchMustBeThisSessionsOwn(t *testing.T) {
 	e := newFakeEnv(t, gh, nil, nil, "s-1")
 	files := map[string]string{"src/app.py": "print('fixed')\n"}
 	gh.SeedBranch("o/gate-api", "agent/theirs", files, "someone's branch")
-	gh.SeedBranch("o/gate-api", "agent/other-session", files, "x\n\nHangar-Session: s-2")
-	gh.SeedBranch("o/gate-api", "agent/mine", files, "x\n\nHangar-Session: s-1")
+	gh.SeedBranch("o/gate-api", "agent/other-session", files, "x\n\nHangar-Agent: fixture-agent\nHangar-Session: s-2")
+	gh.SeedBranch("o/gate-api", "agent/mine", files, "x\n\nHangar-Agent: fixture-agent\nHangar-Session: s-1")
 	for branch, ok := range map[string]bool{"agent/theirs": false, "agent/other-session": false, "agent/mine": true} {
 		in := OpenPRInput{Repo: "o/gate-api", Branch: branch, Title: "t", Files: []File{{Path: "src/app.py", Content: files["src/app.py"]}},
 			Meta: map[string]string{"session": "s-1", "agent": "fixture-agent"}}
@@ -227,7 +227,7 @@ func TestPlainHTTPNeedsItsSetting(t *testing.T) {
 	if _, err := NewGitHub(o); err == nil {
 		t.Fatal("a plain http API URL was taken")
 	}
-	o.AllowHTTP = true
+	o.AllowHTTP, o.AllowHTTPAPI = true, true
 	if _, err := NewGitHub(o); err != nil {
 		t.Fatal(err)
 	}
