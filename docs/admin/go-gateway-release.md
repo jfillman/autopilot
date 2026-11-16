@@ -80,10 +80,9 @@ autopilot-gateway migrate --check    change nothing; exit 1 if an index is missi
   `GATEWAY_ALLOW_MISSING_INDEXES=1` (default off) starts anyway, with an error line each start. **Ordering in the cutover**: `migrate` and `migrate --check` run
   BEFORE the switch (step 4), so the first Go start finds the indexes; the override is for an emergency rollforward, not a procedure.
 
-**Deployment choice, and why**: `migrate` is a **manual step in the cutover runbook**, not a pre-sync Job (yet). A Job against the database
-every sync would need the owner's DSN in another pod, and a failing Job would block every sync of the Autopilot Application. The runbook runs
-it once as a one-off Job (below, or the Job the render emits when `autopilot.gateway.go.migrateJob` is true), then `migrate --check` is a gate
-before the switch. (`kubectl create job --from` takes a CronJob, so it is not used.)
+**Deployment choice, and why**: `migrate` is a **manual step in the cutover runbook** unless the render emits it (`autopilot.gateway.go.migrateJob: true`), and it is
+**not** an Argo CD hook (a hook is dropped from a partial sync, argo-cd#28701). The runbook runs it once as a one-off Job (below), or lets the render's
+tracked Job do it, then `migrate --check` is a gate before the switch. (`kubectl create job --from` takes a CronJob, so it is not used.)
 
 ```
 kubectl -n autopilot-system apply -f - <<'EOF'
@@ -110,8 +109,17 @@ kubectl -n autopilot-system wait --for=condition=complete job/autopilot-gateway-
 ```
 
 The database admits only the gateway and read API pods (`networkpolicy.yaml`); the policy that admits the Job's label (`autopilot-pg-migrate`) is rendered only with
-`autopilot.gateway.go.migrateJob: true`, so for the first cutover set it, render and sync (the hook then runs `migrate` itself, and the hand-run Job above is only needed for
-`migrate --check` and re-runs), and turn it off again afterwards if a PreSync hook is not wanted. Making it the permanent PreSync step is a decision for after the first cutover, when its run time is known.
+`autopilot.gateway.go.migrateJob: true`, so for the first cutover set it, render and sync. Since 2026-11-16 both are **ordinary tracked resources ordered by sync waves**,
+not hooks: the NetworkPolicy `autopilot-pg-migrate` is wave 0, the migrate Job is wave 1, and the Go Deployments are wave 2. Argo CD waits for each wave before the next
+(a Job is Healthy when Complete and Degraded when Failed), so the Go pods change only after `migrate` has succeeded. The hand-run Job above is then only needed for
+`migrate --check` and re-runs. Notes:
+
+- The Job is named for its image (`autopilot-gateway-migrate-v0-1-0-fce8be95`: the tag without `gateway-go-`, then the first 8 hex of the digest). A Job's pod template is
+  immutable, so a new migration (a new image) is a new Job name, and it runs once per image.
+- There is no `ttlSecondsAfterFinished` on it: a finished Job that was deleted would be re-created, and `migrate` would run again, on the next sync. Older Jobs stay until
+  deleted by hand.
+- **Never start a sync by patching the Application's `.operation` with `kubectl patch`.** It can inherit a stale partial resource list and silently skip steps (upstream
+  argo-cd#28701). Trigger the sync from git or the Argo CD UI.
 
 ### The read-only role (`GATEWAY_API_DSN`)
 
@@ -238,7 +246,8 @@ belongs to the canary. **Unverified until then.** Pins the Go policy rejected st
   route builds has no paths, and the paths of a write (`effect()` in `dispatch.go`) go to Clearance on the outcome and are not kept by the gateway. Python's `record_from_run`
   takes `paths_touched` as a parameter that its live caller never passes. Filling it needs a decision: keep the effect paths on the session (new persisted state), or read
   them back from the core's session records. Until then a case with `minPathsTouched` above 0 cannot pass through the score route, in Go as in Python.
-- **`migrate` as a PreSync Job** instead of a manual step (above): after the first cutover.
+- **Turn `autopilot.gateway.go.migrateJob` off** once the cutover has held (it is a tracked wave-1 Job, not a hook, so it needs no turning off between syncs; the flag only
+  stops it rendering).
 - **Narrow the gateway's cluster-wide read RBAC**: the Go gateway needs `get` on `namespaces` (added by the Go render) and today still rides the Python
   ClusterRole that lists every `catalog.hangar.io` kind; a Role per `AGENT_XRS_NAMESPACES` entry is the least-privilege shape (go-gateway.md, S4).
 - **SBOM and signature** for both images, together.
