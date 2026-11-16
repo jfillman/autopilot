@@ -5,6 +5,11 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Changed (Go gateway: two ported Python defects fixed before the cutover; listed as differences in `docs/admin/go-gateway-release.md`)
+- `CheckQuestion` trims options before it checks for duplicates, so `["prod", " prod "]` is refused (`HR-OPTIONS`) instead of stored as two `prod`.
+- `human.answer` is recorded once when the inbox save fails and the answer is retried: the record is reused (same request, person, route and text) instead of written again.
+- Not changed: `RecordFromRuns` still leaves `PathsTouched` empty, because no upstream data carries the paths at that point (see the release doc, open decisions).
+
 ### Added (A-9 S6: the read API, the Prometheus endpoint and the OTLP logs in the Go gateway)
 - `autopilot-gateway api` (Go, off by default, not deployed) is the read API: agents, sessions, a run's result, the run tree, the human inbox, the trigger history, the runtime catalog
   and the contract, over a read-only connection that takes no writer lock and has no statement but `SELECT`. 939 recorded Python cases (17 callers: an admin, a session's own person,

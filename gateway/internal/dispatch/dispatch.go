@@ -131,6 +131,7 @@ type Gateway struct {
 	holdsLoaded bool
 	holdCache   map[string]*Hold // the holds, as the store has them; read and written under holdGate
 	answers     answerLocks
+	recorded    answerRecords
 	limiter     controlLimiter
 	houseMu     sync.Mutex
 	lastHouse   time.Time

@@ -166,6 +166,14 @@ ignored by Go.
   as rejected (it was only dropped in memory), and `readapi.Refresher` shows the stored decision instead of deciding with a weaker policy.
 - **The catalog read is paged** (500 to a page, a cursor, at most 20 pages): a person with more, or a catalog that does not stop paging, is an
   error and is held to their own sessions (as an outage is), never given a partial list as if it were whole.
+- **Options that differ only in surrounding whitespace are duplicates** (`CheckQuestion`, `dispatch/inbox.go`). Python checked for duplicates on the strings as sent and stored
+  them trimmed, so `["prod", " prod "]` was accepted and stored as two `prod`; Go trims first, then dedupes (`HR-OPTIONS`). The length limits still apply to the string as sent.
+  Test: `TestCheckQuestionDedupesTheTrimmedOptions`. (The question itself has no duplicate rule.)
+- **A human answer is recorded once even when the inbox save fails** (`HumanAnswer`, `dispatch/inbox.go`). The order stays record, then save, because an answer must stand only
+  once its audit record does; the trade-off is that a failed save leaves a record for a request that still shows pending. So the record is made idempotent on the request id: the
+  gateway remembers it (in memory, 1000 at most) and a retry of the same answer (same person, route and text) reuses the record and its `audit_seq` instead of writing a second.
+  A different answer after a failed save is recorded as its own; a gateway restart between the failed save and the retry still writes a second record (Python always did).
+  Test: `TestAnAnswerWhoseSaveFailedIsRecordedOnceOnRetry`.
 - **Dropped metric series are counted**: `autopilot_metric_series_dropped_total{metric}` (Go only, after Python's twelve).
 
 ## The cutover (S9) on hangar-dev, in order
@@ -225,9 +233,11 @@ belongs to the canary. **Unverified until then.** Pins the Go policy rejected st
 - **The coding agent's `airframe.apps: ["*"]`** (`agents/coding-agent.yaml`, [go-gateway.md](go-gateway.md) S5c): the Go gateway scopes `xr.request` by
   `profile.airframe.apps`, so `["*"]` equals Python's unscoped behaviour for that tool (the core never scoped it by app). It is the owner's call whether the
   coding agent keeps `*` at the cutover or is narrowed to named apps first; the cutover does not change it.
-- **Three known defects of the ported Python code, left as they are** by the owner's rule (a bug that exists identically in Python is not fixed in Go during the port, so the
-  replay and the comparison stay meaningful): (1) `CheckQuestion` dedupes before trimming; (2) `RecordFromRuns` leaves `PathsTouched` empty; (3) `human.answer` is recorded
-  before `Inbox.Save`. Fix them in one change, in Go, after the cutover, once Python is gone.
+- **`RecordFromRuns` leaves `PathsTouched` empty** (the third of the three Python defects the owner chose to fix before the cutover; the other two are under "Fixes made for
+  the release"). Not fixed: the data is not available where the record is built. A run's `tool_calls` carry only `{tool, ok, rule}` (`ToolCallSummary`), the evidence the score
+  route builds has no paths, and the paths of a write (`effect()` in `dispatch.go`) go to Clearance on the outcome and are not kept by the gateway. Python's `record_from_run`
+  takes `paths_touched` as a parameter that its live caller never passes. Filling it needs a decision: keep the effect paths on the session (new persisted state), or read
+  them back from the core's session records. Until then a case with `minPathsTouched` above 0 cannot pass through the score route, in Go as in Python.
 - **`migrate` as a PreSync Job** instead of a manual step (above): after the first cutover.
 - **Narrow the gateway's cluster-wide read RBAC**: the Go gateway needs `get` on `namespaces` (added by the Go render) and today still rides the Python
   ClusterRole that lists every `catalog.hangar.io` kind; a Role per `AGENT_XRS_NAMESPACES` entry is the least-privilege shape (go-gateway.md, S4).
