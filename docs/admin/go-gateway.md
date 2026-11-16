@@ -413,7 +413,8 @@ hold that cannot be read before or after the run is retried (50 ms, 250 ms, 1 s)
 a hold write (one lock, whose waiters give up with their context, and each store call is bounded to 10 s); a trigger that panics is not
 decided and the cursor does not move (it counts toward the poison bound above); an inbox request added before the call's session is saved
 stays pending (counts toward the 5 a session may have) and the retry adds another; a human answer whose record is written before the process
-dies is answered again and a second `human.answer` record is written (Python the same).
+dies is answered again and a second `human.answer` record is written (Python the same); a failed inbox save without a restart is not: the retry of the same answer reuses
+the record (see go-gateway-release.md, "Fixes made for the release").
 
 The ledger's `state` column is a closed set that Python's schema checks (`launched`, `deduped`, `braked`, `held`, `refused`, `launch-failed`,
 `missed`), so no new value was added: a freeze or an end before the launch is recorded `refused` with the rule in the event history's outcome

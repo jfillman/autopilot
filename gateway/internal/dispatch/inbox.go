@@ -302,7 +302,8 @@ func (m *MemoryInbox) Prune(_ context.Context, before time.Time) (int, error) {
 	return n, nil
 }
 
-// CheckQuestion validates a question and its options (inbox.check_question).
+// CheckQuestion validates a question and its options (inbox.check_question). It differs from Python on purpose in one thing:
+// options that are the same once trimmed are duplicates (HR-OPTIONS); see "Fixes made for the release".
 func CheckQuestion(question, options any) (string, []string, error) {
 	q, ok := question.(string)
 	if !ok || strings.TrimSpace(q) == "" || utf8.RuneCountInString(q) > MaxQuestion {
@@ -320,11 +321,17 @@ func CheckQuestion(question, options any) (string, []string, error) {
 		seen := map[string]bool{}
 		for _, o := range list {
 			s, ok := o.(string)
-			if !ok || strings.TrimSpace(s) == "" || utf8.RuneCountInString(s) > MaxOption || seen[s] {
+			if !ok || strings.TrimSpace(s) == "" || utf8.RuneCountInString(s) > MaxOption {
 				return "", nil, bad
 			}
-			seen[s] = true
-			opts = append(opts, strings.TrimSpace(s))
+			// Trim first, then dedupe: the stored form is the compared form. (Python compared the untrimmed strings, so ["prod", " prod "]
+			// passed and was stored as two "prod".) The length limit stays on the string as sent, as in Python.
+			t := strings.TrimSpace(s)
+			if seen[t] {
+				return "", nil, bad
+			}
+			seen[t] = true
+			opts = append(opts, t)
 		}
 	}
 	return strings.TrimSpace(q), opts, nil
@@ -505,10 +512,60 @@ func (a *answerLocks) lock(id string) func() {
 	}
 }
 
+// answerRecords remembers the human.answer record of a request whose save then failed, so the retry reuses it instead of writing a
+// second one. In memory and bounded: a gateway that restarts between a failed save and the retry writes a second record (the same
+// as Python, which has no memory of it at all).
+type answerRecords struct {
+	mu sync.Mutex
+	m  map[string]recordedAnswer
+}
+
+type recordedAnswer struct {
+	key string
+	seq *int64
+}
+
+const maxRecordedAnswers = 1000
+
+func answerKey(fields map[string]any) string {
+	return fmt.Sprint(fields["principal"], "|", fields["args_sha256"], "|", fields["result"])
+}
+
+func (a *answerRecords) get(id string, fields map[string]any) (*int64, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r, ok := a.m[id]
+	if !ok || r.key != answerKey(fields) {
+		return nil, false
+	}
+	return r.seq, true
+}
+
+func (a *answerRecords) put(id string, fields map[string]any, seq *int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.m == nil {
+		a.m = map[string]recordedAnswer{}
+	}
+	if _, ok := a.m[id]; !ok && len(a.m) >= maxRecordedAnswers {
+		for k := range a.m { // full: drop one (the memory is a convenience, never the record)
+			delete(a.m, k)
+			break
+		}
+	}
+	a.m[id] = recordedAnswer{answerKey(fields), seq}
+}
+
+func (a *answerRecords) forget(id string) {
+	a.mu.Lock()
+	delete(a.m, id)
+	a.mu.Unlock()
+}
+
 // HumanAnswer answers one request as the person (or a delegate naming them), and records it as human.answer (Gateway.human_answer).
 //
 // The answer stands only once its record does: an unreachable core refuses it and the person retries (503). The request is
-// read, checked, recorded and saved under a lock of its own and read again under it, so two answers racing for one request give
+// read, checked, recorded and saved (a failed save is retried without a second record, see answerRecords) under a lock of its own and read again under it, so two answers racing for one request give
 // one answer (the second is HR-ANSWERED) and one record. A request that is not the person's to answer is "no such request for
 // you", the same answer as one that does not exist.
 func (g *Gateway) HumanAnswer(ctx context.Context, token, id string, answer any, onBehalfOf string) (map[string]any, error) {
@@ -540,13 +597,23 @@ func (g *Gateway) HumanAnswer(ctx context.Context, token, id string, answer any,
 		"target": r.ID, "args_sha256": core.ArgsDigest(map[string]any{"answer": text}), "result": "answered" + viaSuffix(via)}
 	rctx, cancel := g.bg(ctx)
 	defer cancel()
-	seq, rerr := g.Core.Record(rctx, "human.answer", fields, true)
-	if rerr != nil {
-		var un *core.Unreachable
-		if errors.As(rerr, &un) {
-			return nil, &InboxError{un.Rule(), "Clearance is unreachable: the answer was not recorded, so it is not given", "Answer again in a minute.", 503}
+	// The record is written before the save (an answer stands only once its record does), so a save that fails leaves a record
+	// whose request still shows pending. The retry must not write it again: the record is remembered by request id and the same
+	// answer (same person, route and text) reuses it. A different answer is a different act and is recorded as its own.
+	var seq *int64
+	if prev, ok := g.recorded.get(id, fields); ok {
+		seq = prev
+	} else {
+		var rerr error
+		seq, rerr = g.Core.Record(rctx, "human.answer", fields, true)
+		if rerr != nil {
+			var un *core.Unreachable
+			if errors.As(rerr, &un) {
+				return nil, &InboxError{un.Rule(), "Clearance is unreachable: the answer was not recorded, so it is not given", "Answer again in a minute.", 503}
+			}
+			return nil, rerr
 		}
-		return nil, rerr
+		g.recorded.put(id, fields, seq)
 	}
 	r.Status, r.Answer, r.AnsweredBy, r.AnsweredAt = "answered", &text, &person, &now
 	if via != "" {
@@ -555,8 +622,9 @@ func (g *Gateway) HumanAnswer(ctx context.Context, token, id string, answer any,
 		r.AnsweredVia = nil
 	}
 	if err := g.Inbox.Save(ctx, r); err != nil {
-		return nil, err
+		return nil, err // the record stays remembered: the retry reuses it
 	}
+	g.recorded.forget(id)
 	out := r.View(now)
 	out["audit_seq"] = nilSeq(seq)
 	return out, nil
