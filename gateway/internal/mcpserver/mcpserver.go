@@ -271,6 +271,9 @@ func (w *helpful401) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap lets http.ResponseController reach the real writer (the SDK flushes its event streams through it).
+func (w *helpful401) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *helpful401) Write(p []byte) (int, error) {
 	if w.replaced {
 		if _, err := w.ResponseWriter.Write([]byte(unauthorizedBody)); err != nil {
@@ -299,6 +302,16 @@ func rfc9728Path(resourceURL string) string {
 	return metadataPath + strings.TrimRight(u.Path, "/")
 }
 
+// metadataURL is the absolute form of rfc9728Path for the 401's resource_metadata, built from the parsed scheme, host and
+// escaped path so an encoded resource path is advertised as it is routed.
+func metadataURL(resourceURL string) string {
+	u, err := url.Parse(resourceURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return strings.TrimRight(resourceURL, "/") + metadataPath
+	}
+	return u.Scheme + "://" + u.Host + metadataPath + strings.TrimRight(u.EscapedPath(), "/")
+}
+
 // Handler serves the MCP endpoint at path (bearer auth on every request: 401 without a token the gateway accepts), the
 // protected-resource metadata, and an unauthenticated GET /healthz for probes. The metadata is served at the RFC 9728
 // path derived from resourceURL (named by the 401's resource_metadata), at the path-suffixed form older builds advertised
@@ -316,11 +329,11 @@ func Handler(g *dispatch.Gateway, path, resourceURL, issuerURL string) http.Hand
 		return &sdkauth.TokenInfo{UserID: p.ID, Expiration: exp, Extra: map[string]any{"token": token}}, nil
 	}
 	rfcPath := rfc9728Path(resourceURL)
-	origin := strings.TrimSuffix(strings.TrimRight(resourceURL, "/"), rfcPath[len(metadataPath):])
+	advertised := metadataURL(resourceURL)
 	mux := http.NewServeMux()
 	mux.Handle(path, withHelpful401(sdkauth.RequireBearerToken(verify, &sdkauth.RequireBearerTokenOptions{
 		AllowMissingExpiration: true,
-		ResourceMetadataURL:    origin + rfcPath})(h)))
+		ResourceMetadataURL:    advertised})(h)))
 	meta := sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
 		Resource: resourceURL, AuthorizationServers: []string{issuerURL}, BearerMethodsSupported: []string{"header"}})
 	paths := map[string]bool{rfcPath: true, metadataPath: true,

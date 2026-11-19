@@ -91,3 +91,19 @@ func getJSON(t *testing.T, url string) map[string]any {
 	}
 	return m
 }
+
+// An encoded path segment is advertised in its encoded form, and the decoded path is the one that is routed.
+func TestTheAdvertisedURLKeepsAnEncodedResourcePath(t *testing.T) {
+	srv, _ := setupWithResource(t, "http://gw.test/%6dcp")
+	resp, err := http.Post(srv.URL+"/mcp", "application/json", nil)
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("%v %v", resp, err)
+	}
+	want := `Bearer resource_metadata="http://gw.test/.well-known/oauth-protected-resource/%6dcp"`
+	if got := resp.Header.Get("WWW-Authenticate"); got != want {
+		t.Fatalf("header %q, want %q", got, want)
+	}
+	if got := getJSON(t, srv.URL+"/.well-known/oauth-protected-resource/%6dcp"); got["resource"] != "http://gw.test/%6dcp" {
+		t.Fatalf("resource %v", got["resource"])
+	}
+}

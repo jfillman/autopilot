@@ -31,6 +31,10 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func setup(t *testing.T) (*httptest.Server, *fakecore.Core) {
+	return setupWithResource(t, "http://gw.test/mcp")
+}
+
+func setupWithResource(t *testing.T, resourceURL string) (*httptest.Server, *fakecore.Core) {
 	fc := fakecore.New()
 	t.Cleanup(fc.Close)
 	st, _ := session.NewStore(context.Background(), nil)
@@ -55,7 +59,7 @@ func setup(t *testing.T) (*httptest.Server, *fakecore.Core) {
 		}
 		return res
 	}
-	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test/mcp", "http://dex.test"))
+	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", resourceURL, "http://dex.test"))
 	t.Cleanup(srv.Close)
 	return srv, fc
 }
