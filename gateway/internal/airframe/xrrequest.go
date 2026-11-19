@@ -9,7 +9,9 @@ import (
 	"net/netip"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -907,11 +909,39 @@ var (
 	anyNamespac = regexp.MustCompile(`(?i)namespace`)
 )
 
+// sloPatterns are the contract's own patterns for an SLO's metric and filters, read from the AppSpec schema (chartValues.slos), so the
+// gateway refuses what the composition's validation would and cannot drift from it.
+var sloPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
+	var doc map[string]any
+	if err := json.Unmarshal(appSpecJSON, &doc); err != nil {
+		panic("the AppSpec schema: " + err.Error())
+	}
+	node := doc
+	for _, k := range []string{"$defs", "chartValues", "properties", "slos", "items", "properties", "indicator", "properties"} {
+		next, _ := node[k].(map[string]any)
+		if next == nil {
+			panic("the AppSpec schema has no " + k + " on the way to an SLO's indicator")
+		}
+		node = next
+	}
+	out := map[string]*regexp.Regexp{}
+	for _, f := range []string{"metric", "totalFilter", "errorFilter"} {
+		prop, _ := node[f].(map[string]any)
+		pat, _ := prop["pattern"].(string)
+		if pat == "" {
+			panic("the AppSpec schema gives an SLO's " + f + " no pattern")
+		}
+		out[f] = definitions.CompilePattern(pat)
+	}
+	return out
+})
+
 // checkSelector reads a mapping of label to value and writes it as the matcher list the composition puts inside braces. The agent
-// supplies no selector syntax and no tenancy: the gateway writes the first matcher itself, `namespace` equal to the namespace (or
-// one of the few) the platform assigned to the app's environment, so a query can only read this app's series; the agent may add
-// equality matchers on a CLOSED list of label names (XR_SLO_LABELS), never one that names a namespace, with a plain value (no quote,
-// backslash, brace or line break). Nothing is a prefix of, or a pattern over, an app's name.
+// supplies no selector syntax and no tenancy: the composition (Airframe compositions/slo) forces its own `namespace` matcher first
+// and refuses any `namespace` or `__name__` matcher, so the gateway writes none, refuses a request that names one early, and
+// refuses an environment of several namespaces (an SLO covers exactly its own). The agent may add equality matchers on a CLOSED
+// list of label names (XR_SLO_LABELS) with a plain value (no quote, backslash, brace or line break). The text written is checked
+// against the contract's own filter pattern before it is returned.
 func checkSelector(v any, path string, cx *checkCtx) (any, error) {
 	m, ok := v.(*definitions.OMap)
 	if !ok || len(m.Keys) == 0 || len(m.Keys) > 8 {
@@ -925,18 +955,21 @@ func checkSelector(v any, path string, cx *checkCtx) (any, error) {
 	if len(cx.namespaces) == 0 {
 		return nil, badField(path, "cannot be written: the platform has assigned this app's environment no namespace on this cluster to select in")
 	}
+	if len(cx.namespaces) > 1 {
+		return nil, badField(path, "cannot be written: an SLO covers exactly its own namespace, and this environment has "+
+			strconv.Itoa(len(cx.namespaces))+" ("+strings.Join(cx.namespaces, ", ")+"); ask for one SLO per namespace, "+
+			strconv.Itoa(len(cx.namespaces))+" SLOs in all")
+	}
 	names := append([]string{}, m.Keys...)
 	sort.Strings(names)
-	var forced string
-	if len(cx.namespaces) == 1 {
-		forced = `namespace="` + cx.namespaces[0] + `"`
-	} else {
-		forced = `namespace=~"` + strings.Join(cx.namespaces, "|") + `"`
-	}
-	pairs := []string{forced}
+	var pairs []string
 	for _, k := range names {
+		if k == "__name__" || anyNamespac.MatchString(k) {
+			return nil, badField(path+"."+k, "is a namespace or __name__ matcher, which an SLO may not have: the composition scopes every SLO to its own namespace and refuses these; select on "+
+				strings.Join(cx.pol.SLOLabels, ", ")+" instead")
+		}
 		val, isStr := m.M[k].(string)
-		if !promLabel.MatchString(k) || anyNamespac.MatchString(k) || !inList(cx.pol.SLOLabels, k) {
+		if !promLabel.MatchString(k) || !inList(cx.pol.SLOLabels, k) {
 			return nil, badField(path+"."+k, "is not a label an agent may select on (XR_SLO_LABELS: "+strings.Join(cx.pol.SLOLabels, ", ")+")")
 		}
 		if !isStr || !promValue.MatchString(val) {
@@ -944,5 +977,9 @@ func checkSelector(v any, path string, cx *checkCtx) (any, error) {
 		}
 		pairs = append(pairs, k+`="`+val+`"`)
 	}
-	return strings.Join(pairs, ","), nil
+	out := strings.Join(pairs, ",")
+	if re := sloPatterns()["totalFilter"]; !re.MatchString(out) {
+		return nil, badField(path, "would be written as "+clip100(out)+", which is not a filter the contract accepts (comma-separated label=\"value\" matchers)")
+	}
+	return out, nil
 }

@@ -759,7 +759,7 @@ func afKube(def airframe.Reader) airframe.Reader {
 	return def
 }
 
-func TestAnSLORequestedThroughTheGatewayIsForcedIntoTheAppsNamespace(t *testing.T) {
+func TestAnSLORequestedThroughTheGatewayCarriesNoNamespaceMatcherAndRefusesOne(t *testing.T) {
 	afKubeOverride = fixtureKube{}
 	defer func() { afKubeOverride = nil }()
 	gh := afGitHub()
@@ -793,8 +793,9 @@ func TestAnSLORequestedThroughTheGatewayIsForcedIntoTheAppsNamespace(t *testing.
 			t.Fatal(err)
 		}
 		ind := doc["spec"].(map[string]any)["indicator"].(map[string]any)
-		if ind["totalFilter"] != `namespace="app-flight-api-dev",code="200",job="flight-api"` || ind["errorFilter"] != `namespace="app-flight-api-dev",code="500"` {
-			t.Fatalf("the forced matcher is not first in both filters: %v", ind)
+		// the composition scopes the SLO to its own namespace (Airframe compositions/slo); the gateway writes the agent's matchers only
+		if ind["totalFilter"] != `code="200",job="flight-api"` || ind["errorFilter"] != `code="500"` {
+			t.Fatalf("the filters carry more or less than the agent's matchers: %v", ind)
 		}
 	}
 	// an environment the platform assigned no namespace to has nothing to select in

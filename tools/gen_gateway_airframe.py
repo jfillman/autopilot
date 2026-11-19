@@ -364,7 +364,7 @@ def xr_cases():
     xr("a service level objective (Go writes the matchers)", {**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
         "totalFilter": {"job": f"{app}", "code": "200"}, "errorFilter": {"code": "500"}}}}, name=f"{app}-slo",
        py_args={**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
-        "totalFilter": f'namespace="app-{app}-dev",code="200",job="{app}"', "errorFilter": f'namespace="app-{app}-dev",code="500"'}}})
+        "totalFilter": f'code="200",job="{app}"', "errorFilter": 'code="500"'}}})
     xr("a rollout watch", {**base, "kind": "RolloutWatch", "name": f"{app}-watch", "spec": {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "appName": app, "cluster": "dev-cluster", "env": "dev",
         "notifications": {"slack": {"enabled": True}}}}, name=f"{app}-watch")
     xr("a lower application environment (named for it)", {**base, "kind": "ApplicationEnvironment", "spec": {"configMapGenerator": True}}, name=f"{app}-dev-cluster-dev")

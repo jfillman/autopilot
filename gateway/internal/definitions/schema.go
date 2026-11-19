@@ -106,6 +106,9 @@ const pyWhite = `\t-\r\x1c-\x20\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2
 
 var patterns sync.Map // pattern -> *regexp.Regexp
 
+// CompilePattern is a schema `pattern` as Python's re would read it (translatePattern); it panics on one it cannot map.
+func CompilePattern(p string) *regexp.Regexp { return compile(p) }
+
 func compile(p string) *regexp.Regexp {
 	if re, ok := patterns.Load(p); ok {
 		return re.(*regexp.Regexp)
