@@ -42,7 +42,7 @@ func runsSetup(t *testing.T) (*httptest.Server, *session.Store, *runs.FakeStore)
 	api := runs.NewFakeStore()
 	g.SetRuns(&runs.Backend{Store: api})
 	g.Results = &dispatch.MemoryResults{}
-	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test", "http://dex.test"))
+	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test/mcp", "http://dex.test"))
 	t.Cleanup(srv.Close)
 	return srv, st, api
 }
