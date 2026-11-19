@@ -31,7 +31,7 @@ env:
   CLEARANCE_REF: v0.44.0
   # The contracts the generators and tests read, PINNED to commits (a tag push must not depend on whatever main is that minute). Bump them
   # on purpose: `gh api repos/jfillman/airframe/commits/main --jq .sha` (and glidepath), change the two lines, and let the gates run on the PR.
-  AIRFRAME_REF: 05ee00f01872464b2f2d5adfa76840aa7438f990
+  AIRFRAME_REF: dc5ffa6af7085d609d29d2ca7c1d83e5d8730144
   GLIDEPATH_REF: 75af684aa52cb95bd0f606af81059f357a987924
   IMAGE: ghcr.io/jfillman/autopilot-gateway-go
 permissions:

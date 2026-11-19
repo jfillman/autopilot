@@ -5,6 +5,11 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Changed (re-vendored airframe's contract at dc5ffa6; the Go schema validator reads `\s` outside a character class)
+- `schemas/appspec.schema.json`, `schemas/airframe-contract.json` and their Go copies are airframe `dc5ffa6` (adds the Dex `spec.checkRide`; the SLO metric and filter fields gain `pattern` restrictions). `AIRFRAME_REF` in `gateway-go-image.yaml` moves with them.
+- Go gateway, `xr.request` SLOs: refused (`XR-KIND`) for now. The SLO composition (airframe v0.3.176, `compositions/slo/composition.yaml:305,328`) scopes every query to the XR's own namespace, meant to be the environment namespace; an `xr.request` XR is applied into `app-<app>-cicd`, so such an SLO would read no data. The refusal says to declare it under `slos:` in `gitops-<app>/<cluster>/<env>/values.yaml` instead. The gateway no longer writes a `namespace=` matcher (the composition forces it and refuses one); the matcher checks (`namespace`/`__name__` refused, the contract's own filter pattern, one namespace per SLO) stay, unit-tested, for when `xr.request` can place an SLO in an environment namespace. Python is unchanged: it opens the PR for the same request and validates none of this.
+- Go gateway: `definitions.compile` now maps `\s` outside a character class to Python's Unicode white space (and `\S` to its negation) instead of panicking, so the AppSpec schema loads. `\S` inside a class still panics (no faithful RE2 form). `testdata/pattern_parity.json` (written by `gen_pattern_parity.py` running Python `re`) holds Go to Python's answers for every `\s` pattern in the schema.
+
 ### Changed (Go gateway: two ported Python defects fixed before the cutover; listed as differences in `docs/admin/go-gateway-release.md`)
 - `CheckQuestion` trims options before it checks for duplicates, so `["prod", " prod "]` is refused (`HR-OPTIONS`) instead of stored as two `prod`.
 - `human.answer` is recorded once when the inbox save fails and the answer is retried: the record is reused (same request, person, route and text) instead of written again.
