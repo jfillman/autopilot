@@ -106,23 +106,69 @@ const pyWhite = `\t-\r\x1c-\x20\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2
 
 var patterns sync.Map // pattern -> *regexp.Regexp
 
+// CompilePattern is a schema `pattern` as Python's re would read it (translatePattern); it panics on one it cannot map.
+func CompilePattern(p string) *regexp.Regexp { return compile(p) }
+
 func compile(p string) *regexp.Regexp {
 	if re, ok := patterns.Load(p); ok {
 		return re.(*regexp.Regexp)
 	}
-	g := p
-	if strings.Contains(g, `\s`) {
-		if !strings.Contains(g, `[^\s`) && !strings.Contains(g, `[\s`) {
-			panic("a schema pattern uses \\s outside a character class: " + p)
-		}
-		g = strings.ReplaceAll(g, `\s`, pyWhite)
-	}
+	g := translatePattern(p)
 	re, err := regexp.Compile(g)
 	if err != nil {
 		panic("a schema pattern does not compile: " + p + ": " + err.Error())
 	}
 	patterns.Store(p, re)
 	return re
+}
+
+// translatePattern rewrites the one escape whose meaning differs between Python's `re` (str pattern: Unicode) and Go's RE2
+// (ASCII): `\s` is pyWhite wherever it stands. Outside a character class `\s` becomes `[pyWhite]` and `\S` becomes `[^pyWhite]`;
+// inside a class `\s` becomes the bare set. `\S` inside a class has no faithful RE2 form (a negated set inside a set), so it
+// panics, as does any other construct this does not map. An escaped backslash (`\\`) is skipped as a pair, so `\\s` is a
+// backslash then an `s`, left alone. Every other escape passes through untouched.
+func translatePattern(p string) string {
+	var out strings.Builder
+	inClass := false
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c == '\\' && i+1 < len(p):
+			n := p[i+1]
+			i++
+			switch {
+			case n == 's' && inClass:
+				out.WriteString(pyWhite)
+			case n == 's':
+				out.WriteString("[" + pyWhite + "]")
+			case n == 'S' && inClass:
+				panic("a schema pattern uses \\S inside a character class: " + p)
+			case n == 'S':
+				out.WriteString("[^" + pyWhite + "]")
+			default:
+				out.WriteByte('\\')
+				out.WriteByte(n)
+			}
+		case c == '[' && !inClass:
+			inClass = true
+			out.WriteByte(c)
+			// a leading ^ and a leading ] are part of the class opener, not its end
+			if i+1 < len(p) && p[i+1] == '^' {
+				out.WriteByte('^')
+				i++
+			}
+			if i+1 < len(p) && p[i+1] == ']' {
+				out.WriteString("\\]")
+				i++
+			}
+		case c == ']' && inClass:
+			inClass = false
+			out.WriteByte(c)
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
 }
 
 // verr is one validation error as jsonschema makes it.

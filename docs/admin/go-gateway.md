@@ -977,12 +977,15 @@ setting, the bound is GitHub's. And onboarding an app whose flattened name (dash
 
 ### What an SLO may select
 
-The composition writes `metric{totalFilter}` and `metric{totalFilter,errorFilter}` (Airframe `compositions/slo`, 4131191) and **does not add a tenant matcher of its own**: whatever the XR says is what Prometheus is asked, for any tenant's series. That is
-an Airframe defect to raise there. Until it is fixed there, **the gateway forces the tenant matcher**: the first matcher of every filter string it writes (`totalFilter` and `errorFilter` alike) is `namespace="<ns>"`, the namespace the platform assigned to the
-request's environment (`State.AppNamespaces`: an Application labelled for the app and the environment, and a Namespace labelled for the app, as above; `namespace=~"a|b"` of exact names when both types exist; no namespace means no SLO). The agent
-gives `label: value` mappings (one to eight pairs) and may select only on a **closed list of label names** (`XR_SLO_LABELS`, default `job, service, route, method, code, status_code, le`), by equality, with a plain value (no quote, backslash, brace or line break);
-no label that matches `(?i)namespace` is ever accepted, in any setting. `indicator.metric` is a bare metric name; `latencyThreshold` a number. A RolloutWatch has no query field. Residual: a series that carries the app's namespace is the app's;
-which of its labels an SLO may select on is the platform's list, which the services' own labelling must fit.
+**`xr.request` refuses kind `SLO` for now** (`XR-KIND`): "an SLO requested through xr.request would be scoped to the app's cicd namespace (app-<app>-cicd) and read no data". The SLO composition scopes every query to its XR's own namespace, which is meant to be the environment namespace where the chart puts it, and an `xr.request` XR is applied into `app-<app>-cicd`, so an SLO made this way would render and read nothing. Declare it instead under `slos:` in `gitops-<app>/<cluster>/<env>/values.yaml` (the airframe-application chart renders it into the environment namespace) as a pull request on that repository; `xr.request` will take SLOs again once it can place one in an environment namespace. The Python gateway has no such refusal: it opens the PR for the same request. The rules below are the checks the gateway keeps for that day (unit-tested, unreachable until `sloRequestsOpen` is set).
+
+The composition (Airframe `compositions/slo`, `dc5ffa6` and later, catalog v0.3.176) scopes every SLO to **its own namespace** itself: it forces `namespace="<the XR's namespace>"` as the first matcher of every
+query (`composition.yaml:328`), requires `metric` to be a bare metric name and each filter a comma-separated list of `label op "value"` matchers (`:309-320`), and refuses a `namespace` or `__name__` matcher (`:322-326`; cases
+`compositions/slo/example/cases.yaml:22-49`). So the gateway **writes no tenant matcher**: `totalFilter` and `errorFilter` carry only the agent's matchers, sorted, e.g. `code="200",job="flight-api"`. The agent
+gives `label: value` mappings (one to eight pairs) and may select only on a **closed list of label names** (`XR_SLO_LABELS`, default `job, service, route, method, code, status_code, le`), by equality, with a plain value (no quote, backslash, brace or line break).
+The gateway refuses early, with the reason: any `namespace` or `__name__` label (whatever spelling, whatever `XR_SLO_LABELS` says), a filter that does not match the contract's own pattern (read from the vendored AppSpec schema, so the two cannot drift),
+and an environment with **more than one namespace** (an SLO covers exactly its own: the refusal names the namespaces and says it needs one SLO per namespace, which `xr.request` cannot place in a chosen one, so a person adds them; it is never narrowed to one or fanned out). No namespace assigned to the environment still means no SLO.
+`indicator.metric` is a bare metric name; `latencyThreshold` a number. A RolloutWatch has no query field.
 
 ### What the platform bounds (settings, each refused above its maximum)
 

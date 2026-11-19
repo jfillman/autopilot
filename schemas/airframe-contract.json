@@ -244,7 +244,8 @@
     "dex": {
       "agentNotes": [
         "Rendered by function-dex (Python, functions/function-dex), not go-templating. Build and push per its README; it has unit tests in CI.",
-        "Attach mode adopts the secret the server already holds on already_exists and never prunes a live credentials Secret on a transient failure (review C1). It composes a Usage that blocks deleting the server while attachers exist."
+        "Attach mode adopts the secret the server already holds on already_exists and never prunes a live credentials Secret on a transient failure (review C1). It composes a Usage that blocks deleting the server while attachers exist.",
+        "Attach mode with spec.checkRide.namespace set (off by default) also composes a provider-kubernetes Object, {name}-check-ride-credentials, that keeps Secret dex-check-ride-credentials (keys DEX_TOKEN_URL, DEX_CLIENT_ID, DEX_CLIENT_SECRET) in that app CI namespace equal to {name}-oauth-credentials, for the check ride (docs/user/dex-check-ride-credentials.md). It is declared exactly when the credentials Secret is, and removed with the XR. The function publishes only to app-<app>-cicd with <app> from the platform-stamped hangar.io/app label (equality, never parsed from a namespace); anything else, or a second XR of the same app also setting checkRide (lowest namespace/name wins), publishes nothing and raises a Warning event."
       ],
       "conditions": [
         {
@@ -3471,8 +3472,8 @@
     "Dex": {
       "agentSummary": "A shared Dex OIDC server (mode: server) or a machine-to-machine OAuth2 client on an existing one (mode: attach).",
       "apiVersion": "catalog.hangar.io/v1alpha1",
-      "fieldsDescribed": 14,
-      "fieldsTotal": 14,
+      "fieldsDescribed": 16,
+      "fieldsTotal": 16,
       "file": "dex.yaml",
       "group": "catalog.hangar.io",
       "plural": "dexes"

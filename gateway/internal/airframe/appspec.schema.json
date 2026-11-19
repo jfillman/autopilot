@@ -2674,12 +2674,32 @@
                             "type": "string",
                             "description": "One OAuth scope the client may request."
                           }
+                        },
+                        "checkRide": {
+                          "type": "object",
+                          "description": "(attach) Off unless set. Publishes this client's credentials for the app's check ride: a Secret `dex-check-ride-credentials` (keys DEX_TOKEN_URL, DEX_CLIENT_ID, DEX_CLIENT_SECRET) in the app's CI namespace, kept equal to `{name}-oauth-credentials` (a rotated secret follows) and removed with this XR. Glidepath's test stage forwards it to the check ride. Set it on ONE environment per CI namespace (the one whose test stage runs the check ride): two XRs would write the same Secret.",
+                          "required": [
+                            "namespace"
+                          ],
+                          "properties": {
+                            "namespace": {
+                              "type": "string",
+                              "description": "The app's CI namespace, app-<app>-cicd. The function refuses (with a Warning event, publishing nothing) any namespace other than app-<app>-cicd, with <app> taken from the platform-stamped hangar.io/app label, not from spec.",
+                              "pattern": "^app-[a-z0-9]([a-z0-9-]*[a-z0-9])?-cicd$",
+                              "maxLength": 63
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       },
                       "x-kubernetes-validations": [
                         {
                           "rule": "self.mode != 'attach' || has(self.serverRef)",
                           "message": "serverRef is required when mode == attach"
+                        },
+                        {
+                          "rule": "!has(self.checkRide) || self.mode == 'attach'",
+                          "message": "checkRide applies to mode attach only"
                         }
                       ],
                       "additionalProperties": false
@@ -3981,17 +4001,20 @@
                             "metric": {
                               "type": "string",
                               "description": "Base metric name. For availability, a counter (e.g. http_requests_total). For latency, the histogram's base name without the _bucket/_count/_sum suffix.",
-                              "minLength": 1
+                              "minLength": 1,
+                              "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$"
                             },
                             "totalFilter": {
                               "type": "string",
-                              "description": "PromQL label-matcher fragment selecting all eligible events.",
-                              "minLength": 1
+                              "description": "PromQL label-matcher fragment selecting all eligible events: a comma-separated list of label=\"value\" matchers (=, !=, =~, !~; double-quoted values), nothing else. The composition adds the SLO's own namespace as a matcher on every query, so a `namespace` or `__name__` matcher is refused and the SLO can only read its own namespace's series.",
+                              "minLength": 1,
+                              "pattern": "^\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\"(\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\")*\\s*$"
                             },
                             "errorFilter": {
                               "type": "string",
-                              "description": "PromQL label-matcher fragment selecting bad/error events. Required when type == availability.",
-                              "minLength": 1
+                              "description": "PromQL label-matcher fragment selecting bad/error events, in the same restricted form as totalFilter. Required when type == availability.",
+                              "minLength": 1,
+                              "pattern": "^\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\"(\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\")*\\s*$"
                             },
                             "latencyThreshold": {
                               "type": "string",
@@ -4266,17 +4289,20 @@
                   "metric": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "The Prometheus metric name this indicator queries."
+                    "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$",
+                    "description": "The Prometheus metric name this indicator queries: a bare metric name, nothing else."
                   },
                   "totalFilter": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "PromQL label matcher selecting the total/denominator series."
+                    "pattern": "^\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\"(\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\")*\\s*$",
+                    "description": "PromQL label matchers selecting the total/denominator series: a comma-separated list of label=\"value\" matchers (=, !=, =~, !~), nothing else. The SLO composition adds the environment's own namespace to every query; a namespace or __name__ matcher is refused."
                   },
                   "errorFilter": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Required when type is availability."
+                    "pattern": "^\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\"(\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*(=~|!~|!=|=)\\s*\"([^\"\\\\\\r\\n]|\\\\.)*\")*\\s*$",
+                    "description": "Required when type is availability. Label matchers in the same restricted form as totalFilter."
                   },
                   "latencyThreshold": {
                     "type": "string",

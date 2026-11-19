@@ -93,6 +93,7 @@ func TestTheDefaultNameAndAnApplicationEnvironmentsNameAreDerived(t *testing.T) 
 
 // What an agent must never be able to put in a request, one case each. Every one was accepted by the Python builder.
 func TestEveryPlatformOwnedOrWiderFieldIsRefused(t *testing.T) {
+	openSLOs(t)
 	tenants := []struct{ name, kind, js string }{
 		{"providerConfigRef to another tenant's credentials", "ManagedPostgreSQL", `{"providerConfigRef": {"name": "other-tenant"}}`},
 		{"compositionRef", "MessageQueue", `{"compositionRef": {"name": "evil"}}`},
@@ -235,6 +236,7 @@ func TestAnXRThatIsTooBigIsRefused(t *testing.T) {
 }
 
 func TestEveryDefaultTheCommonRequestsUseStillWorks(t *testing.T) {
+	openSLOs(t)
 	for kind, js := range map[string]string{
 		"ManagedPostgreSQL":      `{"cloud": "aws", "serverName": "flight-api-db", "version": "17", "size": "small", "storageGiB": 32, "databaseName": "orders", "backupRetentionDays": 7, "allowedCidrs": ["10.43.0.0/16", "192.168.4.0/24"], "protect": true, "region": "us-east-1", "vpcCidr": "10.43.0.0/16"}`,
 		"MessageQueue":           `{"queueName": "flight-api-orders", "fifo": false, "lockSeconds": 30, "retentionSeconds": 345600, "deadLetter": {"enabled": true, "maxReceiveCount": 5}, "consumers": [{"awsLambdaTarget": "flight-api-fn", "access": "sendReceive", "trigger": true, "batchSize": 10}]}`,
@@ -296,10 +298,41 @@ func FuzzBuildXR(f *testing.F) {
 	})
 }
 
-// An agent supplies no selector syntax and no tenancy: the composition writes `metric{totalFilter,errorFilter}` and adds no tenant matcher
-// itself (compositions/slo, Airframe 4131191: a defect to raise there), so the gateway writes the first matcher of each, the
-// namespace the platform assigned to the app's environment, and lets the agent add equality matchers on a closed list of labels.
-func TestAnSLOIsForcedIntoTheAppsOwnNamespaceAndTakesNoSelectorSyntax(t *testing.T) {
+// openSLOs lets a test reach the SLO field and matcher checks, which xr.request does not offer today (see sloRequestsOpen).
+func openSLOs(t *testing.T) {
+	t.Helper()
+	sloRequestsOpen = true
+	t.Cleanup(func() { sloRequestsOpen = false })
+}
+
+// An SLO through xr.request is refused: it would be applied into app-<app>-cicd, where the composition scopes it, and read no data.
+func TestAnSLORequestIsRefusedBecauseItWouldReadNoData(t *testing.T) {
+	for _, js := range []string{
+		`{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": "m", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`,
+		`{}`, // refused before the spec is read
+	} {
+		_, err := build(t, "flight-api", "dev", "SLO", nil, js)
+		var d *core.Denied
+		if !errors.As(err, &d) || d.Rule != "XR-KIND" || d.Message != SLORefusalMessage || d.Hint != SLORefusalHint {
+			t.Fatalf("%v", err)
+		}
+	}
+	for _, want := range []string{"cicd namespace", "read no data", "slos:", "gitops-<app>/<cluster>/<env>/values.yaml", "will take SLOs again"} {
+		if !strings.Contains(SLORefusalMessage+" "+SLORefusalHint, want) {
+			t.Errorf("the refusal does not say %q", want)
+		}
+	}
+	// the other kinds are untouched
+	if _, err := build(t, "flight-api", "dev", "MessageQueue", "flight-api-q", `{}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An agent supplies no selector syntax and no tenancy: the composition (Airframe compositions/slo, dc5ffa6) forces the SLO's own
+// namespace as the first matcher and refuses a namespace or __name__ matcher, so the gateway writes only the agent's equality
+// matchers on a closed list of labels, and refuses, early, anything the contract's patterns or the composition would refuse.
+func TestAnSLOTakesNoSelectorSyntaxAndNoNamespaceMatcher(t *testing.T) {
+	openSLOs(t) // the matcher checks are for when xr.request can place an SLO in an environment namespace
 	slo := func(metric, total, errf string) string {
 		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": ` + metric + `, "totalFilter": ` + total + `, "errorFilter": ` + errf + `}}`
 	}
@@ -336,23 +369,30 @@ func TestAnSLOIsForcedIntoTheAppsOwnNamespaceAndTakesNoSelectorSyntax(t *testing
 		t.Fatal(err)
 	}
 	ind := b.XR.M["spec"].(*definitions.OMap).M["indicator"].(*definitions.OMap)
-	if ind.M["totalFilter"] != `namespace="app-flight-api-dev",code="200",service="anything"` || ind.M["errorFilter"] != `namespace="app-flight-api-dev",code="500"` || ind.M["metric"] != "http_requests_total" {
+	// a plain filter passes through unchanged: no namespace matcher is added (the composition adds the SLO's own)
+	if ind.M["totalFilter"] != `code="200",service="anything"` || ind.M["errorFilter"] != `code="500"` || ind.M["metric"] != "http_requests_total" {
 		t.Fatalf("the matchers the gateway wrote: %v", definitions.Plain(ind))
 	}
-	// two namespaces of one environment are written as exact names, never a pattern over app names
-	two, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, good, `{"code": "5"}`)), Namespaces: []string{"app-flight-api-dev", "infra-flight-api-dev"}}, xrReg)
-	if err != nil {
-		t.Fatal(err)
+	// a namespace or __name__ matcher, by any spelling, is refused at the gateway with the reason, even when the platform's label list allows it
+	reg := xrReg
+	reg.XR = XRPolicy{SLOLabels: []string{"job", "code", "namespace", "__name__", "Namespace", "k8s_namespace_name"}}
+	for _, k := range []string{"namespace", "__name__", "Namespace", "k8s_namespace_name"} {
+		_, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, `{"`+k+`": "x"}`, `{"code": "5"}`)), Namespaces: []string{"app-flight-api-dev"}}, reg)
+		if err == nil || !strings.Contains(err.Error(), "namespace or __name__ matcher") {
+			t.Errorf("%s: %v", k, err)
+		}
 	}
-	if got := two.XR.M["spec"].(*definitions.OMap).M["indicator"].(*definitions.OMap).M["totalFilter"]; got != `namespace=~"app-flight-api-dev|infra-flight-api-dev",job="flight-api"` {
-		t.Fatalf("%v", got)
+	// several namespaces: an SLO covers exactly its own, so one SLO per namespace, named; never narrowed to one or fanned out
+	_, err = BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, good, `{"code": "5"}`)), Namespaces: []string{"app-flight-api-dev", "infra-flight-api-dev"}}, xrReg)
+	if err == nil || !strings.Contains(err.Error(), "one SLO per namespace") || !strings.Contains(err.Error(), "app-flight-api-dev, infra-flight-api-dev") {
+		t.Fatalf("%v", err)
 	}
 	// with no namespace the platform assigned, there is nothing to select in
 	if _, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, good, `{"code": "5"}`))}, xrReg); err == nil {
 		t.Error("an SLO with no namespace was written")
 	}
 	// the labels are the platform's setting
-	reg := xrReg
+	reg = xrReg
 	reg.XR = XRPolicy{SLOLabels: []string{"job"}}
 	if _, err := BuildXR(XRRequest{App: "flight-api", Env: "dev", Kind: "SLO", Spec: spec(t, slo(`"m"`, `{"code": "1"}`, `{"job": "x"}`)), Namespaces: []string{"app-flight-api-dev"}}, reg); err == nil {
 		t.Error("a label outside XR_SLO_LABELS was written")
@@ -437,6 +477,7 @@ func TestAGlobalNameBelongsToTheAppWithTheLongestNameThatStartsIt(t *testing.T) 
 }
 
 func TestAnSLOObjectiveOfZeroIsRefusedBeforeThePullRequest(t *testing.T) {
+	openSLOs(t)
 	slo := func(o string) string {
 		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": ` + o + `, "indicator": {"type": "availability", "metric": "m", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`
 	}

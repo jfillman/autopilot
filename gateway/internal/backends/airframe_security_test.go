@@ -759,49 +759,31 @@ func afKube(def airframe.Reader) airframe.Reader {
 	return def
 }
 
-func TestAnSLORequestedThroughTheGatewayIsForcedIntoTheAppsNamespace(t *testing.T) {
+func TestAnSLORequestedThroughTheGatewayIsRefusedBecauseItWouldReadNoData(t *testing.T) {
 	afKubeOverride = fixtureKube{}
 	defer func() { afKubeOverride = nil }()
 	gh := afGitHub()
 	defer gh.Close()
 	e := newAFEnv(t, gh, nil, afDef([]string{"o/*"}, afProfile), allTools(), "T2", "s-1", true)
-	slo := func(total, errf map[string]any) map[string]any {
+	slo := func(total, errf any) map[string]any {
 		return map[string]any{"app": "flight-api", "env": "dev", "kind": "SLO", "name": "flight-api-slo", "spec": map[string]any{
 			"environmentRef": map[string]any{"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": json.Number("99"),
 			"indicator": map[string]any{"type": "availability", "metric": "http_requests_total", "totalFilter": total, "errorFilter": errf}}}
 	}
-	// the reviewer's four, which named another app's series by a label an agent may not select on, and the same in the error filter
-	for _, l := range []map[string]any{{"service_name": "gate-api"}, {"k8s_namespace_name": "gate-api-prod"}, {"deployment": "gate-api"}, {"exported_pod": "gate-x"}} {
-		for _, pos := range []int{0, 1} {
-			a := slo(map[string]any{"job": "flight-api"}, map[string]any{"code": "5"})
-			ind := a["spec"].(map[string]any)["indicator"].(map[string]any)
-			ind[[]string{"totalFilter", "errorFilter"}[pos]] = l
-			_, err := e.call(xrTool, a)
-			refusedWith(t, err, "XR-FIELD")
+	// a good SLO, one that names a namespace, and one for an environment with no namespace: all refused the same way, none written
+	good := slo(map[string]any{"job": "flight-api", "code": "200"}, map[string]any{"code": "500"})
+	withNS := slo(map[string]any{"namespace": "app-gate-api-prod"}, map[string]any{"code": "5"})
+	noNS := slo(map[string]any{"job": "flight-api"}, map[string]any{"code": "5"})
+	noNS["env"] = "agent-x"
+	for _, a := range []map[string]any{good, withNS, noNS} {
+		_, err := e.call(xrTool, a)
+		den := refusedWith(t, err, "XR-KIND")
+		if den.Message != airframe.SLORefusalMessage || den.Hint != airframe.SLORefusalHint {
+			t.Fatalf("%s: %s", den.Message, den.Hint)
 		}
 	}
 	if len(gh.PullRequests(tenantsRepo)) != 0 {
 		t.Fatal("a pull request was opened")
-	}
-	if _, err := e.call(xrTool, slo(map[string]any{"job": "flight-api", "code": "200"}, map[string]any{"code": "500"})); err != nil {
-		t.Fatal(err)
-	}
-	prs := gh.PullRequests(tenantsRepo)
-	for _, content := range gh.CommitFiles(tenantsRepo, prs[0].CommitSHA) {
-		var doc map[string]any
-		if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
-			t.Fatal(err)
-		}
-		ind := doc["spec"].(map[string]any)["indicator"].(map[string]any)
-		if ind["totalFilter"] != `namespace="app-flight-api-dev",code="200",job="flight-api"` || ind["errorFilter"] != `namespace="app-flight-api-dev",code="500"` {
-			t.Fatalf("the forced matcher is not first in both filters: %v", ind)
-		}
-	}
-	// an environment the platform assigned no namespace to has nothing to select in
-	a := slo(map[string]any{"job": "flight-api"}, map[string]any{"code": "5"})
-	a["env"] = "agent-x"
-	if _, err := e.call(xrTool, a); err == nil {
-		t.Fatal("an SLO for an environment with no namespace was written")
 	}
 }
 
