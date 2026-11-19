@@ -5,6 +5,10 @@ says what each gateway tag adds. The manager cuts the tags.
 
 ## Unreleased
 
+### Fixed (Go gateway: the protected-resource metadata its 401 advertised was not served; strip I-40)
+- The 401's `resource_metadata` now names the RFC 9728 URL (`/.well-known/oauth-protected-resource/mcp` for a resource at `/mcp`, computed from `AUTOPILOT_RESOURCE_URL`), and the gateway serves the metadata there, at the root `/.well-known/oauth-protected-resource`, and at the `/mcp/.well-known/oauth-protected-resource` form earlier builds advertised (which 404'd). A client that could not read the metadata fell back to `POST /register` on the MCP host and reported "Dynamic Client Registration rejected (HTTP 404)".
+- The 401 body is JSON that says a bearer token is required and that the authorization server does not support dynamic client registration, pointing at the README's "Signing in as a person". The same body answers a missing and a rejected token. The Python gateway (the deployed one) already served the RFC path; the apron route is what hid it.
+
 ### Changed (Go gateway: two ported Python defects fixed before the cutover; listed as differences in `docs/admin/go-gateway-release.md`)
 - `CheckQuestion` trims options before it checks for duplicates, so `["prod", " prod "]` is refused (`HR-OPTIONS`) instead of stored as two `prod`.
 - `human.answer` is recorded once when the inbox save fails and the answer is retried: the record is reused (same request, person, route and text) instead of written again.

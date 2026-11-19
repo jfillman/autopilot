@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/jfillman/autopilot/gateway/internal/auth"
 	"github.com/jfillman/autopilot/gateway/internal/core"
@@ -247,8 +249,60 @@ func answer(r *dispatch.Result, err error) (*mcp.CallToolResult, error) {
 	return value(r), nil
 }
 
-// Handler serves the MCP endpoint at path (bearer auth on every request: 401 without a token the gateway accepts), and
-// an unauthenticated GET /healthz for probes.
+const metadataPath = "/.well-known/oauth-protected-resource"
+
+// unauthorizedBody is the 401 body for a missing or unaccepted token. It is the same for both, so it says nothing about
+// which tokens are valid.
+const unauthorizedBody = `{"error":"a bearer token is required","hint":"Send Authorization: Bearer <token>. This server's ` +
+	`authorization server does not support dynamic client registration, so an MCP client cannot sign in on its own: ` +
+	`mint a token and supply it with a headers helper (see 'Signing in as a person' in the Autopilot README)."}` + "\n"
+
+// withHelpful401 replaces the SDK's bare 401 text with unauthorizedBody (JSON); the WWW-Authenticate header is untouched.
+type helpful401 struct {
+	http.ResponseWriter
+	replaced bool
+}
+
+func (w *helpful401) WriteHeader(code int) {
+	if code == http.StatusUnauthorized {
+		w.replaced = true
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *helpful401) Write(p []byte) (int, error) {
+	if w.replaced {
+		if _, err := w.ResponseWriter.Write([]byte(unauthorizedBody)); err != nil {
+			return 0, err
+		}
+		w.replaced = false
+		return len(p), nil
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func withHelpful401(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&helpful401{ResponseWriter: w}, r)
+	})
+}
+
+// rfc9728Path is where RFC 9728 puts the metadata for resourceURL: the well-known segment inserted between host and path
+// (https://h/mcp -> /.well-known/oauth-protected-resource/mcp). MCP authorization spec (2026-07-28), "Protected Resource
+// Metadata Discovery Requirements": clients try the resource_metadata URL from the 401, else that path form, else the root.
+func rfc9728Path(resourceURL string) string {
+	u, err := url.Parse(resourceURL)
+	if err != nil {
+		return metadataPath
+	}
+	return metadataPath + strings.TrimRight(u.Path, "/")
+}
+
+// Handler serves the MCP endpoint at path (bearer auth on every request: 401 without a token the gateway accepts), the
+// protected-resource metadata, and an unauthenticated GET /healthz for probes. The metadata is served at the RFC 9728
+// path derived from resourceURL (named by the 401's resource_metadata), at the path-suffixed form older builds advertised
+// (resourceURL + metadataPath), and at the root.
 func Handler(g *dispatch.Gateway, path, resourceURL, issuerURL string) http.Handler {
 	srv := Server(g)
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
@@ -261,12 +315,19 @@ func Handler(g *dispatch.Gateway, path, resourceURL, issuerURL string) http.Hand
 		exp := auth.JWTExpiry(token)
 		return &sdkauth.TokenInfo{UserID: p.ID, Expiration: exp, Extra: map[string]any{"token": token}}, nil
 	}
+	rfcPath := rfc9728Path(resourceURL)
+	origin := strings.TrimSuffix(strings.TrimRight(resourceURL, "/"), rfcPath[len(metadataPath):])
 	mux := http.NewServeMux()
-	mux.Handle(path, sdkauth.RequireBearerToken(verify, &sdkauth.RequireBearerTokenOptions{
+	mux.Handle(path, withHelpful401(sdkauth.RequireBearerToken(verify, &sdkauth.RequireBearerTokenOptions{
 		AllowMissingExpiration: true,
-		ResourceMetadataURL:    resourceURL + "/.well-known/oauth-protected-resource"})(h))
-	mux.Handle("GET /.well-known/oauth-protected-resource", sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
-		Resource: resourceURL, AuthorizationServers: []string{issuerURL}, BearerMethodsSupported: []string{"header"}}))
+		ResourceMetadataURL:    origin + rfcPath})(h)))
+	meta := sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
+		Resource: resourceURL, AuthorizationServers: []string{issuerURL}, BearerMethodsSupported: []string{"header"}})
+	paths := map[string]bool{rfcPath: true, metadataPath: true,
+		strings.TrimRight(path, "/") + metadataPath: true}
+	for p := range paths {
+		mux.Handle("GET "+p, meta)
+	}
 	addPeopleRoutes(mux, g)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")

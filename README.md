@@ -488,6 +488,12 @@ claude mcp add-json autopilot '{"type":"http","url":"http://autopilot.hangar-dev
 
 `headers` never signs in: Claude Code gives a headersHelper 10 seconds. When the hour is up, a call fails 401, and you run `login` again.
 
+### If your MCP client says "Dynamic Client Registration rejected"
+
+An MCP client that connects without a token and prints `Dynamic Client Registration rejected (HTTP 404)` is really telling you it has no bearer token. With no token the gateway answers 401. A client that cannot read the gateway's protected-resource metadata then falls back to treating the MCP host itself as the authorization server and POSTs `/register` to it, which 404s. People-dex (a Dex) has no `registration_endpoint` either, so interactive OAuth with dynamic client registration cannot work against this deployment even when the metadata is found.
+
+The fix is the token helper above: run `tools/hangar_login.py login` and register the server with the `headersHelper`, so the client sends `Authorization: Bearer <token>` and never starts OAuth. The Go gateway now also serves the metadata at the RFC 9728 path (`/.well-known/oauth-protected-resource/mcp`, the URL its 401 names), at the root and at `/mcp/.well-known/oauth-protected-resource`, and its 401 body says a token is required. Your route must forward `/.well-known/oauth-protected-resource` to the gateway for a client to see it.
+
 ## airframe.apply and the parachute
 
 `airframe.apply` (T1, `autopilot/airframe_apply.py`) is the one `airframe.*` write. The planner (`airframe.plan`) says

@@ -55,7 +55,7 @@ func setup(t *testing.T) (*httptest.Server, *fakecore.Core) {
 		}
 		return res
 	}
-	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test", "http://dex.test"))
+	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test/mcp", "http://dex.test"))
 	t.Cleanup(srv.Close)
 	return srv, fc
 }

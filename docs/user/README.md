@@ -85,6 +85,8 @@ plan.
   person") and call Clearance's tools as yourself; Clearance enforces the definition's envelope, but your client is
   the agent. When you are done, `session_close` ends your session at once (it is recorded, and any runs it spawned
   are deleted) instead of leaving it open until its TTL; only you can close your own session this way.
+  If your client says "Dynamic Client Registration rejected (HTTP 404)", it has no token: use the `headersHelper`
+  from that README section (OAuth with dynamic registration is not supported here).
 
 ## Not yet
 Tools without a backend on Hangar (`chat.*`, `airframe.validate`; no definition names them), `xr.request` and `airframe.apply` waiting on

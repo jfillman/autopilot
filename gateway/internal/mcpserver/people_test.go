@@ -79,7 +79,7 @@ func peopleSetup(t *testing.T) (*httptest.Server, *session.Store, *dispatch.Memo
 	g.SetInbox(inbox, nil, []string{"hangar-prod/tower/*"})
 	g.Admins = []string{"user:root"}
 	g.Holds = holds
-	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test", "http://dex.test"))
+	srv := httptest.NewServer(mcpserver.Handler(g, "/mcp", "http://gw.test/mcp", "http://dex.test"))
 	t.Cleanup(srv.Close)
 	return srv, st, inbox, holds
 }
