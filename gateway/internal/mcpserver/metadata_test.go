@@ -107,3 +107,19 @@ func TestTheAdvertisedURLKeepsAnEncodedResourcePath(t *testing.T) {
 		t.Fatalf("resource %v", got["resource"])
 	}
 }
+
+// An encoded separator (%2F) stays one segment: the advertised URL and the registered route agree.
+func TestTheAdvertisedURLAndTheRouteAgreeOnAnEncodedSeparator(t *testing.T) {
+	srv, _ := setupWithResource(t, "http://gw.test/a%2Fb")
+	resp, err := http.Post(srv.URL+"/mcp", "application/json", nil)
+	if err != nil || resp.StatusCode != 401 {
+		t.Fatalf("%v %v", resp, err)
+	}
+	want := `Bearer resource_metadata="http://gw.test/.well-known/oauth-protected-resource/a%2Fb"`
+	if got := resp.Header.Get("WWW-Authenticate"); got != want {
+		t.Fatalf("header %q, want %q", got, want)
+	}
+	if got := getJSON(t, srv.URL+"/.well-known/oauth-protected-resource/a%2Fb"); got["resource"] != "http://gw.test/a%2Fb" {
+		t.Fatalf("resource %v", got["resource"])
+	}
+}

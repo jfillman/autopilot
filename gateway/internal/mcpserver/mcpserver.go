@@ -299,7 +299,7 @@ func rfc9728Path(resourceURL string) string {
 	if err != nil {
 		return metadataPath
 	}
-	return metadataPath + strings.TrimRight(u.Path, "/")
+	return metadataPath + strings.TrimRight(u.EscapedPath(), "/")
 }
 
 // metadataURL is the absolute form of rfc9728Path for the 401's resource_metadata, built from the parsed scheme, host and
