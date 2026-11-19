@@ -982,7 +982,7 @@ query (`composition.yaml:328`), requires `metric` to be a bare metric name and e
 `compositions/slo/example/cases.yaml:22-49`). So the gateway **writes no tenant matcher**: `totalFilter` and `errorFilter` carry only the agent's matchers, sorted, e.g. `code="200",job="flight-api"`. The agent
 gives `label: value` mappings (one to eight pairs) and may select only on a **closed list of label names** (`XR_SLO_LABELS`, default `job, service, route, method, code, status_code, le`), by equality, with a plain value (no quote, backslash, brace or line break).
 The gateway refuses early, with the reason: any `namespace` or `__name__` label (whatever spelling, whatever `XR_SLO_LABELS` says), a filter that does not match the contract's own pattern (read from the vendored AppSpec schema, so the two cannot drift),
-and an environment with **more than one namespace** (an SLO covers exactly its own: the refusal names the namespaces and says to ask for one SLO per namespace; it is never narrowed to one or fanned out). No namespace assigned to the environment still means no SLO.
+and an environment with **more than one namespace** (an SLO covers exactly its own: the refusal names the namespaces and says it needs one SLO per namespace, which `xr.request` cannot place in a chosen one, so a person adds them; it is never narrowed to one or fanned out). No namespace assigned to the environment still means no SLO.
 `indicator.metric` is a bare metric name; `latencyThreshold` a number. A RolloutWatch has no query field. Note: an `xr.request` XR is applied into `app-<app>-cicd` (its `metadata.namespace`), so the composition scopes it to that namespace.
 
 ### What the platform bounds (settings, each refused above its maximum)

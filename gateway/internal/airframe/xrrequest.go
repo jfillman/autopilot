@@ -957,8 +957,8 @@ func checkSelector(v any, path string, cx *checkCtx) (any, error) {
 	}
 	if len(cx.namespaces) > 1 {
 		return nil, badField(path, "cannot be written: an SLO covers exactly its own namespace, and this environment has "+
-			strconv.Itoa(len(cx.namespaces))+" ("+strings.Join(cx.namespaces, ", ")+"); ask for one SLO per namespace, "+
-			strconv.Itoa(len(cx.namespaces))+" SLOs in all")
+			strconv.Itoa(len(cx.namespaces))+" ("+strings.Join(cx.namespaces, ", ")+"), so it needs one SLO per namespace; xr.request cannot place an SLO "+
+			"in a chosen one of them, so ask a person to add those SLOs")
 	}
 	names := append([]string{}, m.Keys...)
 	sort.Strings(names)
