@@ -345,6 +345,9 @@ func BuildXR(r XRRequest, reg Registry) (*BuiltXR, error) {
 		return nil, xrRefuse("XR-KIND", xrEcho(r.Kind)+" is not a kind an app requests through xr.request",
 			"Request one of "+strings.Join(kinds, ", ")+" (airframe.capabilities describes each).")
 	}
+	if kind == "SLO" && !sloRequestsOpen {
+		return nil, xrRefuse("XR-KIND", SLORefusalMessage, SLORefusalHint)
+	}
 	spec, ok := r.Spec.(*definitions.OMap)
 	if !ok {
 		return nil, xrRefuse("XR-SPEC", "spec is the XR's spec mapping, without metadata", "Pass only the fields under spec: (airframe.capabilities lists them for the kind).")
@@ -907,6 +910,22 @@ var (
 	promLabel   = regexp.MustCompile(`\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z`)
 	promValue   = regexp.MustCompile(`\A[A-Za-z0-9 _.:/@+=-]{1,128}\z`)
 	anyNamespac = regexp.MustCompile(`(?i)namespace`)
+)
+
+// An SLO through xr.request is refused for now. The SLO composition scopes every query to the XR's own namespace (Airframe
+// compositions/slo/composition.yaml:305, :328), meant to be the environment namespace where the chart puts it; an xr.request XR is
+// applied into app-<app>-cicd, so such an SLO would render and read no data, which is worse than a refusal. The matcher checks below stay
+// for when xr.request can place an SLO in an environment namespace; set sloRequestsOpen (tests only, today) to reach them.
+var sloRequestsOpen = false
+
+// SLORequestsOpen says whether xr.request takes SLOs (it does not yet).
+func SLORequestsOpen() bool { return sloRequestsOpen }
+
+const (
+	SLORefusalMessage = "an SLO requested through xr.request would be scoped to the app's cicd namespace (app-<app>-cicd) and read no data"
+	SLORefusalHint    = "Declare it in the app's chart values instead: under `slos:` in gitops-<app>/<cluster>/<env>/values.yaml for that environment " +
+		"(the airframe-application chart renders it into the environment namespace), as a pull request on that repository. " +
+		"xr.request will take SLOs again once it can place one in an environment namespace."
 )
 
 // sloPatterns are the contract's own patterns for an SLO's metric and filters, read from the AppSpec schema (chartValues.slos), so the

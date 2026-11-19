@@ -105,7 +105,7 @@ func (c *AirframeConfig) handlers(sc *scope, git *GitHub, gp *Glidepath) map[str
 			// An SLO's matchers are forced into the namespace(s) the platform assigned to the app's environment: resolved from the
 			// cluster (an Application labelled for the app and the environment, a Namespace labelled for the app), never joined from a name.
 			var nss []string
-			if a["kind"] == "SLO" {
+			if a["kind"] == "SLO" && airframe.SLORequestsOpen() {
 				app, _ := a["app"].(string)
 				env, _ := a["env"].(string)
 				if c.State == nil {

@@ -93,6 +93,7 @@ func TestTheDefaultNameAndAnApplicationEnvironmentsNameAreDerived(t *testing.T) 
 
 // What an agent must never be able to put in a request, one case each. Every one was accepted by the Python builder.
 func TestEveryPlatformOwnedOrWiderFieldIsRefused(t *testing.T) {
+	openSLOs(t)
 	tenants := []struct{ name, kind, js string }{
 		{"providerConfigRef to another tenant's credentials", "ManagedPostgreSQL", `{"providerConfigRef": {"name": "other-tenant"}}`},
 		{"compositionRef", "MessageQueue", `{"compositionRef": {"name": "evil"}}`},
@@ -235,6 +236,7 @@ func TestAnXRThatIsTooBigIsRefused(t *testing.T) {
 }
 
 func TestEveryDefaultTheCommonRequestsUseStillWorks(t *testing.T) {
+	openSLOs(t)
 	for kind, js := range map[string]string{
 		"ManagedPostgreSQL":      `{"cloud": "aws", "serverName": "flight-api-db", "version": "17", "size": "small", "storageGiB": 32, "databaseName": "orders", "backupRetentionDays": 7, "allowedCidrs": ["10.43.0.0/16", "192.168.4.0/24"], "protect": true, "region": "us-east-1", "vpcCidr": "10.43.0.0/16"}`,
 		"MessageQueue":           `{"queueName": "flight-api-orders", "fifo": false, "lockSeconds": 30, "retentionSeconds": 345600, "deadLetter": {"enabled": true, "maxReceiveCount": 5}, "consumers": [{"awsLambdaTarget": "flight-api-fn", "access": "sendReceive", "trigger": true, "batchSize": 10}]}`,
@@ -296,10 +298,41 @@ func FuzzBuildXR(f *testing.F) {
 	})
 }
 
+// openSLOs lets a test reach the SLO field and matcher checks, which xr.request does not offer today (see sloRequestsOpen).
+func openSLOs(t *testing.T) {
+	t.Helper()
+	sloRequestsOpen = true
+	t.Cleanup(func() { sloRequestsOpen = false })
+}
+
+// An SLO through xr.request is refused: it would be applied into app-<app>-cicd, where the composition scopes it, and read no data.
+func TestAnSLORequestIsRefusedBecauseItWouldReadNoData(t *testing.T) {
+	for _, js := range []string{
+		`{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": "m", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`,
+		`{}`, // refused before the spec is read
+	} {
+		_, err := build(t, "flight-api", "dev", "SLO", nil, js)
+		var d *core.Denied
+		if !errors.As(err, &d) || d.Rule != "XR-KIND" || d.Message != SLORefusalMessage || d.Hint != SLORefusalHint {
+			t.Fatalf("%v", err)
+		}
+	}
+	for _, want := range []string{"cicd namespace", "read no data", "slos:", "gitops-<app>/<cluster>/<env>/values.yaml", "will take SLOs again"} {
+		if !strings.Contains(SLORefusalMessage+" "+SLORefusalHint, want) {
+			t.Errorf("the refusal does not say %q", want)
+		}
+	}
+	// the other kinds are untouched
+	if _, err := build(t, "flight-api", "dev", "MessageQueue", "flight-api-q", `{}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // An agent supplies no selector syntax and no tenancy: the composition (Airframe compositions/slo, dc5ffa6) forces the SLO's own
 // namespace as the first matcher and refuses a namespace or __name__ matcher, so the gateway writes only the agent's equality
 // matchers on a closed list of labels, and refuses, early, anything the contract's patterns or the composition would refuse.
 func TestAnSLOTakesNoSelectorSyntaxAndNoNamespaceMatcher(t *testing.T) {
+	openSLOs(t) // the matcher checks are for when xr.request can place an SLO in an environment namespace
 	slo := func(metric, total, errf string) string {
 		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": 99, "indicator": {"type": "availability", "metric": ` + metric + `, "totalFilter": ` + total + `, "errorFilter": ` + errf + `}}`
 	}
@@ -444,6 +477,7 @@ func TestAGlobalNameBelongsToTheAppWithTheLongestNameThatStartsIt(t *testing.T) 
 }
 
 func TestAnSLOObjectiveOfZeroIsRefusedBeforeThePullRequest(t *testing.T) {
+	openSLOs(t)
 	slo := func(o string) string {
 		return `{"environmentRef": {"name": "flight-api-dev-cluster-dev"}, "service": "flight-api-s", "objective": ` + o + `, "indicator": {"type": "availability", "metric": "m", "totalFilter": {"job": "flight-api"}, "errorFilter": {"code": "5"}}}`
 	}

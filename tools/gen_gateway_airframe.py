@@ -350,6 +350,15 @@ def xr(name_, args, *, name=None, go_denied=None, why=None, routes=None, branch_
     return case
 
 
+SLO_REFUSAL = {"rule": "XR-KIND",
+               "message": "an SLO requested through xr.request would be scoped to the app's cicd namespace (app-<app>-cicd) and read no data",
+               "hint": "Declare it in the app's chart values instead: under `slos:` in gitops-<app>/<cluster>/<env>/values.yaml for that environment "
+                       "(the airframe-application chart renders it into the environment namespace), as a pull request on that repository. "
+                       "xr.request will take SLOs again once it can place one in an environment namespace."}
+SLO_WHY = ("Go refuses an SLO through xr.request: the composition scopes it to its XR's namespace, and an xr.request XR is applied into "
+           "app-<app>-cicd, so it would read no data; Python opens the PR")
+
+
 def xr_cases():
     app = XR_APP
     base = {"app": app, "env": "dev"}
@@ -361,10 +370,10 @@ def xr_cases():
        name=f"{app}-db", py_args={**base, "kind": "ManagedPostgreSQL", "name": f"{app}-db", "spec": {"size": "small", "storageGiB": 32, "allowedCidrs": ["10.43.0.0/16"], "protect": True}})
     slo_spec = {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "service": f"{app}-svc", "objective": 99.5,
                 "indicator": {"type": "availability", "metric": "http_requests_total"}}
-    xr("a service level objective (Go writes the matchers)", {**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
+    xr("a service level objective (Go refuses it)", {**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
         "totalFilter": {"job": f"{app}", "code": "200"}, "errorFilter": {"code": "500"}}}}, name=f"{app}-slo",
        py_args={**base, "kind": "SLO", "name": f"{app}-slo", "spec": {**slo_spec, "indicator": {**slo_spec["indicator"],
-        "totalFilter": f'code="200",job="{app}"', "errorFilter": 'code="500"'}}})
+        "totalFilter": f'code="200",job="{app}"', "errorFilter": 'code="500"'}}}, go_denied=SLO_REFUSAL, why=SLO_WHY)
     xr("a rollout watch", {**base, "kind": "RolloutWatch", "name": f"{app}-watch", "spec": {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "appName": app, "cluster": "dev-cluster", "env": "dev",
         "notifications": {"slack": {"enabled": True}}}}, name=f"{app}-watch")
     xr("a lower application environment (named for it)", {**base, "kind": "ApplicationEnvironment", "spec": {"configMapGenerator": True}}, name=f"{app}-dev-cluster-dev")
@@ -421,8 +430,7 @@ def xr_cases():
         ("a database open to the world", "ManagedPostgreSQL", {"allowedCidrs": ["0.0.0.0/0"]}, f"{app}-db2",
          {"rule": "XR-FIELD", "message": "spec.allowedCidrs[0] must be a private IPv4 range (10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16) no wider than a /16, written as its network address", "hint": CAP}),
         ("an SLO for another app's environment", "SLO", {"environmentRef": {"name": "payments-dev-cluster-dev"}, "service": f"{app}-s", "objective": 99, "indicator": {"type": "availability", "metric": "m", "totalFilter": "a", "errorFilter": "b"}}, f"{app}-slo2",
-         {"rule": "XR-SPEC", "message": "spec.environmentRef must be {name: flight-api-dev-cluster-dev} for this request",
-          "hint": "The environment reference of a request is the app's own ApplicationEnvironment for this env on this cluster; leave it out."}),
+         SLO_REFUSAL),
         ("a made-up field", "MessageQueue", {"surprise": 1}, f"{app}-q5", field("MessageQueue", "surprise")),
         ("a database that is not deletion-protected", "ManagedPostgreSQL", {"protect": False}, f"{app}-db3",
          {"rule": "XR-FIELD", "message": "spec.protect may not be false: deleting a database is a person's change (XR_ALLOW_UNPROTECTED_DB)", "hint": CAP}),
@@ -438,7 +446,7 @@ def xr_cases():
          {"rule": "XR-FIELD", "message": "spec.notifications.slack.channel is not a channel this platform lets an agent notify (XR_SLACK_CHANNELS)", "hint": CAP}),
         ("a selector that closes the matcher", "SLO", {"environmentRef": {"name": f"{app}-dev-cluster-dev"}, "service": f"{app}-s", "objective": 99,
           "indicator": {"type": "availability", "metric": "m", "totalFilter": "namespace=\"app-other-cicd\"} or {__name__=~\".+\"", "errorFilter": {"code": "5"}}}, f"{app}-slo3",
-         {"rule": "XR-FIELD", "message": "spec.indicator.totalFilter must be a mapping of one to eight labels to the values they equal (the gateway writes the matcher)", "hint": CAP}),
+         SLO_REFUSAL),
     ]:
         a = {**base, "kind": kind, "spec": spec}
         if nm_:
