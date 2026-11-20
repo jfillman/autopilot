@@ -526,3 +526,46 @@ func TestASecondLossIsInForceWhileTheFirstMarkIsInFlight(t *testing.T) {
 	<-first
 	<-second
 }
+
+// A loss noted after ClearLost was called but before it got the store is kept, in force and in the store, and ClearLost says so.
+func TestClearLostKeepsALossNotedWhileItWaited(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &slowMark{entered: make(chan struct{}), release: make(chan struct{})}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	lose := func() chan struct{} {
+		done := make(chan struct{})
+		go func() {
+			c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+			close(done)
+		}()
+		return done
+	}
+	first := lose()
+	<-store.entered // the first Mark holds the store
+	cleared := make(chan error, 1)
+	go func() { cleared <- c.ClearLost(ctx) }() // has read the first loss, now waits
+	time.Sleep(50 * time.Millisecond)
+	between := time.Now()
+	time.Sleep(5 * time.Millisecond)
+	second := lose()
+	time.Sleep(50 * time.Millisecond)
+	close(store.release)
+	<-first
+	<-second
+	if err := <-cleared; !errors.Is(err, core.ErrNewerLoss) {
+		t.Fatalf("ClearLost = %v, want ErrNewerLoss", err)
+	}
+	var blocked *core.OutboxBlocked
+	if _, err := c.BeginEffectCheck(ctx, between); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("the newer loss was cleared: %v", err)
+	}
+	if at, _ := store.Load(ctx); at.Before(between) {
+		t.Fatalf("the newer loss is not in the store: %v", at)
+	}
+}

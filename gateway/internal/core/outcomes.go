@@ -266,25 +266,36 @@ func (c *Core) UseLostStore(ctx context.Context, s LostStore) error {
 	return nil
 }
 
+// ErrNewerLoss is what ClearLost returns when another outcome was lost after the one the person looked at: that newer loss stays in force.
+var ErrNewerLoss = errors.New("an outcome was lost after the marker was read: it was not cleared; look at the logs again")
+
 // ClearLost forgets the lost-outcome marker, in memory and in its store: what a person does once the lost write has been looked at. A store
-// that cannot be written leaves the marker where it is, and says so. It clears only the loss that stood when it began: a loss noted while the
-// store is being cleared stays in force (and is written to the store after).
+// that cannot be written leaves the marker where it is, and says so. It clears only the loss that stood when it was called (read before it
+// waits for any write in flight, and checked again once it has the store): a newer loss is kept, in force and for the store, and ClearLost then
+// returns ErrNewerLoss.
 func (c *Core) ClearLost(ctx context.Context) error {
+	c.lostMu.Lock()
+	seen := c.lostAt
+	c.lostMu.Unlock()
 	c.storeMu.Lock()
 	defer c.storeMu.Unlock()
 	c.lostMu.Lock()
-	s, seen := c.lostStore, c.lostAt
+	s, cur := c.lostStore, c.lostAt
 	c.lostMu.Unlock()
+	if !cur.Equal(seen) {
+		return ErrNewerLoss
+	}
 	if s != nil {
 		if err := s.Clear(ctx); err != nil {
 			return err
 		}
 	}
 	c.lostMu.Lock()
-	if c.lostAt.Equal(seen) {
-		c.lostAt = time.Time{}
+	defer c.lostMu.Unlock()
+	if !c.lostAt.Equal(seen) { // one more loss in the instant since: it stays (its own store write follows)
+		return ErrNewerLoss
 	}
-	c.lostMu.Unlock()
+	c.lostAt = time.Time{}
 	return nil
 }
 
