@@ -51,8 +51,8 @@ func flightHint(repo, env string) string {
 
 // findEnvFile is _find_env_file: (path, text) of the glidepath/envs file whose `envName` is env. The file name is only a path: every
 // .yaml/.yml file of the directory is read (the conventional <env>.yaml first) and the one that says `envName: <env>` is the file.
-func (ap *applier) findEnvFile(ctx context.Context, repo, env string) (string, string, error) {
-	listing, err := ap.git.ReadFileIn(ctx, repo, airframe.EnvsDir, false)
+func (ap *applier) findEnvFile(ctx context.Context, repo, env, ref string) (string, string, error) {
+	listing, err := ap.git.ReadFileAt(ctx, repo, airframe.EnvsDir, ref)
 	if err != nil {
 		return "", "", err
 	}
@@ -79,7 +79,7 @@ func (ap *applier) findEnvFile(ctx context.Context, repo, env string) (string, s
 	}
 	var paths, texts []string
 	for _, n := range names {
-		f, err := ap.git.ReadFileIn(ctx, repo, airframe.EnvsDir+"/"+n, false)
+		f, err := ap.git.ReadFileAt(ctx, repo, airframe.EnvsDir+"/"+n, ref)
 		if err != nil {
 			return "", "", err
 		}
@@ -130,6 +130,31 @@ func configureBody(app, env, path string, values *definitions.OMap, replaced []s
 	return strings.Join(lines, "\n")
 }
 
+// configuredMerge is _merged: the env file at the commit sha and the patch merged into it.
+func (ap *applier) configuredMerge(ctx context.Context, repo, env, sha string, values *definitions.OMap, replace bool) (path, text string, have, merged *definitions.OMap, conflicts, replaced []string, err error) {
+	if path, text, err = ap.findEnvFile(ctx, repo, env, sha); err != nil {
+		return
+	}
+	if have, err = definitions.ParseYAML([]byte(text)); err != nil {
+		return
+	}
+	merged = airframe.MergeValues(have, values, "", &conflicts, &replaced, replace).(*definitions.OMap)
+	return
+}
+
+// pathProtected is whether the agent's denyPaths (with the baseline) name path, or a directory or file it would take the place of:
+// the check EnsurePR makes of every file, made by configure before anything is read for the write.
+func pathProtected(n string, deny []string) bool {
+	denied := pathDenied(n, deny) || pathDenied(n+"/x", deny) || ancestorOfDenied(n, deny)
+	for _, a := range properAncestors(n) {
+		denied = denied || pathDenied(a, deny)
+	}
+	return denied
+}
+
+// configure is configure: see the comment on this file. The PR of the change's branch is looked up first (an open one is returned, a
+// closed one reported, whatever the base holds now; a merged one is a noop or CONFIGURE-SUPERSEDED); only a change with no PR reads the
+// file, at one commit of the base, and builds its branch on exactly that commit.
 func (ap *applier) configure(ctx context.Context, d *definitions.Definition, f SessionFacts, a map[string]any) (any, error) {
 	app, appOK := a["app"].(string)
 	if !appOK || !airframe.ConfigureAppName(app) {
@@ -163,37 +188,11 @@ func (ap *applier) configure(ctx context.Context, d *definitions.Definition, f S
 	if err != nil {
 		return nil, err
 	}
-	path, text, err := ap.findEnvFile(ctx, repo, env)
-	if err != nil {
-		return nil, err
-	}
-	have, err := definitions.ParseYAML([]byte(text))
-	if err != nil {
-		return nil, err
-	}
-	var conflicts, replaced []string
-	merged := airframe.MergeValues(have, values, "", &conflicts, &replaced, replace).(*definitions.OMap)
-	if len(conflicts) > 0 {
-		return nil, &core.Denied{Rule: "CONFIGURE-CONFLICT", Message: repo + " " + path + " already sets " + strings.Join(airframe.SortedStrings(conflicts), ", ") + " to a different value than the patch",
-			Hint: "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way)."}
-	}
-	if errs := airframe.ChartErrors(merged, true); len(errs) > 0 {
-		return nil, &core.Denied{Rule: "CONFIGURE-MERGED", Message: path + " would not validate against the chart values schema after this change: " + errs[0],
-			Hint: "Fix the patch, or have a person fix the file first."}
-	}
-	out := map[string]any{"app": app, "env": env, "repo": repo, "path": path}
-	if airframe.PyEq(merged, have) {
-		out["state"], out["reason"], out["paths"] = "noop", path+" already holds these values", []any{}
-		out["next"] = "Nothing to change; the file already has them."
-		return out, nil
-	}
-	newText := header(text) + airframe.DumpYAML(merged)
 	branch := branchForConfigure(app, env, values, replace, f.ID)
 	person := false
 	for _, k := range values.Keys {
 		person = person || airframe.CriticalKey(k)
 	}
-	title := app + " " + env + ": set " + strings.Join(values.Keys[:min(4, len(values.Keys))], ", ")
 	meta := f.Meta()
 	if person {
 		m := map[string]string{}
@@ -203,24 +202,100 @@ func (ap *applier) configure(ctx context.Context, d *definitions.Definition, f S
 		m["merge"] = mergePersonVal
 		meta = m
 	}
+	out := map[string]any{"app": app, "env": env, "repo": repo}
+	noop := func(path string) (any, error) {
+		out["path"], out["state"], out["reason"], out["paths"] = path, "noop", path+" already holds these values", []any{}
+		out["next"] = "Nothing to change; the file already has them."
+		return out, nil
+	}
+	superseded := func(n int64, path string) error {
+		return &core.Denied{Rule: "CONFIGURE-SUPERSEDED", Message: "PR #" + itoa(int(n)) + " with this exact change was merged, and " + path + " no longer holds it",
+			Hint: "Someone changed the file since. Change the patch, or ask a person."}
+	}
+	closed := func(n int64) any {
+		out["state"], out["paths"] = "closed", []any{}
+		out["reason"] = "PR #" + itoa(int(n)) + " for this change was closed without merging; configure never reopens or replaces a PR a person closed. They decide: reopen it, or delete its branch, after which the next call opens a new PR"
+		return out
+	}
+	found, err := ap.git.FindPRIn(ctx, repo, branch, false, f.Meta())
+	if err != nil {
+		return nil, err
+	}
+	if found != nil {
+		n, _ := found["pr"].(int64)
+		if found["state"] == "merged" {
+			sha, err := ap.git.BaseSHAIn(ctx, repo)
+			if err != nil {
+				return nil, err
+			}
+			path, _, have, merged, conflicts, _, err := ap.configuredMerge(ctx, repo, env, sha, values, replace)
+			if err != nil {
+				return nil, err
+			}
+			if len(conflicts) == 0 && airframe.PyEq(merged, have) {
+				return noop(path)
+			}
+			return nil, superseded(n, path)
+		}
+		out["pr"], out["url"], out["branch"], out["commit"], out["resumed"] = found["pr"], found["url"], found["branch"], found["commit"], true
+		if found["state"] == "closed" {
+			return closed(n), nil
+		}
+		paths, err := ap.git.PRPaths(ctx, repo, n, false)
+		if err != nil {
+			return nil, err
+		}
+		if len(paths) == 1 {
+			out["path"] = paths[0]
+		}
+		out["state"], out["paths"] = "awaiting-merge", strAny(paths)
+		out["next"] = "A person reviews and merges this PR; the environment picks the change up when it syncs."
+		if person {
+			out["merge"], out["needsPerson"] = mergePersonVal, strAny(paths)
+		}
+		return out, nil
+	}
+	sha, err := ap.git.BaseSHAIn(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	path, text, have, merged, conflicts, replaced, err := ap.configuredMerge(ctx, repo, env, sha, values, replace)
+	if err != nil {
+		return nil, err
+	}
+	out["path"] = path
+	if len(conflicts) > 0 {
+		return nil, &core.Denied{Rule: "CONFIGURE-CONFLICT", Message: repo + " " + path + " already sets " + strings.Join(airframe.SortedStrings(conflicts), ", ") + " to a different value than the patch",
+			Hint: "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way)."}
+	}
+	if errs := airframe.ChartErrors(merged, true); len(errs) > 0 {
+		return nil, &core.Denied{Rule: "CONFIGURE-MERGED", Message: path + " would not validate against the chart values schema after this change: " + errs[0],
+			Hint: "Fix the patch, or have a person fix the file first."}
+	}
+	if airframe.PyEq(merged, have) {
+		return noop(path)
+	}
+	if n, ok := normalizePath(path); !ok || pathProtected(n, d.DenyPaths) {
+		return nil, &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(path, 100)) + " is a protected path",
+			Hint: "An agent does not change protected paths (CI, ownership, release files); ask a person."}
+	}
+	newText := header(text) + airframe.DumpYAML(merged)
+	title := app + " " + env + ": set " + strings.Join(values.Keys[:min(4, len(values.Keys))], ", ")
 	invalidBefore := len(airframe.ChartErrors(have, true)) > 0
 	pr, err := ap.git.EnsurePR(ctx, OpenPRInput{Repo: repo, Branch: branch, Title: title, Files: []File{{Path: path, Content: newText}}, Base: "", Meta: meta,
-		Body: configureBody(app, env, path, values, airframe.SortedStrings(replaced), person, invalidBefore), DenyPaths: d.DenyPaths})
+		Body: configureBody(app, env, path, values, airframe.SortedStrings(replaced), person, invalidBefore), DenyPaths: d.DenyPaths, BaseSHA: sha})
 	if err != nil {
 		return nil, err
 	}
 	n, _ := pr["pr"].(int64)
 	if pr["state"] == "merged" {
-		return nil, &core.Denied{Rule: "CONFIGURE-SUPERSEDED", Message: "PR #" + itoa(int(n)) + " with this exact change was merged, and " + path + " no longer holds it",
-			Hint: "Someone changed the file since. Change the patch, or ask a person."}
+		return nil, superseded(n, path)
 	}
 	out["pr"], out["url"], out["branch"], out["commit"] = pr["pr"], pr["url"], pr["branch"], pr["commit"]
 	resumed, _ := pr["resumed"].(bool)
 	out["resumed"] = resumed
 	if pr["state"] == "closed" {
-		out["state"], out["paths"] = "closed", []any{}
-		out["reason"] = "PR #" + itoa(int(n)) + " for this change was closed without merging; configure never reopens or replaces a PR a person closed. They decide: reopen it, or delete its branch, after which the next call opens a new PR"
-		return out, nil
+		return closed(n), nil
 	}
 	paths := []string{path}
 	if resumed {

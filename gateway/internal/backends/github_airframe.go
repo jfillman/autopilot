@@ -201,6 +201,55 @@ func (g *GitHub) ReadFileIn(ctx context.Context, repo, path string, tenants bool
 	return g.readWith(ctx, token, owner, name, path, base)
 }
 
+// ReadFileAt is read_file at a ref the caller names (a commit it pinned with BaseSHAIn), without asking for the default branch: the
+// per-call token and the one contents request.
+func (g *GitHub) ReadFileAt(ctx context.Context, repo, path, ref string) (map[string]any, error) {
+	owner, name, err := g.SplitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	if !ValidRef(ref) {
+		return nil, &core.Denied{Rule: "GH-REF", Message: echo(ref) + " is not a ref", Hint: "Pass a branch, tag or commit sha."}
+	}
+	if _, _, err := (ghReq{ep: epGetContents, owner: owner, name: name, path: path, ref: ref}).target(); err != nil {
+		return nil, &core.Denied{Rule: "GH-PATH", Message: pyStrRepr(clipRunes(path, 100)) + " is not a path in the repository", Hint: "Pass a path such as docs/readme.md (no '..')."}
+	}
+	token, err := g.mintFor(ctx, owner, name, false)
+	if err != nil {
+		return nil, err
+	}
+	return g.readWith(ctx, token, owner, name, path, ref)
+}
+
+// BaseSHAIn is base_sha: the commit the repository's default branch is at now. A caller that reads files at it (ReadFileAt) and passes
+// it as OpenPRInput.BaseSHA builds its branch on exactly what it read.
+func (g *GitHub) BaseSHAIn(ctx context.Context, repo string) (string, error) {
+	owner, name, err := g.SplitRepo(repo)
+	if err != nil {
+		return "", err
+	}
+	token, err := g.mintFor(ctx, owner, name, false)
+	if err != nil {
+		return "", err
+	}
+	base, err := g.defaultBranch(ctx, token, owner, name)
+	if err != nil {
+		return "", err
+	}
+	status, ref, err := g.gh(ctx, token, ghReq{ep: epGetRef, owner: owner, name: name, branch: base})
+	if err != nil {
+		return "", err
+	}
+	if status != 200 {
+		return "", ghErrorOf("base "+base, status, ref, "message")
+	}
+	sha, ok := shaAt(ref, "object", "sha")
+	if !ok {
+		return "", badAnswer("base " + base)
+	}
+	return sha, nil
+}
+
 // XRCommit is one xr.request: the request already built (airframe.BuildXR) and who asks.
 type XRCommit struct {
 	Built     *airframe.BuiltXR

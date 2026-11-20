@@ -155,7 +155,7 @@ class GitHubPRs:
     # -- GitBackend -----------------------------------------------------------------------------------------------
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
                 meta: dict[str, str] | None = None, body: str | None = None, *, token_app: str | None = None,
-                token: str | None = None, tenants: bool = False) -> dict[str, Any]:
+                token: str | None = None, tenants: bool = False, base_sha: str | None = None) -> dict[str, Any]:
         owner, name = _split(repo)
         for b in (branch, base):
             if not _BRANCH.match(b or "") or ".." in b or b.startswith("/") or b.endswith((".lock", "/")):
@@ -172,10 +172,13 @@ class GitHubPRs:
         token = token or self._installation_token(owner, name, token_app, tenants=tenants)
         root = f"/repos/{owner}/{name}"
 
-        status, ref = self._gh(token, "GET", f"{root}/git/ref/heads/{base}")
-        if status != 200:
-            raise GitHubError.of(f"base {base}", status, ref)
-        base_sha = ref["object"]["sha"]
+        if base_sha is None:
+            status, ref = self._gh(token, "GET", f"{root}/git/ref/heads/{base}")
+            if status != 200:
+                raise GitHubError.of(f"base {base}", status, ref)
+            base_sha = ref["object"]["sha"]
+        elif not re.fullmatch(r"[0-9a-f]{40}", base_sha):
+            raise Denied("GH-REF", f"{base_sha!r} is not a commit", "Pass the commit the file was read at.")
         status, commit = self._gh(token, "GET", f"{root}/git/commits/{base_sha}")
         if status != 200:
             raise GitHubError.of("base commit", status, commit)
@@ -234,6 +237,15 @@ class GitHubPRs:
         return {"pr": pr.get("number"), "url": pr.get("html_url"), "branch": branch,
                 "commit": (pr.get("head") or {}).get("sha"), "state": state}
 
+    def base_sha(self, repo: str, base: str = "main", *, tenants: bool = False) -> str:
+        """The commit `base` is at now. A caller that reads files at it and passes it to ensure_pr(base_sha=) builds its branch on
+        exactly what it read, so a commit that lands in between is not written over. GET only."""
+        owner, name = _split(repo)
+        status, ref = self._gh(self._installation_token(owner, name, tenants=tenants), "GET", f"/repos/{owner}/{name}/git/ref/heads/{base}")
+        if status != 200:
+            raise GitHubError.of(f"base {base}", status, ref)
+        return ref["object"]["sha"]
+
     def pr_paths(self, repo: str, number: int, *, tenants: bool = False) -> list[str]:
         """The paths a PR actually carries (GET /pulls/{n}/files, first 100), for a receipt that names only those."""
         owner, name = _split(repo)
@@ -278,7 +290,8 @@ class GitHubPRs:
                 and p.get("state") == "open" and (p.get("head") or {}).get("ref") == self.ONBOARDING_BRANCH]
 
     def ensure_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
-                  meta: dict[str, str] | None = None, body: str | None = None, *, tenants: bool = False) -> dict[str, Any]:
+                  meta: dict[str, str] | None = None, body: str | None = None, *, tenants: bool = False,
+                  base_sha: str | None = None) -> dict[str, Any]:
         """open_pr that survives an interruption: the PR this branch already has is returned (`resumed`), a branch
         left without its PR (the call died between the ref and the pull request) gets the PR, once its files are
         checked to be the ones asked for, and only a branch that does not exist is built from the base as open_pr
@@ -300,7 +313,7 @@ class GitHubPRs:
                     "commit": (ref.get("object") or {}).get("sha"), "state": "open", "resumed": True}
         if status != 404:
             raise GitHubError.of("ref", status, ref)
-        return {**self.open_pr(repo, branch, title, files, base, meta=meta, body=body, token=token), "state": "open",
+        return {**self.open_pr(repo, branch, title, files, base, meta=meta, body=body, token=token, base_sha=base_sha), "state": "open",
                 "resumed": False}
 
     def _text_at(self, token: str, owner: str, name: str, path: str, ref: str) -> str | None:

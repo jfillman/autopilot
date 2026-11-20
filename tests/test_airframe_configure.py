@@ -4,6 +4,7 @@ airframe.apply provisions an app once (fixed branches, a merged step skipped, an
 to an app that is already running is this tool's. GitHub is the stateful Hub of test_airframe_apply.py behind the real
 adapter (github_pr.GitHubPRs), extended to list a directory, so what is asserted is the HTTP the tool really sends. The
 Clearance test core decides the scope (R023, the tool's tier and receipt)."""
+import hashlib
 import json
 import re
 
@@ -28,9 +29,29 @@ SPEC_OF_TOOL = next(t for t in TOOLS if t.name == "airframe.configure")
 
 
 class DirHub(Hub):
-    """The Hub, which also lists a directory (GET /contents/<dir>), as GitHub does."""
+    """The Hub, which also lists a directory (GET /contents/<dir>), as GitHub does, and names a commit by 40 hex digits."""
+
+    def __init__(self):
+        super().__init__()
+        self.hexmap = {}
+        self.sent = []        # every request as the tool sent it (reqs holds them after the Hub read a commit back as its branch)
 
     def __call__(self, req, timeout):
+        self.sent.append((req.get_method(), req.full_url))
+        # The Hub names a commit `sha-<repo>-<branch>`: serve it as the 40 hex digits GitHub does and read it back as that branch.
+        for h, orig in self.hexmap.items():
+            req.full_url = req.full_url.replace(h, orig)
+        req.full_url = re.sub(r"(/contents/[^?]+\?ref=)sha-[^-/]+(?:/|%2F)[^-/]+-", r"\1", req.full_url)
+        if req.get_method() == "GET" and re.search(r"/git/ref/heads/[^/?]+$", req.full_url):
+            status, body = super().__call__(req, timeout)
+            doc = json.loads(body)
+            if status == 200 and "object" in doc:
+                orig = doc["object"]["sha"]
+                h = hashlib.sha1(orig.encode()).hexdigest()
+                self.hexmap[h] = orig
+                doc["object"]["sha"] = h
+                body = json.dumps(doc).encode()
+            return status, body
         m = re.match(r"https://api\.github\.test/repos/([^/]+/[^/]+)/contents/([^?]+)\?ref=(.+)$", req.full_url)
         if req.get_method() == "GET" and m and m.group(1) in self.repos:
             files = self.repos[m.group(1)].get(m.group(3))
@@ -322,3 +343,69 @@ def test_the_tool_is_a_t1_pr_tool_with_apply_s_receipt():
     assert int(spec.tier) == 1 and spec.target == "lower" and spec.github_cost > 0 and not spec.writes_files
     assert spec.required_args == ("app", "env", "values")
     assert "airframe.configure" in json.load(open(airframe_apply.__file__.replace("src/autopilot/airframe_apply.py", "policy/hangar/bundle.json")))["pr_tools"]
+
+
+# -- a retry is resumed, not re-judged against a base that has moved on (CodeRabbit on #120) -------------------------------------
+def test_a_retry_after_the_file_changed_on_main_returns_the_pr_not_a_divergence(git, hub):
+    first = configure(git)
+    hub.repos[APP]["main"][PATH] = DEV + "podDisruptionBudget:\n  minAvailable: 1\n"     # a person changed another key
+    again = configure(git)
+    assert again["resumed"] is True and again["pr"] == first["pr"] and again["state"] == "awaiting-merge"
+    assert len(hub.prs[APP]) == 1
+    assert again["paths"] == [PATH] and again["path"] == PATH
+
+
+def test_a_retry_after_main_came_to_conflict_with_the_patch_still_returns_the_pr(git, hub):
+    first = configure(git)
+    hub.repos[APP]["main"][PATH] = DEV + yaml.safe_dump({"slos": [{**SLO, "objective": 90.0}]})    # someone set the same-named SLO another way
+    again = configure(git)
+    assert again["resumed"] is True and again["pr"] == first["pr"], "not CONFIGURE-CONFLICT: the PR is looked up first"
+    hub.close(APP, first["pr"])
+    assert configure(git)["state"] == "closed"
+
+
+def test_after_the_pr_merged_and_someone_set_it_another_way_the_retry_is_superseded_not_a_conflict(git, hub):
+    first = configure(git)
+    hub.merge(APP, first["pr"])
+    hub.repos[APP]["main"][PATH] = DEV + yaml.safe_dump({"slos": [{**SLO, "objective": 90.0}]})
+    assert refused(git).rule == "CONFIGURE-SUPERSEDED"
+
+
+# -- the branch is built on the commit the file was read at -------------------------------------------------------------------
+def test_the_file_is_read_at_one_commit_and_the_branch_is_built_on_exactly_that_commit(git, hub):
+    configure(git)
+    sha = hashlib.sha1(f"sha-{APP}-main".encode()).hexdigest()
+    reads = [u for m, u in hub.sent if m == "GET" and "/contents/" in u]
+    assert reads and all(u.endswith("ref=" + sha) for u in reads), "every read of the call is at the commit"
+    envs = [u for u in reads if "glidepath/envs" in u]
+    assert envs and all(u.endswith("ref=" + sha) for u in envs), "the directory and the file are read at the commit, not at a moving branch"
+    commits = [b for m, u, b in hub.reqs if m == "POST" and u.endswith("/git/commits")]
+    assert [c["parents"] for c in commits] == [[sha]]
+    main_refs = [u for m, u, _ in hub.reqs if m == "GET" and u.endswith("/git/ref/heads/main")]
+    assert len(main_refs) == 1, "the base is resolved once, so a commit that lands in between is never written over"
+
+
+def test_open_pr_builds_on_a_given_commit_and_does_not_read_the_ref(git, hub):
+    sha = hashlib.sha1(f"sha-{APP}-main".encode()).hexdigest()
+    with pytest.raises(Denied) as e:
+        git.open_pr(APP, "agent/x", "t", [{"path": "a", "content": "b"}], base_sha="not-a-sha")
+    assert e.value.rule == "GH-REF"
+    assert git.base_sha(APP) == sha
+
+
+# -- protected paths ----------------------------------------------------------------------------------------------------------
+def test_a_path_the_definition_denies_is_refused_before_any_write(git, hub):
+    with pytest.raises(Denied) as exc:
+        airframe_apply.configure(git, fake_airframe(), Session(), META, {"app": "parachute", "env": "dev", "values": {"slos": [SLO]}},
+                                 deny_paths=["glidepath/envs/**"])
+    assert exc.value.rule == "GH-PATH" and PATH in exc.value.message
+    assert not [1 for m, u, _ in hub.reqs if m == "POST" and "/repos/" in u] and hub.prs == {}
+
+
+def test_the_gateway_hands_configure_the_calling_agents_deny_paths():
+    from types import SimpleNamespace
+    from autopilot.gateway import _deny_paths
+    defs = {"a": SimpleNamespace(deny_paths=(".github/**", "glidepath/**"))}
+    assert _deny_paths(defs, SimpleNamespace(agent="a")) == (".github/**", "glidepath/**")
+    assert _deny_paths(defs, SimpleNamespace(agent="unknown")) is None, "the baseline applies"
+    assert _deny_paths(None, SimpleNamespace(agent="a")) is None

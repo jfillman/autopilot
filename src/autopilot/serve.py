@@ -403,9 +403,9 @@ def build_backends(cfg: Config) -> Backends:
     return Backends(git, argo, KubeAgentRuns(), read, None, None, glidepath, airframe)
 
 
-def build_handlers(b: Backends) -> dict[str, Handler]:
+def build_handlers(b: Backends, definitions: Any = None) -> dict[str, Handler]:
     """hangar_handlers, less every tool whose backend is absent (so it is "no backend", not "backend error")."""
-    h = hangar_handlers(b)
+    h = hangar_handlers(b, definitions)
     # (argo.sync.lower and repo.pr.open_upper have a handler only when hangar_handlers wired one.)
     drop = set()
     if getattr(b.git, "registry", None) is None:
@@ -582,7 +582,7 @@ def build_gateway(cfg: Config, backends: Backends | None = None, auth: Authentic
         models = {a: ModelRoute(a, "anthropic", ANTHROPIC_API, u) for a, u in cfg.model_routes.items()}
         model_auth = CachingAuthenticator(WorkloadAuthenticator(cfg.model_audience))
     gw = SerializedGateway(defs, store, core, auth or build_auth(cfg), clock, packs=PACKS,
-                           handlers=build_handlers(b), runs=AgentRunBackend(b.runs), state=state,
+                           handlers=build_handlers(b, defs), runs=AgentRunBackend(b.runs), state=state,
                            store_errors=store_errors, models=models, model_auth=model_auth, inbox=inbox,
                            directory=BackstageDirectory(b.read.backstage) if getattr(b.read, "backstage", None) else None,
                            delegates=cfg.delegates, events=events, holds=holds, admins=cfg.admins,

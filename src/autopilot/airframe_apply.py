@@ -50,6 +50,8 @@ import yaml
 
 from . import airframe_plan
 from .engine.dispatch import Denied
+from .engine.profile import BASELINE_DENY_PATHS
+from .engine.scope import path_violations
 
 TENANTS = "tenants"
 APP_REPO = "app-repo"
@@ -440,10 +442,10 @@ def _flight_hint(repo: str, env: str) -> str:
             f"gitops-{app}/<cluster>/{env}/values.yaml, which only a person merges: ask one (human.request), or have them change it.")
 
 
-def _find_env_file(git: Any, repo: str, env: str) -> tuple[str, str]:
+def _find_env_file(git: Any, repo: str, env: str, ref: str = "main") -> tuple[str, str]:
     """(path, text) of the glidepath/envs file whose `envName` is `env`. The file name is only a path: every .yaml/.yml file of
     the directory is read (the conventional <env>.yaml first) and the one that says `envName: <env>` is the file."""
-    listing = git.read_file(repo, airframe_plan.ENVS_DIR, "main")
+    listing = git.read_file(repo, airframe_plan.ENVS_DIR, ref)
     if listing.get("found", True) is False or listing.get("type") != "dir":
         raise Denied("CONFIGURE-NO-ENV", f"{repo} has no {airframe_plan.ENVS_DIR}/ directory: {env} is not a static lower environment of this app",
                      _flight_hint(repo, env))
@@ -454,7 +456,7 @@ def _find_env_file(git: Any, repo: str, env: str) -> tuple[str, str]:
         raise Denied("CONFIGURE-TOO-MANY", f"{repo} has more than {MAX_ENV_FILES} files in {airframe_plan.ENVS_DIR}/", "A person changes it.")
     found: list[tuple[str, str]] = []
     for n in names:
-        f = git.read_file(repo, f"{airframe_plan.ENVS_DIR}/{n}", "main")
+        f = git.read_file(repo, f"{airframe_plan.ENVS_DIR}/{n}", ref)
         text = f.get("content")
         if not isinstance(text, str):
             continue
@@ -487,8 +489,24 @@ def configure_body(app: str, env: str, path: str, values: dict, replaced: list[s
     return "\n".join(lines)
 
 
-def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any]) -> dict[str, Any]:
-    """airframe.configure: see the section comment. One PR per call; the same call again returns that PR."""
+def _merged(git: Any, repo: str, env: str, sha: str, values: dict, replace: bool) -> tuple[str, str, dict, dict, list[str], list[str]]:
+    """The env file at the commit `sha` and the patch merged into it: (path, text, have, merged, conflicts, replaced)."""
+    path, text = _find_env_file(git, repo, env, sha)
+    have = yaml.safe_load(text)
+    conflicts: list[str] = []
+    replaced: list[str] = []
+    return path, text, have, _merge_values(have, values, "", conflicts, replaced, replace), conflicts, replaced
+
+
+def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any],
+              deny_paths: Any = None) -> dict[str, Any]:
+    """airframe.configure: see the section comment. One PR per call; the same call again returns that PR.
+
+    The PR of the change's branch is looked up FIRST: an open one is returned and a closed one reported whatever the base
+    holds now (a retry is resumed, not re-judged against a file that has moved on); a merged one means the file is either
+    already as asked (noop) or has changed since (CONFIGURE-SUPERSEDED). Only a change with no PR reads the file, and it
+    reads it at one commit of the base and builds its branch on exactly that commit (base_sha), so a change that lands in
+    between is never written over: the PR merges against the newer base as any PR does."""
     app, env, values, replace = a.get("app"), a.get("env"), a.get("values"), a.get("replace", False)
     if not isinstance(app, str) or not APP_NAME.fullmatch(app):
         raise Denied("CONFIGURE-APP", "app is not an application name", "Pass the app's name, as airframe.status lists it.")
@@ -508,16 +526,34 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
         raise Denied("CONFIGURE-VALUES", f"values do not validate against the chart values schema: {errs[0]}",
                      "Fix the value; envName, release and platform-owned keys are not settable. airframe.capabilities {section: appspec} says how each is shaped.")
     repo = f"{airframe.registry.owner}/{app}"
-    path, text = _find_env_file(git, repo, env)
-    try:
-        have = yaml.safe_load(text)
-    except yaml.YAMLError:
-        have = None
-    if have is None:
-        have = {}
-    conflicts: list[str] = []
-    replaced: list[str] = []
-    merged = _merge_values(have, values, "", conflicts, replaced, replace)
+    branch = configure_branch(app, env, values, replace)
+    person = any(airframe_plan.risk(k) == "critical" for k in values)
+    out: dict[str, Any] = {"app": app, "env": env, "repo": repo}
+    found = git.find_pr(repo, branch)
+    if found is not None and found["state"] == "merged":
+        path, _, have, merged, conflicts, _ = _merged(git, repo, env, git.base_sha(repo), values, replace)
+        if not conflicts and merged == have:
+            return {**out, "path": path, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
+                    "next": "Nothing to change; the file already has them."}
+        raise Denied("CONFIGURE-SUPERSEDED", f"PR #{found['pr']} with this exact change was merged, and {path} no longer holds it",
+                     "Someone changed the file since. Change the patch, or ask a person.")
+    if found is not None:
+        out.update(pr=found["pr"], url=found["url"], branch=found["branch"], commit=found["commit"], resumed=True)
+        if found["state"] == "closed":
+            return {**out, "state": "closed", "paths": [],
+                    "reason": f"PR #{found['pr']} for this change was closed without merging; configure never reopens or replaces a PR a person "
+                              "closed. They decide: reopen it, or delete its branch, after which the next call opens a new PR"}
+        paths = git.pr_paths(repo, found["pr"])
+        if len(paths) == 1:
+            out["path"] = paths[0]
+        out.update(state="awaiting-merge", paths=paths,
+                   next="A person reviews and merges this PR; the environment picks the change up when it syncs.")
+        if person:
+            out.update(merge=MERGE_PERSON, needsPerson=paths)
+        return out
+    sha = git.base_sha(repo)
+    path, text, have, merged, conflicts, replaced = _merged(git, repo, env, sha, values, replace)
+    out["path"] = path
     if conflicts:
         raise Denied("CONFIGURE-CONFLICT", f"{repo} {path} already sets {', '.join(sorted(conflicts))} to a different value than the patch",
                      "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way).")
@@ -525,17 +561,19 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
     if after:
         raise Denied("CONFIGURE-MERGED", f"{path} would not validate against the chart values schema after this change: {after[0]}",
                      "Fix the patch, or have a person fix the file first.")
-    out: dict[str, Any] = {"app": app, "env": env, "repo": repo, "path": path}
     if merged == have:
         return {**out, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
                 "next": "Nothing to change; the file already has them."}
+    deny = list(BASELINE_DENY_PATHS if deny_paths is None else deny_paths)
+    if path_violations([path], deny):
+        raise Denied("GH-PATH", f"{path!r} is a protected path",
+                     "An agent does not change protected paths (CI, ownership, release files); ask a person.")
     new_text = _header(text) + yaml.safe_dump(merged, sort_keys=False)
-    branch = configure_branch(app, env, values, replace)
-    person = any(airframe_plan.risk(k) == "critical" for k in values)
     title = f"{app} {env}: set {', '.join(list(values)[:4])}"
     pr = git.ensure_pr(repo, branch, title, [{"path": path, "content": new_text}], "main",
                        meta={**meta, "merge": MERGE_PERSON} if person else meta,
-                       body=configure_body(app, env, path, values, sorted(replaced), person, bool(_chart_errors(have))))
+                       body=configure_body(app, env, path, values, sorted(replaced), person, bool(_chart_errors(have))),
+                       base_sha=sha)
     if pr.get("state") == "merged":
         raise Denied("CONFIGURE-SUPERSEDED", f"PR #{pr['pr']} with this exact change was merged, and {path} no longer holds it",
                      "Someone changed the file since. Change the patch, or ask a person.")
