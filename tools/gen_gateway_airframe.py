@@ -156,7 +156,7 @@ def go_seg(seg, py, branch_names, files_of=None):
             if r["method"] == "POST" and r["target"].endswith("/git/trees"):
                 out += W.base_reads(repo, files)
             out.append(rename(r, branch_names))
-        if res and res.get("resumed") is True and not any(r["method"] == "POST" for r in py):
+        if res and res.get("resumed") is True and not any(r["method"] == "POST" and not r["target"].endswith("/agent-installation-token") for r in py):
             out.append(GET(f"/repos/{repo}/git/commits/{res['commit']}"))
             for f in files:
                 out.append(GET(f"/repos/{repo}/contents/{f['path']}?ref={res['commit']}"))
@@ -356,7 +356,7 @@ SLO_REFUSAL = {"rule": "XR-KIND",
                        "environment such as dev, the glidepath/envs/ file whose envName is <env> (usually glidepath/envs/<env>.yaml); for a pr-* preview, "
                        "glidepath/pr-env.yaml, which a preview reads from its own pull request's head (so it belongs on that pull request's branch, and once merged it reaches "
                        "later previews; a file under glidepath/envs/ would create a separate static environment). "
-                       "The airframe-application chart renders it into the environment namespace. For a static environment, open it as a pull request with repo.pr.open for a person to review. "
+                       "The airframe-application chart renders it into the environment namespace. For a static lower environment, add it with airframe.configure (app, env, values: {slos: [...]}), which checks it against the chart values schema and opens one pull request for a person to review. "
                        "SLOs belong to the app's chart values, not to an xr.request."}
 SLO_WHY = ("Go refuses an SLO through xr.request: the composition scopes it to its XR's namespace, and an xr.request XR is applied into "
            "app-<app>-cicd, so it would read no data; Python opens the PR")
@@ -567,6 +567,142 @@ def apply_cases():
     apply_case("the broker refuses the tenants repository", base_world(extra={"POST /b/agent-installation-token": jsr(403, {"error": "no"})}))
 
 
+# -- airframe.configure ---------------------------------------------------------------------------------------------------------
+
+CFG_HEADER = "# Scaffolded by Glidepath onboarding.\nenvName: dev\n"
+CFG_DEV = CFG_HEADER + "rollout:\n  replicas: 2\n"
+CFG_SLO = {"name": "availability", "service": "parachute", "objective": 99.9,
+           "indicator": {"type": "availability", "metric": "http_requests_total", "totalFilter": 'job="parachute"', "errorFilter": 'code=~"5.."'}}
+CFG_ENVS = "glidepath/envs"
+CFG_WHY = "Go checks that the branch's pull request is its own session's and reads the file at its head, which must be the text it would write"
+
+
+def cfg_file(path, text):
+    return {f"GET /repos/{APP_REPO}/contents/{path}?ref=main": jsr(200, {"type": "file", "encoding": "base64", "size": len(text), "sha": "f", "content": W.b64(text)})}
+
+
+def cfg_listing(entries):
+    return {f"GET /repos/{APP_REPO}/contents/{CFG_ENVS}?ref=main": jsr(200, [{"name": n, "type": t, "size": 10} for n, t in entries])}
+
+
+class _Cap:
+    """A git that serves the app's files and notes the text a configure call would write."""
+
+    def __init__(self, files):
+        self.files, self.written = files, None
+
+    def read_file(self, repo, path, ref="main", **kw):
+        if path == CFG_ENVS:
+            return {"type": "dir", "entries": [{"name": p.split("/")[-1], "type": "file"} for p in self.files]}
+        return {"type": "file", "content": self.files[path]}
+
+    def ensure_pr(self, repo, branch, title, files, base="main", meta=None, body=None, **kw):
+        self.written = files[0]["content"]
+        return {"pr": 1, "url": "u", "branch": branch, "commit": "c", "state": "open", "resumed": False}
+
+
+def cfg_text(values, files):
+    """The text a configure call writes into the dev file: what the branch of a retry holds."""
+    cap = _Cap(files)
+    airframe_apply.configure(cap, fake_airframe(registry=REG), SESSION, PY_META, {"app": "parachute", "env": "dev", "values": values})
+    return cap.written
+
+
+def cfg_branches(app, env, values, replace=False):
+    py = airframe_apply.configure_branch(app, env, airframe_apply.canonical(values), replace)
+    return py, f"{py}-{HASH}"
+
+
+def cfg_world(files, *, extra=None, entries=None, branches=None, items=None, commit=None):
+    """The app repository with these files under glidepath/envs/ (path -> text), the pull requests of the change's branch, and the broker."""
+    r = {"POST /b/agent-installation-token": BROKER_OK}
+    r.update(repo_routes(APP_REPO, 12))
+    r.update(cfg_listing(entries if entries is not None else [(p.split("/")[-1], "file") for p in files]))
+    for path, text in files.items():
+        r.update(cfg_file(path, text))
+    if branches:
+        for b in branches:
+            r.update(pulls_route(APP_REPO, b, [pr_item(APP_REPO, 12, b, HEAD1, **(items or {}))] if items is not None else []))
+    r.update(extra or {})
+    return r
+
+
+def configure_case(name, values, files=None, *, env="dev", replace=None, why=None, world=None, args=None, state=None, **kw):
+    a = {"app": "parachute", "env": env, "values": copy.deepcopy(values), **({"replace": replace} if replace is not None else {}), **(args or {})}
+    py_b, go_b = cfg_branches("parachute", env, values if isinstance(values, dict) else {}, bool(replace))
+    routes = world if world is not None else cfg_world(files if files is not None else {f"{CFG_ENVS}/dev.yaml": CFG_DEV}, branches=(py_b, go_b))
+    case, _ = record(name, "airframe.configure", a, routes, branch_names={py_b: go_b}, why=why, **kw)
+    return case
+
+
+def configure_cases():
+    dev = {f"{CFG_ENVS}/dev.yaml": CFG_DEV}
+    with_slo = {f"{CFG_ENVS}/dev.yaml": CFG_DEV + yaml.safe_dump({"slos": [CFG_SLO]})}
+    configure_case("an SLO is added to the dev environment file", {"slos": [CFG_SLO]})
+    configure_case("keys in any order give the same change", {"slos": [CFG_SLO], "serviceMonitor": {"enabled": True}})
+    # a retry: the branch already has its pull request
+    py_b, go_b = cfg_branches("parachute", "dev", {"slos": [CFG_SLO]})
+    # what the branch of a retry holds: the text Go writes (its emitter indents a list under its key and double-quotes a string with a quote
+    # in it), which Go compares byte for byte with what it would write now; Python's own emitter spells the same document otherwise
+    written = (CFG_DEV + 'slos:\n  - indicator:\n      errorFilter: "code=~\\"5..\\""\n      metric: http_requests_total\n      totalFilter: "job=\\"parachute\\""\n'
+               "      type: availability\n    name: availability\n    objective: 99.9\n    service: parachute\n")
+    assert yaml.safe_load(written) == yaml.safe_load(cfg_text({"slos": [CFG_SLO]}, dev)), "the retry's file holds the same document"
+    cfg_py = cfg_world(dev, extra={**pulls_route(APP_REPO, py_b, [pr_item(APP_REPO, 12, py_b, HEAD1)]), **pulls_route(APP_REPO, go_b, [pr_item(APP_REPO, 12, go_b, HEAD1)]),
+                                   **commit_route(APP_REPO, HEAD1, "t", PY_META),
+                                   f"GET /repos/{APP_REPO}/pulls/12/files?per_page=100": jsr(200, [{"filename": f"{CFG_ENVS}/dev.yaml"}]),
+                                   f"GET /repos/{APP_REPO}/contents/{CFG_ENVS}/dev.yaml?ref={HEAD1}": jsr(200, {"type": "file", "encoding": "base64", "content": W.b64(written)})})
+    configure_case("a retry returns the pull request the first call opened", {"slos": [CFG_SLO]}, world=cfg_py,
+                   why=CFG_WHY)
+    other = {**CFG_SLO, "name": "errors"}
+    configure_case("a second SLO is appended by name", {"slos": [other]}, with_slo)
+    configure_case("the same SLO again changes nothing", {"slos": [CFG_SLO]}, with_slo)
+    configure_case("the same name with other content is a conflict", {"slos": [{**CFG_SLO, "objective": 99.0}]}, with_slo)
+    configure_case("replace makes the patch win for a same-named entry", {"slos": [{**CFG_SLO, "objective": 99.5}]}, with_slo, replace=True)
+    configure_case("a scalar a person set is a conflict", {"rollout": {"replicas": 3}})
+    configure_case("replace makes the patch win for a scalar", {"rollout": {"replicas": 3}}, replace=True)
+    configure_case("the file is found by envName, not by its name", {"slos": [CFG_SLO]},
+                   {f"{CFG_ENVS}/dev.yaml": "envName: staging\n", f"{CFG_ENVS}/team-a.yaml": CFG_DEV, f"{CFG_ENVS}/zz.yaml": "envName: test\n",
+                    f"{CFG_ENVS}/notes.txt": "x"}, entries=None)
+    configure_case("two files for one environment are ambiguous", {"slos": [CFG_SLO]}, {f"{CFG_ENVS}/dev.yaml": CFG_DEV, f"{CFG_ENVS}/other.yaml": "envName: dev\n"})
+    configure_case("no file has the environment's name", {"slos": [CFG_SLO]}, {f"{CFG_ENVS}/dev.yaml": CFG_DEV}, env="staging")
+    configure_case("the app has no envs directory", {"slos": [CFG_SLO]}, world={"POST /b/agent-installation-token": BROKER_OK, **repo_routes(APP_REPO, 12)})
+    configure_case("a file that is not a mapping is not an environment's", {"slos": [CFG_SLO]}, {f"{CFG_ENVS}/dev.yaml": CFG_DEV, f"{CFG_ENVS}/a.yaml": "- a\n"})
+    configure_case("a file with only the scaffold's envName takes values", {"slos": [CFG_SLO]}, {f"{CFG_ENVS}/dev.yaml": CFG_HEADER})
+    # refused before any request
+    for env in ("pr-12", "agent-7", "x-cicd"):
+        configure_case(f"{env} is refused", {"slos": [CFG_SLO]}, env=env, world={})
+    configure_case("an empty patch", {}, world={})
+    configure_case("a patch that is not a mapping", ["slos"], world={})
+    configure_case("replace that is not a boolean", {"slos": [CFG_SLO]}, replace="yes", world={})
+    configure_case("an SLO the schema refuses", {"slos": [{**CFG_SLO, "objective": 101}]}, world={})
+    configure_case("a key that is not a chart value", {"envName": "x"}, world={})
+    configure_case("a bad environment name", {"slos": [CFG_SLO]}, env="Dev", world={})
+    configure_case("a bad app name", {"slos": [CFG_SLO]}, args={"app": "X"}, world={})
+    # the merged file
+    configure_case("the merged file fails the schema", {"slos": [CFG_SLO]}, {f"{CFG_ENVS}/dev.yaml": CFG_DEV + "autoscaling: 5\n"})
+    configure_case("keys that are not chart values do not fail the whole file", {"slos": [CFG_SLO]}, {f"{CFG_ENVS}/dev.yaml": CFG_DEV + "release:\n  image: x\n"})
+    configure_case("a critical-risk key marks the pull request for a person",
+                   {"extraManifests": [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x"}}]})
+    # the pull request of the branch
+    closed = cfg_world(dev, extra={**pulls_route(APP_REPO, py_b, [pr_item(APP_REPO, 12, py_b, HEAD1, state="closed")]),
+                                   **pulls_route(APP_REPO, go_b, [pr_item(APP_REPO, 12, go_b, HEAD1, state="closed")]),
+                                   f"GET /repos/{APP_REPO}/git/ref/heads/{py_b}": jsr(200, {"object": {"sha": HEAD1}}),
+                                   f"GET /repos/{APP_REPO}/git/ref/heads/{go_b}": jsr(200, {"object": {"sha": HEAD1}}),
+                                   **commit_route(APP_REPO, HEAD1, "t", PY_META),
+                                   f"GET /repos/{APP_REPO}/contents/{CFG_ENVS}/dev.yaml?ref={HEAD1}": jsr(200, {"type": "file", "encoding": "base64", "content": W.b64(written)})})
+    configure_case("a pull request a person closed is not reopened", {"slos": [CFG_SLO]}, world=closed,
+                   why=CFG_WHY)
+    merged = cfg_world(dev, extra={**pulls_route(APP_REPO, py_b, [pr_item(APP_REPO, 12, py_b, HEAD1, state="closed", merged=True)]),
+                                   **pulls_route(APP_REPO, go_b, [pr_item(APP_REPO, 12, go_b, HEAD1, state="closed", merged=True)]),
+                                   **commit_route(APP_REPO, HEAD1, "t", PY_META),
+                                   f"GET /repos/{APP_REPO}/contents/{CFG_ENVS}/dev.yaml?ref={HEAD1}": jsr(200, {"type": "file", "encoding": "base64", "content": W.b64(written)})})
+    configure_case("a change merged and since undone is not reported done", {"slos": [CFG_SLO]}, world=merged,
+                   why=CFG_WHY)
+    configure_case("the broker refuses a repository that is not an app's", {"slos": [CFG_SLO]}, world={"POST /b/agent-installation-token": jsr(403, {"error": "no"})})
+    configure_case("the contents listing fails", {"slos": [CFG_SLO]}, world={"POST /b/agent-installation-token": BROKER_OK, **repo_routes(APP_REPO, 12),
+                   f"GET /repos/{APP_REPO}/contents/{CFG_ENVS}?ref=main": jsr(500, {"message": "oops"})})
+
+
 # -- the methods apply calls ---------------------------------------------------------------------------------------------------
 
 def direct_cases():
@@ -603,6 +739,7 @@ def cases_text() -> str:
     CASES.clear()
     xr_cases()
     apply_cases()
+    configure_cases()
     direct_cases()
     return json.dumps({"tokens": {"glidepath": W.GP_TOKEN, "agent": W.AGENT_TOKEN, "github": W.GH_TOKEN, "kube": "kube-fixture-token"},
                        "cases": [_compact(c) for c in CASES]}, separators=(",", ":"), sort_keys=True) + "\n"

@@ -159,6 +159,7 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
     if b.git is not None and hasattr(b.git, "ensure_pr") and b.airframe is not None and hasattr(b.airframe, "changeset"):
         # airframe.apply: PRs through the GitBackend's resumable adapter (github_pr.GitHubPRs), as the agents' App.
         h["airframe.apply"] = lambda s, a: airframe_apply.apply(b.git, b.glidepath, b.airframe, s, pr_meta(s), a)
+        h["airframe.configure"] = lambda s, a: airframe_apply.configure(b.git, b.airframe, s, pr_meta(s), a)
     return h
 
 

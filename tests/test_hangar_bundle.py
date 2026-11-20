@@ -64,11 +64,11 @@ def test_the_corpus_replays_identically_with_this_bundle(tmp_path):
     if src is None or shutil.which("go") is None:
         pytest.skip("no clearance checkout with the golden corpus, or no Go toolchain")
     # The corpus froze the Python pack: its tools, rules and PR tools. TestBundleMatchesPython compares the bundle's to
-    # them exactly, so a tool added since cannot be in the bundle it replays. airframe.apply (A-3) is one: a T1 PR tool.
+    # them exactly, so a tool added since cannot be in the bundle it replays. airframe.apply (A-3) is one: a T1 PR tool; airframe.configure (W-45) is the other, scoped by R023 the same way (its `app` argument).
     # Adding it changes no decision the corpus holds (it is a tool the corpus never calls, and its policy is R023's
     # app-from-spec reading), so the corpus replays on the bundle without that tool and its pr_tools name, and the
     # bundle is checked to differ from that one in nothing else.
-    since_corpus = {"airframe.apply"}
+    since_corpus = {"airframe.apply", "airframe.configure"}
     assert {t["name"] for t in BUNDLE["tools"]} - {t["name"] for t in BUNDLE["tools"] if t["name"] not in since_corpus} == since_corpus
     assert set(BUNDLE["pr_tools"]) - since_corpus == {"glidepath.cicd.propose"}
     frozen = dict(BUNDLE, tools=[t for t in BUNDLE["tools"] if t["name"] not in since_corpus],

@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "6975636210f210c6a144bb044d71570e53789d72",
+ "level_with": "154e6f958b9ee502bdfe20a58650eaf46a8c39ac",
  "ported": {
   "src/autopilot/agent_xrs.py": {
    "sha256": "eb34c866e9bc1c95d150616620a273957aa21b569a095a874a1ae29fc9e04a50",
@@ -20,11 +20,11 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/airframe_apply.py": {
-   "sha256": "67c1af43fde02a72eed671bd014eb6b6bda1a5fb3c5e4081a307d69d9315bacc",
+   "sha256": "e9128a0500f441f26331fc6d6bbefb6f40015ef9012d96507dabaffb6ce2b468",
    "go": [
     "gateway/internal/backends"
    ],
-   "carries": "airframe.apply: the steps, the resume from GitHub, the Flight half as a proposal marked for a person, merge_onboarding_file; every repository on repos.allow before the first request",
+   "carries": "airframe.apply: the steps, the resume from GitHub, the Flight half as a proposal marked for a person, merge_onboarding_file; every repository on repos.allow before the first request; airframe.configure: the env file found by envName, the named-list merge, the whole-file check, the branch derived from the change",
    "left_for_later_slices": ""
   },
   "src/autopilot/airframe_plan.py": {
@@ -260,13 +260,13 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/gateway.py": {
-   "sha256": "07bf609d8384966c417a281074514488ebea8263940c9ea70248a25d8ecfc529",
+   "sha256": "badc38bd9a838c7e3d1f894d7bbacba06a49686a7ea1dd6a795e1c5d048f1302",
    "go": [
     "gateway/internal/backends",
     "gateway/internal/runs",
     "gateway/cmd/autopilot-gateway"
    ],
-   "carries": "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, artifact.put/get, run.spawn, run.close; S5b: every glidepath.* tool, repo.file.get, repo.pr.open, repo.pr.open_upper, argo.sync.lower; S5c: airframe.capabilities, explain, plan, status, describe, verify, apply and xr.request), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend (the run's name, its identity, how it ended)",
+   "carries": "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, artifact.put/get, run.spawn, run.close; S5b: every glidepath.* tool, repo.file.get, repo.pr.open, repo.pr.open_upper, argo.sync.lower; S5c: airframe.capabilities, explain, plan, status, describe, verify, apply and xr.request; W-45: airframe.configure), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend (the run's name, its identity, how it ended)",
    "left_for_later_slices": ""
   },
   "src/autopilot/github_pr.py": {
@@ -294,7 +294,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/hangar_tools.py": {
-   "sha256": "713ab697c5c9740a31950c096f30b5970222ae7f3698487f223ba305d4877a8f",
+   "sha256": "8dfae022be972b9571fdad74c09289ba9365e9999dff9d36d91c0af3da360881",
    "go": [
     "gateway/internal/tools"
    ],

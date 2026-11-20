@@ -29,9 +29,15 @@ import (
 // airframeFixture is the registry the fixture uses.
 var airframeFixtureRegistry = airframe.Registry{DevCluster: "dev-cluster", UpperClusters: []string{"up-cluster"}, TenantsRepo: "gitops-tenants", Owner: "o"}
 
+// airframeDefOverride, when a test sets it, changes the fixture's definition (its scope) before the handlers are built.
+var airframeDefOverride func(*definitions.Definition)
+
 func airframeDefinition(reg *tools.Registry) (*definitions.Definition, []string) {
 	d := &definitions.Definition{Name: "fixture-agent", Kind: "task", ReposAllow: []string{"o/*"}, DenyPaths: reg.BaselineDenyPaths,
 		RawProfile: []byte(`{"glidepath":{"apps":["*"]},"airframe":{"apps":["*"],"proposeFlight":true}}`)}
+	if airframeDefOverride != nil {
+		airframeDefOverride(d)
+	}
 	return d, reg.Names()
 }
 
@@ -226,7 +232,7 @@ func TestAirframeToolsEqualPython(t *testing.T) {
 			}
 		})
 	}
-	if n["xr.request"] < 35 || n["airframe.apply"] < 15 || n["differs"] < 30 || n["denied"] < 10 || n["result"] < 10 {
+	if n["xr.request"] < 35 || n["airframe.apply"] < 15 || n["airframe.configure"] < 30 || n["differs"] < 30 || n["denied"] < 10 || n["result"] < 10 {
 		t.Fatalf("the fixture's cases: %v", n)
 	}
 }

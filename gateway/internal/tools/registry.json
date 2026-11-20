@@ -760,6 +760,28 @@
    "target": "lower",
    "tier": 1,
    "writes_files": false
+  },
+  {
+   "description": "Change an existing app's chart values in one static lower environment: merges `values` (only what changes, e.g. {slos: [{name, ...}]}; validated against the AppSpec's chart values schema, as the patch and as the whole file) into the glidepath/envs/ file whose envName is `env`, and opens ONE pull request for a person to review (calling again with the same arguments returns that PR). Mappings merge by key; lists of named entries (slos, components, env...) append entries the file lacks; a different value under the same key or name is a conflict unless `replace: true`. Refuses pr-* previews (glidepath/pr-env.yaml belongs on that pull request's branch) and Flight environments (a person changes gitops-<app>). New apps are airframe.apply's",
+   "github_cost": 15,
+   "name": "airframe.configure",
+   "propose_only": false,
+   "reads_repo": false,
+   "receipt": [
+    "pr",
+    "commit",
+    "branch",
+    "merge",
+    "needsPerson"
+   ],
+   "required_args": [
+    "app",
+    "env",
+    "values"
+   ],
+   "target": "lower",
+   "tier": 1,
+   "writes_files": false
   }
  ],
  "tripwires": [

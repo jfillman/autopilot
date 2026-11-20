@@ -176,7 +176,7 @@ type HangarConfig struct {
 // RemoteWrites are the tools whose handler writes to another system: a call that finished its write is reported as it
 // finished even when the call's own time ran out a moment later (dispatch.Gateway.KeepAnswer).
 var RemoteWrites = []string{"repo.pr.open", "repo.pr.open_upper", "glidepath.cicd.propose", "glidepath.run.rerun", "glidepath.run.cancel",
-	"glidepath.promote", "glidepath.rollback", "argo.sync.lower", "airframe.apply", "xr.request"}
+	"glidepath.promote", "glidepath.rollback", "argo.sync.lower", "airframe.apply", "airframe.configure", "xr.request"}
 
 // rerunKey is glidepath-api's Idempotency-Key for a session's re-run of one run.
 func rerunKey(sessionID, app, pipelinerun string) string {
