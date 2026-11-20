@@ -352,9 +352,9 @@ def xr(name_, args, *, name=None, go_denied=None, why=None, routes=None, branch_
 
 SLO_REFUSAL = {"rule": "XR-KIND",
                "message": "an SLO requested through xr.request would be scoped to the app's cicd namespace (app-<app>-cicd) and read no data",
-               "hint": "Declare it in the app's chart values instead: under `slos:` in gitops-<app>/<cluster>/<env>/values.yaml for that environment "
-                       "(the airframe-application chart renders it into the environment namespace), as a pull request on that repository. "
-                       "xr.request will take SLOs again once it can place one in an environment namespace."}
+               "hint": "Declare it under `slos:` in that environment's chart values: glidepath/envs/<env>.yaml in the app repository (<owner>/<app>), "
+                       "which the airframe-application chart renders into the environment namespace. Open it as a pull request with repo.pr.open for a person to review. "
+                       "SLOs belong to the app's chart values, not to an xr.request."}
 SLO_WHY = ("Go refuses an SLO through xr.request: the composition scopes it to its XR's namespace, and an xr.request XR is applied into "
            "app-<app>-cicd, so it would read no data; Python opens the PR")
 

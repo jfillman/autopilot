@@ -317,7 +317,7 @@ func TestAnSLORequestIsRefusedBecauseItWouldReadNoData(t *testing.T) {
 			t.Fatalf("%v", err)
 		}
 	}
-	for _, want := range []string{"cicd namespace", "read no data", "slos:", "gitops-<app>/<cluster>/<env>/values.yaml", "will take SLOs again"} {
+	for _, want := range []string{"cicd namespace", "read no data", "slos:", "glidepath/envs/<env>.yaml", "repo.pr.open", "not to an xr.request"} {
 		if !strings.Contains(SLORefusalMessage+" "+SLORefusalHint, want) {
 			t.Errorf("the refusal does not say %q", want)
 		}

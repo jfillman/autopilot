@@ -923,9 +923,9 @@ func SLORequestsOpen() bool { return sloRequestsOpen }
 
 const (
 	SLORefusalMessage = "an SLO requested through xr.request would be scoped to the app's cicd namespace (app-<app>-cicd) and read no data"
-	SLORefusalHint    = "Declare it in the app's chart values instead: under `slos:` in gitops-<app>/<cluster>/<env>/values.yaml for that environment " +
-		"(the airframe-application chart renders it into the environment namespace), as a pull request on that repository. " +
-		"xr.request will take SLOs again once it can place one in an environment namespace."
+	SLORefusalHint    = "Declare it under `slos:` in that environment's chart values: glidepath/envs/<env>.yaml in the app repository (<owner>/<app>), " +
+		"which the airframe-application chart renders into the environment namespace. Open it as a pull request with repo.pr.open for a person to review. " +
+		"SLOs belong to the app's chart values, not to an xr.request."
 )
 
 // sloPatterns are the contract's own patterns for an SLO's metric and filters, read from the AppSpec schema (chartValues.slos), so the
