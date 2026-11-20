@@ -240,16 +240,66 @@ const (
 	OutcomeLostRule = "CORE-OUTCOME-LOST"
 )
 
-// noteLost records that an outcome with paths was lost (not posted, and not queued: the outbox could not be written either). It is kept in
-// this process only: the failure that loses an outcome is the outbox's store being unavailable, which is also where a durable marker
-// would go, so it cannot be recorded durably when it matters. A restart forgets it (a gap this leaves, stated in docs/admin/go-gateway.md);
-// until then a score of any run that began before it is refused, since the lost write could be that run's.
+// LostStore keeps the lost-outcome marker durably (Postgres: pgstate.LostMarker), so a restart does not forget it.
+type LostStore interface {
+	// Mark records a loss at the time (never moves an earlier one past a later one).
+	Mark(ctx context.Context, at time.Time) error
+	// Load reads the time of the last loss (zero: none).
+	Load(ctx context.Context) (time.Time, error)
+	// Clear removes the marker.
+	Clear(ctx context.Context) error
+}
+
+// UseLostStore makes s the durable home of the lost-outcome marker and reads it back (call it once, at start, before the core serves): a
+// marker that an earlier process left is in force again. A store that cannot be read is an error: starting without it would forget a loss.
+func (c *Core) UseLostStore(ctx context.Context, s LostStore) error {
+	at, err := s.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("the lost-outcome marker: %w", err)
+	}
+	c.lostMu.Lock()
+	c.lostStore = s
+	if at.After(c.lostAt) {
+		c.lostAt = at
+	}
+	c.lostMu.Unlock()
+	return nil
+}
+
+// ClearLost forgets the lost-outcome marker, in memory and in its store: what a person does once the lost write has been looked at. A store
+// that cannot be written leaves the marker where it is, and says so.
+func (c *Core) ClearLost(ctx context.Context) error {
+	c.lostMu.Lock()
+	defer c.lostMu.Unlock()
+	if c.lostStore != nil {
+		if err := c.lostStore.Clear(ctx); err != nil {
+			return err
+		}
+	}
+	c.lostAt = time.Time{}
+	return nil
+}
+
+// noteLost records that an outcome with paths was lost (not posted, and not queued: the outbox could not be written either). It is held in
+// memory first, so it is in force at once, and then written to the lost-outcome store (a bounded context of its own, not the caller's). The
+// failure that loses an outcome is usually the outbox's store being unavailable, which may be the marker's store too: that write can fail,
+// and is logged; the marker then holds until a restart, as before the store existed. When it succeeds, a restart keeps it. Until cleared (or until
+// every run that could have made the outcome is older than it), a score of any run that began before it is refused.
 func (c *Core) noteLost(at time.Time) {
 	c.lostMu.Lock()
 	if at.After(c.lostAt) {
 		c.lostAt = at
 	}
+	s := c.lostStore
 	c.lostMu.Unlock()
+	if s == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), outboxAddTimeout)
+	defer cancel()
+	if err := s.Mark(ctx, at); err != nil {
+		c.Log.Error("the lost-outcome marker could not be stored: a restart forgets it", "err", err.Error())
+	}
 }
 
 // lostSince says whether an outcome with paths was lost at or after t (zero t: ever).
@@ -322,7 +372,7 @@ func (c *Core) BeginEffectCheck(ctx context.Context, since time.Time) (*EffectGu
 	if c.lostSince(cut) {
 		return nil, &OutboxBlocked{Rule: OutcomeLostRule,
 			Msg:  "a write's outcome could be neither delivered nor queued (the outbox could not be written), so it is in neither Clearance nor the outbox and the paths the run touched are not all known",
-			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
+			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. The marker is kept in the gateway's database; it stays until cleared."}
 	}
 	g := &EffectGuard{c: c, lostCut: cut}
 	err := c.Outbox.Quiesce(ctx, func(r OutboxReader) error {
@@ -375,7 +425,7 @@ func (g *EffectGuard) Finish(ctx context.Context) error {
 	if g.c.lostSince(g.lostCut) {
 		return &OutboxBlocked{Rule: OutcomeLostRule,
 			Msg:  "a write's outcome could be neither delivered nor queued while the paths were being read, so the paths the run touched are not all known",
-			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
+			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. The marker is kept in the gateway's database; it stays until cleared."}
 	}
 	return nil
 }

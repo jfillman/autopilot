@@ -244,6 +244,7 @@ type Core struct {
 	// lostMu guards lostAt, the times an outcome that carries paths could be neither posted nor queued (see noteLost).
 	lostMu     sync.Mutex
 	lostAt     time.Time
+	lostStore  LostStore // the durable copy of lostAt, when set (UseLostStore)
 	OnDecision func(decisionID string)
 	OnPosted   func(e Entry, ref client.RecordRef)
 }

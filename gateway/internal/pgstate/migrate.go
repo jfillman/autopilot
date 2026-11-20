@@ -70,21 +70,27 @@ func Migrate(ctx context.Context, dsn string, o MigrateOptions) (created []strin
 			return nil, err
 		}
 	}
-	// The schema step is skipped when the database already has it (the Go-only columns are the last thing it adds): ALTER TABLE ... ADD COLUMN IF NOT EXISTS
+	// The schema step is skipped when the database already has it (the Go-only columns and the lost-outcome table are the last things it adds): ALTER TABLE ... ADD COLUMN IF NOT EXISTS
 	// takes an ACCESS EXCLUSIVE lock even when the column is there, so a routine re-run must not run it.
 	var haveCols int
 	if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema()
 		AND table_name = 'gateway_trigger_launches' AND column_name IN ('failures', 'first_failed_at', 'last_failed_at')`).Scan(&haveCols); err != nil {
 		return nil, err
 	}
-	if haveCols == 3 {
+	var haveLost bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('gateway_lost_outcome') IS NOT NULL`).Scan(&haveLost); err != nil {
+		return nil, err
+	}
+	if haveCols == 3 && haveLost {
 		o.Log("schema: present (no statement run)")
 	} else {
 		if _, err := conn.Exec(ctx, schema); err != nil {
 			return nil, fmt.Errorf("schema: %w", err)
 		}
-		if _, err := conn.Exec(ctx, goSchema); err != nil {
-			return nil, fmt.Errorf("schema: %w", err)
+		for _, stmt := range []string{goSchema, goLostSchema} {
+			if _, err := conn.Exec(ctx, stmt); err != nil {
+				return nil, fmt.Errorf("schema: %w", err)
+			}
 		}
 		o.Log("schema: created or completed")
 	}

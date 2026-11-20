@@ -227,6 +227,111 @@ func TestTheOutboxCanBeQueriedForTheEffectGuard(t *testing.T) {
 	}
 }
 
+// WithPaths alone (without OutcomesOnly) selects outcomes only: a record whose body carries an effect with paths is not one, as in core.CarriesPaths.
+func TestWithPathsNeverReturnsARowThatIsNotAnOutcome(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	body := map[string]any{"effect": map[string]any{"paths": []any{"a.yaml"}}}
+	rec := core.Entry{Op: "record", Kind: "tool.call", DecisionID: "d-r", Body: body}
+	if core.CarriesPaths(rec) {
+		t.Fatal("the Go predicate counts a record")
+	}
+	recID, err := ob.Add(ctx, rec, "outage", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ob.Entries(ctx, core.OutboxQuery{AfterID: recID - 1, WithPaths: true})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("a record with paths was returned: %+v %v", got, err)
+	}
+	outID, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-o", Body: body}, "core-unavailable", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = ob.Entries(ctx, core.OutboxQuery{AfterID: recID - 1, WithPaths: true})
+	if err != nil || len(got) != 1 || got[0].ID != outID {
+		t.Fatalf("want only the outcome %d: %+v %v", outID, got, err)
+	}
+}
+
+// A database a release before the marker migrated (the Go columns present, no gateway_lost_outcome) gets the table from `migrate`, once and idempotently.
+func TestMigrateAddsTheLostOutcomeTableToAnOlderDatabase(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Pool.Exec(ctx, "DROP TABLE gateway_lost_outcome"); err != nil {
+		t.Fatal(err)
+	}
+	st.Close(ctx)
+	for i := 0; i < 2; i++ { // the second run changes nothing
+		if _, err := pgstate.Migrate(ctx, dsn, pgstate.MigrateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	var have bool
+	if err := conn.QueryRow(ctx, "SELECT to_regclass('gateway_lost_outcome') IS NOT NULL").Scan(&have); err != nil || !have {
+		t.Fatalf("the table is missing after migrate: %v %v", have, err)
+	}
+}
+
+// The lost-outcome marker is set, read back by a new store over the same database (a restart), moves only forward, and is cleared.
+func TestTheLostOutcomeMarkerIsKeptInPostgres(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := pgstate.NewLostMarker(st)
+	if at, err := m.Load(ctx); err != nil || !at.IsZero() {
+		t.Fatalf("a new database has a marker: %v %v", at, err)
+	}
+	t1 := time.Now().UTC().Truncate(time.Microsecond)
+	if err := m.Mark(ctx, t1); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Mark(ctx, t1.Add(-time.Hour)); err != nil { // an earlier loss does not move it back
+		t.Fatal(err)
+	}
+	st.Close(ctx)
+	st, err = pgstate.Open(ctx, dsn, 3) // restart (Open's schema step is idempotent over the existing table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	m = pgstate.NewLostMarker(st)
+	if at, err := m.Load(ctx); err != nil || !at.Equal(t1) {
+		t.Fatalf("after a restart: %v (want %v) %v", at, t1, err)
+	}
+	c := core.New(nil, pgstate.NewOutbox(st), false)
+	if err := c.UseLostStore(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.BeginEffectCheck(ctx, t1.Add(-time.Hour)); err == nil {
+		t.Fatal("a score of an earlier run passed")
+	}
+	if err := c.ClearLost(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if at, err := m.Load(ctx); err != nil || !at.IsZero() {
+		t.Fatalf("after the clear: %v %v", at, err)
+	}
+}
+
 // Quiesce holds every Add off while fn runs, hands fn a reader on its own transaction, does not hold off the
 // outbox's other writes (Drain's Done), and lets the adds through on every path out of fn.
 func TestQuiesceHoldsOffAddsInPostgres(t *testing.T) {

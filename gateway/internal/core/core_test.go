@@ -332,3 +332,86 @@ func TestEffectGuardFinishBlocksAnOutcomeLostWhileItsOutboxQueryRuns(t *testing.
 		t.Fatalf("%v", err)
 	}
 }
+
+// memLost is a LostStore that outlives a Core, as a database does.
+type memLost struct {
+	at   time.Time
+	fail bool
+}
+
+func (m *memLost) Mark(_ context.Context, at time.Time) error {
+	if m.fail {
+		return errors.New("the marker store is down")
+	}
+	if at.After(m.at) {
+		m.at = at
+	}
+	return nil
+}
+func (m *memLost) Load(context.Context) (time.Time, error) { return m.at, nil }
+func (m *memLost) Clear(context.Context) error             { m.at = time.Time{}; return nil }
+
+// The lost-outcome marker is set when an outcome with paths is lost, is read back by a new core over the same store (a restart), and is
+// gone once cleared.
+func TestTheLostOutcomeMarkerSurvivesARestartAndIsCleared(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &memLost{}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-time.Hour)
+	fc.Down.Store(true)
+	c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+	if store.at.IsZero() { // set
+		t.Fatal("the marker was not stored")
+	}
+	// restart: a new core over the same store, with a healthy outbox, still refuses
+	c2 := core.New(fc.Client(200*time.Millisecond), core.NewMemoryOutbox(), false)
+	if _, err := c2.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("a fresh core with no store knew of a loss: %v", err)
+	}
+	if err := c2.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	var blocked *core.OutboxBlocked
+	if _, err := c2.BeginEffectCheck(ctx, t0); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("the marker did not survive the restart: %v", err)
+	}
+	if _, err := c2.BeginEffectCheck(ctx, time.Now().Add(time.Hour)); err != nil { // a run that began after it
+		t.Fatalf("a later run was refused: %v", err)
+	}
+	// clear
+	if err := c2.ClearLost(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c2.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("still refused after the clear: %v", err)
+	}
+	c3 := core.New(fc.Client(200*time.Millisecond), core.NewMemoryOutbox(), false)
+	if err := c3.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c3.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("the clear did not reach the store: %v", err)
+	}
+}
+
+// A marker store that cannot be written still leaves the marker in force in this process.
+func TestALostOutcomeIsKeptInMemoryWhenItsStoreIsDown(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, &memLost{fail: true}); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+	var blocked *core.OutboxBlocked
+	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour)); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("%v", err)
+	}
+}

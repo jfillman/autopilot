@@ -604,10 +604,14 @@ session.
     authorization, under the lock, until its report has been made) and the score refuses with `CORE-CALL-IN-FLIGHT` while one is out. A run's
     token total is read only after its sessions are held, so a charge that lands before the hold is in it and none lands after.
   - *A lost outcome.* If an outcome with paths could be neither posted nor queued (the outbox's store was down too), it is in neither
-    Clearance nor the outbox, and nothing there can say so. The gateway keeps the time of the last such loss in memory (`Core.noteLost`), and a
-    score of any run that began before it is refused with `503` `CORE-OUTCOME-LOST` (checked when the guard begins and again in `Finish`, so a loss during the read is caught too) (a person must look at the gateway's logs); a run that began after
-    it is not held back. It is in memory because the failure that loses an outcome is the outbox's store being unavailable, which is also where a
-    durable marker would go. **A restart of the gateway forgets it**: that is a gap this leaves, which the logged error ("outbox") is the record of.
+    Clearance nor the outbox. The gateway keeps the time of the last such loss (`Core.noteLost`) in memory at once and writes it to the
+    `gateway_lost_outcome` table (one row at most; `pgstate.LostMarker`), and a score of any run that began before it is refused with `503`
+    `CORE-OUTCOME-LOST` (checked when the guard begins and again in `Finish`, so a loss during the read is caught too) (a person must look at the gateway's logs); a run that began after
+    it is not held back. The gateway reads the marker back at start, so **a restart no longer forgets it**. The write can itself fail, since the
+    failure that loses an outcome may be the database being down: it is logged ("the lost-outcome marker could not be stored") and the marker then
+    holds in memory only, until a restart, as before. `Core.ClearLost` removes it (memory and table) once a person has looked at the lost write; there is
+    no endpoint for it yet (delete the row). The table is created by `autopilot-gateway migrate` and by the gateway's own start (`CREATE TABLE IF NOT EXISTS`,
+    additive, safe to repeat, and migrate adds it to a database that has everything else). The Python gateway has no Preflight outbox guard, so there is no Python twin of it.
   - *Which cases the cut-off covers.* The cut-off for a refused outbox entry is the earliest session of the cases that are being scored, not of
     every case named: a case still running is not read, so an older unfinished case does not widen it.
   - *No insert can slip below the mark.* The greatest id is read while the outbox is quiesced (`Outbox.Quiesce`). In Postgres every add takes
