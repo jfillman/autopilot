@@ -32,7 +32,7 @@ import posixpath
 import re
 import subprocess
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 
@@ -549,8 +549,12 @@ class AirframeTools:
     # cluster state ----------------------------------------------------------------------------------------------
     def _xrs_in(self, namespace: str) -> list[dict]:
         plurals = sorted({x["plural"] for x in self.contract["xrds"].values() if x.get("group") == "catalog.hangar.io"})
+        # Every kind is listed before an error is raised, and the error is the first failing kind in plural order. (ex.map would
+        # cancel the lists not yet started when one fails, so how many reads were made would depend on thread timing.)
         with ThreadPoolExecutor(self.workers) as ex:
-            lists = list(ex.map(lambda p: self.kube.list(xr_path(p, namespace)), plurals))
+            futs = [ex.submit(lambda p=p: self.kube.list(xr_path(p, namespace))) for p in plurals]
+            wait(futs)
+        lists = [f.result() for f in futs]
         return sorted((o for lst in lists for o in lst), key=lambda o: (o.get("kind", ""), o["metadata"]["name"]))
 
     def _cicd(self, app: str) -> tuple[str, str, list[dict]] | None:

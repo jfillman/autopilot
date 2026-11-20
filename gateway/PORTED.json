@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "e941fbeac2b31082b1ba6d9dcda11115db4e14b0",
+ "level_with": "9ce98aa6793d51f8eb79920cd040f4996e734462",
  "ported": {
   "src/autopilot/agent_xrs.py": {
    "sha256": "eb34c866e9bc1c95d150616620a273957aa21b569a095a874a1ae29fc9e04a50",
@@ -36,7 +36,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/airframe_tools.py": {
-   "sha256": "a7f843d1994d80867e8824bf1ebaa0370122d531698af5978da868a6c85f6b4e",
+   "sha256": "9443e3fba494d422d0fbe43a4d54c539de40ef5d04bb760cd4b9164652729c44",
    "go": [
     "gateway/internal/airframe",
     "gateway/internal/backends"
