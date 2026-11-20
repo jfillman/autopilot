@@ -25,6 +25,7 @@ import (
 //	airframe.plan                        the planner: a pure function of the spec
 //	airframe.status, describe, verify    reads of Airframe XRs, Argo CD Applications and Rollouts (airframe.State)
 //	airframe.apply                       the plan's next step as a pull request (apply.go: GETs and the pull request's own POSTs)
+//	airframe.configure                   one change to an existing environment's chart values as a pull request (airframe_configure.go)
 //	xr.request                           one XR request file as a pull request on the tenants repository (CommitXR)
 //
 // There is no airframe.validate handler: Python's gateway image carries no airframe-validate and serve.py drops the tool, so a
@@ -233,6 +234,16 @@ func (c *AirframeConfig) airframeTools(h map[string]dispatch.Handler, sc *scope,
 				}
 			}
 			return (&applier{git: git, gp: gp, reg: reg, sc: sc}).apply(ctx, d, f, a)
+		}
+		h["airframe.configure"] = func(ctx context.Context, s *session.Session, a map[string]any) (any, error) {
+			d, f, err := sc.check("airframe.configure", s)
+			if err != nil {
+				return nil, err
+			}
+			if err := sc.airframeApp(d, a["app"]); err != nil {
+				return nil, err
+			}
+			return (&applier{git: git, gp: gp, reg: reg, sc: sc}).configure(ctx, d, f, a)
 		}
 	}
 }

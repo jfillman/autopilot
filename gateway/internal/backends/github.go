@@ -585,6 +585,10 @@ type OpenPRInput struct {
 	Tenants bool
 	// Check runs once the base is known and before anything is written: the cicd.yaml check, asked about the resolved base.
 	Check func(ctx context.Context, base string) error
+	// BaseSHA, when set, is the commit the new branch is built on, instead of the one the base branch is at when the branch is made: a
+	// caller that read its files at that commit (airframe.configure) writes on exactly what it read, so a commit that landed in
+	// between is not written over.
+	BaseSHA string
 }
 
 func cleanMeta(v string) string {
@@ -961,16 +965,21 @@ func (g *GitHub) OpenPR(ctx context.Context, in OpenPRInput) (map[string]any, er
 }
 
 func (g *GitHub) openPR(ctx context.Context, token, owner, name string, in OpenPRInput, entries []treeEntry) (*PR, error) {
-	status, ref, err := g.gh(ctx, token, ghReq{ep: epGetRef, owner: owner, name: name, branch: in.Base})
-	if err != nil {
-		return nil, err
-	}
-	if status != 200 {
-		return nil, ghErrorOf("base "+in.Base, status, ref, "message")
-	}
-	baseSha, ok := shaAt(ref, "object", "sha")
-	if !ok {
-		return nil, badAnswer("base " + in.Base)
+	baseSha := in.BaseSHA
+	if baseSha == "" {
+		status, ref, err := g.gh(ctx, token, ghReq{ep: epGetRef, owner: owner, name: name, branch: in.Base})
+		if err != nil {
+			return nil, err
+		}
+		if status != 200 {
+			return nil, ghErrorOf("base "+in.Base, status, ref, "message")
+		}
+		var ok bool
+		if baseSha, ok = shaAt(ref, "object", "sha"); !ok {
+			return nil, badAnswer("base " + in.Base)
+		}
+	} else if !shaRx.MatchString(baseSha) {
+		return nil, &core.Denied{Rule: "GH-REF", Message: echo(baseSha) + " is not a commit", Hint: "Pass the commit the file was read at."}
 	}
 	status, commit, err := g.gh(ctx, token, ghReq{ep: epGetCommit, owner: owner, name: name, sha: baseSha})
 	if err != nil {

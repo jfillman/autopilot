@@ -41,12 +41,17 @@ is skipped. A run killed at any point and started again with the same spec ends 
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
 import yaml
 
+from . import airframe_plan
 from .engine.dispatch import Denied
+from .engine.profile import BASELINE_DENY_PATHS
+from .engine.scope import path_violations
 
 TENANTS = "tenants"
 APP_REPO = "app-repo"
@@ -324,4 +329,294 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
     else:
         out.update(state="agent-steps-merged", next="Every step this tool opens is merged. The humanSteps (if any) are for a person; "
                    "airframe.status, describe and verify show the environments coming up.")
+    return out
+
+
+# -- airframe.configure: change an existing app's chart values -------------------------------------------------------------
+#
+# apply provisions an app once: its branches are fixed per step and a merged step is skipped, so it cannot carry a later
+# change. configure is the other half: one validated change to the chart values of ONE environment that already exists, as
+# one PR for a person to review. It never merges, never pushes to an existing branch, and writes exactly one file.
+#
+# Where the values are: a Ground (lower) environment's are in the app repo, in the glidepath/envs/ file whose `envName:`
+# is the environment (the file's name is a path, not its identity). A pr-* preview reads glidepath/pr-env.yaml from its own
+# PR's head, so a change for it belongs on that PR's branch: refused. agent-* environments are refused too (their values
+# are not a file this tool can find). A Flight environment's values are gitops-<app>/<cluster>/<env>/values.yaml, a
+# human-merge repository: refused, not proposed (apply's proposeFlight rule, R025, is about an AppSpec's plan and has no
+# meaning for a patch to an existing file; a person changes those files).
+
+MAX_ENV_FILES = 60
+MAX_LISTING = 500       # what the git adapters return of a directory
+APP_NAME = re.compile(r"[a-z][a-z0-9-]{1,38}[a-z0-9]")
+ENV_NAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?")
+
+
+def configure_branch(app: str, env: str, values: Any, replace: bool) -> str:
+    """The branch of one change: derived from what it says (the app, the environment, the canonical patch and whether it
+    replaces), so a retry of the same call finds the PR the first one opened, and a different change gets its own."""
+    doc = json.dumps({"env": env, "replace": replace, "values": values}, sort_keys=True, separators=(",", ":"))
+    return f"agent/airframe-{app}-configure-{env}-{hashlib.sha256(doc.encode()).hexdigest()[:10]}"
+
+
+def canonical(v: Any) -> Any:
+    """The patch with every mapping's keys sorted, so the merged file and the branch do not depend on the order the caller
+    wrote them in (the Go gateway reads arguments as sorted maps)."""
+    if isinstance(v, dict):
+        return {k: canonical(v[k]) for k in sorted(v)}
+    if isinstance(v, list):
+        return [canonical(x) for x in v]
+    return v
+
+
+def _same(a: Any, b: Any) -> bool:
+    """configure's equality: Python's `==` except that a bool equals only a bool (so a file's `true` is not the patch's `1`, which
+    `True == 1` would call equal), mappings and lists compared recursively by the same rule. 1 and 1.0 stay equal (a whole number
+    reaches the Go gateway as an integer whichever way it was written, so the two gateways agree)."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def _named(items: Any) -> bool:
+    """A list of mappings that each have a unique string `name`: an entry is identified by it (slos, components, env...)."""
+    if not isinstance(items, list):
+        return False
+    names = [i.get("name") if isinstance(i, dict) else None for i in items]
+    return all(isinstance(n, str) for n in names) and len(set(names)) == len(names)
+
+
+def _merge_values(have: Any, want: Any, path: str, conflicts: list[str], replaced: list[str], replace: bool) -> Any:
+    """`have` with the patch `want` merged in.
+      mappings   merged key by key: a key only the patch has is added, a key only the file has is kept
+      lists      of named entries (every item a mapping with a unique string `name`; slos, components, env, ...): an entry
+                 the file lacks is appended, an identical one is kept, one with the same `name` and other content is a
+                 conflict (the whole entry is compared, never merged field by field)
+      any other  list or scalar: the same value is kept; another value is a conflict
+    A conflict is named in `conflicts` and the file's value kept, unless `replace`: then the patch's value (or entry)
+    wins and its path is named in `replaced`."""
+    if isinstance(have, dict) and isinstance(want, dict):
+        out = dict(have)
+        for k, v in want.items():
+            sub = f"{path}.{k}" if path else str(k)
+            out[k] = _merge_values(have[k], v, sub, conflicts, replaced, replace) if k in have else v
+        return out
+    if _named(have) and _named(want):
+        out = list(have)
+        index = {i["name"]: n for n, i in enumerate(out)}
+        for item in want:
+            sub = f"{path}[{item['name']}]"
+            if item["name"] not in index:
+                out.append(item)
+            elif not _same(out[index[item["name"]]], item):
+                if replace:
+                    out[index[item["name"]]] = item
+                    replaced.append(sub)
+                else:
+                    conflicts.append(sub)
+        return out
+    if not _same(have, want):
+        if replace:
+            replaced.append(path or "<root>")
+            return want
+        conflicts.append(path or "<root>")
+    return have
+
+
+def _chart_errors(doc: dict, whole_file: bool = True) -> list[str]:
+    """chartValues' findings. For a whole file only its chart keys are checked (envName and anything that is not a human-owned
+    chart key, such as a release pipeline's keys, are not the patch's to check); a patch is checked as it is, so a key that
+    is not a human-owned chart key (envName, release, anything unknown) is refused."""
+    part = {k: v for k, v in doc.items() if k in airframe_plan.CHART_KEYS} if whole_file else doc
+    errs = sorted(airframe_plan.CHART_VALUES.iter_errors(part), key=lambda x: list(x.absolute_path))
+    return [f"{'/'.join(str(p) for p in e.absolute_path) or '<root>'}: {e.message}" for e in errs]
+
+
+def _configure_refusal(env: str) -> Denied | None:
+    if env.startswith("pr-"):
+        return Denied("CONFIGURE-PR-ENV", f"{env} is a pull-request preview: its values are glidepath/pr-env.yaml, read from "
+                      "its own pull request's head",
+                      "Change glidepath/pr-env.yaml on that pull request's branch (a push by a person); once merged it reaches later "
+                      "previews. A new file under glidepath/envs/ would create a separate static environment, not change a preview.")
+    if env.startswith("agent-"):
+        return Denied("CONFIGURE-AGENT-ENV", f"{env} is an agent's own environment: it is made per run and has no values file this "
+                      "tool can find", "Configure a static lower environment (dev, staging...), or ask a person.")
+    if env == "cicd" or env.endswith("-cicd"):
+        return Denied("CONFIGURE-ENV", f"{env!r} is not an environment name: it would read as a cicd namespace",
+                      "Name an environment of the app (airframe.status lists them).")
+    return None
+
+
+def _flight_hint(repo: str, env: str) -> str:
+    app = repo.rsplit("/", 1)[-1]
+    return (f"configure changes a static lower environment's glidepath/envs/ file. If {env} is a Flight environment, its values are "
+            f"gitops-{app}/<cluster>/{env}/values.yaml, which only a person merges: ask one (human.request), or have them change it.")
+
+
+def _find_env_file(git: Any, repo: str, env: str, ref: str = "main") -> tuple[str, str]:
+    """(path, text) of the glidepath/envs file whose `envName` is `env`. The file name is only a path: every .yaml/.yml file of
+    the directory is read (the conventional <env>.yaml first) and the one that says `envName: <env>` is the file."""
+    listing = git.read_file(repo, airframe_plan.ENVS_DIR, ref)
+    if listing.get("found", True) is False or listing.get("type") != "dir":
+        raise Denied("CONFIGURE-NO-ENV", f"{repo} has no {airframe_plan.ENVS_DIR}/ directory: {env} is not a static lower environment of this app",
+                     _flight_hint(repo, env))
+    if len(listing.get("entries") or []) >= MAX_LISTING:
+        # the adapter returns at most 500 entries and GitHub caps a listing too: past this the list may be cut, and a second file for
+        # the same environment could be past the cut
+        raise Denied("CONFIGURE-TOO-MANY", f"{repo}'s {airframe_plan.ENVS_DIR}/ lists {MAX_LISTING} entries or more: the listing may be incomplete",
+                     "A person changes it.")
+    names = sorted((e["name"] for e in listing.get("entries") or []
+                    if e.get("type") == "file" and isinstance(e.get("name"), str) and e["name"].endswith((".yaml", ".yml"))),
+                   key=lambda n: (n not in (f"{env}.yaml", f"{env}.yml"), n))
+    if len(names) > MAX_ENV_FILES:
+        raise Denied("CONFIGURE-TOO-MANY", f"{repo} has more than {MAX_ENV_FILES} files in {airframe_plan.ENVS_DIR}/", "A person changes it.")
+    found: list[tuple[str, str]] = []
+    for n in names:
+        f = git.read_file(repo, f"{airframe_plan.ENVS_DIR}/{n}", ref)
+        text = f.get("content")
+        if not isinstance(text, str):
+            continue
+        try:
+            doc = yaml.safe_load(text)
+        except yaml.YAMLError:
+            continue
+        if isinstance(doc, dict) and doc.get("envName") == env:
+            found.append((f"{airframe_plan.ENVS_DIR}/{n}", text))
+    if not found:
+        raise Denied("CONFIGURE-NO-ENV", f"no file in {repo}'s {airframe_plan.ENVS_DIR}/ has `envName: {env}`", _flight_hint(repo, env))
+    if len(found) > 1:
+        raise Denied("CONFIGURE-AMBIGUOUS", f"{', '.join(p for p, _ in found)} all say `envName: {env}`",
+                     "A person removes the duplicate; this tool will not pick one.")
+    return found[0]
+
+
+def configure_body(app: str, env: str, path: str, values: dict, replaced: list[str], person: bool, invalid_before: bool) -> str:
+    lines = [f"### airframe.configure: {app}'s `{env}` environment", "",
+             f"Changes the chart values in `{path}` (the file whose `envName` is `{env}`). A person reviews and merges this; "
+             "the tool that opened it has no way to.", ""]
+    if person:
+        lines += ["**Needs a person to merge.** It sets a critical-risk chart key.", ""]
+    lines += ["Keys set: " + ", ".join(f"`{k}`" for k in values), ""]
+    if replaced:
+        lines += ["Replaced (the caller asked to replace a different value that was there):"] + [f"- `{r}`" for r in replaced] + [""]
+    lines += ["Validated against the AppSpec's `chartValues` schema, as the patch and as the whole file."]
+    if invalid_before:
+        lines.append("(The file already failed that schema before this change.)")
+    return "\n".join(lines)
+
+
+def _merged(git: Any, repo: str, env: str, sha: str, values: dict, replace: bool) -> tuple[str, str, dict, dict, list[str], list[str]]:
+    """The env file at the commit `sha` and the patch merged into it: (path, text, have, merged, conflicts, replaced)."""
+    path, text = _find_env_file(git, repo, env, sha)
+    have = yaml.safe_load(text)
+    conflicts: list[str] = []
+    replaced: list[str] = []
+    return path, text, have, _merge_values(have, values, "", conflicts, replaced, replace), conflicts, replaced
+
+
+def _merged_outcome(git: Any, repo: str, env: str, out: dict, number: Any, values: dict, replace: bool) -> dict[str, Any]:
+    """The PR of this change was merged: against a FRESH read of the base (never a snapshot from before the merge), the file either
+    holds the change (noop) or does not (CONFIGURE-SUPERSEDED, also when the environment's file is gone)."""
+    try:
+        path, _, have, merged, conflicts, _ = _merged(git, repo, env, git.base_sha(repo), values, replace)
+    except Denied as e:
+        if e.rule != "CONFIGURE-NO-ENV":
+            raise
+        raise Denied("CONFIGURE-SUPERSEDED", f"PR #{number} with this exact change was merged, and {repo} has no file for {env} any more",
+                     "Someone changed the file since. Change the patch, or ask a person.") from e
+    if not conflicts and _same(merged, have):
+        return {**out, "path": path, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
+                "next": "Nothing to change; the file already has them."}
+    raise Denied("CONFIGURE-SUPERSEDED", f"PR #{number} with this exact change was merged, and {path} no longer holds it",
+                 "Someone changed the file since. Change the patch, or ask a person.")
+
+
+def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any],
+              deny_paths: Any = None) -> dict[str, Any]:
+    """airframe.configure: see the section comment. One PR per call; the same call again returns that PR.
+
+    The PR of the change's branch is looked up FIRST: an open one is returned and a closed one reported whatever the base
+    holds now (a retry is resumed, not re-judged against a file that has moved on); a merged one means the file is either
+    already as asked (noop) or has changed since (CONFIGURE-SUPERSEDED). Only a change with no PR reads the file, and it
+    reads it at one commit of the base and builds its branch on exactly that commit (base_sha), so a change that lands in
+    between is never written over: the PR merges against the newer base as any PR does."""
+    app, env, values, replace = a.get("app"), a.get("env"), a.get("values"), a.get("replace", False)
+    if not isinstance(app, str) or not APP_NAME.fullmatch(app):
+        raise Denied("CONFIGURE-APP", "app is not an application name", "Pass the app's name, as airframe.status lists it.")
+    if not isinstance(env, str) or not ENV_NAME.fullmatch(env):
+        raise Denied("CONFIGURE-ENV", "env is not an environment name", "Pass the environment's name (dev, staging...).")
+    refusal = _configure_refusal(env)
+    if refusal is not None:
+        raise refusal
+    if not isinstance(values, dict) or not values:
+        raise Denied("CONFIGURE-VALUES", "values must be a non-empty mapping of chart values",
+                     "Pass only what to change, e.g. {slos: [{name: ..., ...}]}; airframe.capabilities {section: appspec} lists the chart values.")
+    if not isinstance(replace, bool):
+        raise Denied("CONFIGURE-REPLACE", "replace must be true or false", "Leave it out to refuse a conflicting value.")
+    values = canonical(values)
+    errs = _chart_errors(values, whole_file=False)
+    if errs:
+        raise Denied("CONFIGURE-VALUES", f"values do not validate against the chart values schema: {errs[0]}",
+                     "Fix the value; envName, release and platform-owned keys are not settable. airframe.capabilities {section: appspec} says how each is shaped.")
+    repo = f"{airframe.registry.owner}/{app}"
+    branch = configure_branch(app, env, values, replace)
+    person = any(airframe_plan.risk(k) == "critical" for k in values)
+    out: dict[str, Any] = {"app": app, "env": env, "repo": repo}
+    found = git.find_pr(repo, branch)
+    if found is not None and found["state"] == "merged":
+        return _merged_outcome(git, repo, env, out, found["pr"], values, replace)
+    if found is not None:
+        out.update(pr=found["pr"], url=found["url"], branch=found["branch"], commit=found["commit"], resumed=True)
+        if found["state"] == "closed":
+            return {**out, "state": "closed", "paths": [],
+                    "reason": f"PR #{found['pr']} for this change was closed without merging; configure never reopens or replaces a PR a person "
+                              "closed. They decide: reopen it, or delete its branch, after which the next call opens a new PR"}
+        paths = git.pr_paths(repo, found["pr"])
+        if len(paths) == 1:
+            out["path"] = paths[0]
+        out.update(state="awaiting-merge", paths=paths,
+                   next="A person reviews and merges this PR; the environment picks the change up when it syncs.")
+        if person:
+            out.update(merge=MERGE_PERSON, needsPerson=paths)
+        return out
+    sha = git.base_sha(repo)
+    path, text, have, merged, conflicts, replaced = _merged(git, repo, env, sha, values, replace)
+    out["path"] = path
+    if conflicts:
+        raise Denied("CONFIGURE-CONFLICT", f"{repo} {path} already sets {', '.join(sorted(conflicts))} to a different value than the patch",
+                     "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way).")
+    if _same(merged, have):      # nothing to write: no full-file check (the file may be invalid elsewhere, which is not this patch's)
+        return {**out, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
+                "next": "Nothing to change; the file already has them."}
+    after = _chart_errors(merged)
+    if after:
+        raise Denied("CONFIGURE-MERGED", f"{path} would not validate against the chart values schema after this change: {after[0]}",
+                     "Fix the patch, or have a person fix the file first.")
+    deny = list(BASELINE_DENY_PATHS if deny_paths is None else deny_paths)
+    if path_violations([path], deny):
+        raise Denied("GH-PATH", f"{path!r} is a protected path",
+                     "An agent does not change protected paths (CI, ownership, release files); ask a person.")
+    new_text = _header(text) + yaml.safe_dump(merged, sort_keys=False)
+    title = f"{app} {env}: set {', '.join(list(values)[:4])}"
+    pr = git.ensure_pr(repo, branch, title, [{"path": path, "content": new_text}], "main",
+                       meta={**meta, "merge": MERGE_PERSON} if person else meta,
+                       body=configure_body(app, env, path, values, sorted(replaced), person, bool(_chart_errors(have))),
+                       base_sha=sha)
+    if pr.get("state") == "merged":
+        return _merged_outcome(git, repo, env, {k: v for k, v in out.items() if k != "path"}, pr["pr"], values, replace)
+    out.update(pr=pr["pr"], url=pr["url"], branch=pr["branch"], commit=pr["commit"], resumed=bool(pr.get("resumed")))
+    if pr.get("state") == "closed":
+        return {**out, "state": "closed", "paths": [],
+                "reason": f"PR #{pr['pr']} for this change was closed without merging; configure never reopens or replaces a PR a person "
+                          "closed. They decide: reopen it, or delete its branch, after which the next call opens a new PR"}
+    paths = git.pr_paths(repo, pr["pr"]) if pr.get("resumed") else [path]
+    out.update(state="awaiting-merge", paths=paths,
+               next="A person reviews and merges this PR; the environment picks the change up when it syncs.")
+    if person:
+        out.update(merge=MERGE_PERSON, needsPerson=paths)
+    if replaced:
+        out["replaced"] = sorted(replaced)
     return out

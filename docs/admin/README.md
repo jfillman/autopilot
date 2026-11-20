@@ -72,6 +72,10 @@ RBAC each backend needs, is in the README's [Running the gateway](../../README.m
   GitHub only by creating new branches and PRs, and every merge is a person's. The Flight half is opened only for a call that sets `proposeFlight`,
   which the core allows only a definition with `profile.airframe.proposeFlight` (R025; app-provisioner has it), as PRs marked for a person to merge
   ([propose](../../README.md#a-11-propose-flight-half)).
+  `airframe.configure` (W-45) needs the same two flags and the same token file and broker, and no tenants repo or glidepath-api: it opens one PR on
+  the app's own repo that changes the chart values of one existing static lower environment (the `glidepath/envs/` file whose `envName` is the
+  environment), for a person to review ([README](../../README.md#airframeconfigure-change-an-existing-apps-chart-values-w-45)). It refuses `pr-*`
+  previews, `agent-*` and Flight environments. No bundled definition names it yet.
 - **Logs to Loki.** `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` sends a copy of every INFO-and-above log line (DEBUG stays on stderr) to the cluster's OpenTelemetry
   collector over OTLP/HTTP JSON (`otlp_logs.py`, standard library only; a bounded queue, batches with a 5 s deadline,
   and a collector outage drops lines, never blocks a call). The read API (`autopilot-gateway api`) does the same as `autopilot-api`. On Hangar apron sets it with `OTEL_SERVICE_NAME` and the

@@ -115,6 +115,19 @@ TOOLS: tuple[ToolSpec, ...] = (
              "(`awaiting-merge`, never merged by the tool or an agent). Without proposeFlight the Flight half is reported "
              "in humanSteps for a person",
              ("spec",), github_cost=15, target="lower", receipt=("pr", "commit", "branch", "merge", "needsPerson")),
+    # Configure (autopilot.airframe_apply.configure): the other half of apply. apply provisions an app once (a merged step
+    # is skipped, an existing file is a conflict), so a later change to an existing app's chart values (an SLO, say) is this:
+    # a validated patch merged into the one glidepath/envs/ file whose `envName` is `env`, as ONE PR on a branch derived from
+    # the patch, for a person to review. `app` is a top-level argument, so R023 (profile.airframe.apps) scopes it with no
+    # new rule. pr-* previews, agent-* and Flight environments are refused (see the module's comment).
+    ToolSpec("airframe.configure", Tier.T1, "Change an existing app's chart values in one static lower environment: merges `values` "
+             "(only what changes, e.g. {slos: [{name, ...}]}; validated against the AppSpec's chart values schema, as the patch and "
+             "as the whole file) into the glidepath/envs/ file whose envName is `env`, and opens ONE pull request for a person to "
+             "review (calling again with the same arguments returns that PR). Mappings merge by key; lists of named entries (slos, "
+             "components, env...) append entries the file lacks; a different value under the same key or name is a conflict unless "
+             "`replace: true`. Refuses pr-* previews (glidepath/pr-env.yaml belongs on that pull request's branch) and Flight "
+             "environments (a person changes gitops-<app>). New apps are airframe.apply's",
+             ("app", "env", "values"), github_cost=15, target="lower", receipt=("pr", "commit", "branch", "merge", "needsPerson")),
 )
 
 

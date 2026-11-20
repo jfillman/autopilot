@@ -94,7 +94,12 @@ class AgentRunBackend:
         return f"agent-{session.run}/{manifests.RUN_SERVICE_ACCOUNT}" if session.run else None
 
 
-def hangar_handlers(b: Backends) -> dict[str, Handler]:
+def _deny_paths(definitions: Any, s: Any) -> Any:
+    d = definitions.get(getattr(s, "agent", None)) if definitions else None
+    return tuple(d.deny_paths) if d is not None else None
+
+
+def hangar_handlers(b: Backends, definitions: Any = None) -> dict[str, Handler]:
     """Every handler a Hangar Gateway registers (run.spawn and run.close are the Gateway's own).
     The glidepath and airframe backends are read at call time, so a deployment without one fails that
     tool's calls as a backend error rather than refusing to start."""
@@ -159,10 +164,13 @@ def hangar_handlers(b: Backends) -> dict[str, Handler]:
     if b.git is not None and hasattr(b.git, "ensure_pr") and b.airframe is not None and hasattr(b.airframe, "changeset"):
         # airframe.apply: PRs through the GitBackend's resumable adapter (github_pr.GitHubPRs), as the agents' App.
         h["airframe.apply"] = lambda s, a: airframe_apply.apply(b.git, b.glidepath, b.airframe, s, pr_meta(s), a)
+        # configure's one file is checked against the calling agent's denyPaths (the baseline where the definition is not known)
+        h["airframe.configure"] = lambda s, a: airframe_apply.configure(
+            b.git, b.airframe, s, pr_meta(s), a, deny_paths=_deny_paths(definitions, s))
     return h
 
 
 def hangar_gateway(definitions: dict[str, AgentDefinition], store: SessionStore, core: Core,
                    backends: Backends, auth: Authenticator, clock: Callable[[], datetime]) -> Gateway:
     return Gateway(definitions, store, core, auth, clock, packs=PACKS,
-                   handlers=hangar_handlers(backends), runs=AgentRunBackend(backends.runs))
+                   handlers=hangar_handlers(backends, definitions), runs=AgentRunBackend(backends.runs))

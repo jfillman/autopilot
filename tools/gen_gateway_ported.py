@@ -130,13 +130,14 @@ PORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
                                         "no validate (the image carries no airframe-validate, so serve drops the tool)", ""),
     "src/autopilot/vendor/airframe_sidecars.py": (("gateway/internal/airframe",), "dig, render, when_matches: the sidecar templates verify reads", ""),
     "src/autopilot/airframe_apply.py": (("gateway/internal/backends",), "airframe.apply: the steps, the resume from GitHub, the Flight half "
-                                        "as a proposal marked for a person, merge_onboarding_file; every repository on repos.allow before the first request", ""),
+                                        "as a proposal marked for a person, merge_onboarding_file; every repository on repos.allow before the first request; "
+                                        "airframe.configure: the env file found by envName, the named-list merge, the whole-file check, the branch derived from the change", ""),
     "src/autopilot/xr_request.py": (("gateway/internal/airframe",), "xr.request's build: the kinds, the lower environments, the names, the path and the "
                                     "annotations, with a field table per kind (Go's own, from the XRDs)", ""),
     "src/autopilot/gateway.py": (("gateway/internal/backends", "gateway/internal/runs", "gateway/cmd/autopilot-gateway"),
                                  "which tool has a handler in a deployment (metrics.query, logs.query, catalog.read, app.api.get, argo.app.get, "
                                  "artifact.put/get, run.spawn, run.close; S5b: every glidepath.* tool, repo.file.get, repo.pr.open, "
-                                 "repo.pr.open_upper, argo.sync.lower; S5c: airframe.capabilities, explain, plan, status, describe, verify, apply and xr.request), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend "
+                                 "repo.pr.open_upper, argo.sync.lower; S5c: airframe.capabilities, explain, plan, status, describe, verify, apply and xr.request; W-45: airframe.configure), pr_meta, rerun_key, release_key, promote_source, AgentRunBackend "
                                  "(the run's name, its identity, how it ended)",
                                  ""),
     "src/autopilot/serve.py": (("gateway/cmd/autopilot-gateway",), "the settings this slice carries (S1: AUTOPILOT_OIDC_*, TOWER_*, the "
