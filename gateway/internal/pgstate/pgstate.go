@@ -250,11 +250,57 @@ func (o *Outbox) Add(ctx context.Context, e core.Entry, reason, errText string) 
 	if errText != "" {
 		errp = &errText
 	}
+	// The shared advisory lock is held from before the id is taken until the insert commits, so Quiesce (which takes it exclusively) waits for
+	// an add under way and holds later ones off: nothing can commit an entry with an id below one Quiesce has seen. Adds do not wait for each
+	// other. The lock is the transaction's, released by commit or rollback on every path.
+	tx, err := o.st.Pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock_shared($1)", outboxLockKey); err != nil {
+		return 0, err
+	}
 	var id int64
-	err := o.st.Pool.QueryRow(ctx, "INSERT INTO gateway_outbox (op, kind, decision_id, body, reason, state, error) "+
-		"VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", e.Op, kind, decision, body, reason, state, errp).Scan(&id)
-	return id, err
+	if err := tx.QueryRow(ctx, "INSERT INTO gateway_outbox (op, kind, decision_id, body, reason, state, error) "+
+		"VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", e.Op, kind, decision, body, reason, state, errp).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit(ctx)
 }
+
+// outboxLockKey is the advisory lock that orders adds against Quiesce (the digits spell the table).
+const outboxLockKey int64 = 0x676174657761795f
+
+// querier is what a pool and a transaction share for the outbox's reads.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// Quiesce runs fn with every Add held off: it takes the add lock exclusively in a transaction of its own and hands fn a reader on that
+// transaction (so fn needs no second connection, which a pool all of whose connections wait on the lock could not give it). The lock
+// is released when the transaction ends, by the rollback below on every path, including fn's error and the context's end. It deadlocks with
+// nothing: an add holds only the shared lock and its own insert, and waits for nothing Quiesce holds; Drain's updates take no advisory lock.
+func (o *Outbox) Quiesce(ctx context.Context, fn func(core.OutboxReader) error) error {
+	tx, err := o.st.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", outboxLockKey); err != nil {
+		return err
+	}
+	return fn(txReader{tx})
+}
+
+type txReader struct{ q querier }
+
+func (r txReader) Entries(ctx context.Context, q core.OutboxQuery) ([]core.OutboxRow, error) {
+	return entries(ctx, r.q, q)
+}
+
+func (r txReader) HighWater(ctx context.Context) (int64, error) { return highWater(ctx, r.q) }
 
 // Pending lists pending entries oldest first.
 func (o *Outbox) Pending(ctx context.Context, limit int) ([]core.OutboxRow, error) {
@@ -289,6 +335,14 @@ func (o *Outbox) Pending(ctx context.Context, limit int) ([]core.OutboxRow, erro
 
 // Entries lists entries by a query (core.OutboxQuery), oldest first.
 func (o *Outbox) Entries(ctx context.Context, q core.OutboxQuery) ([]core.OutboxRow, error) {
+	return entries(ctx, o.st.Pool, q)
+}
+
+// withPaths is core.carriesPaths in SQL: an outcome whose effect is not an object, or whose effect names paths (not null, not empty).
+const withPaths = "(body->'effect' IS NOT NULL AND jsonb_typeof(body->'effect') <> 'null' AND (jsonb_typeof(body->'effect') <> 'object' OR " +
+	"(body #> '{effect,paths}' IS NOT NULL AND jsonb_typeof(body #> '{effect,paths}') <> 'null' AND body #> '{effect,paths}' <> '[]'::jsonb)))"
+
+func entries(ctx context.Context, db querier, q core.OutboxQuery) ([]core.OutboxRow, error) {
 	var since any
 	if !q.Since.IsZero() {
 		since = q.Since
@@ -301,9 +355,9 @@ func (o *Outbox) Entries(ctx context.Context, q core.OutboxQuery) ([]core.Outbox
 	if limit <= 0 {
 		limit = 1000
 	}
-	rows, err := o.st.Pool.Query(ctx, "SELECT id, op, kind, decision_id, body, state, created_at FROM gateway_outbox "+
+	rows, err := db.Query(ctx, "SELECT id, op, kind, decision_id, body, state, created_at FROM gateway_outbox "+
 		"WHERE id > $1 AND ($2::text[] IS NULL OR state = ANY($2)) AND ($3::timestamptz IS NULL OR created_at >= $3) AND (NOT $4 OR op = 'outcome') "+
-		"ORDER BY id LIMIT $5", q.AfterID, states, since, q.OutcomesOnly, limit)
+		"AND (NOT $5 OR "+withPaths+") ORDER BY id LIMIT $6", q.AfterID, states, since, q.OutcomesOnly, q.WithPaths, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -334,9 +388,11 @@ func (o *Outbox) Entries(ctx context.Context, q core.OutboxQuery) ([]core.Outbox
 }
 
 // HighWater is the greatest id ever added (0: none).
-func (o *Outbox) HighWater(ctx context.Context) (int64, error) {
+func (o *Outbox) HighWater(ctx context.Context) (int64, error) { return highWater(ctx, o.st.Pool) }
+
+func highWater(ctx context.Context, db querier) (int64, error) {
 	var id int64
-	err := o.st.Pool.QueryRow(ctx, "SELECT COALESCE(MAX(id), 0) FROM gateway_outbox").Scan(&id)
+	err := db.QueryRow(ctx, "SELECT COALESCE(MAX(id), 0) FROM gateway_outbox").Scan(&id)
 	return id, err
 }
 

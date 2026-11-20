@@ -372,3 +372,118 @@ func TestScoreIsRefusedForARefusedWriteQueuedSinceTheRunStarted(t *testing.T) {
 		t.Fatal("a refused score recorded a result")
 	}
 }
+
+// More old refusals than the guard ever scanned, and a pile of pending entries with no paths, must not hold back a run that began after them.
+func TestScoreIsNotHeldBackByAThousandOldRefusals(t *testing.T) {
+	p, fe, body, sid := pathsRig(t, 1, []string{"clusters/**"})
+	fe.paths[sid] = []string{"clusters/dev/app.yaml"}
+	finish(p, sid)
+	ob := p.g.Core.Outbox.(*core.MemoryOutbox)
+	ob.Now = func() time.Time { return t0.Add(-72 * time.Hour) }
+	entry := core.Entry{Op: "outcome", Body: map[string]any{"result": "opened PR", "effect": map[string]any{"repo": "o/r", "pr": float64(3), "paths": []any{"secrets/prod.yaml"}}}}
+	for i := 0; i < 1200; i++ {
+		_, _ = ob.Add(ctx, entry, "refused", "core said no")
+	}
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	if err != nil || out["passed"] != true {
+		t.Fatalf("%v %v", out, err)
+	}
+}
+
+// countingOutbox counts the guards begun (each is one Quiesce).
+type countingOutbox struct {
+	*core.MemoryOutbox
+	mu       sync.Mutex
+	quiesces int
+}
+
+func (c *countingOutbox) Quiesce(ctx context.Context, fn func(core.OutboxReader) error) error {
+	c.mu.Lock()
+	c.quiesces++
+	c.mu.Unlock()
+	return c.MemoryOutbox.Quiesce(ctx, fn)
+}
+
+// twoCases adds a second case and a second finished run of the researcher to pathsRig's.
+func twoCases(t *testing.T, p *peopleRig, body map[string]any, sid string) (map[string]any, string) {
+	t.Helper()
+	c2 := *p.g.PreflightCases["c1"]
+	c2.ID = "c2"
+	p.g.PreflightCases["c2"] = &c2
+	cand := *p.g.Defs["researcher"]
+	cand.Name = "pf-researcher-abcdef02"
+	view, err := p.g.RunAgentAs(ctx, adminID, "", "researcher", &cand, dispatch.Fingerprint(p.g.Defs["researcher"]), ptr("go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid2 := view["session"].(string)
+	finish(p, sid2)
+	return map[string]any{"agent": "researcher", "cases": []any{
+		map[string]any{"case": "c1", "sessions": []any{sid}}, map[string]any{"case": "c2", "sessions": []any{sid2}}}}, sid2
+}
+
+// One guard spans the whole score, not one per case: a request with two cases begins it once, and a write that is delivered while the first
+// case's paths are read blocks the whole score.
+func TestOneOutboxGuardAroundAWholeScore(t *testing.T) {
+	p, _, body, sid := pathsRig(t, 0, []string{"clusters/**"})
+	finish(p, sid)
+	body2, _ := twoCases(t, p, body, sid)
+	co := &countingOutbox{MemoryOutbox: p.g.Core.Outbox.(*core.MemoryOutbox)}
+	p.g.Core.Outbox = co
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body2, "")
+	if err != nil || out["finished"] != true || out["passed"] != true || co.quiesces != 1 {
+		t.Fatalf("%v %v (%d guards)", out, err, co.quiesces)
+	}
+	h := &effectsHook{fakeEffects: fakeEffects{paths: map[string][]string{}}}
+	p.g.Effects = h
+	calls := 0
+	h.during = func() {
+		if calls++; calls == 1 { // while the first case's session is being read
+			id, _ := co.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-5", Body: map[string]any{"effect": map[string]any{"paths": []any{"secrets/x.yaml"}}}}, "core-unavailable", "")
+			_ = co.Done(ctx, id, nil)
+		}
+	}
+	p.g.PreflightLedger = &dispatch.PreflightLedger{}
+	p.g.Preflight = p.g.PreflightLedger.Of
+	out, err = p.g.PreflightScore(ctx, p.person(adminID), body2, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Rule != core.OutboxPendingRule || out != nil || p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+}
+
+// A call of a scored session that is still running has not yet put its outcome in Clearance or the outbox, and a session whose outcome is
+// stored counts as finished even then: the score holds each session's operation lock (the one a call holds until its outcome is delivered or
+// queued), refuses while a call has it, and keeps it while it scores so none can start.
+func TestScoreIsRefusedWhileACallOfARunIsInFlight(t *testing.T) {
+	p, fe, body, sid := pathsRig(t, 0, []string{"clusters/**"})
+	fe.paths[sid] = nil
+	// the run ended without handing a result back: its stored outcome, not a result row, makes the case finished
+	s := p.store.Get(sid)
+	s.Lock()
+	s.Outcome = map[string]any{"status": "expired"}
+	s.Unlock()
+	rel := s.Serial() // a call of the session is running: its write is made, its outcome not yet delivered
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != dispatch.InFlightRule || out != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+	if len(fe.calls) != 0 || p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatal("a refused score read or recorded")
+	}
+	rel()                                                                                                       // the call ended: the outcome is delivered or queued
+	if out, err = p.g.PreflightScore(ctx, p.person(adminID), body, ""); err != nil || out["finished"] != true { // (the verifier fails: no answer text; the score is made)
+		t.Fatalf("%v %v", out, err)
+	}
+	// the locks are let go when the score ends (a call can run again), and a session named twice is not refused for its own lock
+	rel2, ok := s.TrySerial()
+	if !ok {
+		t.Fatal("the score kept the session's lock")
+	}
+	rel2()
+	dup := map[string]any{"agent": "researcher", "cases": []any{map[string]any{"case": "c1", "sessions": []any{sid, sid}}}}
+	if out, err = p.g.PreflightScore(ctx, p.person(adminID), dup, ""); err != nil || out["finished"] != true {
+		t.Fatalf("%v %v", out, err)
+	}
+}

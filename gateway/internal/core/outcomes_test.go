@@ -317,3 +317,69 @@ func TestEffectGuardFinishBlocksAWriteThatMovedDuringTheRead(t *testing.T) {
 		}
 	}
 }
+
+// Entries that do not qualify, however many, never count towards a block: more than the scan's old size of refused outcomes from long before
+// the run must not hold back (or be counted as "too many") a run that began after them.
+func TestEffectGuardIgnoresAnyNumberOfOldRefusalsAndNonQualifyingEntries(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	ob := core.NewMemoryOutbox()
+	ob.Now = func() time.Time { return t0.Add(-48 * time.Hour) }
+	for i := 0; i < 1500; i++ {
+		_, _ = ob.Add(ctx, outcomeEntry("old.yaml"), "refused", "no") // refused with paths, long before
+	}
+	for i := 0; i < 1500; i++ {
+		_, _ = ob.Add(ctx, core.Entry{Op: "outcome", Body: map[string]any{"result": "ok"}}, "core-unavailable", "") // pending, no effect
+	}
+	ob.Now = func() time.Time { return t0.Add(time.Hour) }
+	c := core.New(nil, ob, false)
+	g, err := c.BeginEffectCheck(ctx, t0)
+	if err != nil {
+		t.Fatalf("old refusals and entries with no paths blocked a new run: %v", err)
+	}
+	if err := g.Finish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// one qualifying refusal among them, since the run began, blocks; the first one that qualifies is enough
+	_, _ = ob.Add(ctx, outcomeEntry("new.yaml"), "refused", "no")
+	var blocked *core.OutboxBlocked
+	if _, err := c.BeginEffectCheck(ctx, t0); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeRefusedRule {
+		t.Fatalf("%v", err)
+	}
+}
+
+// Quiesce holds every Add off while fn runs and lets them through when it returns, by any path (fn's error too).
+func TestQuiesceHoldsOffAddsAndReleasesOnEveryPath(t *testing.T) {
+	ctx := context.Background()
+	for name, fnErr := range map[string]error{"fn returns": nil, "fn fails": errors.New("boom")} {
+		ob := core.NewMemoryOutbox()
+		entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		go func() {
+			done <- ob.Quiesce(ctx, func(r core.OutboxReader) error {
+				close(entered)
+				<-release
+				if _, err := r.HighWater(ctx); err != nil { // the reader works inside the hold
+					return err
+				}
+				return fnErr
+			})
+		}()
+		<-entered
+		added := make(chan struct{})
+		go func() { _, _ = ob.Add(ctx, outcomeEntry("a.yaml"), "core-unavailable", ""); close(added) }()
+		select {
+		case <-added:
+			t.Fatalf("%s: an add went through while quiesced", name)
+		case <-time.After(150 * time.Millisecond):
+		}
+		close(release)
+		if err := <-done; err != fnErr {
+			t.Fatalf("%s: %v", name, err)
+		}
+		select {
+		case <-added:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: the add was not let through after Quiesce", name)
+		}
+	}
+}

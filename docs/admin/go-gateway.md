@@ -581,22 +581,38 @@ session.
     `CORE-OUTCOME-REFUSED` and a hint that a person must look at the outbox entry (its `error` column says why). Because it names no session, it
     is tied to the run by time instead: it blocks the scores of runs whose earliest session was created at or before it was queued (with a
     minute of slack for the two clocks; an outcome cannot predate its session), so one old refusal does not hold back every later run. A
-    session the gateway no longer knows makes every refused entry count.
+    session the gateway no longer knows makes every refused entry count. The check asks the outbox only for such entries (an outcome whose
+    effect names paths, pending, or refused since that time; in Postgres the filter is in the query), so no number of old refusals or of
+    entries with no paths can block a score or fill a scan: the first qualifying entry blocks, nothing else counts.
   - *Moving during the read*: before anything else the guard takes the outbox's greatest id, and `Finish` blocks (`CORE-OUTBOX-PENDING`) on any
     outcome with paths added after it, in any state. A write queued after the first check, or queued and then delivered after the read was
     made (in Clearance only after the read, so in neither place for it), is caught; an entry at or below that id that was not pending or refused
     at the first check was delivered before the read. The score is repeated and then sees the delivered write.
-  - Outcomes with no effect or no paths, other records, and delivered entries do not hold a score back. More than 1,000 entries to look at is
-    blocking too (cannot be told). If the outbox cannot be read it is `503` `CORE-UNAVAILABLE`.
-  The one gap left: an outbox insert (a single statement) that has taken its id but not yet committed when the guard reads the greatest id
-  commits with an id at or below it and is seen only if it is still pending at the first check; entries are written only while the core is
-  unreachable, so this needs the core to fail in the same instants as the score.
+  - *One guard for the whole score*, not one per case: it begins before the first case's read and finishes after the last, so a write that
+    moves between any two cases' reads is caught, and the ledger is written only after it has finished.
+  - *A call in flight.* A case counts as finished once its session has a stored outcome or a result, and a call of that session that is still
+    running has made its write but not yet put its outcome in Clearance or the outbox. The deadline sweep stores the outcome "expired"
+    without the session's operation lock (`deadlineOutcomes`), so that can happen during a call. A tool call holds the session's operation lock
+    from its decision to the delivery or queueing of its outcome (`Gateway.Call`). The score takes each session's lock without waiting (`TrySerial`) before it reads: a session
+    whose lock is taken is refused (`503` `CORE-CALL-IN-FLIGHT`, repeat when the call has ended), and the locks are kept until the score ends,
+    so no call of a scored session can start meanwhile (one would wait). With them held, every outcome of the scored sessions is in
+    Clearance or the outbox when the guard begins.
+  - *No insert can slip below the mark.* The greatest id is read while the outbox is quiesced (`Outbox.Quiesce`). In Postgres every add takes
+    a shared advisory lock (`pg_advisory_xact_lock_shared`) from before it takes its id until its insert commits, and `Quiesce` takes the same
+    lock exclusively in a transaction of its own and reads through that transaction: it waits for an add under way, holds later ones off, and
+    nothing can be committed with an id at or below the mark. In memory it is a read-write mutex. Adds do not wait for each other, and nothing
+    `Quiesce` holds is waited on by an add or by Drain (which takes no advisory lock and updates rows), so they cannot deadlock; the
+    transaction is rolled back on every path out (an error, the context ending), which releases the lock. The hold is only for those reads, not
+    for the whole score: a call queues its outcome under a 5 s timeout and an outcome that cannot be queued is lost, so holding adds off for the
+    read of Clearance (up to the 30 s budget) would risk exactly the loss the guard exists to catch.
+  - Outcomes with no effect or no paths, other records, and delivered entries do not hold a score back. If the outbox cannot be read it is
+    `503` `CORE-UNAVAILABLE`.
   A caller clearance-api's scoping does not let see the session is refused (`CORE-NOT-VISIBLE`), as above; the route's own check
   (`mayManage`) is wider than what clearance-api shows.
 
 Proof: `TestEffectPaths*` (`gateway/internal/core/outcomes_test.go`: records shaped as clearance-api serves them, pagination, no effects,
 every unknown), `TestScore*` (`gateway/internal/dispatch/preflight_paths_test.go`: a min-paths case that now passes, a write outside the
-allowed paths that now fails, a read-only case that fails on a write, the outbox guard (`TestEffectGuard*`, a pending write, a refused write by run start, a write delivered between the read and the second check), the unavailable and unconfigured refusals with no ledger write, a
+allowed paths that now fails, a read-only case that fails on a write, the outbox guard (`TestEffectGuard*`, `TestQuiesce*`, `TestOneOutboxGuardAroundAWholeScore`, `TestScoreIsRefusedWhileACallOfARunIsInFlight`, `TestScoreIsNotHeldBackByAThousandOldRefusals`: a pending write, a refused write by run start, any number of old refusals, a write delivered between the read and the second check, a call in flight, and the Postgres queries and lock in `TestQuiesceHoldsOffAddsInPostgres`), the unavailable and unconfigured refusals with no ledger write, a
 delegate's credentials, and the real reader against a fake clearance-api).
 
 ### What still refuses at the boundaries S3 leaves

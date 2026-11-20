@@ -194,20 +194,29 @@ type Outbox interface {
 	Pending(ctx context.Context, limit int) ([]OutboxRow, error)
 	// Entries lists the entries a query selects, in any state, oldest first (the Preflight score's check that no write of a run is
 	// outside Clearance's records); HighWater is the greatest id ever added (0: none).
-	Entries(ctx context.Context, q OutboxQuery) ([]OutboxRow, error)
-	HighWater(ctx context.Context) (int64, error)
+	OutboxReader
+	// Quiesce runs fn while no entry can be added (an Add waits, and an Add already under way has committed), so what fn reads is the
+	// whole outbox as of then. fn's reads must use the reader it is given. The hold is released when fn returns, by any path.
+	Quiesce(ctx context.Context, fn func(OutboxReader) error) error
 	HasPending(ctx context.Context) (bool, error)
 	Done(ctx context.Context, id int64, seq *int64) error
 	Refused(ctx context.Context, id int64, errText string) error
 }
 
+// OutboxReader is what the Preflight score's outbox guard reads.
+type OutboxReader interface {
+	Entries(ctx context.Context, q OutboxQuery) ([]OutboxRow, error)
+	HighWater(ctx context.Context) (int64, error)
+}
+
 // OutboxQuery selects outbox entries: those with an id above AfterID, in one of States (empty: every state), added at or after Since
-// (zero: any time), of the outcome op only when OutcomesOnly.
+// (zero: any time), of the outcome op only when OutcomesOnly, and only those whose effect names paths when WithPaths (see carriesPaths).
 type OutboxQuery struct {
 	AfterID      int64
 	States       []string // "pending", "done", "refused"
 	Since        time.Time
 	OutcomesOnly bool
+	WithPaths    bool
 	Limit        int
 }
 

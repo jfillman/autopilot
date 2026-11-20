@@ -14,6 +14,8 @@ type MemoryOutbox struct {
 	rows map[int64]*memRow
 	// Now stamps an entry when it is added (nil: time.Now).
 	Now func() time.Time
+	// ins is held shared by an Add and exclusively by Quiesce.
+	ins sync.RWMutex
 }
 
 type memRow struct {
@@ -29,6 +31,8 @@ type memRow struct {
 func NewMemoryOutbox() *MemoryOutbox { return &MemoryOutbox{rows: map[int64]*memRow{}} }
 
 func (m *MemoryOutbox) Add(_ context.Context, e Entry, reason, errText string) (int64, error) {
+	m.ins.RLock()
+	defer m.ins.RUnlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.next++
@@ -105,7 +109,7 @@ func (m *MemoryOutbox) Entries(_ context.Context, q OutboxQuery) ([]OutboxRow, e
 	defer m.mu.Unlock()
 	var ids []int64
 	for id, r := range m.rows {
-		if id <= q.AfterID || (q.OutcomesOnly && r.Entry.Op != "outcome") || (!q.Since.IsZero() && r.At.Before(q.Since)) {
+		if id <= q.AfterID || (q.OutcomesOnly && r.Entry.Op != "outcome") || (q.WithPaths && !CarriesPaths(r.Entry)) || (!q.Since.IsZero() && r.At.Before(q.Since)) {
 			continue
 		}
 		if len(q.States) > 0 {
@@ -135,4 +139,11 @@ func (m *MemoryOutbox) HighWater(_ context.Context) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.next, nil
+}
+
+// Quiesce holds off every Add while fn runs.
+func (m *MemoryOutbox) Quiesce(_ context.Context, fn func(OutboxReader) error) error {
+	m.ins.Lock()
+	defer m.ins.Unlock()
+	return fn(m)
 }

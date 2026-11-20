@@ -199,6 +199,94 @@ func TestTheOutboxCanBeQueriedForTheEffectGuard(t *testing.T) {
 	if one, _ := ob.Entries(ctx, core.OutboxQuery{Limit: 1}); len(one) != 1 {
 		t.Fatalf("%+v", one)
 	}
+	// WithPaths is core's carriesPaths in SQL: an effect that names paths, or is not an object; not no effect, no paths, null or empty paths
+	for name, tc := range map[string]struct {
+		body map[string]any
+		want bool
+	}{
+		"paths":             {map[string]any{"effect": map[string]any{"paths": []any{"a"}}}, true},
+		"effect not object": {map[string]any{"effect": "x"}, true},
+		"paths not a list":  {map[string]any{"effect": map[string]any{"paths": "a"}}, true},
+		"empty paths":       {map[string]any{"effect": map[string]any{"paths": []any{}}}, false},
+		"null paths":        {map[string]any{"effect": map[string]any{"paths": nil}}, false},
+		"no paths":          {map[string]any{"effect": map[string]any{"repo": "o/r"}}, false},
+		"null effect":       {map[string]any{"effect": nil}, false},
+		"no effect":         {map[string]any{"result": "ok"}, false},
+	} {
+		id, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-w", Body: tc.body}, "core-unavailable", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := ob.Entries(ctx, core.OutboxQuery{AfterID: id - 1, WithPaths: true})
+		if err != nil || (len(got) == 1) != tc.want {
+			t.Errorf("%s: %+v %v", name, got, err)
+		}
+		if (len(got) == 1) != core.CarriesPaths(core.Entry{Op: "outcome", Body: tc.body}) {
+			t.Errorf("%s: the SQL and the Go predicates disagree", name)
+		}
+	}
+}
+
+// Quiesce holds every Add off while fn runs, hands fn a reader on its own transaction, does not hold off the
+// outbox's other writes (Drain's Done), and lets the adds through on every path out of fn.
+func TestQuiesceHoldsOffAddsInPostgres(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3) // Quiesce's connection, the blocked add's and one for Done
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	first, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: map[string]any{"result": "ok"}}, "core-unavailable", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, fnErr := range map[string]error{"fn returns": nil, "fn fails": errors.New("boom")} {
+		entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		go func() {
+			done <- ob.Quiesce(ctx, func(r core.OutboxReader) error {
+				close(entered)
+				<-release
+				if hw, err := r.HighWater(ctx); err != nil || hw < first {
+					return fmt.Errorf("high water %d %v", hw, err)
+				}
+				if _, err := r.Entries(ctx, core.OutboxQuery{WithPaths: true}); err != nil {
+					return err
+				}
+				return fnErr
+			})
+		}()
+		<-entered
+		added := make(chan error, 1)
+		go func() {
+			_, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-2", Body: map[string]any{"result": "ok"}}, "core-unavailable", "")
+			added <- err
+		}()
+		select {
+		case <-added:
+			t.Fatalf("%s: an add went through while quiesced", name)
+		case <-time.After(300 * time.Millisecond):
+		}
+		// Drain's update of an existing row is not held off
+		dctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		if err := ob.Done(dctx, first, nil); err != nil {
+			t.Fatalf("%s: Done was held off: %v", name, err)
+		}
+		cancel()
+		close(release)
+		if err := <-done; err != fnErr {
+			t.Fatalf("%s: %v", name, err)
+		}
+		select {
+		case err := <-added:
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: the add was not let through after Quiesce", name)
+		}
+	}
 }
 
 func TestTheOutboxIsOrderedAndSurvivesARestart(t *testing.T) {
