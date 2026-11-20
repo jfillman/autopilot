@@ -609,7 +609,7 @@ def cfg_world(files, *, extra=None, entries=None, listing=True):
     return r
 
 
-def configure_case(name, values, files=None, *, env="dev", replace=None, why=None, world=None, args=None, prs=None, **kw):
+def configure_case(name, values, files=None, *, env="dev", replace=None, why=None, world=None, args=None, prs=None, commit_meta=None, **kw):
     """One airframe.configure case. `prs` is the state of the change's branch: (state, merged) of a pull request it already has."""
     a = {"app": "parachute", "env": env, "values": copy.deepcopy(values), **({"replace": replace} if replace is not None else {}), **(args or {})}
     py_b, go_b = cfg_branches("parachute", env, values if isinstance(values, dict) else {}, bool(replace))
@@ -625,7 +625,7 @@ def configure_case(name, values, files=None, *, env="dev", replace=None, why=Non
                 pulls[f"GET /repos/{APP_REPO}/git/ref/heads/{b}"] = jsr(200, {"object": {"sha": HEAD1}})
         routes = {**pulls, **routes}
         if prs:
-            routes.update(commit_route(APP_REPO, HEAD1, "t", PY_META))
+            routes.update(commit_route(APP_REPO, HEAD1, "t", commit_meta or PY_META))
             routes[f"GET /repos/{APP_REPO}/pulls/12/files?per_page=100"] = jsr(200, [{"filename": f"{CFG_ENVS}/dev.yaml"}])
     case, _ = record(name, "airframe.configure", a, routes, branch_names={py_b: go_b}, why=why, **kw)
     return case
@@ -640,13 +640,21 @@ def configure_cases():
     configure_case("a retry returns the pull request the first call opened", {"slos": [CFG_SLO]}, prs="open")
     configure_case("a retry returns the pull request though the file has changed on the base", {"slos": [CFG_SLO]}, with_slo, prs="open")
     configure_case("a retry returns the pull request though the base now conflicts with the patch", {"slos": [{**CFG_SLO, "objective": 99.0}]}, with_slo, prs="open")
-    configure_case("a retry returns a critical-risk pull request marked for a person",
-                   {"extraManifests": [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x"}}]}, prs="open")
+    # the head commit of a critical-risk PR carries the Hangar-Merge: person trailer it was made with, which the retry's ownership check reads
+    crit = {"extraManifests": [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x"}}]}
+    configure_case("a retry returns a critical-risk pull request marked for a person", crit, prs="open", commit_meta={**PY_META, "merge": "person"})
+    configure_case("a closed critical-risk pull request is reported, not refused as foreign", crit, prs="closed", commit_meta={**PY_META, "merge": "person"})
     configure_case("a pull request a person closed is not reopened", {"slos": [CFG_SLO]}, prs="closed")
     configure_case("a change merged and still there is a noop", {"slos": [CFG_SLO]}, with_slo, prs="merged")
     configure_case("a change merged and since undone is superseded", {"slos": [CFG_SLO]}, prs="merged")
     configure_case("a change merged and since set another way is superseded, not a conflict", {"slos": [CFG_SLO]},
                    {f"{CFG_ENVS}/dev.yaml": CFG_DEV + yaml.safe_dump({"slos": [{**CFG_SLO, "objective": 90.0}]})}, prs="merged")
+    configure_case("a change merged and the environment's file has since been deleted is superseded", {"slos": [CFG_SLO]},
+                   {f"{CFG_ENVS}/staging.yaml": "envName: staging\n"}, prs="merged")
+    configure_case("a patch that changes nothing is a noop even when the file is invalid elsewhere", {"rollout": {"replicas": 2}},
+                   {f"{CFG_ENVS}/dev.yaml": CFG_DEV + "autoscaling: 5\n"})
+    configure_case("a listing that may have been cut at 500 entries is refused", {"slos": [CFG_SLO]}, dev,
+                   world=cfg_world(dev, entries=[(f"f{i}.yaml", "file") for i in range(500)]))
     other = {**CFG_SLO, "name": "errors"}
     configure_case("a second SLO is appended by name", {"slos": [other]}, with_slo)
     configure_case("the same SLO again changes nothing", {"slos": [CFG_SLO]}, with_slo)

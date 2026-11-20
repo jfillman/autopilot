@@ -221,33 +221,34 @@ func (g *GitHub) ReadFileAt(ctx context.Context, repo, path, ref string) (map[st
 	return g.readWith(ctx, token, owner, name, path, ref)
 }
 
-// BaseSHAIn is base_sha: the commit the repository's default branch is at now. A caller that reads files at it (ReadFileAt) and passes
-// it as OpenPRInput.BaseSHA builds its branch on exactly what it read.
-func (g *GitHub) BaseSHAIn(ctx context.Context, repo string) (string, error) {
+// BaseSHAIn is base_sha: the default branch and the commit it is at now. A caller that reads files at it (ReadFileAt) and passes both as
+// OpenPRInput.Base and BaseSHA builds its branch on exactly what it read, for the branch it read: if the default branch is another one
+// by the time the PR is made, EnsurePR refuses (GH-BASE) instead of opening a PR against it for a branch built on the old one.
+func (g *GitHub) BaseSHAIn(ctx context.Context, repo string) (base, sha string, err error) {
 	owner, name, err := g.SplitRepo(repo)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	token, err := g.mintFor(ctx, owner, name, false)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	base, err := g.defaultBranch(ctx, token, owner, name)
+	base, err = g.defaultBranch(ctx, token, owner, name)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	status, ref, err := g.gh(ctx, token, ghReq{ep: epGetRef, owner: owner, name: name, branch: base})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if status != 200 {
-		return "", ghErrorOf("base "+base, status, ref, "message")
+		return "", "", ghErrorOf("base "+base, status, ref, "message")
 	}
 	sha, ok := shaAt(ref, "object", "sha")
 	if !ok {
-		return "", badAnswer("base " + base)
+		return "", "", badAnswer("base " + base)
 	}
-	return sha, nil
+	return base, sha, nil
 }
 
 // XRCommit is one xr.request: the request already built (airframe.BuildXR) and who asks.

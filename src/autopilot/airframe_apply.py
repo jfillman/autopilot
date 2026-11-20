@@ -346,6 +346,7 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
 # meaning for a patch to an existing file; a person changes those files).
 
 MAX_ENV_FILES = 60
+MAX_LISTING = 500       # what the git adapters return of a directory
 APP_NAME = re.compile(r"[a-z][a-z0-9-]{1,38}[a-z0-9]")
 ENV_NAME = re.compile(r"[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?")
 
@@ -449,6 +450,11 @@ def _find_env_file(git: Any, repo: str, env: str, ref: str = "main") -> tuple[st
     if listing.get("found", True) is False or listing.get("type") != "dir":
         raise Denied("CONFIGURE-NO-ENV", f"{repo} has no {airframe_plan.ENVS_DIR}/ directory: {env} is not a static lower environment of this app",
                      _flight_hint(repo, env))
+    if len(listing.get("entries") or []) >= MAX_LISTING:
+        # the adapter returns at most 500 entries and GitHub caps a listing too: past this the list may be cut, and a second file for
+        # the same environment could be past the cut
+        raise Denied("CONFIGURE-TOO-MANY", f"{repo}'s {airframe_plan.ENVS_DIR}/ lists {MAX_LISTING} entries or more: the listing may be incomplete",
+                     "A person changes it.")
     names = sorted((e["name"] for e in listing.get("entries") or []
                     if e.get("type") == "file" and isinstance(e.get("name"), str) and e["name"].endswith((".yaml", ".yml"))),
                    key=lambda n: (n not in (f"{env}.yaml", f"{env}.yml"), n))
@@ -498,6 +504,23 @@ def _merged(git: Any, repo: str, env: str, sha: str, values: dict, replace: bool
     return path, text, have, _merge_values(have, values, "", conflicts, replaced, replace), conflicts, replaced
 
 
+def _merged_outcome(git: Any, repo: str, env: str, out: dict, number: Any, values: dict, replace: bool) -> dict[str, Any]:
+    """The PR of this change was merged: against a FRESH read of the base (never a snapshot from before the merge), the file either
+    holds the change (noop) or does not (CONFIGURE-SUPERSEDED, also when the environment's file is gone)."""
+    try:
+        path, _, have, merged, conflicts, _ = _merged(git, repo, env, git.base_sha(repo), values, replace)
+    except Denied as e:
+        if e.rule != "CONFIGURE-NO-ENV":
+            raise
+        raise Denied("CONFIGURE-SUPERSEDED", f"PR #{number} with this exact change was merged, and {repo} has no file for {env} any more",
+                     "Someone changed the file since. Change the patch, or ask a person.") from e
+    if not conflicts and merged == have:
+        return {**out, "path": path, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
+                "next": "Nothing to change; the file already has them."}
+    raise Denied("CONFIGURE-SUPERSEDED", f"PR #{number} with this exact change was merged, and {path} no longer holds it",
+                 "Someone changed the file since. Change the patch, or ask a person.")
+
+
 def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any],
               deny_paths: Any = None) -> dict[str, Any]:
     """airframe.configure: see the section comment. One PR per call; the same call again returns that PR.
@@ -531,12 +554,7 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
     out: dict[str, Any] = {"app": app, "env": env, "repo": repo}
     found = git.find_pr(repo, branch)
     if found is not None and found["state"] == "merged":
-        path, _, have, merged, conflicts, _ = _merged(git, repo, env, git.base_sha(repo), values, replace)
-        if not conflicts and merged == have:
-            return {**out, "path": path, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
-                    "next": "Nothing to change; the file already has them."}
-        raise Denied("CONFIGURE-SUPERSEDED", f"PR #{found['pr']} with this exact change was merged, and {path} no longer holds it",
-                     "Someone changed the file since. Change the patch, or ask a person.")
+        return _merged_outcome(git, repo, env, out, found["pr"], values, replace)
     if found is not None:
         out.update(pr=found["pr"], url=found["url"], branch=found["branch"], commit=found["commit"], resumed=True)
         if found["state"] == "closed":
@@ -557,13 +575,13 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
     if conflicts:
         raise Denied("CONFIGURE-CONFLICT", f"{repo} {path} already sets {', '.join(sorted(conflicts))} to a different value than the patch",
                      "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way).")
+    if merged == have:      # nothing to write: no full-file check (the file may be invalid elsewhere, which is not this patch's)
+        return {**out, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
+                "next": "Nothing to change; the file already has them."}
     after = _chart_errors(merged)
     if after:
         raise Denied("CONFIGURE-MERGED", f"{path} would not validate against the chart values schema after this change: {after[0]}",
                      "Fix the patch, or have a person fix the file first.")
-    if merged == have:
-        return {**out, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
-                "next": "Nothing to change; the file already has them."}
     deny = list(BASELINE_DENY_PATHS if deny_paths is None else deny_paths)
     if path_violations([path], deny):
         raise Denied("GH-PATH", f"{path!r} is a protected path",
@@ -575,8 +593,7 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
                        body=configure_body(app, env, path, values, sorted(replaced), person, bool(_chart_errors(have))),
                        base_sha=sha)
     if pr.get("state") == "merged":
-        raise Denied("CONFIGURE-SUPERSEDED", f"PR #{pr['pr']} with this exact change was merged, and {path} no longer holds it",
-                     "Someone changed the file since. Change the patch, or ask a person.")
+        return _merged_outcome(git, repo, env, {k: v for k, v in out.items() if k != "path"}, pr["pr"], values, replace)
     out.update(pr=pr["pr"], url=pr["url"], branch=pr["branch"], commit=pr["commit"], resumed=bool(pr.get("resumed")))
     if pr.get("state") == "closed":
         return {**out, "state": "closed", "paths": [],

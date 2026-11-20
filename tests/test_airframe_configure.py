@@ -409,3 +409,43 @@ def test_the_gateway_hands_configure_the_calling_agents_deny_paths():
     assert _deny_paths(defs, SimpleNamespace(agent="a")) == (".github/**", "glidepath/**")
     assert _deny_paths(defs, SimpleNamespace(agent="unknown")) is None, "the baseline applies"
     assert _deny_paths(None, SimpleNamespace(agent="a")) is None
+
+
+# -- CodeRabbit round 2 ----------------------------------------------------------------------------------------------------------
+def test_a_patch_that_changes_nothing_is_a_noop_even_if_the_file_is_invalid_elsewhere(git, hub):
+    hub.repos[APP]["main"][PATH] = DEV + "autoscaling: 5\n"
+    out = configure(git, values={"rollout": {"replicas": 2}})
+    assert out["state"] == "noop" and hub.prs == {}
+    assert refused(git).rule == "CONFIGURE-MERGED", "a write still validates the whole file"
+
+
+def test_a_listing_that_may_have_been_cut_is_refused(git, hub):
+    for i in range(500):
+        hub.repos[APP]["main"][f"glidepath/envs/f{i}.yaml"] = f"envName: e{i}\n"
+    assert refused(git).rule == "CONFIGURE-TOO-MANY"
+    assert hub.prs == {}
+
+
+def test_a_merged_change_whose_environment_file_was_deleted_is_superseded_not_no_env(git, hub):
+    first = configure(git)
+    hub.merge(APP, first["pr"])
+    del hub.repos[APP]["main"][PATH]
+    hub.repos[APP]["main"]["glidepath/envs/staging.yaml"] = "envName: staging\n"
+    assert refused(git).rule == "CONFIGURE-SUPERSEDED"
+    assert refused(git, env="test").rule == "CONFIGURE-NO-ENV", "a new request keeps NO-ENV"
+
+
+def test_a_merged_pr_found_by_the_second_lookup_is_judged_against_a_fresh_base(git, hub):
+    """Another identical call opened and merged the PR after this call's first lookup: the base is re-read, not the old snapshot."""
+    first = configure(git)
+    hub.merge(APP, first["pr"])                 # the file on main now holds the change
+    real = git.find_pr
+    git.find_pr = lambda *a, **k: None          # this call's first lookup came before the PR existed
+    try:
+        out = configure(git)
+    finally:
+        git.find_pr = real
+    assert out["state"] == "noop", "the merge is on the base: not CONFIGURE-SUPERSEDED"
+    hub.repos[APP]["main"][PATH] = DEV
+    git.find_pr = lambda *a, **k: None
+    assert refused(git).rule == "CONFIGURE-SUPERSEDED"
