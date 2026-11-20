@@ -142,7 +142,8 @@ def validate(glidepath: Any, principal: str, a: dict[str, Any]) -> Any:
     return glidepath.validate_cicd(a["app"], body, principal)
 
 
-def propose(git: Any, glidepath: Any, session: Any, meta: dict[str, str], a: dict[str, Any]) -> dict[str, Any]:
+def propose(git: Any, glidepath: Any, session: Any, meta: dict[str, str], a: dict[str, Any],
+            deny_paths: Any = None) -> dict[str, Any]:
     app, repo = a["app"], a["repo"]
     if not repo_is_apps(repo, app):
         raise Denied("GP-CICD-REPO", f"{repo} is not where {app}'s cicd.yaml lives",
@@ -164,7 +165,8 @@ def propose(git: Any, glidepath: Any, session: Any, meta: dict[str, str], a: dic
     needs = needs_person(verdict)
     if getattr(git, "takes_meta", False):
         pr_meta = {**meta, "merge": MERGE_PERSON} if needs else meta
-        pr = git.open_pr(repo, branch, a["title"].strip(), files, "main", meta=pr_meta, body=pr_body(verdict, a.get("body")))
+        pr = git.open_pr(repo, branch, a["title"].strip(), files, "main", meta=pr_meta, body=pr_body(verdict, a.get("body")),
+                          deny_paths=deny_paths)
     else:
         pr = git.open_pr(repo, branch, a["title"].strip(), files, "main")
     out = {**pr, "repo": repo, "paths": ["cicd.yaml"], "summary": verdict.get("summary"),

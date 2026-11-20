@@ -760,6 +760,10 @@ def repo_cases():
 
 # -- refusals before any request --------------------------------------------------------------------------------------
 
+SHARED_FILE_REFUSALS = ("a protected path", "CODEOWNERS in any case", "a path that is not normal", "a path with ..", "an absolute path", "a path with a newline", "a protected directory with a newline in a name",
+                       "a name read as another (colon)", "a name read as another (trailing space)", "a name read as another (short name)")
+
+
 def refusal_cases():
     R = "o/gate-api"
     for repo in ["gate-api", "o/", "/gate-api", "o/gate/api", "o/../x", "o/.", "o/g a", "o/g\n", "", "o/" + "x" * 101, "o\\x/y", "o/g;x", "o/g%2e"]:
@@ -797,9 +801,17 @@ def refusal_cases():
         ("an absolute path", [{"path": "/etc/x", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
         ("a .git component", [{"path": "x/.git/config", "content": "x"}], {"rule": "GH-FILES", "message": "a path may not hold a .git component", "hint": "Fix the files list."}),
         ("a path named twice", [{"path": "a", "content": "x"}, {"path": "A", "content": "y"}], {"rule": "GH-FILES", "message": "a path is named twice", "hint": "Fix the files list."}),
+        ("a protected directory with a newline in a name", [{"path": ".github/a\nb.yml", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
+        ("a name read as another (colon)", [{"path": "docs/.github::$DATA", "content": "x"}], {"rule": "GH-PATH", "message": "'docs/.github::$DATA' has a name a file system reads as another name", "hint": "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}),
+        ("a name read as another (trailing space)", [{"path": ".github /x", "content": "x"}], {"rule": "GH-PATH", "message": "'.github /x' has a name a file system reads as another name", "hint": "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}),
+        ("a name read as another (short name)", [{"path": "GITHUB~1/x", "content": "x"}], {"rule": "GH-PATH", "message": "'GITHUB~1/x' has a name a file system reads as another name", "hint": "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}),
         ("a path with a newline", [{"path": "a\nb", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
         ("more than 8 MiB in all", [{"path": f"f{i}", "content": "x" * (1 << 20)} for i in range(9)], {"rule": "GH-FILES", "message": "a PR carries at most 8 MiB of files in total", "hint": "Split the change."}),
     ):
+        if name in SHARED_FILE_REFUSALS:
+            # I-48: Python refuses these too now (github_pr.check_deny_paths), with the same rule, message and hint and no request
+            run_case(f"refusal: {name}", "repo.pr.open", pr_args(files=files), gh_routes())
+            continue
         run_case(f"Go-only refusal: {name}", "repo.pr.open", pr_args(files=files), gh_routes(), **go_denied(d, why=why))
     for name, branch, base in (("main", "main", "main"), ("the base", "agent/x", "agent/x"), ("master", "Master", "main"), ("refs/", "refs/heads/x", "main"),
                                ("HEAD", "HEAD", "main"), ("release", "release", "main"), ("a leading dash", "-x", "main"), ("a dot component", "a/.b", "main"),
@@ -859,7 +871,7 @@ def cicd_cases():
     run_case("a ./cicd.yaml is validated", "repo.pr.open", pr_args(files=[{"path": "./cicd.yaml", "content": "a: 1"}]), routes)
     CASES[-1]["go"] = {"denied": {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."},
                        "requests": []}
-    CASES[-1]["why"] = "Go refuses a path that is not normal before any request (Python writes it as it is)"
+    CASES[-1]["why"] = "Go refuses a path that is not normal before any request (Python refuses it too now, in open_pr, but only after glidepath-api has answered about the cicd.yaml)"
     run_case("a gitops repo's cicd.yaml is not validated", "repo.pr.open_upper", pr_args(repo="o/gitops-gate-api", files=[cy]),
              {**routes, **gh_routes("o/gitops-gate-api")})
     run_case("the infra repo's cicd.yaml is validated", "repo.pr.open_upper", pr_args(repo="o/gitops-infra-gate-api", files=[cy]),

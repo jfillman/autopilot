@@ -52,7 +52,7 @@ def _glob_body(glob: str) -> str:
 def glob_to_regex(glob: str) -> re.Pattern[str]:
     """`**` crosses directories, `*` and `?` do not; a bare name matches at any depth
     only if written with a leading `**/`."""
-    return re.compile("^" + _glob_body(glob) + "$")
+    return re.compile("^" + _glob_body(glob) + "$", re.DOTALL)
 
 
 @lru_cache(maxsize=512)
@@ -60,7 +60,7 @@ def pointer_glob_to_regex(glob: str) -> re.Pattern[str]:
     """Like glob_to_regex, but also matches any deeper JSON pointer under the pattern - a
     deny of `/release` must also catch a change at `/release/image/tag`, not just an
     exact-length match (AF-9a)."""
-    return re.compile("^" + _glob_body(glob) + "(?:/.*)?$")
+    return re.compile("^" + _glob_body(glob) + "(?:/.*)?$", re.DOTALL)
 
 
 def path_violations(paths: list[str], deny_globs: list[str]) -> list[str]:
@@ -75,6 +75,35 @@ def path_violations(paths: list[str], deny_globs: list[str]) -> list[str]:
         if any(glob_to_regex(g).match(n) for g in deny_globs):
             bad.append(p)
     return bad
+
+
+# _glob_body treats only `*` and `?` as wildcards (`[` is a literal), so the ancestor test below must use the same rule.
+def _ancestor_of_denied(p: str, deny: list[str]) -> bool:
+    """A proper ancestor of what a deny glob names by its literal leading directories: a blob written at `deploy` replaces
+    the directory and takes `deploy/prod/values.yaml` with it. Without case. (Go: ancestorOfDenied.)"""
+    segs = p.lower().split("/")
+    for g in deny:
+        gs = g.lower().split("/")
+        lit = 0
+        while lit < len(gs) and not any(c in gs[lit] for c in "*?"):
+            lit += 1
+        bound = lit - 1 if lit == len(gs) else lit    # fully literal: only a proper ancestor, the path itself matches on its own
+        if len(segs) <= bound and segs == gs[:len(segs)]:
+            return True
+    return False
+
+
+def _denied(norm: str, deny: list[str]) -> bool:
+    low = norm.lower()
+    return any(glob_to_regex(g).match(norm) or glob_to_regex(g.lower()).match(low) for g in deny)
+
+
+def path_protected(norm: str, deny: list[str]) -> bool:
+    """Whether deny names a normalised path, a directory or file it would take the place of, or a file it would be written
+    under (`CODEOWNERS/x` replaces `CODEOWNERS`): the check Go's EnsurePR makes of every file (pathProtected). Without case."""
+    segs = norm.split("/")
+    return (_denied(norm, deny) or _denied(norm + "/x", deny) or _ancestor_of_denied(norm, deny)
+            or any(_denied("/".join(segs[:i]), deny) for i in range(1, len(segs))))
 
 
 def repo_allowed(repo: str, allow: list[str]) -> bool:

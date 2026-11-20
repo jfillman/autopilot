@@ -106,10 +106,12 @@ def hangar_handlers(b: Backends, definitions: Any = None) -> dict[str, Handler]:
     h = core_handlers(git=b.git, argo=b.argo, read=b.read, human=b.human, artifacts=b.artifacts)
     if b.git is not None and getattr(b.git, "takes_meta", False):
         # The real adapter (github_pr.GitHubPRs) records who opened the PR in its commit trailer and body.
+        # Every file is checked against the calling agent's denyPaths (the baseline where the definition is not known) before
+        # any request, as Go's EnsurePR does (github_pr.check_deny_paths).
         h["repo.pr.open"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
-                                                       a.get("base", "main"), meta=pr_meta(s))
+                                                       a.get("base", "main"), meta=pr_meta(s), deny_paths=_deny_paths(definitions, s))
         h["repo.pr.open_upper"] = lambda s, a: b.git.open_pr(a["repo"], a["branch"], a["title"], a["files"],
-                                                             a.get("base", "main"), meta=pr_meta(s))
+                                                             a.get("base", "main"), meta=pr_meta(s), deny_paths=_deny_paths(definitions, s))
         # xr.request: one new file in the tenants repo's tenants/<app>/xr-requests/ (xr_request.py), the same trailer.
         h["xr.request"] = lambda s, a: b.git.commit_xr(a["app"], a["env"], a["kind"], a["spec"], a.get("name"),
                                                        meta=pr_meta(s))
@@ -151,7 +153,8 @@ def hangar_handlers(b: Backends, definitions: Any = None) -> dict[str, Handler]:
         "glidepath.rollback": lambda s, a: _rollback(b, s, a),
         # A cicd.yaml change (cicd_propose.py): the verdict glidepath-api gives it, and the PR a clean one becomes.
         "glidepath.cicd.validate": lambda s, a: cicd_propose.validate(b.glidepath, s.principal, a),
-        "glidepath.cicd.propose": lambda s, a: cicd_propose.propose(b.git, b.glidepath, s, pr_meta(s), a),
+        "glidepath.cicd.propose": lambda s, a: cicd_propose.propose(b.git, b.glidepath, s, pr_meta(s), a,
+                                                                deny_paths=_deny_paths(definitions, s)),
         "airframe.capabilities": lambda s, a: b.airframe.capabilities(a.get("kind"), a.get("section")),
         "airframe.validate": lambda s, a: b.airframe.validate(a["documents"], a.get("app"), a.get("mode", "values"),
                                                               a.get("render", True)),
@@ -163,7 +166,8 @@ def hangar_handlers(b: Backends, definitions: Any = None) -> dict[str, Handler]:
     })
     if b.git is not None and hasattr(b.git, "ensure_pr") and b.airframe is not None and hasattr(b.airframe, "changeset"):
         # airframe.apply: PRs through the GitBackend's resumable adapter (github_pr.GitHubPRs), as the agents' App.
-        h["airframe.apply"] = lambda s, a: airframe_apply.apply(b.git, b.glidepath, b.airframe, s, pr_meta(s), a)
+        h["airframe.apply"] = lambda s, a: airframe_apply.apply(b.git, b.glidepath, b.airframe, s, pr_meta(s), a,
+                                                         deny_paths=_deny_paths(definitions, s))
         # configure's one file is checked against the calling agent's denyPaths (the baseline where the definition is not known)
         h["airframe.configure"] = lambda s, a: airframe_apply.configure(
             b.git, b.airframe, s, pr_meta(s), a, deny_paths=_deny_paths(definitions, s))

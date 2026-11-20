@@ -525,6 +525,12 @@ never reopened or replaced. The adapter sends only GETs and the POSTs that creat
 merge, review, workflow dispatch, update, delete or push to an existing branch
 (`tests/test_airframe_apply.py` reads every request of a whole run, and the module source, for that).
 
+**Protected paths.** Every file a PR carries is checked against the calling agent's `denyPaths` (the baseline always included, and alone
+where the definition is not known) before anything is written: `GH-PATH` "`'<path>' is a protected path`", for the path, a directory or file it
+would take the place of, or a file it would be written under, without case, as Go's `EnsurePR` does. The one check
+(`github_pr.check_deny_paths`, in `open_pr` and `ensure_pr`) covers `airframe.apply`, `airframe.configure`, `repo.pr.open`,
+`glidepath.cicd.propose` and `xr.request` (`tests/test_denypaths_pr.py`).
+
 The definition is `agents/parachute.yaml` (tierCeiling T1; `airframe.apps: [parachute]`, so R023 refuses a spec for any
 other app; `repos.allow` is the two repos apply writes, which the agent-scope gate holds each PR to). `examples/parachute.appspec.yaml`
 is the intent; `examples/parachute-bad.appspec.yaml` is the seeded bad run (a value the chart rejects: `AF-SPEC-001`, nothing opened).
