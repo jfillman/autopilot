@@ -660,3 +660,30 @@ def test_the_worked_example_is_a_valid_appspec_the_planner_accepts():
     cs, answer = at.fake_airframe().changeset(spec)
     assert cs is not None, answer
     assert any("rollout" in json.dumps(f.content) for s in cs.steps for f in s.files), "the rollout reaches the plan"
+
+
+def test_a_failing_kind_does_not_change_how_many_lists_are_read():
+    """_xrs_in reads every kind's list before it raises the first failure in plural order, whatever the threads' timing (ex.map
+    cancelled the lists not yet started, so the number of reads made varied run to run, and so did the generated fixture)."""
+    plurals = sorted({x["plural"] for x in at.CONTRACT["xrds"].values() if x.get("group") == "catalog.hangar.io"})
+    boom = plurals[1]
+    lock = threading.Lock()
+
+    class Kube:
+        def __init__(self):
+            self.seen = []
+
+        def list(self, path, label_selector=None):
+            last = path.rsplit("/", 1)[-1]
+            with lock:
+                self.seen.append(last)
+            if last in (boom, plurals[3]):
+                raise AirframeError("failed " + last)
+            return []
+
+    for _ in range(40):
+        kube = Kube()
+        tools = at.AirframeTools(kube, None, REG, cluster="hangar-dev", workers=2)
+        with pytest.raises(AirframeError, match="failed " + boom):
+            tools._xrs_in("app-x-cicd")
+        assert sorted(kube.seen) == plurals
