@@ -1,6 +1,6 @@
 {
  "_": "Written by tools/gen_gateway_ported.py; do not edit by hand. Each ported Python file's SHA-256 is the one it had when the Go gateway was last brought level with it. tests/test_gateway_go.py fails when one differs: port the change to Go (or read it and confirm it does not touch what the Go gateway carries), then re-run the tool.",
- "level_with": "37d222c21d8332cd64af625a808e24a1d075ceb7",
+ "level_with": "0fdfe75af61d80f1ad83e10ddf1593f74af00e46",
  "ported": {
   "src/autopilot/agent_xrs.py": {
    "sha256": "eb34c866e9bc1c95d150616620a273957aa21b569a095a874a1ae29fc9e04a50",
@@ -20,7 +20,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/airframe_apply.py": {
-   "sha256": "c7d1d71d4572cc7c9a4acdc3747c964d661feb5722333b414ef1e7536813a131",
+   "sha256": "e8ee2a041aa7d52dc8f02c268b2ef2b378bf54f0df1ce1eb4cc181c71a357e05",
    "go": [
     "gateway/internal/backends"
    ],
@@ -61,7 +61,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/cicd_propose.py": {
-   "sha256": "20b3bc16672b6beb14925b9a29ac168c6d7f78d35f5fe6210745a83fa9f5f82c",
+   "sha256": "903e08287a76f38bbd57e80710ce18a474bc518ddd90b757e9b82722d947ce46",
    "go": [
     "gateway/internal/backends"
    ],
@@ -209,7 +209,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/engine/scope.py": {
-   "sha256": "39910c51096008cd718595d04aedc40ba3e0b0a4a199420466646d40db37e522",
+   "sha256": "5632714dba5f0bb102cd86d54def349491ed4fe11749b8e72c3a76206b44e9a5",
    "go": [
     "gateway/internal/dispatch",
     "gateway/internal/backends"
@@ -260,7 +260,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/gateway.py": {
-   "sha256": "e7fa730bda6377d86d263a850e8b2c6af01131638a580ff4a78330baf5199d3e",
+   "sha256": "a22bbbc2b844b65c79af69c4354b4c071f55808dc6ab673faa8b50ffc7572055",
    "go": [
     "gateway/internal/backends",
     "gateway/internal/runs",
@@ -270,7 +270,7 @@
    "left_for_later_slices": ""
   },
   "src/autopilot/github_pr.py": {
-   "sha256": "c0acb3ac05c735cb385421f4d31ba154061c17d91e09c832c4cd64eaf78b7457",
+   "sha256": "f308d082271de886ca37fa826e2dd909202a13806ae3f0a9b083d8d1ef1212ba",
    "go": [
     "gateway/internal/backends"
    ],

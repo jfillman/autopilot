@@ -176,7 +176,7 @@ def test_the_t1_write_handlers_carry_the_sessions_identity():
     class Git:
         takes_meta = True
 
-        def open_pr(self, repo, branch, title, files, base="main", meta=None):
+        def open_pr(self, repo, branch, title, files, base="main", meta=None, deny_paths=None):
             seen["pr"] = (repo, meta)
             return {"pr": 1}
 

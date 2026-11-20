@@ -39,6 +39,8 @@ from typing import Any, Callable
 
 from .engine.backends import BackendError
 from .engine.dispatch import Denied
+from .engine.profile import BASELINE_DENY_PATHS
+from .engine.scope import BadPath, normalize, path_protected
 
 GITHUB_API = "https://api.github.com"
 BROKER_URL = "http://cdevents-broker-auth.platform-system.svc:8080"
@@ -46,6 +48,24 @@ _SEG = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 _BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 MAX_FILES = 50
 MAX_FILE_BYTES = 1 << 20
+
+
+def check_deny_paths(files: list[dict], deny_paths: Any = None) -> None:
+    """Refuse a PR that writes a protected path: the check Go's EnsurePR makes (GH-PATH), before any request. deny_paths is
+    the calling agent's definition's list; the baseline always applies, so a caller that has no definition (None) gets it alone."""
+    deny = list(dict.fromkeys((*BASELINE_DENY_PATHS, *(deny_paths or ()))))
+    for f in files:
+        path = f.get("path") if isinstance(f, dict) else None
+        if not isinstance(path, str):
+            continue                    # open_pr refuses it as a bad file
+        try:
+            if normalize(path) != path:
+                raise BadPath(path)
+        except BadPath:
+            raise Denied("GH-FILES", "each file needs a normal repository path and text content under 1 MiB", "Fix the files list.") from None
+        if path_protected(path, deny):
+            raise Denied("GH-PATH", f"{path[:100]!r} is a protected path",
+                         "An agent does not change protected paths (CI, ownership, release files); ask a person.")
 
 
 REASON_MAX = 300
@@ -155,7 +175,8 @@ class GitHubPRs:
     # -- GitBackend -----------------------------------------------------------------------------------------------
     def open_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
                 meta: dict[str, str] | None = None, body: str | None = None, *, token_app: str | None = None,
-                token: str | None = None, tenants: bool = False, base_sha: str | None = None) -> dict[str, Any]:
+                token: str | None = None, tenants: bool = False, base_sha: str | None = None,
+                deny_paths: Any = None) -> dict[str, Any]:
         owner, name = _split(repo)
         for b in (branch, base):
             if not _BRANCH.match(b or "") or ".." in b or b.startswith("/") or b.endswith((".lock", "/")):
@@ -167,6 +188,7 @@ class GitHubPRs:
             path, content = f.get("path"), f.get("content")
             if not isinstance(path, str) or not isinstance(content, str) or len(content.encode()) > MAX_FILE_BYTES:
                 raise Denied("GH-FILES", "each file needs a path and text content under 1 MiB", "Fix the files list.")
+            check_deny_paths([f], deny_paths)
             entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
         meta = meta or {}
         token = token or self._installation_token(owner, name, token_app, tenants=tenants)
@@ -291,12 +313,14 @@ class GitHubPRs:
 
     def ensure_pr(self, repo: str, branch: str, title: str, files: list[dict], base: str = "main",
                   meta: dict[str, str] | None = None, body: str | None = None, *, tenants: bool = False,
-                  base_sha: str | None = None) -> dict[str, Any]:
+                  base_sha: str | None = None, deny_paths: Any = None) -> dict[str, Any]:
         """open_pr that survives an interruption: the PR this branch already has is returned (`resumed`), a branch
         left without its PR (the call died between the ref and the pull request) gets the PR, once its files are
         checked to be the ones asked for, and only a branch that does not exist is built from the base as open_pr
-        does. Nothing is ever pushed to or forced on an existing branch."""
+        does. Nothing is ever pushed to or forced on an existing branch. deny_paths (the agent definition's, with the baseline
+        always) is checked before any request, so a protected path is refused before a token is asked for."""
         owner, name = _split(repo)
+        check_deny_paths(files, deny_paths)
         token = self._installation_token(owner, name, tenants=tenants)
         found = self._pr_of(token, owner, name, branch)
         if found is not None:
@@ -313,7 +337,8 @@ class GitHubPRs:
                     "commit": (ref.get("object") or {}).get("sha"), "state": "open", "resumed": True}
         if status != 404:
             raise GitHubError.of("ref", status, ref)
-        return {**self.open_pr(repo, branch, title, files, base, meta=meta, body=body, token=token, base_sha=base_sha), "state": "open",
+        return {**self.open_pr(repo, branch, title, files, base, meta=meta, body=body, token=token, base_sha=base_sha,
+                              deny_paths=deny_paths), "state": "open",
                 "resumed": False}
 
     def _text_at(self, token: str, owner: str, name: str, path: str, ref: str) -> str | None:

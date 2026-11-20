@@ -69,7 +69,7 @@ class MetaGit:
     def __init__(self):
         self.calls = []
 
-    def open_pr(self, repo, branch, title, files, base, meta=None, body=None):
+    def open_pr(self, repo, branch, title, files, base, meta=None, body=None, deny_paths=None):
         self.calls.append({"repo": repo, "branch": branch, "meta": meta, "body": body, "files": files})
         return {"pr": 5, "url": "u", "branch": branch, "commit": "a" * 40}
 

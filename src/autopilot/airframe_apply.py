@@ -50,8 +50,7 @@ import yaml
 
 from . import airframe_plan
 from .engine.dispatch import Denied
-from .engine.profile import BASELINE_DENY_PATHS
-from .engine.scope import path_violations
+from .github_pr import check_deny_paths
 
 TENANTS = "tenants"
 APP_REPO = "app-repo"
@@ -187,7 +186,8 @@ def _body(step: Any, cs: Any, verdict: dict | None, person: bool = False) -> str
     return "\n".join(lines)
 
 
-def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any]) -> dict[str, Any]:
+def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str, str], a: dict[str, Any],
+          deny_paths: Any = None) -> dict[str, Any]:
     # proposeFlight is the caller's ask; the Clearance core refuses it (R025) for a definition that does not set
     # profile.airframe.proposeFlight, before this runs. Only a literal true counts.
     propose_flight = a.get("proposeFlight") is True
@@ -304,7 +304,7 @@ def apply(git: Any, glidepath: Any, airframe: Any, session: Any, meta: dict[str,
         # A Flight-half PR is marked for a person to merge: the trailer rides in the commit, the receipt in the result.
         person = flight or bool(verdict and verdict.get("needsPerson"))
         pr = git.ensure_pr(repo, branch, st.title, files, "main", meta={**meta, "merge": MERGE_PERSON} if person else meta,
-                           body=_body(st, cs, verdict, person), tenants=tenants)
+                           body=_body(st, cs, verdict, person), tenants=tenants, deny_paths=deny_paths)
         row.update(status="awaiting-merge" if person else "open", pr=pr["pr"], url=pr["url"])
         if person:
             row["mergeBy"] = MERGE_PERSON
@@ -595,16 +595,13 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
     if after:
         raise Denied("CONFIGURE-MERGED", f"{path} would not validate against the chart values schema after this change: {after[0]}",
                      "Fix the patch, or have a person fix the file first.")
-    deny = list(BASELINE_DENY_PATHS if deny_paths is None else deny_paths)
-    if path_violations([path], deny):
-        raise Denied("GH-PATH", f"{path!r} is a protected path",
-                     "An agent does not change protected paths (CI, ownership, release files); ask a person.")
+    check_deny_paths([{"path": path}], deny_paths)      # the check ensure_pr makes again of every file it writes
     new_text = _header(text) + yaml.safe_dump(merged, sort_keys=False)
     title = f"{app} {env}: set {', '.join(list(values)[:4])}"
     pr = git.ensure_pr(repo, branch, title, [{"path": path, "content": new_text}], "main",
                        meta={**meta, "merge": MERGE_PERSON} if person else meta,
                        body=configure_body(app, env, path, values, sorted(replaced), person, bool(_chart_errors(have))),
-                       base_sha=sha)
+                       base_sha=sha, deny_paths=deny_paths)
     if pr.get("state") == "merged":
         return _merged_outcome(git, repo, env, {k: v for k, v in out.items() if k != "path"}, pr["pr"], values, replace)
     out.update(pr=pr["pr"], url=pr["url"], branch=pr["branch"], commit=pr["commit"], resumed=bool(pr.get("resumed")))

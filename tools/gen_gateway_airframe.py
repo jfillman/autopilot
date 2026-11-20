@@ -97,9 +97,9 @@ def _seg_wrap(cls):
         def base_sha(self, repo, base="main", *, tenants=False):
             return self._seg("base_sha", {"repo": repo, "tenants": tenants}, lambda: super(Rec, self).base_sha(repo, base, tenants=tenants))
 
-        def ensure_pr(self, repo, branch, title, files, base="main", meta=None, body=None, *, tenants=False, base_sha=None):
+        def ensure_pr(self, repo, branch, title, files, base="main", meta=None, body=None, *, tenants=False, base_sha=None, deny_paths=None):
             return self._seg("ensure_pr", {"repo": repo, "branch": branch, "files": files, "tenants": tenants},
-                             lambda: super(Rec, self).ensure_pr(repo, branch, title, files, base, meta=meta, body=body, tenants=tenants, base_sha=base_sha))
+                             lambda: super(Rec, self).ensure_pr(repo, branch, title, files, base, meta=meta, body=body, tenants=tenants, base_sha=base_sha, deny_paths=deny_paths))
 
         def commit_xr(self, *a, **kw):
             return self._seg("commit_xr", {}, lambda: super(Rec, self).commit_xr(*a, **kw))

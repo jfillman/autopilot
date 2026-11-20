@@ -77,6 +77,34 @@ def path_violations(paths: list[str], deny_globs: list[str]) -> list[str]:
     return bad
 
 
+def _ancestor_of_denied(p: str, deny: list[str]) -> bool:
+    """A proper ancestor of what a deny glob names by its literal leading directories: a blob written at `deploy` replaces
+    the directory and takes `deploy/prod/values.yaml` with it. Without case. (Go: ancestorOfDenied.)"""
+    segs = p.lower().split("/")
+    for g in deny:
+        gs = g.lower().split("/")
+        lit = 0
+        while lit < len(gs) and not any(c in gs[lit] for c in "*?["):
+            lit += 1
+        bound = lit - 1 if lit == len(gs) else lit    # fully literal: only a proper ancestor, the path itself matches on its own
+        if len(segs) <= bound and segs == gs[:len(segs)]:
+            return True
+    return False
+
+
+def _denied(norm: str, deny: list[str]) -> bool:
+    low = norm.lower()
+    return any(glob_to_regex(g).match(norm) or glob_to_regex(g.lower()).match(low) for g in deny)
+
+
+def path_protected(norm: str, deny: list[str]) -> bool:
+    """Whether deny names a normalised path, a directory or file it would take the place of, or a file it would be written
+    under (`CODEOWNERS/x` replaces `CODEOWNERS`): the check Go's EnsurePR makes of every file (pathProtected). Without case."""
+    segs = norm.split("/")
+    return (_denied(norm, deny) or _denied(norm + "/x", deny) or _ancestor_of_denied(norm, deny)
+            or any(_denied("/".join(segs[:i]), deny) for i in range(1, len(segs))))
+
+
 def repo_allowed(repo: str, allow: list[str]) -> bool:
     """`owner/name` against globs like `owner/*`. No allowlist means nothing is allowed."""
     if repo.count("/") != 1 or repo.startswith("/") or repo.endswith("/"):

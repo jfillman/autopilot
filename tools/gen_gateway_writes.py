@@ -760,6 +760,9 @@ def repo_cases():
 
 # -- refusals before any request --------------------------------------------------------------------------------------
 
+SHARED_FILE_REFUSALS = ("a protected path", "CODEOWNERS in any case", "a path that is not normal", "a path with ..", "an absolute path")
+
+
 def refusal_cases():
     R = "o/gate-api"
     for repo in ["gate-api", "o/", "/gate-api", "o/gate/api", "o/../x", "o/.", "o/g a", "o/g\n", "", "o/" + "x" * 101, "o\\x/y", "o/g;x", "o/g%2e"]:
@@ -800,6 +803,10 @@ def refusal_cases():
         ("a path with a newline", [{"path": "a\nb", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
         ("more than 8 MiB in all", [{"path": f"f{i}", "content": "x" * (1 << 20)} for i in range(9)], {"rule": "GH-FILES", "message": "a PR carries at most 8 MiB of files in total", "hint": "Split the change."}),
     ):
+        if name in SHARED_FILE_REFUSALS:
+            # I-48: Python refuses these too now (github_pr.check_deny_paths), with the same rule, message and hint and no request
+            run_case(f"refusal: {name}", "repo.pr.open", pr_args(files=files), gh_routes())
+            continue
         run_case(f"Go-only refusal: {name}", "repo.pr.open", pr_args(files=files), gh_routes(), **go_denied(d, why=why))
     for name, branch, base in (("main", "main", "main"), ("the base", "agent/x", "agent/x"), ("master", "Master", "main"), ("refs/", "refs/heads/x", "main"),
                                ("HEAD", "HEAD", "main"), ("release", "release", "main"), ("a leading dash", "-x", "main"), ("a dot component", "a/.b", "main"),
@@ -859,7 +866,7 @@ def cicd_cases():
     run_case("a ./cicd.yaml is validated", "repo.pr.open", pr_args(files=[{"path": "./cicd.yaml", "content": "a: 1"}]), routes)
     CASES[-1]["go"] = {"denied": {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."},
                        "requests": []}
-    CASES[-1]["why"] = "Go refuses a path that is not normal before any request (Python writes it as it is)"
+    CASES[-1]["why"] = "Go refuses a path that is not normal before any request (Python refuses it too now, in open_pr, but only after glidepath-api has answered about the cicd.yaml)"
     run_case("a gitops repo's cicd.yaml is not validated", "repo.pr.open_upper", pr_args(repo="o/gitops-gate-api", files=[cy]),
              {**routes, **gh_routes("o/gitops-gate-api")})
     run_case("the infra repo's cicd.yaml is validated", "repo.pr.open_upper", pr_args(repo="o/gitops-infra-gate-api", files=[cy]),
