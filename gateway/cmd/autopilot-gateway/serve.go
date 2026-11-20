@@ -37,8 +37,11 @@ const anthropicAPI = "https://api.anthropic.com"
 
 // config is the environment of a Go gateway: the Python gateway's variable names, for the part this slice carries.
 type config struct {
-	port, modelPort         int
-	coreURL, coreTokenFile  string
+	port, modelPort        int
+	coreURL, coreTokenFile string
+	// clearanceAPIURL is clearance-api (CLEARANCE_API_URL, optional): where a Preflight score reads the paths a run's writes touched.
+	clearanceAPIURL         string
+	clearanceAPIAllowHTTP   bool // CLEARANCE_API_ALLOW_HTTP (Go only, default off): the URL may be plain http
 	dsn                     string
 	agentsDir               string
 	audience, modelAudience string
@@ -214,6 +217,17 @@ func configFromEnv(env func(string) string) (*config, error) {
 		return nil, configError("CLEARANCE_CORE_URL is an http(s) URL")
 	}
 	c.coreTokenFile = getenv(env, "CLEARANCE_CORE_TOKEN_FILE", "/var/run/secrets/tokens/clearance")
+	// The caller's bearer token goes to clearance-api on every Preflight score: https, unless the operator says plain http in a setting of
+	// its own (as BACKSTAGE_URL and GLIDEPATH_API_URL; nothing here treats a host name as special). Only `serve` sends a token to it: `api`
+	// reads the same URL to name it in /v1/contract and sends nothing, so it has no such rule.
+	if c.clearanceAPIURL = env("CLEARANCE_API_URL"); c.clearanceAPIURL != "" {
+		if c.clearanceAPIAllowHTTP, err = strictFlag(env, "CLEARANCE_API_ALLOW_HTTP", false); err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(c.clearanceAPIURL, "https://") && !(c.clearanceAPIAllowHTTP && strings.HasPrefix(c.clearanceAPIURL, "http://")) {
+			return nil, configError("CLEARANCE_API_URL must be an https URL: the caller's bearer token is sent to it (a plain http URL needs CLEARANCE_API_ALLOW_HTTP=1)")
+		}
+	}
 	port, err := number(env, "PORT", 8080)
 	if err != nil {
 		return nil, err
@@ -496,6 +510,14 @@ func serve(_ []string) int {
 	g.RuntimeImages = cfg.runtimeImages
 	g.Fingerprint = dispatch.Fingerprint
 	g.PreflightLedger = &dispatch.PreflightLedger{}
+	if cfg.clearanceAPIURL != "" {
+		if cfg.clearanceAPIAllowHTTP && strings.HasPrefix(cfg.clearanceAPIURL, "http://") {
+			log.Warn("Preflight reads Clearance over plain http (CLEARANCE_API_ALLOW_HTTP): the caller's bearer token crosses the network unencrypted")
+		}
+		g.Effects = &core.OutcomeReader{BaseURL: cfg.clearanceAPIURL, Header: mcpserver.OnBehalfOfHeader}
+	} else {
+		log.Warn("CLEARANCE_API_URL is not set: Preflight scores are refused, because the paths a run touched cannot be read from Clearance")
+	}
 	g.Preflight = g.PreflightLedger.Of
 	casesDir := cfg.preflightCasesDir
 	if casesDir == "" {

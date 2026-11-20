@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
@@ -28,6 +29,16 @@ var PreflightCap = map[string]int64{"ttl_minutes": 10, "tool_calls": 60, "model_
 
 // PreflightTier is the highest tier a candidate may use.
 const PreflightTier = "T1"
+
+// EffectPaths reads the distinct paths the effects of a session's outcome records name, with the credentials the score was asked
+// with (the caller's bearer token and the person a delegate names). An empty list is "no effects"; an error is "unknown"
+// (core.OutcomeReader is the implementation: it returns a *core.PathsUnknown).
+type EffectPaths interface {
+	EffectPaths(ctx context.Context, session, token, onBehalfOf string) ([]string, error)
+}
+
+// PreflightReadBudget bounds all the reads of Clearance one score request makes (Gateway.PreflightBudget overrides it).
+const PreflightReadBudget = 30 * time.Second
 
 // PreflightKeep is how many candidate runs are remembered for scoring.
 const PreflightKeep = 500

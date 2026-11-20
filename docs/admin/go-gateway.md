@@ -250,7 +250,7 @@ compares answers, sessions, rows and records with Python's (`testdata/people.jso
 | `human.request` and `human.request.get` from an agent, the pending list, answering, expiry with the session | `Gateway.SetInbox`, `HumanRequests`, `HumanAnswer`; the rows are `gateway_human_requests`, read and written either way | `TestInboxChecksEqualPython`, `TestInboxHandlersEqualPython`, `TestRowsEqualPython`, `TestHumanRequestAndAnswer`, `TestHumanRequestLimitsAndExpiry`, `pgstate` `TestTheInboxRoundTripsAndKeepsItsLimits` |
 | Person controls: freeze, end, hold, release | `FreezeSession`, `EndSession`, `HoldTriggers`, `ReleaseTriggers`; routes `POST /v1/sessions/{id}/freeze`, `/end`, `POST` and `DELETE /v1/agents/{agent}/hold` | `TestPersonOperationsEqualPython` (70 operations: answers, sessions, records and holds equal Python's), `TestControlSequencesEqualPython`, `TestThePeopleRoutes` |
 | A person's run: `POST /v1/agents/{agent}/runs`, with `document` and `budget` for a Preflight candidate | `Gateway.RunAgent`, then `RunAgentAs` (S2) | `TestRunAgentByThePersonRouteChecksWhoAndWhat`, `TestRunAgentRefusesAGrantForSomeoneElseOrWider`, `TestACandidateIsRefusedUntilTheSchemaIsCarriedThenRunsClamped` |
-| Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger | `TestPreflightCasesAndScore` |
+| Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger; the paths a run touched, read from Clearance ([below](#what-a-preflight-score-reads-from-clearance)) | `TestPreflightCasesAndScore`, `TestScoreReadsThePathsFromClearanceSoAMinPathsCasePasses` |
 | `open_triggered`: a triggered run's session, with the agent's hold and any live session of the task in the evaluation | `Gateway.OpenTriggered`, `TriggeredRequest` | the replay's 31 triggered `session.open` lines against the real core, `TestOpenTriggeredOpensDedupesAndChecksTheGrant`, `TestOpenTriggeredRefusesWhatTheCoreShouldNotHaveGranted` |
 | The trigger ledger and the event cursor; a trigger fires once | `triggers.Ledger` on `gateway_trigger_launches` and `gateway_event_cursors` | `TestTheBridgeEqualsPython`, `TestACrashAtEachPointLeavesATriggerThatFiresOnce`, `TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe`, `TestTriggersThroughTheRealGateway`, `pgstate` `TestTheLedgerClaimIsWonOnce` |
 | The event bridge: the stream, the catch-up from the cursor with `Last-Event-ID`, the storm brake, the history | `triggers.Bridge` | `TestTheStreamResumesFromTheCursorAndHandlesWhatItCarries`, `TestTheCursorOnlyFollowsIDsItCanTrust`, `TestMalformedAndOversizedEventsAreDroppedAndCounted`, `TestTheBridgeNeverFollowsARedirect`, `TestTheReconnectBackoffIsBounded` |
@@ -512,10 +512,131 @@ All of these leave the answer for ordinary inputs unchanged.
   brake per agent that follows a change of `maxPerHour` (Python keeps the first it saw). The topic matcher is a table, not Python's
   recursion, which is exponential in the number of `#` words and whose input is an event's routing key. An event whose id is not in the form
   ids have is dropped (Python accepts any string). A stream that ends in the middle of an event does not deliver it (as Python's parser).
+- **A Preflight score reads the paths a run touched from Clearance** (strip W-16, below). Python's `score` has no such input: it scores
+  `paths_touched` as empty, so a case with `minPathsTouched` above 0 never passes and the out-of-scope check passes vacuously. Go-only on
+  purpose (the decision was Go only); `src/autopilot/preflight.py` and the Python gateway are unchanged, so `PORTED.json` and the
+  `gen_gateway_*` replays have nothing to flag, and the difference is recorded here, in `envtable.json` (`CLEARANCE_API_URL`: Go's `serve`
+  reads it too) and in the tests named below.
 - **The Preflight fingerprint** is Go's own digest of the parsed definition (Python hashes its dataclass); the two gateways keep separate
   ledgers, so nothing compares them.
 - **The summary's overflow** drops the largest value first (Python: the last inserted); the bound is the same.
 - **A run's identity needs its pod** (the pod-binding rule, below), which Python does not check.
+
+### What a Preflight score reads from Clearance
+
+`POST /v1/preflight/score` scores a run against its case (`preflight/cases/*.yaml`). Two of the case's rules need the paths the run's
+writes touched: `minPathsTouched` ("a fix that changed nothing cannot pass") and `allowedPaths` (the out-of-scope check). The gateway has
+no record of them of its own, and none is added: at scoring time it reads them back from Clearance's **outcome records** for the run's
+session.
+
+- **Where.** clearance-api's `GET /v1/evidence?session=<id>&outcomes=only&limit=200[&after=<seq>]` (the contract's `listEvidence`; the
+  core itself serves no reads). `outcomes=only` is the records that carry `outcome_of`: the outcome the gateway reported after an allowed
+  call. Each record's `effect` is the receipt the gateway made from the call (`dispatch.effect`): `repo`, `pr`, `commit`, `branch` and
+  **`paths`**, the files the write named (the tools registered with `writes_files`: `repo.pr.open` and `repo.pr.open_upper`; a tool that
+  proposes through them leaves the same receipt). The distinct `effect.paths` of all of a case's sessions, sorted, are the run's `PathsTouched`, which feeds both
+  checks. A read or a refused call has no effect and adds none.
+- **Pages.** A page is `{"items": [...], "next": <seq>|null}`. clearance-api lists newest first (`ORDER BY seq DESC`, `seq < after`), so
+  `next` is the last, smallest seq of a full page and goes back as `after`; it must be strictly smaller on every page. The gateway follows
+  it to the end (at most 50 pages of 200, 10,000 outcome records). A cursor that is not a number, does not decrease or runs past the
+  cap is "unknown", never a partial list.
+- **Is the session visible at all?** clearance-api scopes evidence per viewer and drops what the caller may not see with a `200` and no
+  items, so an empty outcome list alone cannot tell "wrote nothing" from "cannot see". Before the outcomes the gateway reads one of
+  the session's non-outcome records (`outcomes=exclude&limit=1`; `session.open` exists for every session it opened). None visible is
+  unknown, not empty: `503` `CORE-NOT-VISIBLE`. A Preflight candidate's records carry the candidate's run name (`pf-<agent>-<fingerprint>`),
+  which is not a definition clearance-api knows, so an owner-group member sees them only through the task they opened (or as an auditor):
+  **score as the person who started the run** (Tower does, for the person it names), or read as an auditor. This was read from
+  clearance-api's scope (`evidenceScope`: agent in the viewer's owner-group agents, app, or a task the viewer opened), not run live.
+- **One time budget.** All the reads of one score request (every page, session and case) share 30 s (`PreflightReadBudget`); past it the
+  request is `503` `CORE-UNAVAILABLE`, not a timeout per page.
+- **Who it reads as.** The caller. The bearer token the person (or the delegate) presented to the score route is sent to clearance-api, and
+  for a delegate the person it named in `X-Hangar-On-Behalf-Of`, so clearance-api's own per-person scoping applies: a person reads the
+  outcomes of their runs, an agent's owner group the runs of its agents. The gateway never reads with an identity wider than the caller's.
+  `CLEARANCE_API_URL` is what sets the address (Python's `api` already reads it; the Go `serve` reads it too, optional, redirects not
+  followed, 10 s a request, 8 MiB an answer). The caller's bearer token goes to it, so `serve` needs an `https` URL unless
+  `CLEARANCE_API_ALLOW_HTTP=1` says plain http (the pattern of `GLIDEPATH_API_ALLOW_HTTP` and `BACKSTAGE_ALLOW_HTTP`: no host is special,
+  and a warning is logged at start when it is on). The `api` process only names the URL in `/v1/contract` and sends no token, so it has no
+  such rule and keeps accepting http.
+- **The minimum is over the union.** `minPathsTouched` is checked against the distinct paths of all of a case's runs together (as
+  `RecordFromRuns` already combines the runs' results). It is the **distinct** union that must reach the minimum: a case that reads two
+  runs with a minimum of two passes with one path from each run, but not when both runs touched the same path (it counts once).
+- **A session with no effects** is an empty list, which is known: the case fails with "nothing was changed" when it wants paths, and passes
+  the out-of-scope check when nothing was written.
+- **When the paths cannot be read the score is refused, not made.** Fail closed was chosen over reporting a score with the paths marked
+  unknown, because the score is one yes or no that the PR check and the ledger act on, and an empty list would pass the out-of-scope check
+  vacuously. When clearance-api is unreachable or failing (a 5xx, a timeout, a cut answer) the route answers `503` `CORE-UNAVAILABLE`;
+  when none of the session's records is visible to the caller it answers `503` `CORE-NOT-VISIBLE`; when it refuses (a 4xx, an answer that is not an evidence page, a malformed cursor or path) or none is configured (`CLEARANCE_API_URL`
+  unset: the gateway logs a warning at start) it answers `503` `CORE-REFUSED`. The message says the paths are unknown. Nothing is written
+  to the Preflight ledger, so the definition stays "not-run" until a score is made; the request is safe to repeat. A read-only case
+  (`minPathsTouched: 0`, no `allowedPaths`) is no exception: a run that wrote something outside scope must still fail it. The read is made
+  only once every run of the case has finished, so a run still going is `finished: false` with no read.
+- **Limits of what it knows.** Paths are as the call named them (a file path in its repository, not qualified by the repo, so allowed
+  paths are one set for every repository a run wrote to). A write of a run reaches Clearance either straight from the call or, when the core was
+  unreachable, later from the gateway's outbox (`core.Outbox`); Clearance's records hold the first kind and the outbox entries already
+  delivered. A score that read them while a write was in neither place would miss its paths, and for a case with no minimum and
+  `allowedPaths` set could pass a write outside scope. So a score is **refused** (`503`, nothing recorded) whenever a write that carries paths
+  is, at any point of it, in neither place (`core.EffectGuard`, `BeginEffectCheck` before the read and `Finish` after it):
+  - *Pending* before the read: an outcome with paths still queued blocks every score, `CORE-OUTBOX-PENDING` (a queued outcome names its
+    decision, not its session; the outbox is empty while the core is reachable, and the score is repeated once it has drained).
+  - *Refused* before the read: an outcome the core refused (`state = 'refused'`; it is never retried, so Clearance never stores it) blocks with
+    `CORE-OUTCOME-REFUSED` and a hint that a person must look at the outbox entry (its `error` column says why). Because it names no session, it
+    is tied to the run by time instead: it blocks the scores of runs whose earliest session was created at or before it was queued (with a
+    minute of slack for the two clocks; an outcome cannot predate its session), so one old refusal does not hold back every later run. A
+    session the gateway no longer knows makes every refused entry count. The check asks the outbox only for such entries (an outcome whose
+    effect names paths, pending, or refused since that time; in Postgres the filter is in the query), so no number of old refusals or of
+    entries with no paths can block a score or fill a scan: the first qualifying entry blocks, nothing else counts.
+  - *Moving during the read*: before anything else the guard takes the outbox's greatest id, and `Finish` blocks (`CORE-OUTBOX-PENDING`) on any
+    outcome with paths added after it, in any state. A write queued after the first check, or queued and then delivered after the read was
+    made (in Clearance only after the read, so in neither place for it), is caught; an entry at or below that id that was not pending or refused
+    at the first check was delivered before the read. The score is repeated and then sees the delivered write.
+  - *One guard for the whole score*, not one per case: it begins before the first case's read and finishes after the last, so a write that
+    moves between any two cases' reads is caught, and the ledger is written only after it has finished.
+  - *A call in flight.* A case counts as finished once its session has a stored outcome or a result, and a call of that session that is still
+    running has made its write but not yet put its outcome in Clearance or the outbox. The deadline sweep stores the outcome "expired"
+    without the session's operation lock (`deadlineOutcomes`), so that can happen during a call. A tool call holds the session's operation lock
+    from its decision to the delivery or queueing of its outcome (`Gateway.Call`). The score takes each session's lock without waiting
+    (`TrySerial`) before it reads: a session whose lock is taken is refused (`503` `CORE-CALL-IN-FLIGHT`, repeat when the call has ended), and
+    the locks are kept while the case's paths are read, so no call of a scored session can start meanwhile (it would wait, which is why they are
+    let go as soon as that case's reads end, not at the end of the score). They cannot be let go earlier, right after the guard reads the
+    outbox's greatest id: a call that started after that and posted its outcome straight to Clearance (the core being up) leaves nothing in
+    the outbox for `Finish` to see, and could land after the read of its session. A call that starts after the reads is after the score.
+  - *A model request still out.* The model proxy takes the session's lock to authorize a request and lets it go while the response streams, so a
+    run's tokens (which the score reads) can still grow after the lock is free. The proxy counts each accepted request on its session (from its
+    authorization, under the lock, until its report has been made) and the score refuses with `CORE-CALL-IN-FLIGHT` while one is out. A run's
+    token total is read only after its sessions are held, so a charge that lands before the hold is in it and none lands after.
+  - *A lost outcome.* If an outcome with paths could be neither posted nor queued (the outbox's store was down too), it is in neither
+    Clearance nor the outbox, and nothing there can say so. The gateway keeps the time of the last such loss in memory (`Core.noteLost`), and a
+    score of any run that began before it is refused with `503` `CORE-OUTCOME-LOST` (checked when the guard begins and again in `Finish`, so a loss during the read is caught too) (a person must look at the gateway's logs); a run that began after
+    it is not held back. It is in memory because the failure that loses an outcome is the outbox's store being unavailable, which is also where a
+    durable marker would go. **A restart of the gateway forgets it**: that is a gap this leaves, which the logged error ("outbox") is the record of.
+  - *Which cases the cut-off covers.* The cut-off for a refused outbox entry is the earliest session of the cases that are being scored, not of
+    every case named: a case still running is not read, so an older unfinished case does not widen it.
+  - *No insert can slip below the mark.* The greatest id is read while the outbox is quiesced (`Outbox.Quiesce`). In Postgres every add takes
+    a shared advisory lock (`pg_advisory_xact_lock_shared`) from before it takes its id until its insert commits, and `Quiesce` takes the same
+    lock exclusively in a transaction of its own (READ COMMITTED, whatever the database's default, so its reads see what committed while it
+    waited) and reads through that transaction. It only **tries** for the lock
+    (`pg_try_advisory_xact_lock`, five tries 30 ms apart) and gives up with `503` `CORE-OUTBOX-BUSY` (repeat the score): a blocking request would
+    queue, Postgres queues every later shared request (every add) behind a waiting exclusive one, and an outcome that cannot be queued within its 5 s
+    timeout is lost, so an add is never delayed by a score, whether or not the score gets the lock. Held, it waits for no one: adds hold only the
+    shared lock and their own insert, Drain takes no advisory lock, and the transaction is rolled back on every path out (an error, the context
+    ending), which releases the lock. In memory it is a read-write mutex, tried the same way. The hold is only for the reads of the mark and
+    of the pending and refused entries, not for the whole score. The queries name one state as a literal and a time bound as a plain
+    comparison (never `$n IS NULL OR ...`, which a generic plan cannot use an index for): `gateway_outbox_pending` (in the schema) serves the pending
+    check and `gateway_outbox_refused` (a seventh index, `(created_at, id) WHERE state = 'refused'`, made by `migrate`; see
+    go-gateway-release.md: the next release needs the migrate step) the refused one, so neither scans the done rows, which are never deleted.
+    **The sequence must be `CACHE 1`** (what `bigserial` creates): with a larger cache each connection hands out ids from its own block, so a
+    later insert can get a lower id than the mark. `Quiesce` reads `pg_sequence` and refuses (`503`, fail closed) when it is not 1; the schema
+    (generated from Python's) is not edited to say so, so this is the place it is written down.
+  - Asking the outbox whether anything waits, and queueing an outcome that cannot be posted (and an outage read), use a context of
+    their own (`WithoutCancel`, 10 s), not the caller's, which may have ended or been used up by the drain: a write that cannot be queued is lost.
+  - Outcomes with no effect or no paths, other records, and delivered entries do not hold a score back. If the outbox cannot be read it is
+    `503` `CORE-UNAVAILABLE`.
+  A caller clearance-api's scoping does not let see the session is refused (`CORE-NOT-VISIBLE`), as above; the route's own check
+  (`mayManage`) is wider than what clearance-api shows.
+
+Proof: `TestEffectPaths*` (`gateway/internal/core/outcomes_test.go`: records shaped as clearance-api serves them, pagination, no effects,
+every unknown), `TestScore*` (`gateway/internal/dispatch/preflight_paths_test.go`: a min-paths case that now passes, a write outside the
+allowed paths that now fails, a read-only case that fails on a write, the outbox guard (`TestEffectGuard*`, `TestQuiesce*`, `TestOneOutboxGuardAroundAWholeScore`, `TestScoreIsRefusedWhileACallOfARunIsInFlight`, `TestScoreIsNotHeldBackByAThousandOldRefusals`: a pending write, a refused write by run start, any number of old refusals, a write delivered between the read and the second check, a call in flight, and the Postgres queries and lock in `TestQuiesceHoldsOffAddsInPostgres`), the unavailable and unconfigured refusals with no ledger write, a
+delegate's credentials, and the real reader against a fake clearance-api).
 
 ### What still refuses at the boundaries S3 leaves
 

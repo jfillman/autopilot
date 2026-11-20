@@ -193,3 +193,37 @@ func TestTheClearanceCoresSettingsAreRefusedNotIgnored(t *testing.T) {
 		}
 	}
 }
+
+// CLEARANCE_API_URL is optional on a serve (a Preflight score reads the paths a run touched from clearance-api through it, with the caller's
+// bearer token): https, or plain http only with CLEARANCE_API_ALLOW_HTTP.
+func TestClearanceAPIURLIsOptionalAndHTTPSUnlessAllowed(t *testing.T) {
+	c, err := configFromEnv(envOf(base(nil)))
+	if err != nil || c.clearanceAPIURL != "" {
+		t.Fatalf("%v %v", c, err)
+	}
+	if c, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_API_URL": "https://clearance-api.example"}))); err != nil || c.clearanceAPIURL != "https://clearance-api.example" || c.clearanceAPIAllowHTTP {
+		t.Fatalf("%v %v", c, err)
+	}
+	const plain = "http://clearance-api.clearance-system.svc:8080"
+	for name, env := range map[string]map[string]string{
+		"plain http alone":       {"CLEARANCE_API_URL": plain},
+		"plain http, flag off":   {"CLEARANCE_API_URL": plain, "CLEARANCE_API_ALLOW_HTTP": "0"},
+		"plain http on loopback": {"CLEARANCE_API_URL": "http://127.0.0.1:8080"}, // nothing treats a host name as special
+		"not a URL":              {"CLEARANCE_API_URL": "clearance-api:8080", "CLEARANCE_API_ALLOW_HTTP": "1"},
+		"ftp":                    {"CLEARANCE_API_URL": "ftp://x", "CLEARANCE_API_ALLOW_HTTP": "1"},
+	} {
+		if _, err := configFromEnv(envOf(base(env))); err == nil || !strings.Contains(err.Error(), "CLEARANCE_API_URL must be an https URL") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if c, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_API_URL": plain, "CLEARANCE_API_ALLOW_HTTP": "1"}))); err != nil || c.clearanceAPIURL != plain || !c.clearanceAPIAllowHTTP {
+		t.Fatalf("%v %v", c, err)
+	}
+	if _, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_API_URL": plain, "CLEARANCE_API_ALLOW_HTTP": "maybe"}))); err == nil || !strings.Contains(err.Error(), "CLEARANCE_API_ALLOW_HTTP must be 0 or 1") {
+		t.Fatalf("%v", err)
+	}
+	// without a URL the flag is not read and not an error
+	if _, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_API_ALLOW_HTTP": "1"}))); err != nil {
+		t.Fatalf("%v", err)
+	}
+}

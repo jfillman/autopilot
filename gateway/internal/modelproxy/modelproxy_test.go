@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -299,4 +300,55 @@ func (fakeRuns) Principal(run string) string {
 		return "agent-r-0000a1/run"
 	}
 	return ""
+}
+
+// An accepted model request is counted on its session from its authorization (under the session's lock) until its report has been made, so a
+// Preflight score, which reads a run's tokens, can refuse while one is out: the session's lock is free while a response streams.
+func TestAnAcceptedModelRequestIsCountedUntilItsReportIsMade(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	let := func() { once.Do(func() { close(release) }) } // idempotent: a failed assertion cannot leave the upstream handler blocked
+	defer let()
+	r := newRig(t, func(w http.ResponseWriter, q *http.Request) {
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n")
+		w.(http.Flusher).Flush()
+		<-release
+	})
+	if r.s.ModelInFlight() != 0 {
+		t.Fatal("a request is counted before there is one")
+	}
+	resp, err := r.post(context.Background(), `{"model":"claude","max_tokens":50,"stream":true,"messages":[]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	br := bufio.NewReader(resp.Body)
+	if _, err := br.ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.s.ModelInFlight(); n != 1 { // streaming: the session's lock is free, the request is not reported
+		t.Fatalf("%d in flight while streaming", n)
+	}
+	if rel, ok := r.s.TrySerial(); !ok {
+		t.Fatal("the session's lock is held while a response streams")
+	} else {
+		rel()
+	}
+	let()
+	_, _ = io.ReadAll(br)
+	waitFor(t, "the report", func() bool { return r.fc.OutcomeCount() == 1 && r.s.ModelInFlight() == 0 })
+	// a refused request is never counted
+	r2 := newRig(t, func(w http.ResponseWriter, q *http.Request) {})
+	r2.fc.Decide = func(*client.EvaluationRequest) client.EvaluationResult {
+		return client.EvaluationResult{Decision: false, Context: client.DecisionContext{Rule: "M001", Message: "no"}}
+	}
+	if resp, err := r2.post(context.Background(), `{"model":"claude","max_tokens":5,"messages":[]}`); err != nil {
+		t.Fatal(err)
+	} else {
+		resp.Body.Close()
+	}
+	if n := r2.s.ModelInFlight(); n != 0 {
+		t.Fatalf("a refused request is counted: %d", n)
+	}
 }

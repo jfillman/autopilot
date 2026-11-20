@@ -1,4 +1,4 @@
-// Package dbindex names the six indexes only the Go gateway needs (the read API's queries are served by them) and checks that they
+// Package dbindex names the seven indexes only the Go gateway needs (six serve the read API's queries, one the Preflight outbox guard) and checks that they
 // exist and are valid. It writes nothing: the process that creates them is `autopilot-gateway migrate` (pgstate.Migrate), and the
 // processes that need them (`serve`, `api`) only ask. The read API imports this package, never pgstate.
 package dbindex
@@ -26,6 +26,9 @@ var Indexes = []Index{
 	{"gateway_sessions_task", "gateway_sessions", `((record->>'task_id'), ((record->>'created_at') COLLATE "C"), (id COLLATE "C"))`},
 	{"gateway_events_app_id", "gateway_events", `(app, received_at DESC, (id COLLATE "C") DESC)`},
 	{"gateway_events_outcomes", "gateway_events", `USING gin ((record->'outcomes') jsonb_path_ops)`},
+	// The Preflight outbox guard's check for a refused outcome (core.EffectGuard) reads only refused rows since a time; done rows are never
+	// deleted, so without this it would scan them all while it holds the outbox's add lock. The pending rows have a partial index in the schema.
+	{"gateway_outbox_refused", "gateway_outbox", `(created_at, id) WHERE state = 'refused'`},
 }
 
 // Querier is the one read the check needs (a pgx pool or connection).
@@ -90,7 +93,7 @@ func Check(ctx context.Context, q Querier) ([]State, error) {
 	return out, nil
 }
 
-// Problems says each index that is absent or invalid ("" when all six are in place), and what to run.
+// Problems says each index that is absent or invalid ("" when all seven are in place), and what to run.
 func Problems(states []State) string {
 	var bad []string
 	for _, s := range states {
@@ -104,5 +107,5 @@ func Problems(states []State) string {
 	if len(bad) == 0 {
 		return ""
 	}
-	return strings.Join(bad, ", ") + ": the read API's lists scan their tables without them; run `autopilot-gateway migrate` (docs/admin/go-gateway-release.md)"
+	return strings.Join(bad, ", ") + ": the read API's lists and the Preflight outbox guard scan their tables without them; run `autopilot-gateway migrate` (docs/admin/go-gateway-release.md)"
 }

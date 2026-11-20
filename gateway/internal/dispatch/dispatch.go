@@ -121,6 +121,11 @@ type Gateway struct {
 	// PreflightCases are the cases a candidate is scored against, by id; PreflightLedger keeps the latest result per definition.
 	PreflightCases  map[string]*Case
 	PreflightLedger *PreflightLedger
+	// Effects reads the paths a session's writes touched back from Clearance's outcome records, for the Preflight score (W-16).
+	// nil: no score can be made (the paths are unknown, and unknown never passes).
+	Effects EffectPaths
+	// PreflightBudget is the time one score request has for all its reads of Clearance; 0 is PreflightReadBudget.
+	PreflightBudget time.Duration
 	// holdGate: a trigger's open and a person's run read a hold and open their session under the read lock; a hold or a release
 	// writes under the write lock.
 	holdGate sync.RWMutex

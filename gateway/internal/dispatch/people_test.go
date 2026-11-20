@@ -1333,6 +1333,7 @@ func TestPreflightCasesAndScore(t *testing.T) {
 		Checks: map[string][]map[string]any{"v1": {{"text_contains": []any{"hello"}}}, "v2": {{"tool_count": map[string]any{"tool": "catalog.read", "eq": 1}}}}}}
 	p.g.PreflightLedger = &dispatch.PreflightLedger{}
 	p.g.Preflight = p.g.PreflightLedger.Of
+	p.g.Effects = &fakeEffects{} // a run that wrote nothing (the case wants no paths)
 	if _, err := p.g.PreflightCaseList(ctx, "bad", "researcher"); err == nil {
 		t.Fatal("an unauthenticated caller listed cases")
 	}

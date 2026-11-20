@@ -40,11 +40,11 @@
   {
    "name": "CLEARANCE_API_URL",
    "python": "api",
-   "go": "api",
+   "go": "serve,api",
    "class": "same",
    "deployed": "api",
    "example": "http://clearance-api.clearance-system.svc:8080",
-   "note": "Named in /v1/contract."
+   "note": "Named in /v1/contract. Go's serve also reads it (optional, Go-only): a Preflight score reads the paths a run's writes touched from clearance-api's outcome records with the caller's bearer token, and is refused (503) while it is unset. serve needs https unless CLEARANCE_API_ALLOW_HTTP=1; api only names it in /v1/contract and sends no token, so it keeps accepting http."
   },
   {
    "name": "AUTOPILOT_AUDIENCE",
@@ -649,6 +649,14 @@
    "note": "Plain http to the installation-token broker (default off)."
   },
   {
+   "name": "CLEARANCE_API_ALLOW_HTTP",
+   "python": "",
+   "go": "serve",
+   "class": "new",
+   "example": "1",
+   "note": "Plain http to clearance-api, where a Preflight score reads the paths a run touched with the caller's token (default off). Not read by api."
+  },
+  {
    "name": "BACKSTAGE_ALLOW_HTTP",
    "python": "",
    "go": "serve,api",
@@ -761,7 +769,7 @@
    "python": "",
    "go": "serve,api",
    "class": "new",
-   "note": "Start although the read API's six indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`)."
+   "note": "Start although the read API's and the outbox guard's seven indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`)."
   },
   {
    "name": "MIGRATE_LOCK_TIMEOUT_SECONDS",

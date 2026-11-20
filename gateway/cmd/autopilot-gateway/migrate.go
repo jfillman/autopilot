@@ -47,7 +47,7 @@ func migrateConfigFromEnv(env func(string) string) (*migrateConfig, error) {
 	return c, nil
 }
 
-// migrate is `autopilot-gateway migrate [--check]`: it brings the gateway database to what the Go gateway needs (the schema, and the six
+// migrate is `autopilot-gateway migrate [--check]`: it brings the gateway database to what the Go gateway needs (the schema, and the seven
 // read API indexes built with CREATE INDEX CONCURRENTLY, under a lock timeout and a statement timeout), and may run while a gateway is
 // writing. It is idempotent and safe to re-run after a failure. `--check` changes nothing: it exits 1 when an index is missing or invalid.
 // Exit codes: 0 done (or all in place), 1 an index is missing (--check) or the database failed it, 2 configuration.

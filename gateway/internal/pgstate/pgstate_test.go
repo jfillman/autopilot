@@ -157,6 +157,149 @@ func TestConcurrentSavesAreGroupedAndEveryOneIsDurable(t *testing.T) {
 	}
 }
 
+// The queries the Preflight score's outbox guard (core.EffectGuard) makes: entries by id, state, time and op, and the greatest id.
+func TestTheOutboxCanBeQueriedForTheEffectGuard(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	if hw, err := ob.HighWater(ctx); err != nil || hw != 0 {
+		t.Fatalf("%d %v", hw, err)
+	}
+	eff := map[string]any{"effect": map[string]any{"repo": "o/r", "pr": 7, "paths": []any{"a.yaml"}}}
+	a, _ := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: eff}, "core-unavailable", "")
+	r, _ := ob.Add(ctx, core.Entry{Op: "record", Kind: "tool.call", Body: map[string]any{}}, "outage", "")
+	c, _ := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-3", Body: eff}, "refused", "the core refused")
+	_ = ob.Done(ctx, a, nil)
+	if hw, _ := ob.HighWater(ctx); hw != c {
+		t.Fatalf("high water %d, want %d", hw, c)
+	}
+	all, err := ob.Entries(ctx, core.OutboxQuery{OutcomesOnly: true})
+	if err != nil || len(all) != 2 || all[0].ID != a || all[0].State != "done" || all[1].ID != c || all[1].State != "refused" || all[1].At.IsZero() {
+		t.Fatalf("%+v %v", all, err)
+	}
+	if all[1].Entry.Body["effect"] == nil {
+		t.Fatal("the body is not read back")
+	}
+	refused, _ := ob.Entries(ctx, core.OutboxQuery{States: []string{"refused", "pending"}})
+	if len(refused) != 2 || refused[0].ID != r || refused[1].ID != c { // the record is pending, the outcome refused
+		t.Fatalf("%+v", refused)
+	}
+	after, _ := ob.Entries(ctx, core.OutboxQuery{AfterID: a})
+	if len(after) != 2 || after[0].ID != r {
+		t.Fatalf("%+v", after)
+	}
+	if none, _ := ob.Entries(ctx, core.OutboxQuery{Since: time.Now().Add(time.Hour)}); len(none) != 0 {
+		t.Fatalf("%+v", none)
+	}
+	if one, _ := ob.Entries(ctx, core.OutboxQuery{Limit: 1}); len(one) != 1 {
+		t.Fatalf("%+v", one)
+	}
+	// WithPaths is core's carriesPaths in SQL: an effect that names paths, or is not an object; not no effect, no paths, null or empty paths
+	for name, tc := range map[string]struct {
+		body map[string]any
+		want bool
+	}{
+		"paths":             {map[string]any{"effect": map[string]any{"paths": []any{"a"}}}, true},
+		"effect not object": {map[string]any{"effect": "x"}, true},
+		"paths not a list":  {map[string]any{"effect": map[string]any{"paths": "a"}}, true},
+		"empty paths":       {map[string]any{"effect": map[string]any{"paths": []any{}}}, false},
+		"null paths":        {map[string]any{"effect": map[string]any{"paths": nil}}, false},
+		"no paths":          {map[string]any{"effect": map[string]any{"repo": "o/r"}}, false},
+		"null effect":       {map[string]any{"effect": nil}, false},
+		"no effect":         {map[string]any{"result": "ok"}, false},
+	} {
+		id, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-w", Body: tc.body}, "core-unavailable", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := ob.Entries(ctx, core.OutboxQuery{AfterID: id - 1, WithPaths: true})
+		if err != nil || (len(got) == 1) != tc.want {
+			t.Errorf("%s: %+v %v", name, got, err)
+		}
+		if (len(got) == 1) != core.CarriesPaths(core.Entry{Op: "outcome", Body: tc.body}) {
+			t.Errorf("%s: the SQL and the Go predicates disagree", name)
+		}
+	}
+}
+
+// Quiesce holds every Add off while fn runs, hands fn a reader on its own transaction, does not hold off the
+// outbox's other writes (Drain's Done), and lets the adds through on every path out of fn.
+func TestQuiesceHoldsOffAddsInPostgres(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3) // Quiesce's connection, the blocked add's and one for Done
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	first, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: map[string]any{"result": "ok"}}, "core-unavailable", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, fnErr := range map[string]error{"fn returns": nil, "fn fails": errors.New("boom")} {
+		entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		var once sync.Once
+		let := func() { once.Do(func() { close(release) }) } // the callback is let go on every path, so a failed assertion cannot hang the pool's close
+		go func() {
+			done <- ob.Quiesce(ctx, func(r core.OutboxReader) error {
+				close(entered)
+				<-release
+				if hw, err := r.HighWater(ctx); err != nil || hw < first {
+					return fmt.Errorf("high water %d %v", hw, err)
+				}
+				if _, err := r.Entries(ctx, core.OutboxQuery{WithPaths: true}); err != nil {
+					return err
+				}
+				return fnErr
+			})
+		}()
+		select {
+		case <-entered:
+		case err := <-done: // Quiesce returned without calling the callback
+			t.Fatalf("%s: Quiesce returned early: %v", name, err)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: Quiesce did not start", name)
+		}
+		added := make(chan error, 1)
+		go func() {
+			_, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-2", Body: map[string]any{"result": "ok"}}, "core-unavailable", "")
+			added <- err
+		}()
+		select {
+		case <-added:
+			let()
+			t.Fatalf("%s: an add went through while quiesced", name)
+		case <-time.After(300 * time.Millisecond):
+		}
+		// Drain's update of an existing row is not held off
+		dctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		derr := ob.Done(dctx, first, nil)
+		cancel()
+		if derr != nil {
+			let()
+			t.Fatalf("%s: Done was held off: %v", name, derr)
+		}
+		let()
+		if err := <-done; err != fnErr {
+			t.Fatalf("%s: %v", name, err)
+		}
+		select {
+		case err := <-added:
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: the add was not let through after Quiesce", name)
+		}
+	}
+}
+
 func TestTheOutboxIsOrderedAndSurvivesARestart(t *testing.T) {
 	dsn := scratch(t)
 	ctx := context.Background()
@@ -288,8 +431,8 @@ func TestOpenCreatesNoIndexAndMigrateCreatesTheReadAPIsIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != 6 {
-		t.Fatalf("%d indexes are named, want 6", len(states))
+	if len(states) != 7 {
+		t.Fatalf("%d indexes are named, want 7", len(states))
 	}
 	for _, s := range states {
 		if s.Present {
@@ -306,7 +449,7 @@ func TestOpenCreatesNoIndexAndMigrateCreatesTheReadAPIsIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(created) != 6 {
+	if len(created) != 7 {
 		t.Fatalf("migrate created %v", created)
 	}
 	st, err = pgstate.Open(ctx, dsn, 2)
@@ -501,5 +644,75 @@ func TestAMigrateReRunTakesNoTableLock(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(logged, "|"), "schema: present (no statement run)") {
 		t.Fatalf("the schema step ran: %v", logged)
+	}
+}
+
+// A Quiesce that cannot get the add lock only TRIES for it (core.QuiesceTries), so it never queues: an Add, which wants the lock shared, is
+// not delayed by it (a blocking exclusive request would make every later shared one wait behind it, and an outcome that cannot be queued
+// in 5 s is lost). It gives up with core.OutboxBusyRule, and works once the lock is free.
+func TestAQuiesceThatCannotGetTheLockNeverDelaysAnAdd(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	// an add under way: it holds the lock shared until it commits
+	holder, err := st.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+	if _, err := holder.Exec(ctx, "SELECT pg_advisory_xact_lock_shared($1)", pgstate.OutboxLockKey); err != nil {
+		t.Fatal(err)
+	}
+	quiesced := make(chan error, 1)
+	go func() { quiesced <- ob.Quiesce(ctx, func(core.OutboxReader) error { return nil }) }()
+	time.Sleep(50 * time.Millisecond) // Quiesce is now retrying for the lock
+	start := time.Now()
+	if _, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: map[string]any{"result": "ok"}}, "core-unavailable", ""); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Fatalf("an add waited %s behind a Quiesce that could not get the lock", d)
+	}
+	var blocked *core.OutboxBlocked
+	if err := <-quiesced; !errors.As(err, &blocked) || blocked.Rule != core.OutboxBusyRule {
+		t.Fatalf("%v", err)
+	}
+	_ = holder.Rollback(ctx) // the add under way committed
+	if err := ob.Quiesce(ctx, func(core.OutboxReader) error { return nil }); err != nil {
+		t.Fatalf("the lock was free: %v", err)
+	}
+}
+
+// The argument that nothing commits below the greatest id read under Quiesce needs ids handed out in order: a sequence with CACHE above 1 (each
+// connection keeps a block) breaks it, so Quiesce refuses, and works again at CACHE 1.
+func TestQuiesceRefusesAnOutboxSequenceThatIsCached(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	noop := func(core.OutboxReader) error { return nil }
+	if err := ob.Quiesce(ctx, noop); err != nil {
+		t.Fatalf("the default sequence (CACHE 1) was refused: %v", err)
+	}
+	if _, err := st.Pool.Exec(ctx, "ALTER SEQUENCE gateway_outbox_id_seq CACHE 10"); err != nil {
+		t.Skipf("the scratch role cannot alter the sequence: %v", err)
+	}
+	if err := ob.Quiesce(ctx, noop); err == nil || !strings.Contains(err.Error(), "CACHE 10") {
+		t.Fatalf("a cached sequence was accepted: %v", err)
+	}
+	if _, err := st.Pool.Exec(ctx, "ALTER SEQUENCE gateway_outbox_id_seq CACHE 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Quiesce(ctx, noop); err != nil {
+		t.Fatalf("%v", err)
 	}
 }

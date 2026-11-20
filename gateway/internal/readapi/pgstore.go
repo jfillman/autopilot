@@ -381,7 +381,7 @@ func (s *PgStore) Definitions(ctx context.Context) ([]definitions.Row, error) {
 	return out, rows.Err()
 }
 
-// IndexProblems says which of the six Go-only indexes is missing or invalid, and what to run ("" when all are in place). The system catalogs
+// IndexProblems says which of the seven Go-only indexes is missing or invalid, and what to run ("" when all are in place). The system catalogs
 // are readable by any role.
 func (s *PgStore) IndexProblems(ctx context.Context) (string, error) {
 	st, err := dbindex.Check(ctx, dbindex.Pgx(s.Pool))

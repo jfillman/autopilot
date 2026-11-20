@@ -47,7 +47,7 @@ reads the other's rows. Three things are Go's own, all additive:
 
 - three columns on `gateway_trigger_launches` (`failures`, `first_failed_at`, `last_failed_at`), added by `serve` and `migrate`
   (`ADD COLUMN IF NOT EXISTS`, with defaults, so Python's statements are unaffected);
-- six indexes the read API's queries need (below);
+- seven indexes: six the read API's queries need and one (`gateway_outbox_refused`, a partial index on `gateway_outbox (created_at, id) WHERE state = 'refused'`) the Preflight score's outbox guard reads under a lock (below);
 - a read-only role for `api`.
 
 ### `autopilot-gateway migrate`
@@ -75,9 +75,11 @@ autopilot-gateway migrate --check    change nothing; exit 1 if an index is missi
   not a wait).
 - **One at a time**: its own advisory lock (`apg1`; the writer's is `apg0`), so two migrates do not race, and it does not need the writer's lock.
 - It uses `GATEWAY_DSN` (the owner's DSN: it creates indexes). Exit 0 done, 1 failed or missing (`--check`), 2 configuration.
-- **`serve` and `api` check at start** that the six exist and are valid (they only read the system catalogs) and **refuse to start** when one is not (exit 1 / 2),
+- **`serve` and `api` check at start** that the seven exist and are valid (they only read the system catalogs) and **refuse to start** when one is not (exit 1 / 2),
   naming it and saying to run `autopilot-gateway migrate`: a silent slow read path in production is what `migrate` exists to prevent.
   `GATEWAY_ALLOW_MISSING_INDEXES=1` (default off) starts anyway, with an error line each start. **Ordering in the cutover**: `migrate` and `migrate --check` run
+  **The release that adds `gateway_outbox_refused` (Preflight paths, strip W-16) needs the `migrate` step before `serve` and `api` roll**, like the
+  first six: until it has run both refuse to start, naming `gateway_outbox_refused (missing)`. The index is small (it covers refused rows only) and is built concurrently.
   BEFORE the switch (step 4), so the first Go start finds the indexes; the override is for an emergency rollforward, not a procedure.
 
 **Deployment choice, and why**: `migrate` is a **manual step in the cutover runbook** unless the render emits it (`autopilot.gateway.go.migrateJob: true`), and it is
@@ -235,7 +237,7 @@ the database has to be undone. What the Go gateway may have written that the Pyt
 | Go-written state | Python tolerance |
 |---|---|
 | three extra columns on `gateway_trigger_launches` | they have defaults and Python names its columns (`INSERT ... (agent, key, via, event_id, state, claimed_at)`, `SELECT agent, key, ...`): never `SELECT *`, so extra columns are not seen |
-| six extra indexes | invisible to Python's statements; they cost a little on writes, and can be dropped (`DROP INDEX CONCURRENTLY`) if they are unwanted |
+| seven extra indexes | invisible to Python's statements; they cost a little on writes, and can be dropped (`DROP INDEX CONCURRENTLY`) if they are unwanted |
 | `gateway_sessions`, `gateway_results`, `gateway_inbox`, holds, events | the Go gateway writes Python's record shapes (the replay and the read-API equivalence tests hold that); a session open at the switch is a row Python loads at start |
 | `gateway_definitions` rows (loaded and rejected pins) | Python's shape `{name, state, source, doc \| reason}`, read by `Definitions.apply_records` |
 | `gateway_outbox` rows the core has not taken | the same `op`/`kind`/`body` columns; Python's sweep posts them |

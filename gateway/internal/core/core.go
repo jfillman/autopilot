@@ -192,15 +192,40 @@ type Entry struct {
 type Outbox interface {
 	Add(ctx context.Context, e Entry, reason string, errText string) (int64, error)
 	Pending(ctx context.Context, limit int) ([]OutboxRow, error)
+	// Entries lists the entries a query selects, in any state, oldest first (the Preflight score's check that no write of a run is
+	// outside Clearance's records); HighWater is the greatest id ever added (0: none).
+	OutboxReader
+	// Quiesce runs fn while no entry can be added (an Add waits, and an Add already under way has committed), so what fn reads is the
+	// whole outbox as of then. fn's reads must use the reader it is given. The hold is released when fn returns, by any path.
+	Quiesce(ctx context.Context, fn func(OutboxReader) error) error
 	HasPending(ctx context.Context) (bool, error)
 	Done(ctx context.Context, id int64, seq *int64) error
 	Refused(ctx context.Context, id int64, errText string) error
 }
 
-// OutboxRow is a pending entry with its id.
+// OutboxReader is what the Preflight score's outbox guard reads.
+type OutboxReader interface {
+	Entries(ctx context.Context, q OutboxQuery) ([]OutboxRow, error)
+	HighWater(ctx context.Context) (int64, error)
+}
+
+// OutboxQuery selects outbox entries: those with an id above AfterID, in one of States (empty: every state), added at or after Since
+// (zero: any time), of the outcome op only when OutcomesOnly, and only those whose effect names paths when WithPaths (see carriesPaths).
+type OutboxQuery struct {
+	AfterID      int64
+	States       []string // "pending", "done", "refused"
+	Since        time.Time
+	OutcomesOnly bool
+	WithPaths    bool
+	Limit        int
+}
+
+// OutboxRow is an entry with its id (State and At are set by Entries).
 type OutboxRow struct {
 	ID    int64
 	Entry Entry
+	State string
+	At    time.Time
 }
 
 // Core is the gateway's Clearance core: one client (one breaker, one connection pool), the outbox, the outage switch.
@@ -216,6 +241,9 @@ type Core struct {
 	noBundled      bundledFlag
 	// OnDecision and OnPosted, when set, see each decision id the core answered and each entry it took with its
 	// record reference. Only the conformance control interface sets them (to report what it was answered).
+	// lostMu guards lostAt, the times an outcome that carries paths could be neither posted nor queued (see noteLost).
+	lostMu     sync.Mutex
+	lostAt     time.Time
 	OnDecision func(decisionID string)
 	OnPosted   func(e Entry, ref client.RecordRef)
 }
@@ -327,6 +355,9 @@ func (c *Core) Record(ctx context.Context, kind string, fields map[string]any, r
 	return c.send(ctx, e), nil
 }
 
+// outboxAddTimeout bounds queueing an entry that could not be posted: its own time, not what is left of the caller's.
+const outboxAddTimeout = 10 * time.Second
+
 // OutageRead queues a T0 read allowed while the core was unreachable, posted later as coverage-unavailable.
 func (c *Core) OutageRead(ctx context.Context, fields map[string]any) {
 	body := map[string]any{}
@@ -336,7 +367,9 @@ func (c *Core) OutageRead(ctx context.Context, fields map[string]any) {
 		}
 	}
 	body["coverage"] = "coverage-unavailable"
-	if _, err := c.Outbox.Add(ctx, Entry{Op: "record", Kind: "tool.call", Body: body}, "outage", ""); err != nil {
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxAddTimeout)
+	defer cancel()
+	if _, err := c.Outbox.Add(actx, Entry{Op: "record", Kind: "tool.call", Body: body}, "outage", ""); err != nil {
 		c.Log.Error("outbox add failed", "err", err.Error())
 	}
 }
@@ -345,6 +378,9 @@ func (c *Core) send(ctx context.Context, e Entry) *int64 {
 	seq, err := c.deliver(ctx, e, false)
 	if err != nil {
 		c.Log.Error("outbox", "err", err.Error())
+		if CarriesPaths(e) {
+			c.noteLost(time.Now()) // a write's outcome is in neither Clearance nor the outbox: the Preflight guard must not pass a score for it
+		}
 	}
 	return seq
 }
@@ -355,17 +391,30 @@ func (c *Core) sendRequired(ctx context.Context, e Entry) (*int64, error) {
 
 func (c *Core) deliver(ctx context.Context, e Entry, required bool) (*int64, error) {
 	// A caller whose own context ended must not lose the outcome: it is posted under a fresh bounded context.
-	pending, err := c.Outbox.HasPending(ctx)
+	// The outbox is asked on a bounded context of its own, not the caller's: if that has ended the question would fail, deliver would return
+	// before anything is queued, and the outcome would be lost. The caller's context stays for the post and the ctx.Err() check below, so an
+	// expired caller is still routed to queueing. (Drain posts to the core, so it keeps the caller's: with it ended nothing is drained, which
+	// loses nothing.)
+	hasPending := func() (bool, error) {
+		hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxAddTimeout)
+		defer cancel()
+		return c.Outbox.HasPending(hctx)
+	}
+	pending, err := hasPending()
 	if err != nil {
 		return nil, err
 	}
 	if pending {
 		c.Drain(ctx, 500)
-		if pending, _ = c.Outbox.HasPending(ctx); pending {
+		if pending, _ = hasPending(); pending {
 			if required {
 				return nil, &Unreachable{Msg: "the core has records still to take"}
 			}
-			_, err := c.Outbox.Add(ctx, e, "core-unavailable", "")
+			// The caller's context is nearly spent by now (the pending check and the drain used it): a write that cannot be queued is lost,
+			// so the queueing has its own, as the two below do.
+			actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxAddTimeout)
+			defer cancel()
+			_, err := c.Outbox.Add(actx, e, "core-unavailable", "")
 			return nil, err
 		}
 	}

@@ -19,7 +19,7 @@ import (
 	"github.com/jfillman/autopilot/gateway/internal/pgstate"
 )
 
-// scratchDB makes a database of its own on AUTOPILOT_TEST_PG, migrated and opened by the writer (the schema and the six indexes), and
+// scratchDB makes a database of its own on AUTOPILOT_TEST_PG, migrated and opened by the writer (the schema and the seven indexes), and
 // returns the writer's DSN.
 func scratchDB(t *testing.T) (dsn string, admin *pgx.Conn) {
 	t.Helper()
