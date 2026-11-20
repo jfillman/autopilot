@@ -923,8 +923,10 @@ func SLORequestsOpen() bool { return sloRequestsOpen }
 
 const (
 	SLORefusalMessage = "an SLO requested through xr.request would be scoped to the app's cicd namespace (app-<app>-cicd) and read no data"
-	SLORefusalHint    = "Declare it under `slos:` in that environment's chart values: glidepath/envs/<env>.yaml in the app repository (<owner>/<app>), " +
-		"which the airframe-application chart renders into the environment namespace. Open it as a pull request with repo.pr.open for a person to review. " +
+	SLORefusalHint    = "Declare it under `slos:` in that environment's chart values in the app repository (<owner>/<app>): for a static lower " +
+		"environment such as dev, the glidepath/envs/ file whose envName is <env> (usually glidepath/envs/<env>.yaml); for a pr-* preview, " +
+		"glidepath/pr-env.yaml, which every pull-request preview reads (a file under glidepath/envs/ would create a separate static environment). " +
+		"The airframe-application chart renders it into the environment namespace. Open it as a pull request with repo.pr.open for a person to review. " +
 		"SLOs belong to the app's chart values, not to an xr.request."
 )
 
