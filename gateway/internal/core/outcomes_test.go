@@ -229,3 +229,47 @@ func TestEffectPathsNothingVisibleIsUnknownNotEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestPendingEffectsOnlyForAnUndeliveredOutcomeWithPaths(t *testing.T) {
+	ctx := context.Background()
+	add := func(ob *core.MemoryOutbox, e core.Entry, reason string) int64 {
+		id, err := ob.Add(ctx, e, reason, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	withPaths := core.Entry{Op: "outcome", DecisionID: "d", Body: map[string]any{"effect": map[string]any{"repo": "o/r", "pr": 7, "paths": []any{"a.yaml"}}}}
+	for name, tc := range map[string]struct {
+		e    core.Entry
+		want bool
+	}{
+		"an outcome with paths":           {withPaths, true},
+		"paths as strings":                {core.Entry{Op: "outcome", Body: map[string]any{"effect": map[string]any{"paths": []string{"a"}}}}, true},
+		"an effect that is not an object": {core.Entry{Op: "outcome", Body: map[string]any{"effect": "x"}}, true},
+		"an outcome with no effect":       {core.Entry{Op: "outcome", Body: map[string]any{"result": "ok"}}, false},
+		"an effect with no paths":         {core.Entry{Op: "outcome", Body: map[string]any{"effect": map[string]any{"repo": "o/r", "pr": 7}}}, false},
+		"a record (not an outcome)":       {core.Entry{Op: "record", Kind: "run.finish", Body: map[string]any{"effect": map[string]any{"paths": []any{"a"}}}}, false},
+	} {
+		ob := core.NewMemoryOutbox()
+		add(ob, tc.e, "core-unavailable")
+		got, err := core.New(nil, ob, false).PendingEffects(ctx)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: %v %v", name, got, err)
+		}
+	}
+	// delivered or refused (never retried) is not pending; none queued is not pending
+	ob := core.NewMemoryOutbox()
+	if got, _ := core.New(nil, ob, false).PendingEffects(ctx); got {
+		t.Fatal("an empty outbox is pending")
+	}
+	add(ob, withPaths, "refused")
+	id := add(ob, withPaths, "core-unavailable")
+	if got, _ := core.New(nil, ob, false).PendingEffects(ctx); !got {
+		t.Fatal("a queued outcome with paths is not pending")
+	}
+	_ = ob.Done(ctx, id, nil)
+	if got, _ := core.New(nil, ob, false).PendingEffects(ctx); got {
+		t.Fatal("a delivered and a refused entry are pending")
+	}
+}

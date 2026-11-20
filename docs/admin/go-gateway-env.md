@@ -13,12 +13,12 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | Class | Variables |
 |---|---|
 | Same name, same meaning (Go may be stricter: see the note) | 69 |
-| New in Go (the Python gateway has no such setting) | 26 |
+| New in Go (the Python gateway has no such setting) | 27 |
 | Refused at start by both gateways | 12 |
 | Renamed AUTOPILOT_* at R-10a; the old name is refused by both | 13 |
 | Not carried: Python reads it, Go does not | 2 |
 | Set on the pod and read by no process | 2 |
-| Total | 124 |
+| Total | 125 |
 
 ## Same name, same meaning (Go may be stricter: see the note)
 
@@ -53,7 +53,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `BACKSTAGE_TOKEN_FILE` | serve,api | serve,api | serve,api |  |
 | `BACKSTAGE_URL` | serve,api | serve,api | serve,api | Go needs https unless BACKSTAGE_ALLOW_HTTP=1. |
 | `BROKER_URL` | serve | serve | - | Python's default names a lab Service; Go has no default and needs https unless BROKER_ALLOW_HTTP=1. |
-| `CLEARANCE_API_URL` | api | serve,api | api | Named in /v1/contract. Go's serve also reads it (optional, Go-only): a Preflight score reads the paths a run's writes touched from clearance-api's outcome records, and is refused (503) while it is unset. |
+| `CLEARANCE_API_URL` | api | serve,api | api | Named in /v1/contract. Go's serve also reads it (optional, Go-only): a Preflight score reads the paths a run's writes touched from clearance-api's outcome records with the caller's bearer token, and is refused (503) while it is unset. serve needs https unless CLEARANCE_API_ALLOW_HTTP=1; api only names it in /v1/contract and sends no token, so it keeps accepting http. |
 | `CLEARANCE_CORE_TIMEOUT` | serve | serve | - | Seconds per attempt, 0.05 to 30. |
 | `CLEARANCE_CORE_TOKEN_FILE` | serve | serve | - | Default /var/run/secrets/tokens/clearance. |
 | `CLEARANCE_CORE_URL` | serve | serve | serve | Plain http is accepted for the core (it is a Service on the cluster network). |
@@ -106,6 +106,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `AUTOPILOT_JWKS_ALLOW_HTTP` | - | serve,api | - | Plain http to an OIDC or Tower key set (default off). |
 | `BACKSTAGE_ALLOW_HTTP` | - | serve,api | - | Plain http to the catalog (default off). |
 | `BROKER_ALLOW_HTTP` | - | serve | - | Plain http to the installation-token broker (default off). |
+| `CLEARANCE_API_ALLOW_HTTP` | - | serve | - | Plain http to clearance-api, where a Preflight score reads the paths a run touched with the caller's token (default off). Not read by api. |
 | `GATEWAY_ALLOW_MISSING_INDEXES` | - | serve,api | - | Start although the read API's six indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`). |
 | `GATEWAY_CALL_TIMEOUT_SECONDS` | - | serve | - |  |
 | `GATEWAY_PG_CONNS` | - | serve | - |  |

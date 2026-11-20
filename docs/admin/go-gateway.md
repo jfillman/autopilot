@@ -551,11 +551,14 @@ session.
 - **Who it reads as.** The caller. The bearer token the person (or the delegate) presented to the score route is sent to clearance-api, and
   for a delegate the person it named in `X-Hangar-On-Behalf-Of`, so clearance-api's own per-person scoping applies: a person reads the
   outcomes of their runs, an agent's owner group the runs of its agents. The gateway never reads with an identity wider than the caller's.
-  `CLEARANCE_API_URL` is what sets the address (Python's `api` already reads it; the Go `serve` reads it too, optional, `http(s)` only,
-  redirects not followed, 10 s a request, 8 MiB an answer).
+  `CLEARANCE_API_URL` is what sets the address (Python's `api` already reads it; the Go `serve` reads it too, optional, redirects not
+  followed, 10 s a request, 8 MiB an answer). The caller's bearer token goes to it, so `serve` needs an `https` URL unless
+  `CLEARANCE_API_ALLOW_HTTP=1` says plain http (the pattern of `GLIDEPATH_API_ALLOW_HTTP` and `BACKSTAGE_ALLOW_HTTP`: no host is special,
+  and a warning is logged at start when it is on). The `api` process only names the URL in `/v1/contract` and sends no token, so it has no
+  such rule and keeps accepting http.
 - **The minimum is over the union.** `minPathsTouched` is checked against the distinct paths of all of a case's runs together (as
-  `RecordFromRuns` already combines the runs' results): a case that reads two runs passes with one path from each run if the sum reaches the
-  minimum.
+  `RecordFromRuns` already combines the runs' results). It is the **distinct** union that must reach the minimum: a case that reads two
+  runs with a minimum of two passes with one path from each run, but not when both runs touched the same path (it counts once).
 - **A session with no effects** is an empty list, which is known: the case fails with "nothing was changed" when it wants paths, and passes
   the out-of-scope check when nothing was written.
 - **When the paths cannot be read the score is refused, not made.** Fail closed was chosen over reporting a score with the paths marked
@@ -568,8 +571,13 @@ session.
   only once every run of the case has finished, so a run still going is `finished: false` with no read.
 - **Limits of what it knows.** Paths are as the call named them (a file path in its repository, not qualified by the repo, so allowed
   paths are one set for every repository a run wrote to). An outcome the gateway could not yet hand to the core waits in its outbox
-  (`core.Outbox`) and is not in Clearance's records until it is drained: a score made in that window would miss it, so a case with a
-  minimum fails "nothing was changed" and the person re-scores. A caller clearance-api's scoping does not let see the session is refused
+  (`core.Outbox`) and is not in Clearance's records until it is drained. A score made in that window would miss its paths, and for a
+  case with no minimum and `allowedPaths` set would pass a write outside scope, so it is **refused**: before and after the read the
+  gateway looks in its outbox for an undelivered outcome that carries an effect with paths (`Core.PendingEffects`) and, if there is one,
+  answers `503` `CORE-OUTBOX-PENDING` and records nothing. A queued outcome names its decision, not its session, so this holds back every
+  score while any such outcome is queued, not just that session's (the outbox is empty while the core is reachable, and the score is
+  repeated once it has drained). Outcomes with no effect, other records and entries the core refused (which are never retried) do not
+  hold a score back. A caller clearance-api's scoping does not let see the session is refused
   (`CORE-NOT-VISIBLE`), as above; the route's own check (`mayManage`) is wider than what clearance-api shows.
 
 Proof: `TestEffectPaths*` (`gateway/internal/core/outcomes_test.go`: records shaped as clearance-api serves them, pagination, no effects,

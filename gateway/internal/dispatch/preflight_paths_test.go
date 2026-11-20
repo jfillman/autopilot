@@ -264,3 +264,32 @@ func TestScoreReadsShareOneTimeBudget(t *testing.T) {
 		t.Fatal("a refused score recorded a result")
 	}
 }
+
+// An outcome that carries an effect and is still queued in the outbox (Clearance was unreachable when the write finished) is not in
+// Clearance's records: a score now would miss its paths. It is refused until the outbox has drained, with nothing recorded, even for
+// a case an empty list would pass.
+func TestScoreIsRefusedWhileAWriteIsQueuedInTheOutbox(t *testing.T) {
+	p, fe, body, sid := pathsRig(t, 0, []string{"clusters/**"})
+	finish(p, sid)
+	id, err := p.g.Core.Outbox.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: map[string]any{"result": "opened PR 7",
+		"effect": map[string]any{"repo": "jfillman/flight-api", "pr": float64(7), "paths": []any{"secrets/prod.yaml"}}}}, "core-unavailable", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != core.OutboxPendingRule || out != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+	if len(fe.calls) != 0 || p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatalf("a refused score read %d times / recorded a result", len(fe.calls))
+	}
+	// outcomes with no effect, and records, do not hold a score back; delivered, the write no longer does
+	_ = p.g.Core.Outbox.Done(ctx, id, nil)
+	if _, err := p.g.Core.Outbox.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-2", Body: map[string]any{"result": "ok"}}, "core-unavailable", ""); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = p.g.PreflightScore(ctx, p.person(adminID), body, ""); err != nil || out["passed"] != true {
+		t.Fatalf("%v %v", out, err)
+	}
+}

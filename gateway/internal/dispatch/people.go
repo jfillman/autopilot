@@ -912,6 +912,11 @@ func (g *Gateway) touchedPaths(ctx context.Context, token, onBehalfOf string, se
 	if g.Effects == nil {
 		return nil, &ControlError{core.RefusedRule, "the paths the run touched cannot be read: this gateway has no Clearance API configured (CLEARANCE_API_URL)", "", 503}
 	}
+	// An outcome with an effect that is still queued in the outbox is not in Clearance's records yet: a read now would miss its paths and
+	// could pass a write outside scope. Checked before the read (what was queued is not there) and after it (what was queued meanwhile).
+	if err := g.checkOutbox(ctx); err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	var out []string
 	for _, sid := range sessions {
@@ -935,8 +940,27 @@ func (g *Gateway) touchedPaths(ctx context.Context, token, onBehalfOf string, se
 			}
 		}
 	}
+	if err := g.checkOutbox(ctx); err != nil {
+		return nil, err
+	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// checkOutbox is a 503 CORE-OUTBOX-PENDING while an outcome with an effect waits in the outbox (core.PendingEffects), and a 503 when
+// the outbox cannot be read: neither is "nothing is queued". Nothing is scored or recorded; repeat when the outbox has drained.
+func (g *Gateway) checkOutbox(ctx context.Context) error {
+	if g.Core == nil {
+		return nil
+	}
+	pending, err := g.Core.PendingEffects(ctx)
+	if err != nil {
+		return &ControlError{core.OutageRule, "the gateway's outbox could not be read, so it is not known that every write reached Clearance: " + err.Error(), core.OutageHint, 503}
+	}
+	if pending {
+		return &ControlError{core.OutboxPendingRule, "a write of a run is still queued to reach Clearance, so the paths the run touched are not all known yet", "The gateway delivers it when Clearance is reachable. Score again then.", 503}
+	}
+	return nil
 }
 
 func (g *Gateway) candidateRunOf(sessionID, agent string) (string, string, string, bool) {

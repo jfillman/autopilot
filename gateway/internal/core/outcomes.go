@@ -227,3 +227,47 @@ func collectPaths(raw []byte, session string, seen map[string]bool) (string, err
 	}
 	return n, nil
 }
+
+// OutboxPendingRule is the rule for a score refused while an outcome that carries an effect is still queued in the gateway's outbox.
+const OutboxPendingRule = "CORE-OUTBOX-PENDING"
+
+// pendingScan is how many queued entries PendingEffects looks at; more than that cannot be told and counts as pending.
+const pendingScan = 1000
+
+// PendingEffects says whether the outbox holds an outcome that carries an effect (paths) and has not reached the core: such a write
+// is not in Clearance's records yet, so a read of them would miss it. A queued outcome names its decision, not its session, so this is
+// for the whole gateway, not one session; the outbox is empty while the core is reachable, so it is rarely true and clears when the
+// outbox drains. Entries the core refused (state refused) are not retried and are not pending.
+func (c *Core) PendingEffects(ctx context.Context) (bool, error) {
+	rows, err := c.Outbox.Pending(ctx, pendingScan)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range rows {
+		if r.Entry.Op != "outcome" {
+			continue
+		}
+		eff, has := r.Entry.Body["effect"]
+		if !has || eff == nil {
+			continue
+		}
+		m, ok := eff.(map[string]any)
+		if !ok {
+			return true, nil // an effect this code cannot read: not known to be free of paths
+		}
+		switch ps := m["paths"].(type) {
+		case nil:
+		case []any:
+			if len(ps) > 0 {
+				return true, nil
+			}
+		case []string:
+			if len(ps) > 0 {
+				return true, nil
+			}
+		default:
+			return true, nil
+		}
+	}
+	return len(rows) >= pendingScan, nil
+}
