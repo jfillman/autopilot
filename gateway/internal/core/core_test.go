@@ -175,6 +175,13 @@ func (o ctxOutbox) Add(ctx context.Context, e core.Entry, reason, errText string
 	return o.MemoryOutbox.Add(ctx, e, reason, errText)
 }
 
+func (o ctxOutbox) HasPending(ctx context.Context) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return o.MemoryOutbox.HasPending(ctx)
+}
+
 // The caller's context is nearly spent by the time an outcome that cannot be posted is queued (the pending check and the drain used it): the
 // entry must still be queued, under a context of its own.
 func TestAnOutcomeIsQueuedEvenWhenTheCallersContextIsSpent(t *testing.T) {
@@ -232,5 +239,55 @@ func TestALostOutcomeWithPathsRefusesTheScoresOfRunsThatCouldHaveMadeIt(t *testi
 	}
 	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(time.Hour)); err != nil { // a run that began after it
 		t.Fatalf("a later run was refused: %v", err)
+	}
+}
+
+// The pending check is asked on a context of its own: with the caller's already ended it would fail and the outcome would be dropped before
+// anything was queued (a store whose HasPending fails on a done context, as Postgres's does).
+func TestTheOutboxIsAskedWhetherAnythingWaitsOnAContextOfItsOwn(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	mem := core.NewMemoryOutbox()
+	c := core.New(fc.Client(200*time.Millisecond), ctxOutbox{mem}, false)
+	fc.Down.Store(true)
+	spent, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	// nothing waits yet: the caller's context has ended, the core is down, the outcome is queued
+	c.Outcome(spent, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+	if mem.Len("pending") != 1 {
+		t.Fatalf("the outcome was lost: %d queued", mem.Len("pending"))
+	}
+	// something waits now (the pending branch asks twice)
+	c.Outcome(spent, "d-2", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"b.yaml"}}})
+	if mem.Len("pending") != 2 {
+		t.Fatalf("the outcome was lost: %d queued", mem.Len("pending"))
+	}
+	// and nothing was counted as lost for the guard
+	if _, err := c.BeginEffectCheck(context.Background(), time.Now().Add(-time.Hour)); err == nil {
+		t.Fatal("the pending entries should block, not pass")
+	} else if b, ok := err.(*core.OutboxBlocked); !ok || b.Rule != core.OutboxPendingRule {
+		t.Fatalf("%v", err) // a lost outcome would be OutcomeLostRule
+	}
+}
+
+// An outcome lost during the read of Clearance (after the guard began) is caught by Finish, which repeats the lost-outcome check.
+func TestEffectGuardFinishBlocksAnOutcomeLostDuringTheRead(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	ctx := context.Background()
+	since := time.Now().Add(-time.Hour)
+	g, err := c.BeginEffectCheck(ctx, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Finish(ctx); err != nil {
+		t.Fatalf("nothing was lost: %v", err)
+	}
+	fc.Down.Store(true) // mid-read: a write's outcome can be neither posted nor queued
+	c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"secrets/prod.yaml"}}})
+	var blocked *core.OutboxBlocked
+	if err := g.Finish(ctx); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("%v", err)
 	}
 }

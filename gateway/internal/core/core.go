@@ -391,13 +391,22 @@ func (c *Core) sendRequired(ctx context.Context, e Entry) (*int64, error) {
 
 func (c *Core) deliver(ctx context.Context, e Entry, required bool) (*int64, error) {
 	// A caller whose own context ended must not lose the outcome: it is posted under a fresh bounded context.
-	pending, err := c.Outbox.HasPending(ctx)
+	// The outbox is asked on a bounded context of its own, not the caller's: if that has ended the question would fail, deliver would return
+	// before anything is queued, and the outcome would be lost. The caller's context stays for the post and the ctx.Err() check below, so an
+	// expired caller is still routed to queueing. (Drain posts to the core, so it keeps the caller's: with it ended nothing is drained, which
+	// loses nothing.)
+	hasPending := func() (bool, error) {
+		hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxAddTimeout)
+		defer cancel()
+		return c.Outbox.HasPending(hctx)
+	}
+	pending, err := hasPending()
 	if err != nil {
 		return nil, err
 	}
 	if pending {
 		c.Drain(ctx, 500)
-		if pending, _ = c.Outbox.HasPending(ctx); pending {
+		if pending, _ = hasPending(); pending {
 			if required {
 				return nil, &Unreachable{Msg: "the core has records still to take"}
 			}

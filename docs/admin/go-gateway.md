@@ -605,7 +605,7 @@ session.
     token total is read only after its sessions are held, so a charge that lands before the hold is in it and none lands after.
   - *A lost outcome.* If an outcome with paths could be neither posted nor queued (the outbox's store was down too), it is in neither
     Clearance nor the outbox, and nothing there can say so. The gateway keeps the time of the last such loss in memory (`Core.noteLost`), and a
-    score of any run that began before it is refused with `503` `CORE-OUTCOME-LOST` (a person must look at the gateway's logs); a run that began after
+    score of any run that began before it is refused with `503` `CORE-OUTCOME-LOST` (checked when the guard begins and again in `Finish`, so a loss during the read is caught too) (a person must look at the gateway's logs); a run that began after
     it is not held back. It is in memory because the failure that loses an outcome is the outbox's store being unavailable, which is also where a
     durable marker would go. **A restart of the gateway forgets it**: that is a gap this leaves, which the logged error ("outbox") is the record of.
   - *Which cases the cut-off covers.* The cut-off for a refused outbox entry is the earliest session of the cases that are being scored, not of
@@ -626,8 +626,8 @@ session.
     **The sequence must be `CACHE 1`** (what `bigserial` creates): with a larger cache each connection hands out ids from its own block, so a
     later insert can get a lower id than the mark. `Quiesce` reads `pg_sequence` and refuses (`503`, fail closed) when it is not 1; the schema
     (generated from Python's) is not edited to say so, so this is the place it is written down.
-  - Queueing an outcome that cannot be posted (and an outage read) uses a context of its own (`WithoutCancel`, 10 s), not what is left of the
-    caller's, which the pending check and the drain have used: a write that cannot be queued is lost.
+  - Asking the outbox whether anything waits, and queueing an outcome that cannot be posted (and an outage read), use a context of
+    their own (`WithoutCancel`, 10 s), not the caller's, which may have ended or been used up by the drain: a write that cannot be queued is lost.
   - Outcomes with no effect or no paths, other records, and delivered entries do not hold a score back. If the outbox cannot be read it is
     `503` `CORE-UNAVAILABLE`.
   A caller clearance-api's scoping does not let see the session is refused (`CORE-NOT-VISIBLE`), as above; the route's own check

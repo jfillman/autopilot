@@ -308,6 +308,8 @@ func CarriesPaths(e Entry) bool {
 type EffectGuard struct {
 	c  *Core
 	hw int64
+	// lostCut is the cut-off BeginEffectCheck used for the lost-outcome check, which Finish repeats after the last read.
+	lostCut time.Time
 }
 
 // BeginEffectCheck starts a score's check. since is when the earliest of the scored sessions was created (zero: not known, so every
@@ -316,12 +318,13 @@ type EffectGuard struct {
 // entries that matter (an outcome with paths, pending, or refused since the run could have begun), so entries that do not qualify, however
 // many, never count towards anything and never block: the scan stops at the first qualifying entry.
 func (c *Core) BeginEffectCheck(ctx context.Context, since time.Time) (*EffectGuard, error) {
-	if c.lostSince(since.Add(-time.Minute)) {
+	cut := since.Add(-time.Minute)
+	if c.lostSince(cut) {
 		return nil, &OutboxBlocked{Rule: OutcomeLostRule,
 			Msg:  "a write's outcome could be neither delivered nor queued (the outbox could not be written), so it is in neither Clearance nor the outbox and the paths the run touched are not all known",
 			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
 	}
-	g := &EffectGuard{c: c}
+	g := &EffectGuard{c: c, lostCut: cut}
 	err := c.Outbox.Quiesce(ctx, func(r OutboxReader) error {
 		var err error
 		if g.hw, err = r.HighWater(ctx); err != nil {
@@ -359,6 +362,12 @@ func (c *Core) BeginEffectCheck(ctx context.Context, since time.Time) (*EffectGu
 
 // Finish is the check after the read: no outcome with paths may have been added to the outbox since BeginEffectCheck, whatever became of it.
 func (g *EffectGuard) Finish(ctx context.Context) error {
+	// An outcome lost during the read (after BeginEffectCheck's check) is in neither place either.
+	if g.c.lostSince(g.lostCut) {
+		return &OutboxBlocked{Rule: OutcomeLostRule,
+			Msg:  "a write's outcome could be neither delivered nor queued while the paths were being read, so the paths the run touched are not all known",
+			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
+	}
 	rows, err := g.c.Outbox.Entries(ctx, OutboxQuery{AfterID: g.hw, OutcomesOnly: true, WithPaths: true, Limit: 1})
 	if err != nil {
 		return err

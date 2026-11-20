@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -305,6 +306,9 @@ func (fakeRuns) Principal(run string) string {
 // Preflight score, which reads a run's tokens, can refuse while one is out: the session's lock is free while a response streams.
 func TestAnAcceptedModelRequestIsCountedUntilItsReportIsMade(t *testing.T) {
 	release := make(chan struct{})
+	var once sync.Once
+	let := func() { once.Do(func() { close(release) }) } // idempotent: a failed assertion cannot leave the upstream handler blocked
+	defer let()
 	r := newRig(t, func(w http.ResponseWriter, q *http.Request) {
 		w.Header().Set("content-type", "text/event-stream")
 		fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n")
@@ -331,7 +335,7 @@ func TestAnAcceptedModelRequestIsCountedUntilItsReportIsMade(t *testing.T) {
 	} else {
 		rel()
 	}
-	close(release)
+	let()
 	_, _ = io.ReadAll(br)
 	waitFor(t, "the report", func() bool { return r.fc.OutcomeCount() == 1 && r.s.ModelInFlight() == 0 })
 	// a refused request is never counted
