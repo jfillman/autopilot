@@ -593,18 +593,41 @@ session.
   - *A call in flight.* A case counts as finished once its session has a stored outcome or a result, and a call of that session that is still
     running has made its write but not yet put its outcome in Clearance or the outbox. The deadline sweep stores the outcome "expired"
     without the session's operation lock (`deadlineOutcomes`), so that can happen during a call. A tool call holds the session's operation lock
-    from its decision to the delivery or queueing of its outcome (`Gateway.Call`). The score takes each session's lock without waiting (`TrySerial`) before it reads: a session
-    whose lock is taken is refused (`503` `CORE-CALL-IN-FLIGHT`, repeat when the call has ended), and the locks are kept until the score ends,
-    so no call of a scored session can start meanwhile (one would wait). With them held, every outcome of the scored sessions is in
-    Clearance or the outbox when the guard begins.
+    from its decision to the delivery or queueing of its outcome (`Gateway.Call`). The score takes each session's lock without waiting
+    (`TrySerial`) before it reads: a session whose lock is taken is refused (`503` `CORE-CALL-IN-FLIGHT`, repeat when the call has ended), and
+    the locks are kept while the case's paths are read, so no call of a scored session can start meanwhile (it would wait, which is why they are
+    let go as soon as that case's reads end, not at the end of the score). They cannot be let go earlier, right after the guard reads the
+    outbox's greatest id: a call that started after that and posted its outcome straight to Clearance (the core being up) leaves nothing in
+    the outbox for `Finish` to see, and could land after the read of its session. A call that starts after the reads is after the score.
+  - *A model request still out.* The model proxy takes the session's lock to authorize a request and lets it go while the response streams, so a
+    run's tokens (which the score reads) can still grow after the lock is free. The proxy counts each accepted request on its session (from its
+    authorization, under the lock, until its report has been made) and the score refuses with `CORE-CALL-IN-FLIGHT` while one is out. A run's
+    token total is read only after its sessions are held, so a charge that lands before the hold is in it and none lands after.
+  - *A lost outcome.* If an outcome with paths could be neither posted nor queued (the outbox's store was down too), it is in neither
+    Clearance nor the outbox, and nothing there can say so. The gateway keeps the time of the last such loss in memory (`Core.noteLost`), and a
+    score of any run that began before it is refused with `503` `CORE-OUTCOME-LOST` (a person must look at the gateway's logs); a run that began after
+    it is not held back. It is in memory because the failure that loses an outcome is the outbox's store being unavailable, which is also where a
+    durable marker would go. **A restart of the gateway forgets it**: that is a gap this leaves, which the logged error ("outbox") is the record of.
+  - *Which cases the cut-off covers.* The cut-off for a refused outbox entry is the earliest session of the cases that are being scored, not of
+    every case named: a case still running is not read, so an older unfinished case does not widen it.
   - *No insert can slip below the mark.* The greatest id is read while the outbox is quiesced (`Outbox.Quiesce`). In Postgres every add takes
     a shared advisory lock (`pg_advisory_xact_lock_shared`) from before it takes its id until its insert commits, and `Quiesce` takes the same
-    lock exclusively in a transaction of its own and reads through that transaction: it waits for an add under way, holds later ones off, and
-    nothing can be committed with an id at or below the mark. In memory it is a read-write mutex. Adds do not wait for each other, and nothing
-    `Quiesce` holds is waited on by an add or by Drain (which takes no advisory lock and updates rows), so they cannot deadlock; the
-    transaction is rolled back on every path out (an error, the context ending), which releases the lock. The hold is only for those reads, not
-    for the whole score: a call queues its outcome under a 5 s timeout and an outcome that cannot be queued is lost, so holding adds off for the
-    read of Clearance (up to the 30 s budget) would risk exactly the loss the guard exists to catch.
+    lock exclusively in a transaction of its own (READ COMMITTED, whatever the database's default, so its reads see what committed while it
+    waited) and reads through that transaction. It only **tries** for the lock
+    (`pg_try_advisory_xact_lock`, five tries 30 ms apart) and gives up with `503` `CORE-OUTBOX-BUSY` (repeat the score): a blocking request would
+    queue, Postgres queues every later shared request (every add) behind a waiting exclusive one, and an outcome that cannot be queued within its 5 s
+    timeout is lost, so an add is never delayed by a score, whether or not the score gets the lock. Held, it waits for no one: adds hold only the
+    shared lock and their own insert, Drain takes no advisory lock, and the transaction is rolled back on every path out (an error, the context
+    ending), which releases the lock. In memory it is a read-write mutex, tried the same way. The hold is only for the reads of the mark and
+    of the pending and refused entries, not for the whole score. The queries name one state as a literal and a time bound as a plain
+    comparison (never `$n IS NULL OR ...`, which a generic plan cannot use an index for): `gateway_outbox_pending` (in the schema) serves the pending
+    check and `gateway_outbox_refused` (a seventh index, `(created_at, id) WHERE state = 'refused'`, made by `migrate`; see
+    go-gateway-release.md: the next release needs the migrate step) the refused one, so neither scans the done rows, which are never deleted.
+    **The sequence must be `CACHE 1`** (what `bigserial` creates): with a larger cache each connection hands out ids from its own block, so a
+    later insert can get a lower id than the mark. `Quiesce` reads `pg_sequence` and refuses (`503`, fail closed) when it is not 1; the schema
+    (generated from Python's) is not edited to say so, so this is the place it is written down.
+  - Queueing an outcome that cannot be posted (and an outage read) uses a context of its own (`WithoutCancel`, 10 s), not what is left of the
+    caller's, which the pending check and the drain have used: a write that cannot be queued is lost.
   - Outcomes with no effect or no paths, other records, and delivered entries do not hold a score back. If the outbox cannot be read it is
     `503` `CORE-UNAVAILABLE`.
   A caller clearance-api's scoping does not let see the session is refused (`CORE-NOT-VISIBLE`), as above; the route's own check

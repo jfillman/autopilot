@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jfillman/clearance/client"
@@ -112,10 +113,13 @@ func (l *flushLock) Unlock() { <-l.ch }
 type Session struct {
 	// flushMu orders the saves of this session: a save builds its record and writes it under it, so a record built before a later
 	// change can never be written after the later one (a stale open overwriting a person's end).
-	flushMu  flushLock
-	mu       sync.Mutex
-	serial   sync.Mutex
-	runEpoch uint64
+	flushMu flushLock
+	mu      sync.Mutex
+	serial  sync.Mutex
+	// modelInFlight counts model requests the proxy has accepted for the session and not yet reported (the session lock is free while a response
+	// streams): their usage and outcome are still to come.
+	modelInFlight atomic.Int64
+	runEpoch      uint64
 
 	ID         string
 	Principal  string
@@ -161,6 +165,16 @@ func (s *Session) Unlock() { s.mu.Unlock() }
 
 // Serial takes the per-session operation lock; the returned func releases it.
 func (s *Session) Serial() func() { s.serial.Lock(); return s.serial.Unlock }
+
+// ModelStart and ModelEnd bracket a model request from its authorization to its report (the proxy calls ModelStart while it still holds the
+// session's operation lock, so a TrySerial that fails or a ModelInFlight above zero together cover every request that is not yet reported).
+func (s *Session) ModelStart() { s.modelInFlight.Add(1) }
+
+// ModelEnd is ModelStart's end.
+func (s *Session) ModelEnd() { s.modelInFlight.Add(-1) }
+
+// ModelInFlight is how many accepted model requests have not reported yet.
+func (s *Session) ModelInFlight() int64 { return s.modelInFlight.Load() }
 
 // TrySerial takes the per-session operation lock if it is free, and says whether it did. The sweep uses it so it never waits
 // behind (or stalls) a call on the session: a session that is busy is looked at again on the next sweep.

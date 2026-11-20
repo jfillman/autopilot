@@ -44,7 +44,7 @@ func (o MigrateOptions) withDefaults() MigrateOptions {
 // ErrMigrateRunning is returned when another migrate holds the migrate lock.
 var ErrMigrateRunning = errors.New("another migrate is running against this database")
 
-// Migrate brings the database to what the Go gateway needs: the schema (idempotent, as serve's own start does it) and the six read API
+// Migrate brings the database to what the Go gateway needs: the schema (idempotent, as serve's own start does it) and the seven
 // indexes, each created with CREATE INDEX CONCURRENTLY, so no write to a gateway table waits for a build. It may run while a gateway (Go or
 // Python) is writing. It is idempotent: a valid index is left alone, and an INVALID one (what an interrupted CONCURRENTLY build leaves) is
 // dropped, concurrently, and built again. A failure leaves no half state that a second run does not repair. It returns the names it created.
@@ -141,14 +141,14 @@ func createIndex(ix dbindex.Index) string {
 	return fmt.Sprintf("CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s", ix.Name, ix.Table, ix.Def)
 }
 
-// CheckIndexes is the state of the six indexes, as serve asks it at start.
+// CheckIndexes is the state of the seven indexes, as serve asks it at start.
 func (s *State) CheckIndexes(ctx context.Context) ([]dbindex.State, error) {
 	return dbindex.Check(ctx, dbindex.Pgx(s.Pool))
 }
 
 var indexDefNorm = regexp.MustCompile(`^CREATE (UNIQUE )?INDEX \S+ ON \S+ `)
 
-// WrongDefinitions names each of the six indexes that exists, valid, with a definition other than the expected one. The expected text is not
+// WrongDefinitions names each of the seven indexes that exists, valid, with a definition other than the expected one. The expected text is not
 // written out here (Postgres prints its own canonical form, which differs between versions): the same definition is built on an empty TEMP table
 // of the same columns, and its pg_get_indexdef is compared with the real index's, each with the index and table names removed.
 func WrongDefinitions(ctx context.Context, conn *pgx.Conn) (map[string]bool, error) {

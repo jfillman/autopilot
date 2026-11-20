@@ -141,9 +141,35 @@ func (m *MemoryOutbox) HighWater(_ context.Context) (int64, error) {
 	return m.next, nil
 }
 
-// Quiesce holds off every Add while fn runs.
-func (m *MemoryOutbox) Quiesce(_ context.Context, fn func(OutboxReader) error) error {
-	m.ins.Lock()
+// QuiesceTries and QuiesceWait are how Quiesce takes the add lock: a few tries, a short wait apart, never a wait in the lock's queue. A
+// waiting exclusive request makes every later shared one (every Add) queue behind it, and an outcome that cannot be queued within its 5 s
+// timeout is lost, so Quiesce only ever TRIES for the lock, and gives up (OutboxBusyRule) rather than make an Add wait.
+const (
+	QuiesceTries = 5
+	QuiesceWait  = 30 * time.Millisecond
+)
+
+// BusyError is what Quiesce returns when the lock could not be taken.
+func BusyError() error {
+	return &OutboxBlocked{Rule: OutboxBusyRule, Msg: "the gateway's outbox was busy taking a write, so it is not known that every write of the run reached Clearance",
+		Hint: "Score again in a moment."}
+}
+
+// Quiesce holds off every Add while fn runs (it tries for the lock QuiesceTries times and returns BusyError when it never gets it).
+func (m *MemoryOutbox) Quiesce(ctx context.Context, fn func(OutboxReader) error) error {
+	for i := 0; ; i++ {
+		if m.ins.TryLock() {
+			break
+		}
+		if i+1 >= QuiesceTries {
+			return BusyError()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(QuiesceWait):
+		}
+	}
 	defer m.ins.Unlock()
 	return fn(m)
 }

@@ -241,6 +241,9 @@ type Core struct {
 	noBundled      bundledFlag
 	// OnDecision and OnPosted, when set, see each decision id the core answered and each entry it took with its
 	// record reference. Only the conformance control interface sets them (to report what it was answered).
+	// lostMu guards lostAt, the times an outcome that carries paths could be neither posted nor queued (see noteLost).
+	lostMu     sync.Mutex
+	lostAt     time.Time
 	OnDecision func(decisionID string)
 	OnPosted   func(e Entry, ref client.RecordRef)
 }
@@ -352,6 +355,9 @@ func (c *Core) Record(ctx context.Context, kind string, fields map[string]any, r
 	return c.send(ctx, e), nil
 }
 
+// outboxAddTimeout bounds queueing an entry that could not be posted: its own time, not what is left of the caller's.
+const outboxAddTimeout = 10 * time.Second
+
 // OutageRead queues a T0 read allowed while the core was unreachable, posted later as coverage-unavailable.
 func (c *Core) OutageRead(ctx context.Context, fields map[string]any) {
 	body := map[string]any{}
@@ -361,7 +367,9 @@ func (c *Core) OutageRead(ctx context.Context, fields map[string]any) {
 		}
 	}
 	body["coverage"] = "coverage-unavailable"
-	if _, err := c.Outbox.Add(ctx, Entry{Op: "record", Kind: "tool.call", Body: body}, "outage", ""); err != nil {
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxAddTimeout)
+	defer cancel()
+	if _, err := c.Outbox.Add(actx, Entry{Op: "record", Kind: "tool.call", Body: body}, "outage", ""); err != nil {
 		c.Log.Error("outbox add failed", "err", err.Error())
 	}
 }
@@ -370,6 +378,9 @@ func (c *Core) send(ctx context.Context, e Entry) *int64 {
 	seq, err := c.deliver(ctx, e, false)
 	if err != nil {
 		c.Log.Error("outbox", "err", err.Error())
+		if CarriesPaths(e) {
+			c.noteLost(time.Now()) // a write's outcome is in neither Clearance nor the outbox: the Preflight guard must not pass a score for it
+		}
 	}
 	return seq
 }
@@ -390,7 +401,11 @@ func (c *Core) deliver(ctx context.Context, e Entry, required bool) (*int64, err
 			if required {
 				return nil, &Unreachable{Msg: "the core has records still to take"}
 			}
-			_, err := c.Outbox.Add(ctx, e, "core-unavailable", "")
+			// The caller's context is nearly spent by now (the pending check and the drain used it): a write that cannot be queued is lost,
+			// so the queueing has its own, as the two below do.
+			actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxAddTimeout)
+			defer cancel()
+			_, err := c.Outbox.Add(actx, e, "core-unavailable", "")
 			return nil, err
 		}
 	}

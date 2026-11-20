@@ -164,3 +164,73 @@ func TestASlowDecisionIsDecidedNotDenied(t *testing.T) {
 		t.Fatal("CLEARANCE_CORE_TIMEOUT is not used")
 	}
 }
+
+// ctxOutbox is a memory outbox whose Add fails when its context has ended (as Postgres's does).
+type ctxOutbox struct{ *core.MemoryOutbox }
+
+func (o ctxOutbox) Add(ctx context.Context, e core.Entry, reason, errText string) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return o.MemoryOutbox.Add(ctx, e, reason, errText)
+}
+
+// The caller's context is nearly spent by the time an outcome that cannot be posted is queued (the pending check and the drain used it): the
+// entry must still be queued, under a context of its own.
+func TestAnOutcomeIsQueuedEvenWhenTheCallersContextIsSpent(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	mem := core.NewMemoryOutbox()
+	c := core.New(fc.Client(200*time.Millisecond), ctxOutbox{mem}, false)
+	fc.Down.Store(true)
+	if seq := c.Outcome(context.Background(), "d-1", core.OutcomeArgs{Result: "ok"}); seq != nil || mem.Len("pending") != 1 {
+		t.Fatalf("the first outcome was not queued")
+	}
+	spent, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second)) // what is left of the caller's time is nothing
+	defer cancel()
+	// something already waits, so this goes down the pending branch (drain fails, then queue)
+	if seq := c.Outcome(spent, "d-2", core.OutcomeArgs{Result: "ok"}); seq != nil {
+		t.Fatal("posted while down")
+	}
+	if mem.Len("pending") != 2 {
+		t.Fatalf("the outcome was lost: %d queued", mem.Len("pending"))
+	}
+	// an outage read is queued the same way
+	c.OutageRead(spent, map[string]any{"tool": "catalog.read"})
+	if mem.Len("pending") != 3 {
+		t.Fatalf("the outage read was lost: %d queued", mem.Len("pending"))
+	}
+}
+
+// failingOutbox cannot be written (its store is down).
+type failingOutbox struct{ *core.MemoryOutbox }
+
+func (failingOutbox) Add(context.Context, core.Entry, string, string) (int64, error) {
+	return 0, errors.New("the outbox store is down")
+}
+
+// An outcome with paths that can be neither posted nor queued is in neither Clearance nor the outbox: a Preflight score of a run that could
+// have made it is refused (CORE-OUTCOME-LOST), and one of a run that began after it is not; an outcome with no paths does not count.
+func TestALostOutcomeWithPathsRefusesTheScoresOfRunsThatCouldHaveMadeIt(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	ctx := context.Background()
+	t0 := time.Now().Add(-time.Hour) // a run that began an hour ago
+	if _, err := c.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("nothing was lost yet: %v", err)
+	}
+	fc.Down.Store(true)
+	c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok"}) // no effect: lost, but it carried no paths
+	if _, err := c.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("an outcome with no paths was counted: %v", err)
+	}
+	c.Outcome(ctx, "d-2", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Repo: "o/r", PR: 7, Paths: []string{"secrets/prod.yaml"}}})
+	var blocked *core.OutboxBlocked
+	if _, err := c.BeginEffectCheck(ctx, t0); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("%v", err)
+	}
+	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(time.Hour)); err != nil { // a run that began after it
+		t.Fatalf("a later run was refused: %v", err)
+	}
+}

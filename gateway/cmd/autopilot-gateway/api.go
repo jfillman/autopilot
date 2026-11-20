@@ -219,7 +219,7 @@ func buildAPI(ctx context.Context, cfg *apiConfig, log *slog.Logger) (*http.Serv
 		store.Close()
 		return nil, nil, err
 	}
-	// The six indexes are `migrate`'s: without them the lists scan their tables. Refused by default (a silent slow path in production is what
+	// The seven indexes are `migrate`'s: without them the lists scan their tables. Refused by default (a silent slow path in production is what
 	// migrate exists to prevent); GATEWAY_ALLOW_MISSING_INDEXES=1 serves anyway, loudly.
 	if m, err := store.IndexProblems(cctx); err != nil {
 		// a check that cannot be made is not a pass

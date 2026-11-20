@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -269,8 +270,10 @@ func (o *Outbox) Add(ctx context.Context, e core.Entry, reason, errText string) 
 	return id, tx.Commit(ctx)
 }
 
-// outboxLockKey is the advisory lock that orders adds against Quiesce (the digits spell the table).
-const outboxLockKey int64 = 0x676174657761795f
+// OutboxLockKey is the advisory lock that orders adds against Quiesce (the digits spell the table).
+const OutboxLockKey int64 = 0x676174657761795f
+
+const outboxLockKey = OutboxLockKey
 
 // querier is what a pool and a transaction share for the outbox's reads.
 type querier interface {
@@ -280,16 +283,47 @@ type querier interface {
 
 // Quiesce runs fn with every Add held off: it takes the add lock exclusively in a transaction of its own and hands fn a reader on that
 // transaction (so fn needs no second connection, which a pool all of whose connections wait on the lock could not give it). The lock
-// is released when the transaction ends, by the rollback below on every path, including fn's error and the context's end. It deadlocks with
-// nothing: an add holds only the shared lock and its own insert, and waits for nothing Quiesce holds; Drain's updates take no advisory lock.
+// is released when the transaction ends, by the rollback below on every path, including fn's error and the context's end.
+//
+// It only TRIES for the lock (pg_try_advisory_xact_lock, core.QuiesceTries times, core.QuiesceWait apart) and gives up with core.BusyError.
+// A blocking request would queue, and Postgres queues every later shared request (every Add) behind a waiting exclusive one: an Add
+// would then wait for the score, and an outcome that cannot be queued within its 5 s timeout is lost. A try never queues, so an Add is
+// never delayed by a Quiesce, whether or not it gets the lock. It deadlocks with nothing: an add holds only the shared lock and its own
+// insert and waits for nothing Quiesce holds; Drain's updates take no advisory lock.
+//
+// The argument that nothing can commit below the greatest id read here also needs the id sequence to hand out ids in order, which a
+// sequence with CACHE above 1 does not (each connection keeps its own block): it is checked, and a score is refused when it is not.
 func (o *Outbox) Quiesce(ctx context.Context, fn func(core.OutboxReader) error) error {
-	tx, err := o.st.Pool.Begin(ctx)
+	// READ COMMITTED whatever the database's default is: under REPEATABLE READ the snapshot would be fixed by the first statement, before the lock
+	// is taken, and the reads under the lock would not see what an add committed meanwhile.
+	tx, err := o.st.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", outboxLockKey); err != nil {
-		return err
+	var cache int64
+	if err := tx.QueryRow(ctx, "SELECT seqcache FROM pg_sequence WHERE seqrelid = pg_get_serial_sequence('gateway_outbox', 'id')::regclass").Scan(&cache); err != nil {
+		return fmt.Errorf("the outbox's id sequence could not be checked: %w", err)
+	}
+	if cache != 1 {
+		return fmt.Errorf("the outbox's id sequence has CACHE %d: its ids are not handed out in order, which the Preflight outbox guard needs (ALTER SEQUENCE gateway_outbox_id_seq CACHE 1)", cache)
+	}
+	for i := 0; ; i++ {
+		var got bool
+		if err := tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", outboxLockKey).Scan(&got); err != nil {
+			return err
+		}
+		if got {
+			break
+		}
+		if i+1 >= core.QuiesceTries {
+			return core.BusyError()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(core.QuiesceWait):
+		}
 	}
 	return fn(txReader{tx})
 }
@@ -342,22 +376,39 @@ func (o *Outbox) Entries(ctx context.Context, q core.OutboxQuery) ([]core.Outbox
 const withPaths = "(body->'effect' IS NOT NULL AND jsonb_typeof(body->'effect') <> 'null' AND (jsonb_typeof(body->'effect') <> 'object' OR " +
 	"(body #> '{effect,paths}' IS NOT NULL AND jsonb_typeof(body #> '{effect,paths}') <> 'null' AND body #> '{effect,paths}' <> '[]'::jsonb)))"
 
+// entries builds its query from what is asked, with a literal predicate for each (never `$n IS NULL OR ...`, which a generic plan could
+// not use an index for): one state is named as a literal so the planner can match the partial indexes on state (gateway_outbox_pending, and
+// gateway_outbox_refused, which dbindex.Indexes carries); a time lower bound is a plain comparison on created_at.
 func entries(ctx context.Context, db querier, q core.OutboxQuery) ([]core.OutboxRow, error) {
-	var since any
-	if !q.Since.IsZero() {
-		since = q.Since
+	conds, args := []string{"id > $1"}, []any{q.AfterID}
+	arg := func(v any) string { args = append(args, v); return fmt.Sprintf("$%d", len(args)) }
+	for _, st := range q.States {
+		if st != "pending" && st != "done" && st != "refused" {
+			return nil, fmt.Errorf("outbox state %q", st)
+		}
 	}
-	var states any
-	if len(q.States) > 0 {
-		states = q.States
+	switch len(q.States) {
+	case 0:
+	case 1:
+		conds = append(conds, "state = '"+q.States[0]+"'") // a closed set, checked above
+	default:
+		conds = append(conds, "state = ANY("+arg(q.States)+")")
+	}
+	if !q.Since.IsZero() {
+		conds = append(conds, "created_at >= "+arg(q.Since))
+	}
+	if q.OutcomesOnly {
+		conds = append(conds, "op = 'outcome'")
+	}
+	if q.WithPaths {
+		conds = append(conds, withPaths)
 	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 1000
 	}
-	rows, err := db.Query(ctx, "SELECT id, op, kind, decision_id, body, state, created_at FROM gateway_outbox "+
-		"WHERE id > $1 AND ($2::text[] IS NULL OR state = ANY($2)) AND ($3::timestamptz IS NULL OR created_at >= $3) AND (NOT $4 OR op = 'outcome') "+
-		"AND (NOT $5 OR "+withPaths+") ORDER BY id LIMIT $6", q.AfterID, states, since, q.OutcomesOnly, q.WithPaths, limit)
+	rows, err := db.Query(ctx, "SELECT id, op, kind, decision_id, body, state, created_at FROM gateway_outbox WHERE "+strings.Join(conds, " AND ")+
+		" ORDER BY id LIMIT "+arg(limit), args...)
 	if err != nil {
 		return nil, err
 	}

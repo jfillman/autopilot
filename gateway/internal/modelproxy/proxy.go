@@ -151,6 +151,15 @@ func (p *Proxy) messages(w http.ResponseWriter, r *http.Request) {
 	unlock := p.lock(sessionID)
 	d, err := p.Models.Authorize(ctx, token, sessionID, model, estimate(payload, raw))
 	p.save(ctx, sessionID)
+	// An accepted request is counted, while the session's lock is still held, until its report has been made (the deferred end runs after
+	// report on every path below): the Preflight score, which reads a run's tokens, refuses while one is out, since the session is free while a
+	// response streams and its charge is still to come.
+	if err == nil && d.Allow {
+		if s := p.Models.G.Store.Get(sessionID); s != nil {
+			s.ModelStart()
+			defer s.ModelEnd()
+		}
+	}
 	unlock()
 	if err != nil {
 		apiError(w, 401, "authentication_error", "token refused", "")

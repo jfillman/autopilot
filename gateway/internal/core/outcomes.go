@@ -233,7 +233,31 @@ func collectPaths(raw []byte, session string, seen map[string]bool) (string, err
 const (
 	OutboxPendingRule  = "CORE-OUTBOX-PENDING"
 	OutcomeRefusedRule = "CORE-OUTCOME-REFUSED"
+	// OutboxBusyRule is a score that could not take the outbox's add lock (an add was under way for the whole of a few short tries); repeat it.
+	OutboxBusyRule = "CORE-OUTBOX-BUSY"
+	// OutcomeLostRule is a score refused because an outcome that carries paths could be neither posted nor queued while the run could have been
+	// making it: it is in neither Clearance nor the outbox, and nothing durable says so.
+	OutcomeLostRule = "CORE-OUTCOME-LOST"
 )
+
+// noteLost records that an outcome with paths was lost (not posted, and not queued: the outbox could not be written either). It is kept in
+// this process only: the failure that loses an outcome is the outbox's store being unavailable, which is also where a durable marker
+// would go, so it cannot be recorded durably when it matters. A restart forgets it (a gap this leaves, stated in docs/admin/go-gateway.md);
+// until then a score of any run that began before it is refused, since the lost write could be that run's.
+func (c *Core) noteLost(at time.Time) {
+	c.lostMu.Lock()
+	if at.After(c.lostAt) {
+		c.lostAt = at
+	}
+	c.lostMu.Unlock()
+}
+
+// lostSince says whether an outcome with paths was lost at or after t (zero t: ever).
+func (c *Core) lostSince(t time.Time) bool {
+	c.lostMu.Lock()
+	defer c.lostMu.Unlock()
+	return !c.lostAt.IsZero() && !c.lostAt.Before(t)
+}
 
 // OutboxBlocked is a score that cannot be trusted because of what the outbox holds. Rule is OutboxPendingRule or OutcomeRefusedRule.
 type OutboxBlocked struct{ Rule, Msg, Hint string }
@@ -292,6 +316,11 @@ type EffectGuard struct {
 // entries that matter (an outcome with paths, pending, or refused since the run could have begun), so entries that do not qualify, however
 // many, never count towards anything and never block: the scan stops at the first qualifying entry.
 func (c *Core) BeginEffectCheck(ctx context.Context, since time.Time) (*EffectGuard, error) {
+	if c.lostSince(since.Add(-time.Minute)) {
+		return nil, &OutboxBlocked{Rule: OutcomeLostRule,
+			Msg:  "a write's outcome could be neither delivered nor queued (the outbox could not be written), so it is in neither Clearance nor the outbox and the paths the run touched are not all known",
+			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
+	}
 	g := &EffectGuard{c: c}
 	err := c.Outbox.Quiesce(ctx, func(r OutboxReader) error {
 		var err error

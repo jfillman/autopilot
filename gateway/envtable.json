@@ -769,7 +769,7 @@
    "python": "",
    "go": "serve,api",
    "class": "new",
-   "note": "Start although the read API's six indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`)."
+   "note": "Start although the read API's and the outbox guard's seven indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`)."
   },
   {
    "name": "MIGRATE_LOCK_TIMEOUT_SECONDS",

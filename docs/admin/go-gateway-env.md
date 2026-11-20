@@ -107,7 +107,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `BACKSTAGE_ALLOW_HTTP` | - | serve,api | - | Plain http to the catalog (default off). |
 | `BROKER_ALLOW_HTTP` | - | serve | - | Plain http to the installation-token broker (default off). |
 | `CLEARANCE_API_ALLOW_HTTP` | - | serve | - | Plain http to clearance-api, where a Preflight score reads the paths a run touched with the caller's token (default off). Not read by api. |
-| `GATEWAY_ALLOW_MISSING_INDEXES` | - | serve,api | - | Start although the read API's six indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`). |
+| `GATEWAY_ALLOW_MISSING_INDEXES` | - | serve,api | - | Start although the read API's and the outbox guard's seven indexes are missing (default off: serve and api refuse and name `autopilot-gateway migrate`). |
 | `GATEWAY_CALL_TIMEOUT_SECONDS` | - | serve | - |  |
 | `GATEWAY_PG_CONNS` | - | serve | - |  |
 | `GITHUB_OWNERS` | - | serve | - | The GitHub owners the pull requests go to (no argument chooses one). Required with GITHUB_PR_ENABLED. |

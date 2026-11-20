@@ -244,6 +244,8 @@ func TestQuiesceHoldsOffAddsInPostgres(t *testing.T) {
 	}
 	for name, fnErr := range map[string]error{"fn returns": nil, "fn fails": errors.New("boom")} {
 		entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+		var once sync.Once
+		let := func() { once.Do(func() { close(release) }) } // the callback is let go on every path, so a failed assertion cannot hang the pool's close
 		go func() {
 			done <- ob.Quiesce(ctx, func(r core.OutboxReader) error {
 				close(entered)
@@ -257,7 +259,13 @@ func TestQuiesceHoldsOffAddsInPostgres(t *testing.T) {
 				return fnErr
 			})
 		}()
-		<-entered
+		select {
+		case <-entered:
+		case err := <-done: // Quiesce returned without calling the callback
+			t.Fatalf("%s: Quiesce returned early: %v", name, err)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: Quiesce did not start", name)
+		}
 		added := make(chan error, 1)
 		go func() {
 			_, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-2", Body: map[string]any{"result": "ok"}}, "core-unavailable", "")
@@ -265,16 +273,19 @@ func TestQuiesceHoldsOffAddsInPostgres(t *testing.T) {
 		}()
 		select {
 		case <-added:
+			let()
 			t.Fatalf("%s: an add went through while quiesced", name)
 		case <-time.After(300 * time.Millisecond):
 		}
 		// Drain's update of an existing row is not held off
 		dctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		if err := ob.Done(dctx, first, nil); err != nil {
-			t.Fatalf("%s: Done was held off: %v", name, err)
-		}
+		derr := ob.Done(dctx, first, nil)
 		cancel()
-		close(release)
+		if derr != nil {
+			let()
+			t.Fatalf("%s: Done was held off: %v", name, derr)
+		}
+		let()
 		if err := <-done; err != fnErr {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -420,8 +431,8 @@ func TestOpenCreatesNoIndexAndMigrateCreatesTheReadAPIsIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != 6 {
-		t.Fatalf("%d indexes are named, want 6", len(states))
+	if len(states) != 7 {
+		t.Fatalf("%d indexes are named, want 7", len(states))
 	}
 	for _, s := range states {
 		if s.Present {
@@ -438,7 +449,7 @@ func TestOpenCreatesNoIndexAndMigrateCreatesTheReadAPIsIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(created) != 6 {
+	if len(created) != 7 {
 		t.Fatalf("migrate created %v", created)
 	}
 	st, err = pgstate.Open(ctx, dsn, 2)
@@ -633,5 +644,75 @@ func TestAMigrateReRunTakesNoTableLock(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(logged, "|"), "schema: present (no statement run)") {
 		t.Fatalf("the schema step ran: %v", logged)
+	}
+}
+
+// A Quiesce that cannot get the add lock only TRIES for it (core.QuiesceTries), so it never queues: an Add, which wants the lock shared, is
+// not delayed by it (a blocking exclusive request would make every later shared one wait behind it, and an outcome that cannot be queued
+// in 5 s is lost). It gives up with core.OutboxBusyRule, and works once the lock is free.
+func TestAQuiesceThatCannotGetTheLockNeverDelaysAnAdd(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	// an add under way: it holds the lock shared until it commits
+	holder, err := st.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+	if _, err := holder.Exec(ctx, "SELECT pg_advisory_xact_lock_shared($1)", pgstate.OutboxLockKey); err != nil {
+		t.Fatal(err)
+	}
+	quiesced := make(chan error, 1)
+	go func() { quiesced <- ob.Quiesce(ctx, func(core.OutboxReader) error { return nil }) }()
+	time.Sleep(50 * time.Millisecond) // Quiesce is now retrying for the lock
+	start := time.Now()
+	if _, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: map[string]any{"result": "ok"}}, "core-unavailable", ""); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Fatalf("an add waited %s behind a Quiesce that could not get the lock", d)
+	}
+	var blocked *core.OutboxBlocked
+	if err := <-quiesced; !errors.As(err, &blocked) || blocked.Rule != core.OutboxBusyRule {
+		t.Fatalf("%v", err)
+	}
+	_ = holder.Rollback(ctx) // the add under way committed
+	if err := ob.Quiesce(ctx, func(core.OutboxReader) error { return nil }); err != nil {
+		t.Fatalf("the lock was free: %v", err)
+	}
+}
+
+// The argument that nothing commits below the greatest id read under Quiesce needs ids handed out in order: a sequence with CACHE above 1 (each
+// connection keeps a block) breaks it, so Quiesce refuses, and works again at CACHE 1.
+func TestQuiesceRefusesAnOutboxSequenceThatIsCached(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	noop := func(core.OutboxReader) error { return nil }
+	if err := ob.Quiesce(ctx, noop); err != nil {
+		t.Fatalf("the default sequence (CACHE 1) was refused: %v", err)
+	}
+	if _, err := st.Pool.Exec(ctx, "ALTER SEQUENCE gateway_outbox_id_seq CACHE 10"); err != nil {
+		t.Skipf("the scratch role cannot alter the sequence: %v", err)
+	}
+	if err := ob.Quiesce(ctx, noop); err == nil || !strings.Contains(err.Error(), "CACHE 10") {
+		t.Fatalf("a cached sequence was accepted: %v", err)
+	}
+	if _, err := st.Pool.Exec(ctx, "ALTER SEQUENCE gateway_outbox_id_seq CACHE 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ob.Quiesce(ctx, noop); err != nil {
+		t.Fatalf("%v", err)
 	}
 }

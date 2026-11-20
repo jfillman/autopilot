@@ -383,3 +383,30 @@ func TestQuiesceHoldsOffAddsAndReleasesOnEveryPath(t *testing.T) {
 		}
 	}
 }
+
+// Quiesce only tries for the add lock and gives up rather than wait for it: a score never queues in front of an Add.
+func TestQuiesceGivesUpBusyInsteadOfWaiting(t *testing.T) {
+	ctx := context.Background()
+	ob := core.NewMemoryOutbox()
+	start := time.Now()
+	err := ob.Quiesce(ctx, func(core.OutboxReader) error {
+		return ob.Quiesce(ctx, func(core.OutboxReader) error { t.Fatal("the lock was taken twice"); return nil }) // the lock is held
+	})
+	var blocked *core.OutboxBlocked
+	if !errors.As(err, &blocked) || blocked.Rule != core.OutboxBusyRule {
+		t.Fatalf("%v", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("waited %s", d)
+	}
+	// and the busy answer is the guard's: a score is refused with that rule, nothing begun
+	if _, err := core.New(nil, busyOutbox{ob}, false).BeginEffectCheck(ctx, time.Time{}); !errors.As(err, &blocked) || blocked.Rule != core.OutboxBusyRule {
+		t.Fatalf("%v", err)
+	}
+}
+
+type busyOutbox struct{ *core.MemoryOutbox }
+
+func (busyOutbox) Quiesce(context.Context, func(core.OutboxReader) error) error {
+	return core.BusyError()
+}

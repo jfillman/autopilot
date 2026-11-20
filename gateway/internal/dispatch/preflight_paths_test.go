@@ -487,3 +487,89 @@ func TestScoreIsRefusedWhileACallOfARunIsInFlight(t *testing.T) {
 		t.Fatalf("%v %v", out, err)
 	}
 }
+
+// busyBox is an outbox whose add lock cannot be taken.
+type busyBox struct{ *core.MemoryOutbox }
+
+func (busyBox) Quiesce(context.Context, func(core.OutboxReader) error) error { return core.BusyError() }
+
+// When the outbox is busy the score is refused (503 CORE-OUTBOX-BUSY), nothing is recorded, and the sessions' locks the score took are let go:
+// a call of the run can run again at once.
+func TestScoreIsRefusedWhenTheOutboxIsBusyAndLetsTheSessionGo(t *testing.T) {
+	p, fe, body, sid := pathsRig(t, 0, nil)
+	finish(p, sid)
+	p.g.Core.Outbox = busyBox{p.g.Core.Outbox.(*core.MemoryOutbox)}
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != core.OutboxBusyRule || out != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+	if len(fe.calls) != 0 || p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatal("a refused score read or recorded")
+	}
+	rel, ok := p.store.Get(sid).TrySerial()
+	if !ok {
+		t.Fatal("the refused score kept the session's lock")
+	}
+	rel()
+}
+
+// A model request the proxy accepted streams without the session's lock and charges after it: while one is out the run's tokens are not
+// final, so the score is refused; once it has reported the charge is in the total the score reads (after the sessions are held).
+func TestScoreIsRefusedWhileAModelRequestOfARunIsOutAndReadsItsChargeAfterwards(t *testing.T) {
+	p, fe, body, sid := pathsRig(t, 0, nil)
+	finish(p, sid)
+	s := p.store.Get(sid)
+	s.ModelStart()
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != dispatch.InFlightRule || out != nil || len(fe.calls) != 0 {
+		t.Fatalf("%v %v", out, err)
+	}
+	if rel, ok := s.TrySerial(); !ok {
+		t.Fatal("the refused score kept the session's lock")
+	} else {
+		rel()
+	}
+	// the request reports: 5,000 tokens charged against the case's budget of 1,000
+	s.Lock()
+	s.Usage["charged_tokens"] = 5000
+	s.Unlock()
+	s.ModelEnd()
+	out, err = p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	if err != nil || out["passed"] != false {
+		t.Fatalf("%v %v", out, err)
+	}
+	if r := scoreOf(t, out)["reasons"].([]string); len(r) != 1 || r[0] != "5000 tokens (budget 1000)" {
+		t.Fatalf("%v", r)
+	}
+}
+
+// The cut-off for a refused outbox entry is the earliest session of the cases that are scored: a case still running (older, and not read)
+// does not widen it, so a refusal between the two does not hold back the case that is ready.
+func TestAnUnfinishedCaseDoesNotWidenTheRefusedEntryCutoff(t *testing.T) {
+	p, _, body, sid := pathsRig(t, 0, nil)
+	finish(p, sid)
+	body2, sid2 := twoCases(t, p, body, sid)
+	delete(p.results.Rows, sid2) // the second run has not finished
+	s2 := p.store.Get(sid2)
+	s2.Lock()
+	s2.CreatedAt = t0.Add(-48 * time.Hour) // older than the first
+	s2.Unlock()
+	ob := p.g.Core.Outbox.(*core.MemoryOutbox)
+	ob.Now = func() time.Time { return t0.Add(-24 * time.Hour) } // after the unfinished run began, before the scored one
+	_, _ = ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-3", Body: map[string]any{"effect": map[string]any{"paths": []any{"secrets/x.yaml"}}}}, "refused", "no")
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body2, "")
+	if err != nil || out["finished"] != false {
+		t.Fatalf("%v %v", out, err)
+	}
+	sc := out["scores"].([]any)
+	if sc[0].(map[string]any)["finished"] != true || sc[1].(map[string]any)["finished"] != false {
+		t.Fatalf("%v", sc)
+	}
+	// once the second run is ready too, it is scored and the refusal could be its: refused
+	finish(p, sid2)
+	if _, err = p.g.PreflightScore(ctx, p.person(adminID), body2, ""); ctlRule(err) != core.OutcomeRefusedRule {
+		t.Fatalf("%v", err)
+	}
+}

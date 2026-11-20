@@ -816,9 +816,16 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 	// One outbox guard around the whole score (core.EffectGuard): begun before the first case's read and finished after the last, so a write
 	// that moves from the outbox to Clearance between any two of them is caught. A scored session's calls are held off while it lasts (see
 	// holdSessions): a call in flight has not yet put its outcome in Clearance or the outbox.
-	var guard *core.EffectGuard
-	hold := &sessionHold{rel: map[string]func(){}}
-	defer hold.release()
+	// Pass one: what is asked, what each run has handed back, which cases are ready to score. Nothing is read from Clearance yet.
+	type caseWork struct {
+		id         string
+		c          *Case
+		ids        []string
+		results    []map[string]any
+		ev         []map[string]any
+		unfinished []string
+	}
+	var work []*caseWork
 	for _, it := range asked {
 		item, _ := it.(map[string]any)
 		cid, _ := item["case"].(string)
@@ -839,8 +846,7 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 		if len(ids) == 0 || len(ids) > MaxScoreSessions {
 			return nil, &ControlError{"R008", "sessions is the list of the case's run sessions", "", 400}
 		}
-		var results, ev []map[string]any
-		unfinished := []string{}
+		w := &caseWork{id: cid, c: c, ids: ids, unfinished: []string{}}
 		for _, sid := range ids {
 			_, _, fp, ok := g.candidateRunOf(sid, agent)
 			if !ok {
@@ -862,44 +868,68 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 				sess.Unlock()
 			}
 			if r == nil {
-				unfinished = append(unfinished, sid)
+				w.unfinished = append(w.unfinished, sid)
 				continue
 			}
-			results = append(results, r)
+			w.results = append(w.results, r)
 			// The run's refused calls are denials in the evidence (a refused call to a tripwire tool is a tripwire attempt): without
 			// them the usage record alone would hide them from the score.
 			for _, c := range callsOf(r) {
 				if !truthy(c["ok"]) && truthy(c["rule"]) {
-					ev = append(ev, map[string]any{"tool": c["tool"], "decision": "deny", "rule": c["rule"]})
+					w.ev = append(w.ev, map[string]any{"tool": c["tool"], "decision": "deny", "rule": c["rule"]})
 				}
 			}
-			if sess != nil {
+		}
+		work = append(work, w)
+	}
+	ready := func(w *caseWork) bool { return len(w.unfinished) == 0 && len(w.results) >= w.c.Runs }
+	// The sessions of the cases that will be scored: the earliest of them is the cut-off for a refused outbox entry that could be theirs
+	// (a case still running is not read, so it does not widen it).
+	var scored []string
+	for _, w := range work {
+		if ready(w) {
+			scored = append(scored, w.ids...)
+		}
+	}
+	// Pass two: score each ready case. One outbox guard around all of them (core.EffectGuard), begun before the first read and finished after the
+	// last, so a write that moves from the outbox to Clearance between any two of them is caught.
+	var guard *core.EffectGuard
+	for _, w := range work {
+		if !ready(w) {
+			finished = false
+			scores = append(scores, map[string]any{"case": w.id, "finished": false, "waiting_on": w.unfinished})
+			continue
+		}
+		// The sessions' calls are held off (holdSessions), and only then is a run's token charge read, so a charge that lands before the hold
+		// is in the total and none lands after it.
+		hold, err := g.holdSessions(w.ids)
+		if err != nil {
+			return nil, err
+		}
+		defer hold.release() // (also released right after the reads, below; releasing twice is harmless)
+		for _, sid := range w.ids {
+			if sess := g.Store.Get(sid); sess != nil {
 				sess.Lock()
 				ct := sess.Usage["charged_tokens"]
 				sess.Unlock()
-				ev = append(ev, map[string]any{"tool": "model.call", "decision": "allow", "usage": map[string]any{"charged_tokens": int(ct)}})
+				w.ev = append(w.ev, map[string]any{"tool": "model.call", "decision": "allow", "usage": map[string]any{"charged_tokens": int(ct)}})
 			}
 		}
-		if len(unfinished) > 0 || len(results) < c.Runs {
-			finished = false
-			scores = append(scores, map[string]any{"case": cid, "finished": false, "waiting_on": unfinished})
-			continue
-		}
-		rec := g.RecordFromRuns(c, results, ev)
+		rec := g.RecordFromRuns(w.c, w.results, w.ev)
 		// The paths the runs' writes touched come from Clearance's outcome records, never from nothing: when they cannot be read the
 		// score is not made (and nothing is recorded), because an empty list would pass the out-of-scope check vacuously.
-		if err = g.holdSessions(ids, hold); err != nil {
-			return nil, err
-		}
 		if guard == nil && g.Core != nil {
-			if guard, err = g.Core.BeginEffectCheck(readCtx, g.earliestSession(asked)); err != nil {
+			if guard, err = g.Core.BeginEffectCheck(readCtx, g.earliestSession(scored)); err != nil {
+				hold.release()
 				return nil, outboxError(err)
 			}
 		}
-		if rec.PathsTouched, err = g.touchedPaths(readCtx, token, onBehalfOf, ids); err != nil {
+		rec.PathsTouched, err = g.touchedPaths(readCtx, token, onBehalfOf, w.ids)
+		hold.release() // the sessions' calls are held off only for the reads of their paths
+		if err != nil {
 			return nil, err
 		}
-		v := ScoreView(ScoreRun(c, rec), rec)
+		v := ScoreView(ScoreRun(w.c, rec), rec)
 		v["finished"] = true
 		scores = append(scores, v)
 	}
@@ -972,13 +1002,19 @@ func (h *sessionHold) release() {
 }
 
 // holdSessions takes each session's per-session operation lock (the one a tool call holds from its decision to its outcome's delivery or
-// queueing, Gateway.Call) without waiting, and keeps it until the score ends. A session whose lock is taken has a call in flight: its write
-// may have been made and its outcome be neither in Clearance nor in the outbox yet, so the score is refused (503, nothing recorded; repeat
-// when the call has ended). With the locks held no call of these sessions can start, so every outcome of theirs is in Clearance or the
-// outbox when the guard begins. This matters because a session's stored outcome (which makes a case count as finished) can land during a
-// call: the deadline sweep stores "expired" without the operation lock (deadlineOutcomes), so a call that began before the deadline may still
-// be running, with its outcome not yet delivered or queued, when the case is first seen as finished.
-func (g *Gateway) holdSessions(ids []string, hold *sessionHold) error {
+// queueing, Gateway.Call) without waiting, and keeps it until the caller releases the returned hold, which it does as soon as the paths of
+// these sessions have been read. A session whose lock is taken has a call in flight: its write may have been made and its outcome be neither
+// in Clearance nor in the outbox yet, so the score is refused (503, nothing recorded; repeat when the call has ended). While the locks are
+// held no call of these sessions can start, so an outcome of theirs is in Clearance or the outbox when the paths are read, never on its
+// way. This matters because a session's stored outcome (which makes a case count as finished) can land during a call: the deadline sweep
+// stores "expired" without the operation lock (deadlineOutcomes), so a call that began before the deadline may still be running, with its
+// outcome not yet delivered or queued, when the case is first seen as finished.
+//
+// The locks cannot be let go earlier, right after the guard has read the outbox's greatest id: a call that starts after that and posts its
+// outcome straight to Clearance (the core being up) leaves nothing in the outbox for Finish to see, and may land after the read of its
+// session, so the write would be in neither. They can, and are, let go after the reads: what a call does later is after the score.
+func (g *Gateway) holdSessions(ids []string) (*sessionHold, error) {
+	hold := &sessionHold{rel: map[string]func(){}}
 	for _, sid := range ids {
 		if _, ok := hold.rel[sid]; ok {
 			continue
@@ -989,32 +1025,33 @@ func (g *Gateway) holdSessions(ids []string, hold *sessionHold) error {
 		}
 		rel, ok := s.TrySerial()
 		if !ok {
-			return &ControlError{InFlightRule, "a call of the run is still in flight, so its write may not have reached Clearance yet and the paths the run touched are not all known", "Score again when the call has ended.", 503}
+			hold.release()
+			return nil, &ControlError{InFlightRule, "a call of the run is still in flight, so its write may not have reached Clearance yet and the paths the run touched are not all known", "Score again when the call has ended.", 503}
 		}
 		hold.rel[sid] = rel
+		// A model request is accepted under the lock but streams without it, and its charge and outcome come after: while one is out the run's
+		// tokens are not final.
+		if s.ModelInFlight() > 0 {
+			hold.release()
+			return nil, &ControlError{InFlightRule, "a model request of the run is still being answered, so the tokens it used are not final", "Score again when it has ended.", 503}
+		}
 	}
-	return nil
+	return hold, nil
 }
 
-// earliestSession is when the earliest of the sessions the request names was created (zero: one is not known to this gateway, so every
-// refused outbox entry counts).
-func (g *Gateway) earliestSession(asked []any) time.Time {
+// earliestSession is when the earliest of the sessions was created (zero: one is not known to this gateway, so every refused outbox entry counts).
+func (g *Gateway) earliestSession(ids []string) time.Time {
 	var since time.Time
-	for _, it := range asked {
-		item, _ := it.(map[string]any)
-		sids, _ := item["sessions"].([]any)
-		for _, x := range sids {
-			sid, _ := x.(string)
-			s := g.Store.Get(sid)
-			if s == nil {
-				return time.Time{}
-			}
-			s.Lock()
-			created := s.CreatedAt
-			s.Unlock()
-			if since.IsZero() || created.Before(since) {
-				since = created
-			}
+	for _, sid := range ids {
+		s := g.Store.Get(sid)
+		if s == nil {
+			return time.Time{}
+		}
+		s.Lock()
+		created := s.CreatedAt
+		s.Unlock()
+		if since.IsZero() || created.Before(since) {
+			since = created
 		}
 	}
 	return since
