@@ -287,6 +287,59 @@ func (o *Outbox) Pending(ctx context.Context, limit int) ([]core.OutboxRow, erro
 	return out, rows.Err()
 }
 
+// Entries lists entries by a query (core.OutboxQuery), oldest first.
+func (o *Outbox) Entries(ctx context.Context, q core.OutboxQuery) ([]core.OutboxRow, error) {
+	var since any
+	if !q.Since.IsZero() {
+		since = q.Since
+	}
+	var states any
+	if len(q.States) > 0 {
+		states = q.States
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := o.st.Pool.Query(ctx, "SELECT id, op, kind, decision_id, body, state, created_at FROM gateway_outbox "+
+		"WHERE id > $1 AND ($2::text[] IS NULL OR state = ANY($2)) AND ($3::timestamptz IS NULL OR created_at >= $3) AND (NOT $4 OR op = 'outcome') "+
+		"ORDER BY id LIMIT $5", q.AfterID, states, since, q.OutcomesOnly, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.OutboxRow
+	for rows.Next() {
+		var id int64
+		var op, state string
+		var kind, decision *string
+		var body []byte
+		var at time.Time
+		if err := rows.Scan(&id, &op, &kind, &decision, &body, &state, &at); err != nil {
+			return nil, err
+		}
+		e := core.Entry{Op: op}
+		if kind != nil {
+			e.Kind = *kind
+		}
+		if decision != nil {
+			e.DecisionID = *decision
+		}
+		if err := json.Unmarshal(body, &e.Body); err != nil {
+			return nil, err
+		}
+		out = append(out, core.OutboxRow{ID: id, Entry: e, State: state, At: at})
+	}
+	return out, rows.Err()
+}
+
+// HighWater is the greatest id ever added (0: none).
+func (o *Outbox) HighWater(ctx context.Context) (int64, error) {
+	var id int64
+	err := o.st.Pool.QueryRow(ctx, "SELECT COALESCE(MAX(id), 0) FROM gateway_outbox").Scan(&id)
+	return id, err
+}
+
 // HasPending reports whether anything waits.
 func (o *Outbox) HasPending(ctx context.Context) (bool, error) {
 	var b bool

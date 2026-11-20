@@ -570,19 +570,33 @@ session.
   (`minPathsTouched: 0`, no `allowedPaths`) is no exception: a run that wrote something outside scope must still fail it. The read is made
   only once every run of the case has finished, so a run still going is `finished: false` with no read.
 - **Limits of what it knows.** Paths are as the call named them (a file path in its repository, not qualified by the repo, so allowed
-  paths are one set for every repository a run wrote to). An outcome the gateway could not yet hand to the core waits in its outbox
-  (`core.Outbox`) and is not in Clearance's records until it is drained. A score made in that window would miss its paths, and for a
-  case with no minimum and `allowedPaths` set would pass a write outside scope, so it is **refused**: before and after the read the
-  gateway looks in its outbox for an undelivered outcome that carries an effect with paths (`Core.PendingEffects`) and, if there is one,
-  answers `503` `CORE-OUTBOX-PENDING` and records nothing. A queued outcome names its decision, not its session, so this holds back every
-  score while any such outcome is queued, not just that session's (the outbox is empty while the core is reachable, and the score is
-  repeated once it has drained). Outcomes with no effect, other records and entries the core refused (which are never retried) do not
-  hold a score back. A caller clearance-api's scoping does not let see the session is refused
-  (`CORE-NOT-VISIBLE`), as above; the route's own check (`mayManage`) is wider than what clearance-api shows.
+  paths are one set for every repository a run wrote to). A write of a run reaches Clearance either straight from the call or, when the core was
+  unreachable, later from the gateway's outbox (`core.Outbox`); Clearance's records hold the first kind and the outbox entries already
+  delivered. A score that read them while a write was in neither place would miss its paths, and for a case with no minimum and
+  `allowedPaths` set could pass a write outside scope. So a score is **refused** (`503`, nothing recorded) whenever a write that carries paths
+  is, at any point of it, in neither place (`core.EffectGuard`, `BeginEffectCheck` before the read and `Finish` after it):
+  - *Pending* before the read: an outcome with paths still queued blocks every score, `CORE-OUTBOX-PENDING` (a queued outcome names its
+    decision, not its session; the outbox is empty while the core is reachable, and the score is repeated once it has drained).
+  - *Refused* before the read: an outcome the core refused (`state = 'refused'`; it is never retried, so Clearance never stores it) blocks with
+    `CORE-OUTCOME-REFUSED` and a hint that a person must look at the outbox entry (its `error` column says why). Because it names no session, it
+    is tied to the run by time instead: it blocks the scores of runs whose earliest session was created at or before it was queued (with a
+    minute of slack for the two clocks; an outcome cannot predate its session), so one old refusal does not hold back every later run. A
+    session the gateway no longer knows makes every refused entry count.
+  - *Moving during the read*: before anything else the guard takes the outbox's greatest id, and `Finish` blocks (`CORE-OUTBOX-PENDING`) on any
+    outcome with paths added after it, in any state. A write queued after the first check, or queued and then delivered after the read was
+    made (in Clearance only after the read, so in neither place for it), is caught; an entry at or below that id that was not pending or refused
+    at the first check was delivered before the read. The score is repeated and then sees the delivered write.
+  - Outcomes with no effect or no paths, other records, and delivered entries do not hold a score back. More than 1,000 entries to look at is
+    blocking too (cannot be told). If the outbox cannot be read it is `503` `CORE-UNAVAILABLE`.
+  The one gap left: an outbox insert (a single statement) that has taken its id but not yet committed when the guard reads the greatest id
+  commits with an id at or below it and is seen only if it is still pending at the first check; entries are written only while the core is
+  unreachable, so this needs the core to fail in the same instants as the score.
+  A caller clearance-api's scoping does not let see the session is refused (`CORE-NOT-VISIBLE`), as above; the route's own check
+  (`mayManage`) is wider than what clearance-api shows.
 
 Proof: `TestEffectPaths*` (`gateway/internal/core/outcomes_test.go`: records shaped as clearance-api serves them, pagination, no effects,
 every unknown), `TestScore*` (`gateway/internal/dispatch/preflight_paths_test.go`: a min-paths case that now passes, a write outside the
-allowed paths that now fails, a read-only case that fails on a write, the unavailable and unconfigured refusals with no ledger write, a
+allowed paths that now fails, a read-only case that fails on a write, the outbox guard (`TestEffectGuard*`, a pending write, a refused write by run start, a write delivered between the read and the second check), the unavailable and unconfigured refusals with no ledger write, a
 delegate's credentials, and the real reader against a fake clearance-api).
 
 ### What still refuses at the boundaries S3 leaves

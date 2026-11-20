@@ -912,10 +912,28 @@ func (g *Gateway) touchedPaths(ctx context.Context, token, onBehalfOf string, se
 	if g.Effects == nil {
 		return nil, &ControlError{core.RefusedRule, "the paths the run touched cannot be read: this gateway has no Clearance API configured (CLEARANCE_API_URL)", "", 503}
 	}
-	// An outcome with an effect that is still queued in the outbox is not in Clearance's records yet: a read now would miss its paths and
-	// could pass a write outside scope. Checked before the read (what was queued is not there) and after it (what was queued meanwhile).
-	if err := g.checkOutbox(ctx); err != nil {
-		return nil, err
+	// A write of a run (an outcome with paths) must be in Clearance's records, or the paths are not all known: see core.EffectGuard. The guard
+	// is taken before the first read and finished after the last, so a write that moves from the outbox to Clearance in between is caught.
+	var guard *core.EffectGuard
+	if g.Core != nil {
+		var since time.Time
+		for _, sid := range sessions {
+			s := g.Store.Get(sid)
+			if s == nil {
+				since = time.Time{} // not known: every refused entry counts
+				break
+			}
+			s.Lock()
+			created := s.CreatedAt
+			s.Unlock()
+			if since.IsZero() || created.Before(since) {
+				since = created
+			}
+		}
+		var err error
+		if guard, err = g.Core.BeginEffectCheck(ctx, since); err != nil {
+			return nil, outboxError(err)
+		}
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -940,27 +958,23 @@ func (g *Gateway) touchedPaths(ctx context.Context, token, onBehalfOf string, se
 			}
 		}
 	}
-	if err := g.checkOutbox(ctx); err != nil {
-		return nil, err
+	if guard != nil {
+		if err := guard.Finish(ctx); err != nil {
+			return nil, outboxError(err)
+		}
 	}
 	sort.Strings(out)
 	return out, nil
 }
 
-// checkOutbox is a 503 CORE-OUTBOX-PENDING while an outcome with an effect waits in the outbox (core.PendingEffects), and a 503 when
-// the outbox cannot be read: neither is "nothing is queued". Nothing is scored or recorded; repeat when the outbox has drained.
-func (g *Gateway) checkOutbox(ctx context.Context) error {
-	if g.Core == nil {
-		return nil
+// outboxError is the 503 a score gets from the outbox guard: the guard's own rule and hint, or CORE-UNAVAILABLE when the outbox could not be read
+// (neither is "nothing is missing"). Nothing is scored or recorded.
+func outboxError(err error) error {
+	var ob *core.OutboxBlocked
+	if errors.As(err, &ob) {
+		return &ControlError{ob.Rule, ob.Msg, ob.Hint, 503}
 	}
-	pending, err := g.Core.PendingEffects(ctx)
-	if err != nil {
-		return &ControlError{core.OutageRule, "the gateway's outbox could not be read, so it is not known that every write reached Clearance: " + err.Error(), core.OutageHint, 503}
-	}
-	if pending {
-		return &ControlError{core.OutboxPendingRule, "a write of a run is still queued to reach Clearance, so the paths the run touched are not all known yet", "The gateway delivers it when Clearance is reachable. Score again then.", 503}
-	}
-	return nil
+	return &ControlError{core.OutageRule, "the gateway's outbox could not be read, so it is not known that every write reached Clearance: " + err.Error(), core.OutageHint, 503}
 }
 
 func (g *Gateway) candidateRunOf(sessionID, agent string) (string, string, string, bool) {

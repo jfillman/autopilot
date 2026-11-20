@@ -157,6 +157,50 @@ func TestConcurrentSavesAreGroupedAndEveryOneIsDurable(t *testing.T) {
 	}
 }
 
+// The queries the Preflight score's outbox guard (core.EffectGuard) makes: entries by id, state, time and op, and the greatest id.
+func TestTheOutboxCanBeQueriedForTheEffectGuard(t *testing.T) {
+	dsn := scratch(t)
+	ctx := context.Background()
+	st, err := pgstate.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(ctx)
+	ob := pgstate.NewOutbox(st)
+	if hw, err := ob.HighWater(ctx); err != nil || hw != 0 {
+		t.Fatalf("%d %v", hw, err)
+	}
+	eff := map[string]any{"effect": map[string]any{"repo": "o/r", "pr": 7, "paths": []any{"a.yaml"}}}
+	a, _ := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-1", Body: eff}, "core-unavailable", "")
+	r, _ := ob.Add(ctx, core.Entry{Op: "record", Kind: "tool.call", Body: map[string]any{}}, "outage", "")
+	c, _ := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-3", Body: eff}, "refused", "the core refused")
+	_ = ob.Done(ctx, a, nil)
+	if hw, _ := ob.HighWater(ctx); hw != c {
+		t.Fatalf("high water %d, want %d", hw, c)
+	}
+	all, err := ob.Entries(ctx, core.OutboxQuery{OutcomesOnly: true})
+	if err != nil || len(all) != 2 || all[0].ID != a || all[0].State != "done" || all[1].ID != c || all[1].State != "refused" || all[1].At.IsZero() {
+		t.Fatalf("%+v %v", all, err)
+	}
+	if all[1].Entry.Body["effect"] == nil {
+		t.Fatal("the body is not read back")
+	}
+	refused, _ := ob.Entries(ctx, core.OutboxQuery{States: []string{"refused", "pending"}})
+	if len(refused) != 2 || refused[0].ID != r || refused[1].ID != c { // the record is pending, the outcome refused
+		t.Fatalf("%+v", refused)
+	}
+	after, _ := ob.Entries(ctx, core.OutboxQuery{AfterID: a})
+	if len(after) != 2 || after[0].ID != r {
+		t.Fatalf("%+v", after)
+	}
+	if none, _ := ob.Entries(ctx, core.OutboxQuery{Since: time.Now().Add(time.Hour)}); len(none) != 0 {
+		t.Fatalf("%+v", none)
+	}
+	if one, _ := ob.Entries(ctx, core.OutboxQuery{Limit: 1}); len(one) != 1 {
+		t.Fatalf("%+v", one)
+	}
+}
+
 func TestTheOutboxIsOrderedAndSurvivesARestart(t *testing.T) {
 	dsn := scratch(t)
 	ctx := context.Background()

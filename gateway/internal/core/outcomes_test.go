@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 )
@@ -230,46 +231,89 @@ func TestEffectPathsNothingVisibleIsUnknownNotEmpty(t *testing.T) {
 	}
 }
 
-func TestPendingEffectsOnlyForAnUndeliveredOutcomeWithPaths(t *testing.T) {
+func outcomeEntry(paths ...any) core.Entry {
+	eff := map[string]any{"repo": "o/r", "pr": 7}
+	if paths != nil {
+		eff["paths"] = paths
+	}
+	return core.Entry{Op: "outcome", DecisionID: "d", Body: map[string]any{"result": "ok", "effect": eff}}
+}
+
+// Before the read: a write that carries paths and is pending (not in Clearance yet) or refused (never will be) blocks the score.
+func TestEffectGuardBlocksAPendingOrRefusedWriteBeforeTheRead(t *testing.T) {
 	ctx := context.Background()
-	add := func(ob *core.MemoryOutbox, e core.Entry, reason string) int64 {
-		id, err := ob.Add(ctx, e, reason, "")
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	rule := func(err error) string {
+		var ob *core.OutboxBlocked
+		if errors.As(err, &ob) {
+			return ob.Rule
+		}
+		return fmt.Sprint(err)
+	}
+	for name, tc := range map[string]struct {
+		e      core.Entry
+		reason string
+		at     time.Time
+		since  time.Time
+		want   string // "" is not blocked
+	}{
+		"pending with paths":               {outcomeEntry("a.yaml"), "core-unavailable", t0, t0, core.OutboxPendingRule},
+		"pending, paths as strings":        {core.Entry{Op: "outcome", Body: map[string]any{"effect": map[string]any{"paths": []string{"a"}}}}, "core-unavailable", t0, t0, core.OutboxPendingRule},
+		"pending, effect not an object":    {core.Entry{Op: "outcome", Body: map[string]any{"effect": "x"}}, "core-unavailable", t0, t0, core.OutboxPendingRule},
+		"pending with no paths":            {outcomeEntry(), "core-unavailable", t0, t0, ""},
+		"pending, no effect":               {core.Entry{Op: "outcome", Body: map[string]any{"result": "ok"}}, "core-unavailable", t0, t0, ""},
+		"a pending record, not an outcome": {core.Entry{Op: "record", Kind: "run.finish", Body: map[string]any{"effect": map[string]any{"paths": []any{"a"}}}}, "outage", t0, t0, ""},
+		"refused after the run started":    {outcomeEntry("a.yaml"), "refused", t0.Add(time.Hour), t0, core.OutcomeRefusedRule},
+		"refused, run start unknown":       {outcomeEntry("a.yaml"), "refused", t0.Add(-100 * time.Hour), time.Time{}, core.OutcomeRefusedRule},
+		"refused long before the run":      {outcomeEntry("a.yaml"), "refused", t0.Add(-time.Hour), t0, ""},
+		"refused within the clock slack":   {outcomeEntry("a.yaml"), "refused", t0.Add(-30 * time.Second), t0, core.OutcomeRefusedRule},
+	} {
+		ob := core.NewMemoryOutbox()
+		ob.Now = func() time.Time { return tc.at }
+		if _, err := ob.Add(ctx, tc.e, tc.reason, ""); err != nil {
+			t.Fatal(err)
+		}
+		_, err := core.New(nil, ob, false).BeginEffectCheck(ctx, tc.since)
+		if tc.want == "" && err != nil || tc.want != "" && rule(err) != tc.want {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// delivered (done) is in Clearance: no block; an empty outbox: none
+	ob := core.NewMemoryOutbox()
+	id, _ := ob.Add(ctx, outcomeEntry("a.yaml"), "core-unavailable", "")
+	_ = ob.Done(ctx, id, nil)
+	if _, err := core.New(nil, ob, false).BeginEffectCheck(ctx, time.Time{}); err != nil {
+		t.Fatalf("a delivered write blocked: %v", err)
+	}
+}
+
+// Across the read: a write queued after the guard began, in whatever state it has reached by Finish (still pending, or delivered to
+// Clearance after the read was made, so in neither place for the read), blocks; one delivered before the guard began does not.
+func TestEffectGuardFinishBlocksAWriteThatMovedDuringTheRead(t *testing.T) {
+	ctx := context.Background()
+	for name, move := range map[string]func(ob *core.MemoryOutbox, id int64){
+		"still pending":            func(*core.MemoryOutbox, int64) {},
+		"delivered after the read": func(ob *core.MemoryOutbox, id int64) { _ = ob.Done(ctx, id, nil) },
+		"refused":                  func(ob *core.MemoryOutbox, id int64) { _ = ob.Refused(ctx, id, "no") },
+	} {
+		ob := core.NewMemoryOutbox()
+		before, _ := ob.Add(ctx, outcomeEntry("old.yaml"), "core-unavailable", "")
+		_ = ob.Done(ctx, before, nil) // delivered before the guard: in Clearance for the read
+		g, err := core.New(nil, ob, false).BeginEffectCheck(ctx, time.Time{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return id
-	}
-	withPaths := core.Entry{Op: "outcome", DecisionID: "d", Body: map[string]any{"effect": map[string]any{"repo": "o/r", "pr": 7, "paths": []any{"a.yaml"}}}}
-	for name, tc := range map[string]struct {
-		e    core.Entry
-		want bool
-	}{
-		"an outcome with paths":           {withPaths, true},
-		"paths as strings":                {core.Entry{Op: "outcome", Body: map[string]any{"effect": map[string]any{"paths": []string{"a"}}}}, true},
-		"an effect that is not an object": {core.Entry{Op: "outcome", Body: map[string]any{"effect": "x"}}, true},
-		"an outcome with no effect":       {core.Entry{Op: "outcome", Body: map[string]any{"result": "ok"}}, false},
-		"an effect with no paths":         {core.Entry{Op: "outcome", Body: map[string]any{"effect": map[string]any{"repo": "o/r", "pr": 7}}}, false},
-		"a record (not an outcome)":       {core.Entry{Op: "record", Kind: "run.finish", Body: map[string]any{"effect": map[string]any{"paths": []any{"a"}}}}, false},
-	} {
-		ob := core.NewMemoryOutbox()
-		add(ob, tc.e, "core-unavailable")
-		got, err := core.New(nil, ob, false).PendingEffects(ctx)
-		if err != nil || got != tc.want {
-			t.Errorf("%s: %v %v", name, got, err)
+		// no-effect outcomes and records queued meanwhile do not matter
+		_, _ = ob.Add(ctx, core.Entry{Op: "outcome", Body: map[string]any{"result": "ok"}}, "core-unavailable", "")
+		_, _ = ob.Add(ctx, core.Entry{Op: "record", Kind: "tool.call", Body: map[string]any{}}, "outage", "")
+		if err := g.Finish(ctx); err != nil {
+			t.Fatalf("%s: %v", name, err)
 		}
-	}
-	// delivered or refused (never retried) is not pending; none queued is not pending
-	ob := core.NewMemoryOutbox()
-	if got, _ := core.New(nil, ob, false).PendingEffects(ctx); got {
-		t.Fatal("an empty outbox is pending")
-	}
-	add(ob, withPaths, "refused")
-	id := add(ob, withPaths, "core-unavailable")
-	if got, _ := core.New(nil, ob, false).PendingEffects(ctx); !got {
-		t.Fatal("a queued outcome with paths is not pending")
-	}
-	_ = ob.Done(ctx, id, nil)
-	if got, _ := core.New(nil, ob, false).PendingEffects(ctx); got {
-		t.Fatal("a delivered and a refused entry are pending")
+		id, _ := ob.Add(ctx, outcomeEntry("new.yaml"), "core-unavailable", "")
+		move(ob, id)
+		var blocked *core.OutboxBlocked
+		if err := g.Finish(ctx); !errors.As(err, &blocked) || blocked.Rule != core.OutboxPendingRule {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

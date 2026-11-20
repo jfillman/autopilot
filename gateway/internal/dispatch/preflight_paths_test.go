@@ -293,3 +293,82 @@ func TestScoreIsRefusedWhileAWriteIsQueuedInTheOutbox(t *testing.T) {
 		t.Fatalf("%v %v", out, err)
 	}
 }
+
+// effectsHook is fakeEffects that runs a function in the middle of the read (after the first outbox check, before the second).
+type effectsHook struct {
+	fakeEffects
+	during func()
+}
+
+func (h *effectsHook) EffectPaths(ctx context.Context, session, token, obo string) ([]string, error) {
+	if h.during != nil {
+		h.during()
+	}
+	return h.fakeEffects.EffectPaths(ctx, session, token, obo)
+}
+
+// A write of the run that is queued when the core is down and delivered to Clearance after the read has been made is in neither place for
+// the read. The score is refused, nothing is recorded; once nothing moves it scores.
+func TestScoreIsRefusedWhenAWriteIsDeliveredBetweenTheReadAndTheSecondCheck(t *testing.T) {
+	p, _, body, sid := pathsRig(t, 0, []string{"clusters/**"})
+	finish(p, sid)
+	ob := p.g.Core.Outbox.(*core.MemoryOutbox)
+	h := &effectsHook{fakeEffects: fakeEffects{paths: map[string][]string{}}}
+	p.g.Effects = h
+	h.during = func() {
+		// the read of Clearance has been (or is being) made without the write; the core comes back and the write is delivered
+		id, err := ob.Add(ctx, core.Entry{Op: "outcome", DecisionID: "d-9", Body: map[string]any{"result": "opened PR 9",
+			"effect": map[string]any{"repo": "jfillman/flight-api", "pr": float64(9), "paths": []any{"secrets/prod.yaml"}}}}, "core-unavailable", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = ob.Done(ctx, id, nil)
+		h.during = nil
+	}
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != core.OutboxPendingRule || out != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+	if p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatal("a refused score recorded a result")
+	}
+	// nothing moves now: the write is delivered, so it is in Clearance's records and the same request scores
+	h.paths[sid] = []string{"secrets/prod.yaml"}
+	if out, err = p.g.PreflightScore(ctx, p.person(adminID), body, ""); err != nil || out["passed"] != false {
+		t.Fatalf("%v %v", out, err)
+	}
+}
+
+// A write the core refused is never in Clearance's records, so a person must look at it. It blocks the score of a run that began before it
+// was queued (it could be that run's); one queued long before the run began cannot be, and does not hold the run back.
+func TestScoreIsRefusedForARefusedWriteQueuedSinceTheRunStarted(t *testing.T) {
+	p, _, body, sid := pathsRig(t, 0, nil)
+	finish(p, sid)
+	ob := p.g.Core.Outbox.(*core.MemoryOutbox)
+	entry := core.Entry{Op: "outcome", DecisionID: "d-3", Body: map[string]any{"result": "opened PR 3",
+		"effect": map[string]any{"repo": "o/r", "pr": float64(3), "paths": []any{"secrets/prod.yaml"}}}}
+	// refused well before the run existed: it cannot be this run's
+	ob.Now = func() time.Time { return t0.Add(-24 * time.Hour) }
+	if _, err := ob.Add(ctx, entry, "refused", "core said no"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := p.g.PreflightScore(ctx, p.person(adminID), body, ""); err != nil || out["passed"] != true {
+		t.Fatalf("an old refusal held the score back: %v %v", out, err)
+	}
+	// refused since the run began
+	ob.Now = func() time.Time { return t0.Add(time.Hour) }
+	if _, err := ob.Add(ctx, entry, "refused", "core said no"); err != nil {
+		t.Fatal(err)
+	}
+	p.g.PreflightLedger = &dispatch.PreflightLedger{}
+	p.g.Preflight = p.g.PreflightLedger.Of
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != core.OutcomeRefusedRule || out != nil || ce.Hint == "" {
+		t.Fatalf("%v %v", out, err)
+	}
+	if p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatal("a refused score recorded a result")
+	}
+}

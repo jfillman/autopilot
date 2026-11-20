@@ -228,46 +228,114 @@ func collectPaths(raw []byte, session string, seen map[string]bool) (string, err
 	return n, nil
 }
 
-// OutboxPendingRule is the rule for a score refused while an outcome that carries an effect is still queued in the gateway's outbox.
-const OutboxPendingRule = "CORE-OUTBOX-PENDING"
+// OutboxPendingRule is the rule for a score refused while a write of a run (an outcome that carries an effect with paths) is queued in the
+// gateway's outbox or reached Clearance while the score was being made, and OutcomeRefusedRule for one the core refused, which never will.
+const (
+	OutboxPendingRule  = "CORE-OUTBOX-PENDING"
+	OutcomeRefusedRule = "CORE-OUTCOME-REFUSED"
+)
 
-// pendingScan is how many queued entries PendingEffects looks at; more than that cannot be told and counts as pending.
+// OutboxBlocked is a score that cannot be trusted because of what the outbox holds. Rule is OutboxPendingRule or OutcomeRefusedRule.
+type OutboxBlocked struct{ Rule, Msg, Hint string }
+
+func (e *OutboxBlocked) Error() string { return e.Msg }
+
+// pendingScan is how many outbox entries one check looks at; more than that cannot be told and blocks.
 const pendingScan = 1000
 
-// PendingEffects says whether the outbox holds an outcome that carries an effect (paths) and has not reached the core: such a write
-// is not in Clearance's records yet, so a read of them would miss it. A queued outcome names its decision, not its session, so this is
-// for the whole gateway, not one session; the outbox is empty while the core is reachable, so it is rarely true and clears when the
-// outbox drains. Entries the core refused (state refused) are not retried and are not pending.
-func (c *Core) PendingEffects(ctx context.Context) (bool, error) {
-	rows, err := c.Outbox.Pending(ctx, pendingScan)
+// carriesPaths says whether an outbox entry is an outcome whose effect names paths (or has an effect this code cannot read, which is not
+// known to be free of them).
+func carriesPaths(e Entry) bool {
+	if e.Op != "outcome" {
+		return false
+	}
+	eff, has := e.Body["effect"]
+	if !has || eff == nil {
+		return false
+	}
+	m, ok := eff.(map[string]any)
+	if !ok {
+		return true
+	}
+	switch ps := m["paths"].(type) {
+	case nil:
+		return false
+	case []any:
+		return len(ps) > 0
+	case []string:
+		return len(ps) > 0
+	}
+	return true
+}
+
+// EffectGuard closes the gap between the gateway's outbox and Clearance's records for one score. A write of a run reaches Clearance either
+// straight from the call or, when the core was unreachable, later from the outbox; a read of Clearance sees only the first kind and the
+// outbox's entries that have already been delivered. The guard (BeginEffectCheck before the read, Finish after it) therefore refuses a score
+// when a write that carries paths is, at any point of it, in neither place:
+//
+//   - before the read: an entry still pending (not in Clearance yet), or refused (the core will never take it), blocks. A refused entry
+//     blocks only scores of runs that started at or after it was queued (an outcome cannot predate its session), so one old refusal does not
+//     hold back every later run; a person still has to look at it (the hint says so). A pending entry blocks every score: it names its
+//     decision, not its session.
+//   - across the read: the outbox's greatest id is taken before anything else, and Finish blocks on any outcome with paths added after it,
+//     in any state: one queued after the first check, and one queued and then delivered between the read and Finish (in Clearance only
+//     after the read, so in neither place for it), are both caught. An entry at or below that id that was not pending or refused at the
+//     first check was delivered before the read.
+type EffectGuard struct {
+	c  *Core
+	hw int64
+}
+
+// BeginEffectCheck starts a score's check. since is when the earliest of the scored sessions was created (zero: not known, so every
+// refused entry counts).
+func (c *Core) BeginEffectCheck(ctx context.Context, since time.Time) (*EffectGuard, error) {
+	hw, err := c.Outbox.HighWater(ctx)
 	if err != nil {
-		return false, err
+		return nil, err
+	}
+	if !since.IsZero() {
+		since = since.Add(-time.Minute) // the database's clock and the gateway's are two clocks
+	}
+	rows, err := c.Outbox.Entries(ctx, OutboxQuery{States: []string{"pending", "refused"}, OutcomesOnly: true, Limit: pendingScan})
+	if err != nil {
+		return nil, err
 	}
 	for _, r := range rows {
-		if r.Entry.Op != "outcome" {
+		if !carriesPaths(r.Entry) {
 			continue
 		}
-		eff, has := r.Entry.Body["effect"]
-		if !has || eff == nil {
+		if r.State == "refused" && !since.IsZero() && r.At.Before(since) {
 			continue
 		}
-		m, ok := eff.(map[string]any)
-		if !ok {
-			return true, nil // an effect this code cannot read: not known to be free of paths
+		if r.State == "refused" {
+			return nil, &OutboxBlocked{Rule: OutcomeRefusedRule,
+				Msg:  fmt.Sprintf("the core refused the outcome of a write (outbox entry %d), so its paths are not in Clearance's records and the paths the run touched are not all known", r.ID),
+				Hint: "A person must look at it: the gateway's outbox entry (state refused, its error column says why) is a write Clearance never recorded. It blocks scores of runs started after it was queued; fix the cause and score a new run."}
 		}
-		switch ps := m["paths"].(type) {
-		case nil:
-		case []any:
-			if len(ps) > 0 {
-				return true, nil
-			}
-		case []string:
-			if len(ps) > 0 {
-				return true, nil
-			}
-		default:
-			return true, nil
+		return nil, &OutboxBlocked{Rule: OutboxPendingRule,
+			Msg:  "a write of a run is still queued to reach Clearance, so the paths the run touched are not all known yet",
+			Hint: "The gateway delivers it when Clearance is reachable. Score again then."}
+	}
+	if len(rows) >= pendingScan {
+		return nil, &OutboxBlocked{Rule: OutboxPendingRule, Msg: "too many entries wait in the outbox to tell whether a write of a run is among them", Hint: "Score again once the outbox has drained."}
+	}
+	return &EffectGuard{c: c, hw: hw}, nil
+}
+
+// Finish is the check after the read: no outcome with paths may have been added to the outbox since BeginEffectCheck, whatever became of it.
+func (g *EffectGuard) Finish(ctx context.Context) error {
+	rows, err := g.c.Outbox.Entries(ctx, OutboxQuery{AfterID: g.hw, OutcomesOnly: true, Limit: pendingScan})
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if carriesPaths(r.Entry) {
+			return &OutboxBlocked{Rule: OutboxPendingRule, Msg: "a write of a run was queued to reach Clearance while its paths were being read, so they are not all known",
+				Hint: "Score again: the write is in Clearance's records once it has been delivered."}
 		}
 	}
-	return len(rows) >= pendingScan, nil
+	if len(rows) >= pendingScan {
+		return &OutboxBlocked{Rule: OutboxPendingRule, Msg: "too many entries were queued while the paths were being read", Hint: "Score again once the outbox has drained."}
+	}
+	return nil
 }

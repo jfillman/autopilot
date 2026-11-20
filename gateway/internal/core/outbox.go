@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 )
 
 // MemoryOutbox is the outbox in memory: an ephemeral gateway, the conformance control interface and tests.
@@ -11,9 +12,12 @@ type MemoryOutbox struct {
 	mu   sync.Mutex
 	next int64
 	rows map[int64]*memRow
+	// Now stamps an entry when it is added (nil: time.Now).
+	Now func() time.Time
 }
 
 type memRow struct {
+	At     time.Time
 	Entry  Entry
 	Reason string
 	State  string
@@ -32,7 +36,11 @@ func (m *MemoryOutbox) Add(_ context.Context, e Entry, reason, errText string) (
 	if reason == "refused" {
 		st = "refused"
 	}
-	m.rows[m.next] = &memRow{Entry: e, Reason: reason, State: st, Err: errText}
+	now := time.Now
+	if m.Now != nil {
+		now = m.Now
+	}
+	m.rows[m.next] = &memRow{At: now(), Entry: e, Reason: reason, State: st, Err: errText}
 	return m.next, nil
 }
 
@@ -90,4 +98,41 @@ func (m *MemoryOutbox) Len(state string) int {
 		}
 	}
 	return n
+}
+
+func (m *MemoryOutbox) Entries(_ context.Context, q OutboxQuery) ([]OutboxRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []int64
+	for id, r := range m.rows {
+		if id <= q.AfterID || (q.OutcomesOnly && r.Entry.Op != "outcome") || (!q.Since.IsZero() && r.At.Before(q.Since)) {
+			continue
+		}
+		if len(q.States) > 0 {
+			ok := false
+			for _, s := range q.States {
+				ok = ok || s == r.State
+			}
+			if !ok {
+				continue
+			}
+		}
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	if q.Limit > 0 && len(ids) > q.Limit {
+		ids = ids[:q.Limit]
+	}
+	out := make([]OutboxRow, len(ids))
+	for i, id := range ids {
+		r := m.rows[id]
+		out[i] = OutboxRow{ID: id, Entry: r.Entry, State: r.State, At: r.At}
+	}
+	return out, nil
+}
+
+func (m *MemoryOutbox) HighWater(_ context.Context) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.next, nil
 }

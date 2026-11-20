@@ -192,15 +192,31 @@ type Entry struct {
 type Outbox interface {
 	Add(ctx context.Context, e Entry, reason string, errText string) (int64, error)
 	Pending(ctx context.Context, limit int) ([]OutboxRow, error)
+	// Entries lists the entries a query selects, in any state, oldest first (the Preflight score's check that no write of a run is
+	// outside Clearance's records); HighWater is the greatest id ever added (0: none).
+	Entries(ctx context.Context, q OutboxQuery) ([]OutboxRow, error)
+	HighWater(ctx context.Context) (int64, error)
 	HasPending(ctx context.Context) (bool, error)
 	Done(ctx context.Context, id int64, seq *int64) error
 	Refused(ctx context.Context, id int64, errText string) error
 }
 
-// OutboxRow is a pending entry with its id.
+// OutboxQuery selects outbox entries: those with an id above AfterID, in one of States (empty: every state), added at or after Since
+// (zero: any time), of the outcome op only when OutcomesOnly.
+type OutboxQuery struct {
+	AfterID      int64
+	States       []string // "pending", "done", "refused"
+	Since        time.Time
+	OutcomesOnly bool
+	Limit        int
+}
+
+// OutboxRow is an entry with its id (State and At are set by Entries).
 type OutboxRow struct {
 	ID    int64
 	Entry Entry
+	State string
+	At    time.Time
 }
 
 // Core is the gateway's Clearance core: one client (one breaker, one connection pool), the outbox, the outage switch.
