@@ -535,20 +535,33 @@ session.
   **`paths`**, the files the write named (the tools registered with `writes_files`: `repo.pr.open` and `repo.pr.open_upper`; a tool that
   proposes through them leaves the same receipt). The distinct `effect.paths` of all of a case's sessions, sorted, are the run's `PathsTouched`, which feeds both
   checks. A read or a refused call has no effect and adds none.
-- **Pages.** A page is `{"items": [...], "next": <seq>|null}`; `next` is set when the page is full and goes back as `after`. The gateway
-  follows it to the end (at most 50 pages of 200, 10,000 outcome records). A cursor that is not a number, does not advance or runs past the
+- **Pages.** A page is `{"items": [...], "next": <seq>|null}`. clearance-api lists newest first (`ORDER BY seq DESC`, `seq < after`), so
+  `next` is the last, smallest seq of a full page and goes back as `after`; it must be strictly smaller on every page. The gateway follows
+  it to the end (at most 50 pages of 200, 10,000 outcome records). A cursor that is not a number, does not decrease or runs past the
   cap is "unknown", never a partial list.
+- **Is the session visible at all?** clearance-api scopes evidence per viewer and drops what the caller may not see with a `200` and no
+  items, so an empty outcome list alone cannot tell "wrote nothing" from "cannot see". Before the outcomes the gateway reads one of
+  the session's non-outcome records (`outcomes=exclude&limit=1`; `session.open` exists for every session it opened). None visible is
+  unknown, not empty: `503` `CORE-NOT-VISIBLE`. A Preflight candidate's records carry the candidate's run name (`pf-<agent>-<fingerprint>`),
+  which is not a definition clearance-api knows, so an owner-group member sees them only through the task they opened (or as an auditor):
+  **score as the person who started the run** (Tower does, for the person it names), or read as an auditor. This was read from
+  clearance-api's scope (`evidenceScope`: agent in the viewer's owner-group agents, app, or a task the viewer opened), not run live.
+- **One time budget.** All the reads of one score request (every page, session and case) share 30 s (`PreflightReadBudget`); past it the
+  request is `503` `CORE-UNAVAILABLE`, not a timeout per page.
 - **Who it reads as.** The caller. The bearer token the person (or the delegate) presented to the score route is sent to clearance-api, and
   for a delegate the person it named in `X-Hangar-On-Behalf-Of`, so clearance-api's own per-person scoping applies: a person reads the
   outcomes of their runs, an agent's owner group the runs of its agents. The gateway never reads with an identity wider than the caller's.
   `CLEARANCE_API_URL` is what sets the address (Python's `api` already reads it; the Go `serve` reads it too, optional, `http(s)` only,
   redirects not followed, 10 s a request, 8 MiB an answer).
+- **The minimum is over the union.** `minPathsTouched` is checked against the distinct paths of all of a case's runs together (as
+  `RecordFromRuns` already combines the runs' results): a case that reads two runs passes with one path from each run if the sum reaches the
+  minimum.
 - **A session with no effects** is an empty list, which is known: the case fails with "nothing was changed" when it wants paths, and passes
   the out-of-scope check when nothing was written.
 - **When the paths cannot be read the score is refused, not made.** Fail closed was chosen over reporting a score with the paths marked
   unknown, because the score is one yes or no that the PR check and the ledger act on, and an empty list would pass the out-of-scope check
   vacuously. When clearance-api is unreachable or failing (a 5xx, a timeout, a cut answer) the route answers `503` `CORE-UNAVAILABLE`;
-  when it refuses (a 4xx, an answer that is not an evidence page, a malformed cursor or path) or none is configured (`CLEARANCE_API_URL`
+  when none of the session's records is visible to the caller it answers `503` `CORE-NOT-VISIBLE`; when it refuses (a 4xx, an answer that is not an evidence page, a malformed cursor or path) or none is configured (`CLEARANCE_API_URL`
   unset: the gateway logs a warning at start) it answers `503` `CORE-REFUSED`. The message says the paths are unknown. Nothing is written
   to the Preflight ledger, so the definition stays "not-run" until a score is made; the request is safe to repeat. A read-only case
   (`minPathsTouched: 0`, no `allowedPaths`) is no exception: a run that wrote something outside scope must still fail it. The read is made
@@ -556,8 +569,8 @@ session.
 - **Limits of what it knows.** Paths are as the call named them (a file path in its repository, not qualified by the repo, so allowed
   paths are one set for every repository a run wrote to). An outcome the gateway could not yet hand to the core waits in its outbox
   (`core.Outbox`) and is not in Clearance's records until it is drained: a score made in that window would miss it, so a case with a
-  minimum fails "nothing was changed" and the person re-scores. A caller clearance-api's scoping does not let see the session reads an empty
-  list; the route's own check (`mayManage`) is that the caller manages the agent, whose owner group clearance-api also lets read its runs.
+  minimum fails "nothing was changed" and the person re-scores. A caller clearance-api's scoping does not let see the session is refused
+  (`CORE-NOT-VISIBLE`), as above; the route's own check (`mayManage`) is wider than what clearance-api shows.
 
 Proof: `TestEffectPaths*` (`gateway/internal/core/outcomes_test.go`: records shaped as clearance-api serves them, pagination, no effects,
 every unknown), `TestScore*` (`gateway/internal/dispatch/preflight_paths_test.go`: a min-paths case that now passes, a write outside the

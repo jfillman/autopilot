@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/dispatch"
@@ -211,5 +212,55 @@ func TestScoreThroughTheRealOutcomeReader(t *testing.T) {
 	srv.Close()
 	if _, err = p.g.PreflightScore(ctx, p.person(adminID), body, ""); err == nil || ctlRule(err) != core.OutageRule {
 		t.Fatalf("an API that went away: %v", err)
+	}
+}
+
+// A caller clearance-api shows none of the run's records (it scopes evidence per viewer: a person sees the runs they started): the
+// real reader finds nothing visible and the score is refused with its own rule, even for a read-only case that an empty list would
+// have passed, and nothing is recorded.
+func TestScoreIsRefusedForARunTheCallerCannotSee(t *testing.T) {
+	p, _, body, sid := pathsRig(t, 0, nil)
+	finish(p, sid)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[],"next":null}`))
+	}))
+	defer srv.Close()
+	p.g.Effects = &core.OutcomeReader{BaseURL: srv.URL}
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	var ce *dispatch.ControlError
+	if !errors.As(err, &ce) || ce.Status != 503 || ce.Rule != core.NotVisibleRule || out != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+	if p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatal("a refused score recorded a result")
+	}
+}
+
+// One budget covers every read of a score request: a clearance-api that answers slowly cannot hold the request for a timeout per
+// page, session or case.
+func TestScoreReadsShareOneTimeBudget(t *testing.T) {
+	p, _, body, sid := pathsRig(t, 1, []string{"clusters/**"})
+	finish(p, sid)
+	p.g.PreflightBudget = 200 * time.Millisecond
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	p.g.Effects = &core.OutcomeReader{BaseURL: srv.URL}
+	start := time.Now()
+	out, err := p.g.PreflightScore(ctx, p.person(adminID), body, "")
+	if ctlRule(err) != core.OutageRule || out != nil {
+		t.Fatalf("%v %v", out, err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %s with a 200ms budget (the reader's own timeout is %s)", d, core.OutcomeTimeout)
+	}
+	if p.g.PreflightLedger.Of(p.g.Defs["researcher"]) != nil {
+		t.Fatal("a refused score recorded a result")
 	}
 }

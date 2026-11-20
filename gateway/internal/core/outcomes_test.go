@@ -30,13 +30,28 @@ type apiFake struct {
 	mu     sync.Mutex
 	reqs   []*http.Request
 	answer func(r *http.Request) (int, string)
+	// probe answers the visibility probe (the session's non-outcome records, limit 1); nil: one is visible, as for the person who started the run.
+	probe func(r *http.Request) (int, string)
+}
+
+// sessionOpen is the session.open record the core wrote when the session opened (a decision: it has no outcome_of).
+func sessionOpen(session string) string {
+	return fmt.Sprintf(`{"schema":"clearance.evidence/v1","seq":3,"hash":"%s","session":%q,"task_id":"t-1","principal":"user:alice","agent":"pf-coding-agent-abcdef01","tool":"session.open","decision":"allow","result":"opened"}`,
+		strings.Repeat("c", 64), session)
 }
 
 func (a *apiFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.reqs = append(a.reqs, r)
 	a.mu.Unlock()
-	code, body := a.answer(r)
+	answer := a.answer
+	if r.URL.Query().Get("outcomes") == "exclude" {
+		answer = func(*http.Request) (int, string) { return 200, page("null", sessionOpen(r.URL.Query().Get("session"))) }
+		if a.probe != nil {
+			answer = a.probe
+		}
+	}
+	code, body := answer(r)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_, _ = w.Write([]byte(body))
@@ -65,7 +80,11 @@ func TestEffectPathsReadsTheSessionsOutcomesAndDedupes(t *testing.T) {
 	if want := "clusters/dev/app.yaml,clusters/dev/b.yaml,docs/a.md"; strings.Join(got, ",") != want {
 		t.Fatalf("got %v want %s", got, want)
 	}
-	rq := f.reqs[0]
+	// the visibility probe first (non-outcome records, one), then the outcomes
+	if pq := f.reqs[0].URL.Query(); pq.Get("session") != "s-1" || pq.Get("outcomes") != "exclude" || pq.Get("limit") != "1" {
+		t.Fatalf("%s", f.reqs[0].URL)
+	}
+	rq := f.reqs[1]
 	if rq.URL.Path != "/v1/evidence" || rq.URL.Query().Get("session") != "s-1" || rq.URL.Query().Get("outcomes") != "only" || rq.URL.Query().Get("limit") != "200" ||
 		rq.URL.Query().Has("after") {
 		t.Fatalf("%s", rq.URL)
@@ -89,20 +108,21 @@ func TestEffectPathsNoEffectsIsAnEmptyListNotAnError(t *testing.T) {
 func TestEffectPathsFollowsThePagination(t *testing.T) {
 	r, f := serve(t, func(r *http.Request) (int, string) {
 		switch r.URL.Query().Get("after") {
+		// newest first, as clearance-api lists (ORDER BY seq DESC, seq < after): next is the last, smallest seq of a full page
 		case "":
-			return 200, page("20", outcome(10, "s-1", "repo.pr.open", `{"paths":["a.yaml"]}`), outcome(20, "s-1", "repo.pr.update", `{"paths":["b.yaml"]}`))
-		case "20":
-			return 200, page("30", outcome(30, "s-1", "repo.pr.update", `{"paths":["c.yaml","a.yaml"]}`))
+			return 200, page("30", outcome(40, "s-1", "repo.pr.open", `{"paths":["a.yaml"]}`), outcome(30, "s-1", "repo.pr.update", `{"paths":["b.yaml"]}`))
 		case "30":
-			return 200, page("null", outcome(40, "s-1", "repo.pr.update", `{"paths":["d.yaml"]}`))
+			return 200, page("10", outcome(20, "s-1", "repo.pr.update", `{"paths":["c.yaml","a.yaml"]}`), outcome(10, "s-1", "repo.pr.update", `{"paths":["e.yaml"]}`))
+		case "10":
+			return 200, page("null", outcome(5, "s-1", "repo.pr.update", `{"paths":["d.yaml"]}`))
 		}
 		return 400, `{"error":"after is a seq"}`
 	})
 	got, err := r.EffectPaths(context.Background(), "s-1", "tok", "")
-	if err != nil || strings.Join(got, ",") != "a.yaml,b.yaml,c.yaml,d.yaml" {
+	if err != nil || strings.Join(got, ",") != "a.yaml,b.yaml,c.yaml,d.yaml,e.yaml" {
 		t.Fatalf("%v %v", got, err)
 	}
-	if len(f.reqs) != 3 {
+	if len(f.reqs) != 4 { // the probe and three pages
 		t.Fatalf("%d requests", len(f.reqs))
 	}
 }
@@ -130,11 +150,11 @@ func TestEffectPathsUnknownIsAnErrorNeverAnEmptyList(t *testing.T) {
 		"a cursor that does not move": {func(*http.Request) (int, string) {
 			return 200, page("5", outcome(5, "s-1", "repo.pr.open", `{"paths":["a"]}`))
 		}, true},
-		"a cursor that goes backwards": {func(r *http.Request) (int, string) {
+		"a cursor that goes up": {func(r *http.Request) (int, string) {
 			if r.URL.Query().Get("after") == "" {
 				return 200, page("50", outcome(50, "s-1", "repo.pr.open", `{"paths":["a"]}`))
 			}
-			return 200, page("40", outcome(40, "s-1", "repo.pr.open", `{"paths":["b"]}`))
+			return 200, page("60", outcome(60, "s-1", "repo.pr.open", `{"paths":["b"]}`))
 		}, true},
 	}
 	for name, c := range cases {
@@ -178,11 +198,34 @@ func TestEffectPathsStopsAtThePageCap(t *testing.T) {
 	n := 0
 	r, _ := serve(t, func(*http.Request) (int, string) {
 		n++
-		return 200, page(fmt.Sprint(n*10), outcome(n*10, "s-1", "repo.pr.update", fmt.Sprintf(`{"paths":["f%d.yaml"]}`, n)))
+		return 200, page(fmt.Sprint(100000-n*10), outcome(100000-n*10, "s-1", "repo.pr.update", fmt.Sprintf(`{"paths":["f%d.yaml"]}`, n)))
 	})
 	got, err := r.EffectPaths(context.Background(), "s-1", "tok", "")
 	var pu *core.PathsUnknown
-	if !errors.As(err, &pu) || got != nil || n != core.OutcomeMaxPages {
+	if !errors.As(err, &pu) || got != nil || n != core.OutcomeMaxPages { // (the probe is answered by the fake, not counted)
 		t.Fatalf("%d pages: %v %v", n, got, err)
+	}
+}
+
+// clearance-api scopes evidence per viewer and answers 200 with nothing for what the caller may not see: with none of the session's
+// records visible, no outcomes are not "no effects", they are unknown (and no outcome page is even asked for).
+func TestEffectPathsNothingVisibleIsUnknownNotEmpty(t *testing.T) {
+	r, f := serve(t, func(*http.Request) (int, string) { return 200, page("null") })
+	f.probe = func(*http.Request) (int, string) { return 200, page("null") }
+	got, err := r.EffectPaths(context.Background(), "s-1", "tok", "user:bob")
+	var pu *core.PathsUnknown
+	if !errors.As(err, &pu) || got != nil || !pu.NotVisible || pu.Rule() != core.NotVisibleRule {
+		t.Fatalf("%v %v", got, err)
+	}
+	if len(f.reqs) != 1 {
+		t.Fatalf("%d requests: only the probe is made", len(f.reqs))
+	}
+	// the probe answered with something that is not a page, or refused
+	for name, pr := range map[string]func(*http.Request) (int, string){"not a page": func(*http.Request) (int, string) { return 200, `{}` },
+		"refused": func(*http.Request) (int, string) { return 403, `{}` }} {
+		f.probe = pr
+		if got, err := r.EffectPaths(context.Background(), "s-1", "tok", ""); err == nil || got != nil {
+			t.Errorf("%s: %v %v", name, got, err)
+		}
 	}
 }

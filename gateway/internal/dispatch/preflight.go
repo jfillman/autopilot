@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jfillman/autopilot/gateway/internal/core"
 	"github.com/jfillman/autopilot/gateway/internal/definitions"
@@ -35,6 +36,9 @@ const PreflightTier = "T1"
 type EffectPaths interface {
 	EffectPaths(ctx context.Context, session, token, onBehalfOf string) ([]string, error)
 }
+
+// PreflightReadBudget bounds all the reads of Clearance one score request makes (Gateway.PreflightBudget overrides it).
+const PreflightReadBudget = 30 * time.Second
 
 // PreflightKeep is how many candidate runs are remembered for scoring.
 const PreflightKeep = 500

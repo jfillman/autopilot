@@ -805,6 +805,14 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 	scores := []any{}
 	finished := true
 	fps := map[string]bool{}
+	// One budget for every read of Clearance in this request (all its pages, sessions and cases): without it each request could take
+	// its own timeout again and again.
+	budget := g.PreflightBudget
+	if budget <= 0 {
+		budget = PreflightReadBudget
+	}
+	readCtx, cancelReads := context.WithTimeout(ctx, budget)
+	defer cancelReads()
 	for _, it := range asked {
 		item, _ := it.(map[string]any)
 		cid, _ := item["case"].(string)
@@ -874,7 +882,7 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 		rec := g.RecordFromRuns(c, results, ev)
 		// The paths the runs' writes touched come from Clearance's outcome records, never from nothing: when they cannot be read the
 		// score is not made (and nothing is recorded), because an empty list would pass the out-of-scope check vacuously.
-		if rec.PathsTouched, err = g.touchedPaths(ctx, token, onBehalfOf, ids); err != nil {
+		if rec.PathsTouched, err = g.touchedPaths(readCtx, token, onBehalfOf, ids); err != nil {
 			return nil, err
 		}
 		v := ScoreView(ScoreRun(c, rec), rec)
@@ -914,7 +922,11 @@ func (g *Gateway) touchedPaths(ctx context.Context, token, onBehalfOf string, se
 			if errors.As(err, &pu) {
 				rule = pu.Rule()
 			}
-			return nil, &ControlError{rule, "the paths the run touched are unknown, so it is not scored: " + err.Error(), core.OutageHint, 503}
+			hint := core.OutageHint
+			if rule == core.NotVisibleRule {
+				hint = "Score as the person who started the run (Clearance shows a person the runs they started), or have the caller read as an auditor."
+			}
+			return nil, &ControlError{rule, "the paths the run touched are unknown, so it is not scored: " + err.Error(), hint, 503}
 		}
 		for _, p := range paths {
 			if !seen[p] {
