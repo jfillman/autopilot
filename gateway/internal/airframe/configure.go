@@ -102,7 +102,7 @@ func MergeValues(have, want any, path string, conflicts, replaced *[]string, rep
 			switch {
 			case !has:
 				out = append(out, item)
-			case !plPyEq(out[i], item):
+			case !StrictEq(out[i], item):
 				if replace {
 					out[i] = item
 					*replaced = append(*replaced, sub)
@@ -113,7 +113,7 @@ func MergeValues(have, want any, path string, conflicts, replaced *[]string, rep
 		}
 		return out
 	}
-	if !plPyEq(have, want) {
+	if !StrictEq(have, want) {
 		if path == "" {
 			path = "<root>"
 		}
@@ -164,4 +164,40 @@ func SortedStrings(l []string) []string {
 	out := append([]string(nil), l...)
 	sort.Strings(out)
 	return out
+}
+
+// StrictEq is configure's equality (_same): Python's == except that a bool equals only a bool (a file's `true` is not the patch's `1`),
+// mappings and lists compared recursively by the same rule. 1 and 1.0 stay equal, as in Python.
+func StrictEq(a, b any) bool {
+	ab, aIsBool := a.(bool)
+	bb, bIsBool := b.(bool)
+	if aIsBool || bIsBool {
+		return aIsBool && bIsBool && ab == bb
+	}
+	switch x := a.(type) {
+	case *definitions.OMap:
+		y, ok := b.(*definitions.OMap)
+		if !ok || len(x.Keys) != len(y.Keys) {
+			return false
+		}
+		for _, k := range x.Keys {
+			v, has := y.M[k]
+			if !has || !StrictEq(x.M[k], v) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i := range x {
+			if !StrictEq(x[i], y[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return plPyEq(a, b)
 }

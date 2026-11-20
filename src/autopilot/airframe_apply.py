@@ -368,6 +368,19 @@ def canonical(v: Any) -> Any:
     return v
 
 
+def _same(a: Any, b: Any) -> bool:
+    """configure's equality: Python's `==` except that a bool equals only a bool (so a file's `true` is not the patch's `1`, which
+    `True == 1` would call equal), mappings and lists compared recursively by the same rule. 1 and 1.0 stay equal (a whole number
+    reaches the Go gateway as an integer whichever way it was written, so the two gateways agree)."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    return a == b
+
+
 def _named(items: Any) -> bool:
     """A list of mappings that each have a unique string `name`: an entry is identified by it (slos, components, env...)."""
     if not isinstance(items, list):
@@ -398,14 +411,14 @@ def _merge_values(have: Any, want: Any, path: str, conflicts: list[str], replace
             sub = f"{path}[{item['name']}]"
             if item["name"] not in index:
                 out.append(item)
-            elif out[index[item["name"]]] != item:
+            elif not _same(out[index[item["name"]]], item):
                 if replace:
                     out[index[item["name"]]] = item
                     replaced.append(sub)
                 else:
                     conflicts.append(sub)
         return out
-    if have != want:
+    if not _same(have, want):
         if replace:
             replaced.append(path or "<root>")
             return want
@@ -514,7 +527,7 @@ def _merged_outcome(git: Any, repo: str, env: str, out: dict, number: Any, value
             raise
         raise Denied("CONFIGURE-SUPERSEDED", f"PR #{number} with this exact change was merged, and {repo} has no file for {env} any more",
                      "Someone changed the file since. Change the patch, or ask a person.") from e
-    if not conflicts and merged == have:
+    if not conflicts and _same(merged, have):
         return {**out, "path": path, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
                 "next": "Nothing to change; the file already has them."}
     raise Denied("CONFIGURE-SUPERSEDED", f"PR #{number} with this exact change was merged, and {path} no longer holds it",
@@ -575,7 +588,7 @@ def configure(git: Any, airframe: Any, session: Any, meta: dict[str, str], a: di
     if conflicts:
         raise Denied("CONFIGURE-CONFLICT", f"{repo} {path} already sets {', '.join(sorted(conflicts))} to a different value than the patch",
                      "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way).")
-    if merged == have:      # nothing to write: no full-file check (the file may be invalid elsewhere, which is not this patch's)
+    if _same(merged, have):      # nothing to write: no full-file check (the file may be invalid elsewhere, which is not this patch's)
         return {**out, "state": "noop", "reason": f"{path} already holds these values", "paths": [],
                 "next": "Nothing to change; the file already has them."}
     after = _chart_errors(merged)

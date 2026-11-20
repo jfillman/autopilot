@@ -660,6 +660,12 @@ def configure_cases():
     configure_case("the same SLO again changes nothing", {"slos": [CFG_SLO]}, with_slo)
     configure_case("the same name with other content is a conflict", {"slos": [{**CFG_SLO, "objective": 99.0}]}, with_slo)
     configure_case("replace makes the patch win for a same-named entry", {"slos": [{**CFG_SLO, "objective": 99.5}]}, with_slo, replace=True)
+    def cm(flag):
+        return [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x"}, "data": {"flag": flag}}]
+    manifests = lambda flag: {f"{CFG_ENVS}/dev.yaml": CFG_DEV + yaml.safe_dump({"extraManifests": cm(flag)})}
+    configure_case("a file's true is not the patch's 1: a conflict", {"extraManifests": cm(1)}, manifests(True))
+    configure_case("a file's 1 is not the patch's true: a conflict", {"extraManifests": cm(True)}, manifests(1))
+    configure_case("the same boolean is a noop", {"extraManifests": cm(True)}, manifests(True))
     configure_case("a scalar a person set is a conflict", {"rollout": {"replicas": 3}})
     configure_case("replace makes the patch win for a scalar", {"rollout": {"replicas": 3}}, replace=True)
     configure_case("the file is found by envName, not by its name", {"slos": [CFG_SLO]},

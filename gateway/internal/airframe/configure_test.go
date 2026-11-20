@@ -86,3 +86,12 @@ func TestChartErrorsPatchVersusWholeFile(t *testing.T) {
 		t.Fatal("extraManifests is the critical-risk key")
 	}
 }
+
+func TestStrictEqBoolIsNotANumber(t *testing.T) {
+	if StrictEq(true, int64(1)) || StrictEq(int64(1), true) || StrictEq(false, int64(0)) || !StrictEq(true, true) || !StrictEq(int64(1), 1.0) {
+		t.Fatal("a bool equals only a bool; 1 and 1.0 are equal")
+	}
+	if StrictEq(cfgDoc(t, map[string]any{"a": []any{true}}), cfgDoc(t, map[string]any{"a": []any{1}})) || !StrictEq(cfgDoc(t, map[string]any{"a": []any{1, false}}), cfgDoc(t, map[string]any{"a": []any{1.0, false}})) {
+		t.Fatal("recursive")
+	}
+}

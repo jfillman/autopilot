@@ -449,3 +449,26 @@ def test_a_merged_pr_found_by_the_second_lookup_is_judged_against_a_fresh_base(g
     hub.repos[APP]["main"][PATH] = DEV
     git.find_pr = lambda *a, **k: None
     assert refused(git).rule == "CONFIGURE-SUPERSEDED"
+
+
+# -- booleans are not numbers (CodeRabbit round 3) -----------------------------------------------------------------------------
+def test_a_bool_equals_only_a_bool_in_every_comparison_configure_makes():
+    same = airframe_apply._same
+    assert not same(True, 1) and not same(1, True) and not same(False, 0) and same(True, True) and same(1, 1.0)
+    assert not same({"a": [True]}, {"a": [1]}) and same({"a": [1, {"b": False}]}, {"a": [1.0, {"b": False}]})
+    assert not same({"a": 1}, {"a": 1, "b": 2})
+    c, r = [], []
+    airframe_apply._merge_values({"x": True}, {"x": 1}, "", c, r, False)
+    assert c == ["x"]
+    c = []
+    airframe_apply._merge_values({"l": [{"name": "n", "v": True}]}, {"l": [{"name": "n", "v": 1}]}, "", c, r, False)
+    assert c == ["l[n]"]
+
+
+def test_a_files_true_against_a_patch_of_1_is_a_conflict_not_a_noop(git, hub):
+    def cm(flag):
+        return [{"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "x"}, "data": {"flag": flag}}]
+    hub.repos[APP]["main"][PATH] = DEV + yaml.safe_dump({"extraManifests": cm(True)})
+    e = refused(git, values={"extraManifests": cm(1)})
+    assert e.rule == "CONFIGURE-CONFLICT" and "extraManifests" in e.message
+    assert configure(git, values={"extraManifests": cm(True)})["state"] == "noop"

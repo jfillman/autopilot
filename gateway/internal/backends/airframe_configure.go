@@ -236,7 +236,7 @@ func (ap *applier) configure(ctx context.Context, d *definitions.Definition, f S
 		if err != nil {
 			return nil, err
 		}
-		if len(conflicts) == 0 && airframe.PyEq(merged, have) {
+		if len(conflicts) == 0 && airframe.StrictEq(merged, have) {
 			return noop(path)
 		}
 		return nil, superseded(n, path)
@@ -286,7 +286,7 @@ func (ap *applier) configure(ctx context.Context, d *definitions.Definition, f S
 		return nil, &core.Denied{Rule: "CONFIGURE-CONFLICT", Message: repo + " " + path + " already sets " + strings.Join(airframe.SortedStrings(conflicts), ", ") + " to a different value than the patch",
 			Hint: "Name a new entry, change the patch to match, or pass replace: true to have the patch win (a person reviews the PR either way)."}
 	}
-	if airframe.PyEq(merged, have) { // nothing to write: no full-file check (the file may be invalid elsewhere, which is not this patch's)
+	if airframe.StrictEq(merged, have) { // nothing to write: no full-file check (the file may be invalid elsewhere, which is not this patch's)
 		return noop(path)
 	}
 	if errs := airframe.ChartErrors(merged, true); len(errs) > 0 {
