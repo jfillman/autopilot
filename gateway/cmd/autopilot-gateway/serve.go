@@ -37,8 +37,10 @@ const anthropicAPI = "https://api.anthropic.com"
 
 // config is the environment of a Go gateway: the Python gateway's variable names, for the part this slice carries.
 type config struct {
-	port, modelPort         int
-	coreURL, coreTokenFile  string
+	port, modelPort        int
+	coreURL, coreTokenFile string
+	// clearanceAPIURL is clearance-api (CLEARANCE_API_URL, optional): where a Preflight score reads the paths a run's writes touched.
+	clearanceAPIURL         string
 	dsn                     string
 	agentsDir               string
 	audience, modelAudience string
@@ -214,6 +216,9 @@ func configFromEnv(env func(string) string) (*config, error) {
 		return nil, configError("CLEARANCE_CORE_URL is an http(s) URL")
 	}
 	c.coreTokenFile = getenv(env, "CLEARANCE_CORE_TOKEN_FILE", "/var/run/secrets/tokens/clearance")
+	if c.clearanceAPIURL = env("CLEARANCE_API_URL"); c.clearanceAPIURL != "" && !strings.HasPrefix(c.clearanceAPIURL, "http://") && !strings.HasPrefix(c.clearanceAPIURL, "https://") {
+		return nil, configError("CLEARANCE_API_URL is an http(s) URL")
+	}
 	port, err := number(env, "PORT", 8080)
 	if err != nil {
 		return nil, err
@@ -496,6 +501,11 @@ func serve(_ []string) int {
 	g.RuntimeImages = cfg.runtimeImages
 	g.Fingerprint = dispatch.Fingerprint
 	g.PreflightLedger = &dispatch.PreflightLedger{}
+	if cfg.clearanceAPIURL != "" {
+		g.Effects = &core.OutcomeReader{BaseURL: cfg.clearanceAPIURL, Header: mcpserver.OnBehalfOfHeader}
+	} else {
+		log.Warn("CLEARANCE_API_URL is not set: Preflight scores are refused, because the paths a run touched cannot be read from Clearance")
+	}
 	g.Preflight = g.PreflightLedger.Of
 	casesDir := cfg.preflightCasesDir
 	if casesDir == "" {

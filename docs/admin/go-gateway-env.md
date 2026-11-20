@@ -53,7 +53,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `BACKSTAGE_TOKEN_FILE` | serve,api | serve,api | serve,api |  |
 | `BACKSTAGE_URL` | serve,api | serve,api | serve,api | Go needs https unless BACKSTAGE_ALLOW_HTTP=1. |
 | `BROKER_URL` | serve | serve | - | Python's default names a lab Service; Go has no default and needs https unless BROKER_ALLOW_HTTP=1. |
-| `CLEARANCE_API_URL` | api | api | api | Named in /v1/contract. |
+| `CLEARANCE_API_URL` | api | serve,api | api | Named in /v1/contract. Go's serve also reads it (optional, Go-only): a Preflight score reads the paths a run's writes touched from clearance-api's outcome records, and is refused (503) while it is unset. |
 | `CLEARANCE_CORE_TIMEOUT` | serve | serve | - | Seconds per attempt, 0.05 to 30. |
 | `CLEARANCE_CORE_TOKEN_FILE` | serve | serve | - | Default /var/run/secrets/tokens/clearance. |
 | `CLEARANCE_CORE_URL` | serve | serve | serve | Plain http is accepted for the core (it is a Service on the cluster network). |

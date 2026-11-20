@@ -40,11 +40,11 @@
   {
    "name": "CLEARANCE_API_URL",
    "python": "api",
-   "go": "api",
+   "go": "serve,api",
    "class": "same",
    "deployed": "api",
    "example": "http://clearance-api.clearance-system.svc:8080",
-   "note": "Named in /v1/contract."
+   "note": "Named in /v1/contract. Go's serve also reads it (optional, Go-only): a Preflight score reads the paths a run's writes touched from clearance-api's outcome records, and is refused (503) while it is unset."
   },
   {
    "name": "AUTOPILOT_AUDIENCE",

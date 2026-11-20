@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -871,6 +872,11 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 			continue
 		}
 		rec := g.RecordFromRuns(c, results, ev)
+		// The paths the runs' writes touched come from Clearance's outcome records, never from nothing: when they cannot be read the
+		// score is not made (and nothing is recorded), because an empty list would pass the out-of-scope check vacuously.
+		if rec.PathsTouched, err = g.touchedPaths(ctx, token, onBehalfOf, ids); err != nil {
+			return nil, err
+		}
 		v := ScoreView(ScoreRun(c, rec), rec)
 		v["finished"] = true
 		scores = append(scores, v)
@@ -888,6 +894,36 @@ func (g *Gateway) PreflightScore(ctx context.Context, token string, body any, on
 			}
 		}
 	}
+	return out, nil
+}
+
+// touchedPaths is the distinct paths touched by the effects of a case's sessions, read from the core's outcome records. Unknown is a
+// 503 control error (CORE-UNAVAILABLE when Clearance could not answer, CORE-REFUSED when it refused or answered nonsense, as every
+// other call that needs the core): retry the score; nothing was recorded.
+func (g *Gateway) touchedPaths(ctx context.Context, token, onBehalfOf string, sessions []string) ([]string, error) {
+	if g.Effects == nil {
+		return nil, &ControlError{core.RefusedRule, "the paths the run touched cannot be read: this gateway has no Clearance API configured (CLEARANCE_API_URL)", "", 503}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, sid := range sessions {
+		paths, err := g.Effects.EffectPaths(ctx, sid, token, onBehalfOf)
+		if err != nil {
+			var pu *core.PathsUnknown
+			rule := core.OutageRule
+			if errors.As(err, &pu) {
+				rule = pu.Rule()
+			}
+			return nil, &ControlError{rule, "the paths the run touched are unknown, so it is not scored: " + err.Error(), core.OutageHint, 503}
+		}
+		for _, p := range paths {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	sort.Strings(out)
 	return out, nil
 }
 

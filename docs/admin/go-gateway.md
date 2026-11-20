@@ -250,7 +250,7 @@ compares answers, sessions, rows and records with Python's (`testdata/people.jso
 | `human.request` and `human.request.get` from an agent, the pending list, answering, expiry with the session | `Gateway.SetInbox`, `HumanRequests`, `HumanAnswer`; the rows are `gateway_human_requests`, read and written either way | `TestInboxChecksEqualPython`, `TestInboxHandlersEqualPython`, `TestRowsEqualPython`, `TestHumanRequestAndAnswer`, `TestHumanRequestLimitsAndExpiry`, `pgstate` `TestTheInboxRoundTripsAndKeepsItsLimits` |
 | Person controls: freeze, end, hold, release | `FreezeSession`, `EndSession`, `HoldTriggers`, `ReleaseTriggers`; routes `POST /v1/sessions/{id}/freeze`, `/end`, `POST` and `DELETE /v1/agents/{agent}/hold` | `TestPersonOperationsEqualPython` (70 operations: answers, sessions, records and holds equal Python's), `TestControlSequencesEqualPython`, `TestThePeopleRoutes` |
 | A person's run: `POST /v1/agents/{agent}/runs`, with `document` and `budget` for a Preflight candidate | `Gateway.RunAgent`, then `RunAgentAs` (S2) | `TestRunAgentByThePersonRouteChecksWhoAndWhat`, `TestRunAgentRefusesAGrantForSomeoneElseOrWider`, `TestACandidateIsRefusedUntilTheSchemaIsCarriedThenRunsClamped` |
-| Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger | `TestPreflightCasesAndScore` |
+| Preflight: `GET /v1/preflight/cases`, `POST /v1/preflight/score` | the cases (YAML, `preflight/cases`), the checks, the score, the ledger; the paths a run touched, read from Clearance ([below](#what-a-preflight-score-reads-from-clearance)) | `TestPreflightCasesAndScore`, `TestScoreReadsThePathsFromClearanceSoAMinPathsCasePasses` |
 | `open_triggered`: a triggered run's session, with the agent's hold and any live session of the task in the evaluation | `Gateway.OpenTriggered`, `TriggeredRequest` | the replay's 31 triggered `session.open` lines against the real core, `TestOpenTriggeredOpensDedupesAndChecksTheGrant`, `TestOpenTriggeredRefusesWhatTheCoreShouldNotHaveGranted` |
 | The trigger ledger and the event cursor; a trigger fires once | `triggers.Ledger` on `gateway_trigger_launches` and `gateway_event_cursors` | `TestTheBridgeEqualsPython`, `TestACrashAtEachPointLeavesATriggerThatFiresOnce`, `TestEveryCrashWindowOfTheRealCodeKeepsTheTriggerOnceAndSafe`, `TestTriggersThroughTheRealGateway`, `pgstate` `TestTheLedgerClaimIsWonOnce` |
 | The event bridge: the stream, the catch-up from the cursor with `Last-Event-ID`, the storm brake, the history | `triggers.Bridge` | `TestTheStreamResumesFromTheCursorAndHandlesWhatItCarries`, `TestTheCursorOnlyFollowsIDsItCanTrust`, `TestMalformedAndOversizedEventsAreDroppedAndCounted`, `TestTheBridgeNeverFollowsARedirect`, `TestTheReconnectBackoffIsBounded` |
@@ -512,10 +512,57 @@ All of these leave the answer for ordinary inputs unchanged.
   brake per agent that follows a change of `maxPerHour` (Python keeps the first it saw). The topic matcher is a table, not Python's
   recursion, which is exponential in the number of `#` words and whose input is an event's routing key. An event whose id is not in the form
   ids have is dropped (Python accepts any string). A stream that ends in the middle of an event does not deliver it (as Python's parser).
+- **A Preflight score reads the paths a run touched from Clearance** (strip W-16, below). Python's `score` has no such input: it scores
+  `paths_touched` as empty, so a case with `minPathsTouched` above 0 never passes and the out-of-scope check passes vacuously. Go-only on
+  purpose (the decision was Go only); `src/autopilot/preflight.py` and the Python gateway are unchanged, so `PORTED.json` and the
+  `gen_gateway_*` replays have nothing to flag, and the difference is recorded here, in `envtable.json` (`CLEARANCE_API_URL`: Go's `serve`
+  reads it too) and in the tests named below.
 - **The Preflight fingerprint** is Go's own digest of the parsed definition (Python hashes its dataclass); the two gateways keep separate
   ledgers, so nothing compares them.
 - **The summary's overflow** drops the largest value first (Python: the last inserted); the bound is the same.
 - **A run's identity needs its pod** (the pod-binding rule, below), which Python does not check.
+
+### What a Preflight score reads from Clearance
+
+`POST /v1/preflight/score` scores a run against its case (`preflight/cases/*.yaml`). Two of the case's rules need the paths the run's
+writes touched: `minPathsTouched` ("a fix that changed nothing cannot pass") and `allowedPaths` (the out-of-scope check). The gateway has
+no record of them of its own, and none is added: at scoring time it reads them back from Clearance's **outcome records** for the run's
+session.
+
+- **Where.** clearance-api's `GET /v1/evidence?session=<id>&outcomes=only&limit=200[&after=<seq>]` (the contract's `listEvidence`; the
+  core itself serves no reads). `outcomes=only` is the records that carry `outcome_of`: the outcome the gateway reported after an allowed
+  call. Each record's `effect` is the receipt the gateway made from the call (`dispatch.effect`): `repo`, `pr`, `commit`, `branch` and
+  **`paths`**, the files the write named (the tools registered with `writes_files`: `repo.pr.open` and `repo.pr.open_upper`; a tool that
+  proposes through them leaves the same receipt). The distinct `effect.paths` of all of a case's sessions, sorted, are the run's `PathsTouched`, which feeds both
+  checks. A read or a refused call has no effect and adds none.
+- **Pages.** A page is `{"items": [...], "next": <seq>|null}`; `next` is set when the page is full and goes back as `after`. The gateway
+  follows it to the end (at most 50 pages of 200, 10,000 outcome records). A cursor that is not a number, does not advance or runs past the
+  cap is "unknown", never a partial list.
+- **Who it reads as.** The caller. The bearer token the person (or the delegate) presented to the score route is sent to clearance-api, and
+  for a delegate the person it named in `X-Hangar-On-Behalf-Of`, so clearance-api's own per-person scoping applies: a person reads the
+  outcomes of their runs, an agent's owner group the runs of its agents. The gateway never reads with an identity wider than the caller's.
+  `CLEARANCE_API_URL` is what sets the address (Python's `api` already reads it; the Go `serve` reads it too, optional, `http(s)` only,
+  redirects not followed, 10 s a request, 8 MiB an answer).
+- **A session with no effects** is an empty list, which is known: the case fails with "nothing was changed" when it wants paths, and passes
+  the out-of-scope check when nothing was written.
+- **When the paths cannot be read the score is refused, not made.** Fail closed was chosen over reporting a score with the paths marked
+  unknown, because the score is one yes or no that the PR check and the ledger act on, and an empty list would pass the out-of-scope check
+  vacuously. When clearance-api is unreachable or failing (a 5xx, a timeout, a cut answer) the route answers `503` `CORE-UNAVAILABLE`;
+  when it refuses (a 4xx, an answer that is not an evidence page, a malformed cursor or path) or none is configured (`CLEARANCE_API_URL`
+  unset: the gateway logs a warning at start) it answers `503` `CORE-REFUSED`. The message says the paths are unknown. Nothing is written
+  to the Preflight ledger, so the definition stays "not-run" until a score is made; the request is safe to repeat. A read-only case
+  (`minPathsTouched: 0`, no `allowedPaths`) is no exception: a run that wrote something outside scope must still fail it. The read is made
+  only once every run of the case has finished, so a run still going is `finished: false` with no read.
+- **Limits of what it knows.** Paths are as the call named them (a file path in its repository, not qualified by the repo, so allowed
+  paths are one set for every repository a run wrote to). An outcome the gateway could not yet hand to the core waits in its outbox
+  (`core.Outbox`) and is not in Clearance's records until it is drained: a score made in that window would miss it, so a case with a
+  minimum fails "nothing was changed" and the person re-scores. A caller clearance-api's scoping does not let see the session reads an empty
+  list; the route's own check (`mayManage`) is that the caller manages the agent, whose owner group clearance-api also lets read its runs.
+
+Proof: `TestEffectPaths*` (`gateway/internal/core/outcomes_test.go`: records shaped as clearance-api serves them, pagination, no effects,
+every unknown), `TestScore*` (`gateway/internal/dispatch/preflight_paths_test.go`: a min-paths case that now passes, a write outside the
+allowed paths that now fails, a read-only case that fails on a write, the unavailable and unconfigured refusals with no ledger write, a
+delegate's credentials, and the real reader against a fake clearance-api).
 
 ### What still refuses at the boundaries S3 leaves
 

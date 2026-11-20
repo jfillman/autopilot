@@ -193,3 +193,17 @@ func TestTheClearanceCoresSettingsAreRefusedNotIgnored(t *testing.T) {
 		}
 	}
 }
+
+// CLEARANCE_API_URL is optional on a serve (a Preflight score reads the paths a run touched from clearance-api through it) and an http(s) URL.
+func TestClearanceAPIURLIsOptionalAndHTTP(t *testing.T) {
+	c, err := configFromEnv(envOf(base(nil)))
+	if err != nil || c.clearanceAPIURL != "" {
+		t.Fatalf("%v %v", c, err)
+	}
+	if c, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_API_URL": "http://clearance-api.clearance-system.svc:8080"}))); err != nil || c.clearanceAPIURL != "http://clearance-api.clearance-system.svc:8080" {
+		t.Fatalf("%v %v", c, err)
+	}
+	if _, err = configFromEnv(envOf(base(map[string]string{"CLEARANCE_API_URL": "clearance-api:8080"}))); err == nil || !strings.Contains(err.Error(), "CLEARANCE_API_URL is an http(s) URL") {
+		t.Fatalf("%v", err)
+	}
+}
