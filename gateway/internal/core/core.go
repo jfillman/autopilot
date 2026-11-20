@@ -244,7 +244,7 @@ type Core struct {
 	// lostMu guards lostAt, the times an outcome that carries paths could be neither posted nor queued (see noteLost).
 	lostMu sync.Mutex
 	// storeMu orders the lost-outcome store's writes (Mark, Clear) the same way as their memory transitions, so a Mark that is
-	// slow cannot land after a ClearLost that came later. Taken before lostMu, and held across the store call; lostMu never is.
+	// slow cannot land after a ClearLost that came later. Taken before lostMu, and held across the store call; lostMu never is, and the in-memory marker never waits on storeMu.
 	storeMu    sync.Mutex
 	lostAt     time.Time
 	lostStore  LostStore // the durable copy of lostAt, when set (UseLostStore)

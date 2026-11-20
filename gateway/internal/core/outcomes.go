@@ -267,12 +267,13 @@ func (c *Core) UseLostStore(ctx context.Context, s LostStore) error {
 }
 
 // ClearLost forgets the lost-outcome marker, in memory and in its store: what a person does once the lost write has been looked at. A store
-// that cannot be written leaves the marker where it is, and says so.
+// that cannot be written leaves the marker where it is, and says so. It clears only the loss that stood when it began: a loss noted while the
+// store is being cleared stays in force (and is written to the store after).
 func (c *Core) ClearLost(ctx context.Context) error {
 	c.storeMu.Lock()
 	defer c.storeMu.Unlock()
 	c.lostMu.Lock()
-	s := c.lostStore
+	s, seen := c.lostStore, c.lostAt
 	c.lostMu.Unlock()
 	if s != nil {
 		if err := s.Clear(ctx); err != nil {
@@ -280,21 +281,22 @@ func (c *Core) ClearLost(ctx context.Context) error {
 		}
 	}
 	c.lostMu.Lock()
-	c.lostAt = time.Time{}
+	if c.lostAt.Equal(seen) {
+		c.lostAt = time.Time{}
+	}
 	c.lostMu.Unlock()
 	return nil
 }
 
 // noteLost records that an outcome with paths was lost (not posted, and not queued: the outbox could not be written either). It is held in
-// memory first, so it is in force at once, and then written to the lost-outcome store (a bounded context of its own, not the caller's). The
-// failure that loses an outcome is usually the outbox's store being unavailable, which may be the marker's store too: that write can fail,
-// and is logged; the marker then holds until a restart, as before the store existed. When it succeeds, a restart keeps it. Until cleared (or until
-// every run that could have made the outcome is older than it), a score of any run that began before it is refused.
+// memory first and at once (never behind the store, so a score's final check sees it even while an earlier marker write is slow), and then
+// written to the lost-outcome store (a bounded context of its own, not the caller's). The store write takes storeMu, which orders it with a
+// ClearLost, and writes the marker as it stands in memory when its turn comes: if a ClearLost has emptied it meanwhile, nothing is written, so a
+// slow Mark cannot bring a cleared marker back. The failure that loses an outcome is usually the outbox's store being unavailable, which may be
+// the marker's store too: that write can fail, and is logged; the marker then holds until a restart, as before the store existed. When it
+// succeeds, a restart keeps it. Until cleared (or until every run that could have made the outcome is older than it), a score of any run that
+// began before it is refused.
 func (c *Core) noteLost(at time.Time) {
-	// storeMu keeps this memory update and its Mark in the same order as a ClearLost's (see storeMu); lostMu is let go before the
-	// store call, so scores (lostSince) never wait on the database.
-	c.storeMu.Lock()
-	defer c.storeMu.Unlock()
 	c.lostMu.Lock()
 	if at.After(c.lostAt) {
 		c.lostAt = at
@@ -304,9 +306,17 @@ func (c *Core) noteLost(at time.Time) {
 	if s == nil {
 		return
 	}
+	c.storeMu.Lock()
+	defer c.storeMu.Unlock()
+	c.lostMu.Lock()
+	cur := c.lostAt
+	c.lostMu.Unlock()
+	if cur.IsZero() { // cleared by a person since: do not bring it back
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), outboxAddTimeout)
 	defer cancel()
-	if err := s.Mark(ctx, at); err != nil {
+	if err := s.Mark(ctx, cur); err != nil {
 		c.Log.Error("the lost-outcome marker could not be stored: a restart forgets it", "err", err.Error())
 	}
 }

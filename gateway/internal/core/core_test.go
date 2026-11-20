@@ -423,10 +423,11 @@ type slowMark struct {
 	at      time.Time
 	entered chan struct{}
 	release chan struct{}
+	once    sync.Once
 }
 
 func (m *slowMark) Mark(_ context.Context, at time.Time) error {
-	close(m.entered)
+	m.once.Do(func() { close(m.entered) })
 	<-m.release
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -483,4 +484,45 @@ func TestClearLostIsOrderedAfterAMarkInFlight(t *testing.T) {
 	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour)); err != nil {
 		t.Fatalf("still refused after the clear: %v", err)
 	}
+}
+
+// A second loss noted while the first marker write is still in flight is in force at once: a score's final check does not wait for the store.
+func TestASecondLossIsInForceWhileTheFirstMarkIsInFlight(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &slowMark{entered: make(chan struct{}), release: make(chan struct{})}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	lose := func() chan struct{} {
+		done := make(chan struct{})
+		go func() {
+			c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+			close(done)
+		}()
+		return done
+	}
+	first := lose()
+	<-store.entered // the first Mark is under way and blocked
+	between := time.Now()
+	time.Sleep(5 * time.Millisecond)
+	second := lose()
+	deadline := time.Now().Add(5 * time.Second)
+	var blocked *core.OutboxBlocked
+	for {
+		_, err := c.BeginEffectCheck(ctx, between)
+		if errors.As(err, &blocked) && blocked.Rule == core.OutcomeLostRule {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the second loss was not in force while the first Mark was in flight: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(store.release)
+	<-first
+	<-second
 }
