@@ -411,6 +411,10 @@ func serve(_ []string) int {
 		return 2
 	}
 	c := core.New(cl, pgstate.NewOutbox(st), cfg.allowReads)
+	if err := c.UseLostStore(ctx, pgstate.NewLostMarker(st)); err != nil {
+		log.Error(err.Error())
+		return 1
+	}
 
 	bundled, err := definitions.LoadDir(cfg.agentsDir, reg)
 	if err != nil {

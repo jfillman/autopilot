@@ -24,6 +24,13 @@ import (
 const goSchema = `ALTER TABLE gateway_trigger_launches ADD COLUMN IF NOT EXISTS failures integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS first_failed_at timestamptz, ADD COLUMN IF NOT EXISTS last_failed_at timestamptz`
 
+// goLostSchema is the Go gateway's lost-outcome marker: one row at most (the primary key is the constant true), the time of the last outcome
+// with paths that could be neither posted nor queued (core.LostStore). Additive and idempotent (IF NOT EXISTS), and no Python statement
+// touches it. Migrate runs it whenever the table is missing, however complete the rest of the schema is.
+const goLostSchema = `CREATE TABLE IF NOT EXISTS gateway_lost_outcome (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  lost_at timestamptz NOT NULL)`
+
 //go:embed schema.sql
 var schema string
 
@@ -76,9 +83,11 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*State, error) {
 		s.Close(ctx)
 		return nil, fmt.Errorf("schema: %w", err)
 	}
-	if _, err := pool.Exec(ctx, goSchema); err != nil {
-		s.Close(ctx)
-		return nil, fmt.Errorf("schema: %w", err)
+	for _, stmt := range []string{goSchema, goLostSchema} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			s.Close(ctx)
+			return nil, fmt.Errorf("schema: %w", err)
+		}
 	}
 	// The read API's indexes are not created here: a plain CREATE INDEX blocks the writes of a table for as long as it builds. They are
 	// made by `autopilot-gateway migrate` (Migrate), which the deployment runs before the gateway starts; serve checks them (dbindex).
@@ -372,8 +381,8 @@ func (o *Outbox) Entries(ctx context.Context, q core.OutboxQuery) ([]core.Outbox
 	return entries(ctx, o.st.Pool, q)
 }
 
-// withPaths is core.carriesPaths in SQL: an outcome whose effect is not an object, or whose effect names paths (not null, not empty).
-const withPaths = "(body->'effect' IS NOT NULL AND jsonb_typeof(body->'effect') <> 'null' AND (jsonb_typeof(body->'effect') <> 'object' OR " +
+// withPaths is core.CarriesPaths in SQL: an outcome (op = 'outcome': a record or any other op never carries paths, whatever its body says) whose effect is not an object, or whose effect names paths (not null, not empty).
+const withPaths = "(op = 'outcome' AND body->'effect' IS NOT NULL AND jsonb_typeof(body->'effect') <> 'null' AND (jsonb_typeof(body->'effect') <> 'object' OR " +
 	"(body #> '{effect,paths}' IS NOT NULL AND jsonb_typeof(body #> '{effect,paths}') <> 'null' AND body #> '{effect,paths}' <> '[]'::jsonb)))"
 
 // entries builds its query from what is asked, with a literal predicate for each (never `$n IS NULL OR ...`, which a generic plan could

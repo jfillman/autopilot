@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -330,5 +331,254 @@ func TestEffectGuardFinishBlocksAnOutcomeLostWhileItsOutboxQueryRuns(t *testing.
 	var blocked *core.OutboxBlocked
 	if err := g.Finish(ctx); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
 		t.Fatalf("%v", err)
+	}
+}
+
+// memLost is a LostStore that outlives a Core, as a database does.
+type memLost struct {
+	at   time.Time
+	fail bool
+}
+
+func (m *memLost) Mark(_ context.Context, at time.Time) error {
+	if m.fail {
+		return errors.New("the marker store is down")
+	}
+	if at.After(m.at) {
+		m.at = at
+	}
+	return nil
+}
+func (m *memLost) Load(context.Context) (time.Time, error) { return m.at, nil }
+func (m *memLost) Clear(context.Context) error             { m.at = time.Time{}; return nil }
+
+// The lost-outcome marker is set when an outcome with paths is lost, is read back by a new core over the same store (a restart), and is
+// gone once cleared.
+func TestTheLostOutcomeMarkerSurvivesARestartAndIsCleared(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &memLost{}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-time.Hour)
+	fc.Down.Store(true)
+	c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+	if store.at.IsZero() { // set
+		t.Fatal("the marker was not stored")
+	}
+	// restart: a new core over the same store, with a healthy outbox, still refuses
+	c2 := core.New(fc.Client(200*time.Millisecond), core.NewMemoryOutbox(), false)
+	if _, err := c2.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("a fresh core with no store knew of a loss: %v", err)
+	}
+	if err := c2.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	var blocked *core.OutboxBlocked
+	if _, err := c2.BeginEffectCheck(ctx, t0); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("the marker did not survive the restart: %v", err)
+	}
+	if _, err := c2.BeginEffectCheck(ctx, time.Now().Add(time.Hour)); err != nil { // a run that began after it
+		t.Fatalf("a later run was refused: %v", err)
+	}
+	// clear
+	if err := c2.ClearLost(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c2.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("still refused after the clear: %v", err)
+	}
+	c3 := core.New(fc.Client(200*time.Millisecond), core.NewMemoryOutbox(), false)
+	if err := c3.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c3.BeginEffectCheck(ctx, t0); err != nil {
+		t.Fatalf("the clear did not reach the store: %v", err)
+	}
+}
+
+// A marker store that cannot be written still leaves the marker in force in this process.
+func TestALostOutcomeIsKeptInMemoryWhenItsStoreIsDown(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, &memLost{fail: true}); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+	var blocked *core.OutboxBlocked
+	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour)); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("%v", err)
+	}
+}
+
+// slowMark is a LostStore whose Mark waits to be released, to hold a Mark open while a ClearLost is attempted.
+type slowMark struct {
+	mu      sync.Mutex
+	at      time.Time
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (m *slowMark) Mark(_ context.Context, at time.Time) error {
+	m.once.Do(func() { close(m.entered) })
+	<-m.release
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if at.After(m.at) {
+		m.at = at
+	}
+	return nil
+}
+func (m *slowMark) Load(context.Context) (time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.at, nil
+}
+func (m *slowMark) Clear(context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.at = time.Time{}
+	return nil
+}
+
+// A ClearLost that comes while a Mark is still being written waits for it, so the Mark cannot land after the clear and bring the marker
+// back on a restart.
+func TestClearLostIsOrderedAfterAMarkInFlight(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &slowMark{entered: make(chan struct{}), release: make(chan struct{})}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	outcomeDone := make(chan struct{})
+	go func() {
+		c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+		close(outcomeDone)
+	}()
+	<-store.entered // the Mark is under way
+	cleared := make(chan error, 1)
+	go func() { cleared <- c.ClearLost(ctx) }()
+	select {
+	case <-cleared:
+		t.Fatal("ClearLost did not wait for the Mark in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(store.release)
+	<-outcomeDone
+	if err := <-cleared; err != nil {
+		t.Fatal(err)
+	}
+	if at, _ := store.Load(ctx); !at.IsZero() {
+		t.Fatal("the Mark landed after the clear")
+	}
+	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("still refused after the clear: %v", err)
+	}
+}
+
+// A second loss noted while the first marker write is still in flight is in force at once: a score's final check does not wait for the store.
+func TestASecondLossIsInForceWhileTheFirstMarkIsInFlight(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &slowMark{entered: make(chan struct{}), release: make(chan struct{})}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	lose := func() chan struct{} {
+		done := make(chan struct{})
+		go func() {
+			c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+			close(done)
+		}()
+		return done
+	}
+	first := lose()
+	<-store.entered                        // the first Mark is under way and blocked
+	between := time.Now().Add(time.Minute) // BeginEffectCheck looks a minute back: a run that began now is refused only for a loss from now on
+	time.Sleep(5 * time.Millisecond)
+	second := lose()
+	deadline := time.Now().Add(5 * time.Second)
+	var blocked *core.OutboxBlocked
+	for {
+		_, err := c.BeginEffectCheck(ctx, between)
+		if errors.As(err, &blocked) && blocked.Rule == core.OutcomeLostRule {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the second loss was not in force while the first Mark was in flight: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(store.release)
+	<-first
+	<-second
+}
+
+// A loss noted after ClearLost was called but before it got the store is kept, in force and in the store, and ClearLost says so.
+func TestClearLostKeepsALossNotedWhileItWaited(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &slowMark{entered: make(chan struct{}), release: make(chan struct{})}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	lose := func() chan struct{} {
+		done := make(chan struct{})
+		go func() {
+			c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+			close(done)
+		}()
+		return done
+	}
+	first := lose()
+	<-store.entered // the first Mark holds the store
+	seen := make(chan struct{})
+	c.OnClearLostSeen = func() { close(seen) }
+	cleared := make(chan error, 1)
+	go func() { cleared <- c.ClearLost(ctx) }() // reads the first loss, then waits for the store
+	<-seen
+	between := time.Now().Add(time.Minute) // BeginEffectCheck looks a minute back: a run that began now is refused only for a loss from now on
+	time.Sleep(5 * time.Millisecond)
+	second := lose()
+	// wait until the second loss is in force (it is in memory before its store write), then let the store go
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var b *core.OutboxBlocked
+		if _, err := c.BeginEffectCheck(ctx, between); errors.As(err, &b) && b.Rule == core.OutcomeLostRule {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second loss never came into force")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(store.release)
+	<-first
+	<-second
+	if err := <-cleared; !errors.Is(err, core.ErrNewerLoss) {
+		t.Fatalf("ClearLost = %v, want ErrNewerLoss", err)
+	}
+	var blocked *core.OutboxBlocked
+	if _, err := c.BeginEffectCheck(ctx, between); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("the newer loss was cleared: %v", err)
+	}
+	if at, _ := store.Load(ctx); at.Before(between.Add(-time.Minute)) {
+		t.Fatalf("the newer loss is not in the store: %v", at)
 	}
 }
