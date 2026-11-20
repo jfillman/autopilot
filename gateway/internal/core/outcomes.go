@@ -362,12 +362,6 @@ func (c *Core) BeginEffectCheck(ctx context.Context, since time.Time) (*EffectGu
 
 // Finish is the check after the read: no outcome with paths may have been added to the outbox since BeginEffectCheck, whatever became of it.
 func (g *EffectGuard) Finish(ctx context.Context) error {
-	// An outcome lost during the read (after BeginEffectCheck's check) is in neither place either.
-	if g.c.lostSince(g.lostCut) {
-		return &OutboxBlocked{Rule: OutcomeLostRule,
-			Msg:  "a write's outcome could be neither delivered nor queued while the paths were being read, so the paths the run touched are not all known",
-			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
-	}
 	rows, err := g.c.Outbox.Entries(ctx, OutboxQuery{AfterID: g.hw, OutcomesOnly: true, WithPaths: true, Limit: 1})
 	if err != nil {
 		return err
@@ -375,6 +369,13 @@ func (g *EffectGuard) Finish(ctx context.Context) error {
 	if len(rows) > 0 {
 		return &OutboxBlocked{Rule: OutboxPendingRule, Msg: "a write of a run was queued to reach Clearance while its paths were being read, so they are not all known",
 			Hint: "Score again: the write is in Clearance's records once it has been delivered."}
+	}
+	// An outcome lost during the read (after BeginEffectCheck's check) is in neither place either. Checked last, after the outbox query, so
+	// one lost while that query ran is seen too.
+	if g.c.lostSince(g.lostCut) {
+		return &OutboxBlocked{Rule: OutcomeLostRule,
+			Msg:  "a write's outcome could be neither delivered nor queued while the paths were being read, so the paths the run touched are not all known",
+			Hint: "A person must look at the gateway's logs (outbox errors) and the run's writes; score a new run once the outbox is healthy. A restart of the gateway forgets this."}
 	}
 	return nil
 }

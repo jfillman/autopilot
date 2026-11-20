@@ -291,3 +291,44 @@ func TestEffectGuardFinishBlocksAnOutcomeLostDuringTheRead(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// lossInEntries is an outbox that cannot be written and, once armed, runs fire (which loses an outcome) from inside its next Entries query.
+type lossInEntries struct {
+	*core.MemoryOutbox
+	armed bool
+	fire  func()
+}
+
+func (o *lossInEntries) Add(context.Context, core.Entry, string, string) (int64, error) {
+	return 0, errors.New("the outbox store is down")
+}
+
+func (o *lossInEntries) Entries(ctx context.Context, q core.OutboxQuery) ([]core.OutboxRow, error) {
+	if o.armed {
+		o.armed = false
+		o.fire()
+	}
+	return o.MemoryOutbox.Entries(ctx, q)
+}
+
+// An outcome lost while Finish's own outbox query runs is seen: the lost-outcome check comes after that query.
+func TestEffectGuardFinishBlocksAnOutcomeLostWhileItsOutboxQueryRuns(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ob := &lossInEntries{MemoryOutbox: core.NewMemoryOutbox()}
+	c := core.New(fc.Client(200*time.Millisecond), ob, false)
+	ctx := context.Background()
+	g, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	ob.fire = func() {
+		c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"secrets/prod.yaml"}}})
+	}
+	ob.armed = true
+	var blocked *core.OutboxBlocked
+	if err := g.Finish(ctx); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
+		t.Fatalf("%v", err)
+	}
+}
