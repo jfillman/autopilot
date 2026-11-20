@@ -277,6 +277,9 @@ func (c *Core) ClearLost(ctx context.Context) error {
 	c.lostMu.Lock()
 	seen := c.lostAt
 	c.lostMu.Unlock()
+	if c.OnClearLostSeen != nil {
+		c.OnClearLostSeen()
+	}
 	c.storeMu.Lock()
 	defer c.storeMu.Unlock()
 	c.lostMu.Lock()

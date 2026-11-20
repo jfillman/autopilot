@@ -245,11 +245,14 @@ type Core struct {
 	lostMu sync.Mutex
 	// storeMu orders the lost-outcome store's writes (Mark, Clear) the same way as their memory transitions, so a Mark that is
 	// slow cannot land after a ClearLost that came later. Taken before lostMu, and held across the store call; lostMu never is, and the in-memory marker never waits on storeMu.
-	storeMu    sync.Mutex
-	lostAt     time.Time
-	lostStore  LostStore // the durable copy of lostAt, when set (UseLostStore)
-	OnDecision func(decisionID string)
-	OnPosted   func(e Entry, ref client.RecordRef)
+	storeMu   sync.Mutex
+	lostAt    time.Time
+	lostStore LostStore // the durable copy of lostAt, when set (UseLostStore)
+	// OnClearLostSeen, when set, is called by ClearLost once it has read the marker and before it waits for the store: a test seam, so a
+	// test can order a later loss after that read without sleeping.
+	OnClearLostSeen func()
+	OnDecision      func(decisionID string)
+	OnPosted        func(e Entry, ref client.RecordRef)
 }
 
 // New builds a Core. definitions is the client for PUT /v1/definitions (a longer timeout and its own breaker); nil

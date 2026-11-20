@@ -506,8 +506,8 @@ func TestASecondLossIsInForceWhileTheFirstMarkIsInFlight(t *testing.T) {
 		return done
 	}
 	first := lose()
-	<-store.entered // the first Mark is under way and blocked
-	between := time.Now()
+	<-store.entered                        // the first Mark is under way and blocked
+	between := time.Now().Add(time.Minute) // BeginEffectCheck looks a minute back: a run that began now is refused only for a loss from now on
 	time.Sleep(5 * time.Millisecond)
 	second := lose()
 	deadline := time.Now().Add(5 * time.Second)
@@ -548,13 +548,26 @@ func TestClearLostKeepsALossNotedWhileItWaited(t *testing.T) {
 	}
 	first := lose()
 	<-store.entered // the first Mark holds the store
+	seen := make(chan struct{})
+	c.OnClearLostSeen = func() { close(seen) }
 	cleared := make(chan error, 1)
-	go func() { cleared <- c.ClearLost(ctx) }() // has read the first loss, now waits
-	time.Sleep(50 * time.Millisecond)
-	between := time.Now()
+	go func() { cleared <- c.ClearLost(ctx) }() // reads the first loss, then waits for the store
+	<-seen
+	between := time.Now().Add(time.Minute) // BeginEffectCheck looks a minute back: a run that began now is refused only for a loss from now on
 	time.Sleep(5 * time.Millisecond)
 	second := lose()
-	time.Sleep(50 * time.Millisecond)
+	// wait until the second loss is in force (it is in memory before its store write), then let the store go
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var b *core.OutboxBlocked
+		if _, err := c.BeginEffectCheck(ctx, between); errors.As(err, &b) && b.Rule == core.OutcomeLostRule {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second loss never came into force")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	close(store.release)
 	<-first
 	<-second
@@ -565,7 +578,7 @@ func TestClearLostKeepsALossNotedWhileItWaited(t *testing.T) {
 	if _, err := c.BeginEffectCheck(ctx, between); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
 		t.Fatalf("the newer loss was cleared: %v", err)
 	}
-	if at, _ := store.Load(ctx); at.Before(between) {
+	if at, _ := store.Load(ctx); at.Before(between.Add(-time.Minute)) {
 		t.Fatalf("the newer loss is not in the store: %v", at)
 	}
 }
