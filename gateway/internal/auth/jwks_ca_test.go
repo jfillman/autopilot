@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -45,9 +44,9 @@ func TestJWKSTrustCAFile(t *testing.T) {
 	if err := j.TrustCAFile(ca); err != nil {
 		t.Fatal(err)
 	}
-	// The answer holds no key, so the fetch may still fail; it must not fail in the TLS handshake.
-	if _, _, err := j.fetch(context.Background()); err != nil && strings.Contains(err.Error(), "x509") {
-		t.Fatalf("the trusted CA was not used: %v", err)
+	// The answer holds no key (fetch accepts an empty set; only run rejects it), but the fetch itself must succeed.
+	if _, _, err := j.fetch(context.Background()); err != nil {
+		t.Fatalf("the fetch with the trusted CA failed: %v", err)
 	}
 }
 
