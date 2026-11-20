@@ -1685,6 +1685,10 @@ token is logged):
   is allowed for loopback hosts (local runs) and, for any other host, only with `AUTOPILOT_JWKS_ALLOW_HTTP=1` (a Go-only
   setting, off by default): the lab that serves Dex over http turns it on in its render, and `serve` logs a warning naming
   the host at start. Nothing in the code treats a host name such as `.local` as special.
+- `AUTOPILOT_JWKS_CA_FILE` (Go only, default unset) names a PEM file of CA certificates the key-set fetches trust in
+  addition to the system roots, for an issuer inside the cluster that serves https with a certificate from the
+  cluster's own CA (the https URL then needs no `AUTOPILOT_JWKS_ALLOW_HTTP`). It adds to the system pool for the key-set
+  client only; an unreadable file or one with no certificate refuses to start.
 - An unknown `kid` refetches the key set at most once a minute after a successful fetch, however many requests ask, and at
   most once every 5 seconds after a failed one, so a blip at the issuer does not lock sign-in out for a minute. The fetch
   runs detached from the request that triggered it (a caller that names an unknown `kid` and hangs up cannot cancel it);

@@ -18,7 +18,8 @@ type authConfig struct {
 	oidcAllowed                                       []string
 	towerCluster, towerIssuer, towerJWKS              string
 	towerAccounts                                     []string
-	allowHTTP                                         bool // AUTOPILOT_JWKS_ALLOW_HTTP: a JWKS URL may be plain http (a lab issuer)
+	allowHTTP                                         bool   // AUTOPILOT_JWKS_ALLOW_HTTP: a JWKS URL may be plain http (a lab issuer)
+	caFile                                            string // AUTOPILOT_JWKS_CA_FILE: extra CA certificates (PEM) the key-set fetches trust
 }
 
 func csv(v string) []string {
@@ -35,6 +36,7 @@ func csv(v string) []string {
 func authConfigFromEnv(env func(string) string) (authConfig, error) {
 	var a authConfig
 	a.allowHTTP = boolEnv(env, "AUTOPILOT_JWKS_ALLOW_HTTP", false)
+	a.caFile = env("AUTOPILOT_JWKS_CA_FILE")
 	issuer, audience := env("AUTOPILOT_OIDC_ISSUER"), env("AUTOPILOT_OIDC_AUDIENCE")
 	if (issuer != "") != (audience != "") {
 		return a, configError("AUTOPILOT_OIDC_ISSUER and AUTOPILOT_OIDC_AUDIENCE are set together or not at all")
@@ -78,6 +80,11 @@ func (a authConfig) build(foreignAudience string, workload dispatch.Authenticato
 		}
 		if u, _ := url.Parse(raw); u != nil && u.Scheme == "http" && !loopback(u.Hostname()) {
 			slog.Warn("a JWKS is fetched over plain http (AUTOPILOT_JWKS_ALLOW_HTTP is on): its keys can be replaced by anyone on the path", "host", u.Host, "setting", setting)
+		}
+		if a.caFile != "" {
+			if err := keys.TrustCAFile(a.caFile); err != nil {
+				return nil, configError("AUTOPILOT_JWKS_CA_FILE: " + err.Error())
+			}
 		}
 		sets = append(sets, keys)
 		return keys, nil

@@ -13,12 +13,12 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | Class | Variables |
 |---|---|
 | Same name, same meaning (Go may be stricter: see the note) | 69 |
-| New in Go (the Python gateway has no such setting) | 27 |
+| New in Go (the Python gateway has no such setting) | 28 |
 | Refused at start by both gateways | 12 |
 | Renamed AUTOPILOT_* at R-10a; the old name is refused by both | 13 |
 | Not carried: Python reads it, Go does not | 2 |
 | Set on the pod and read by no process | 2 |
-| Total | 125 |
+| Total | 126 |
 
 ## Same name, same meaning (Go may be stricter: see the note)
 
@@ -104,6 +104,7 @@ Columns: **Python** and **Go** are the processes that read it (`serve` the gatew
 | `AGENT_XRS_TOOLS` | - | serve | - | Tools a pin may hold beyond the default set. |
 | `AIRFRAME_OWNER` | - | serve | - | Owner of the tenants repository and the apps' repositories (Python assumes one lab user). One of GITHUB_OWNERS. |
 | `AUTOPILOT_JWKS_ALLOW_HTTP` | - | serve,api | - | Plain http to an OIDC or Tower key set (default off). |
+| `AUTOPILOT_JWKS_CA_FILE` | - | serve,api | - | PEM file of extra CA certificates the OIDC and Tower key-set fetches trust, added to the system roots (default none): an in-cluster issuer serving a certificate from the cluster's own CA. |
 | `BACKSTAGE_ALLOW_HTTP` | - | serve,api | - | Plain http to the catalog (default off). |
 | `BROKER_ALLOW_HTTP` | - | serve | - | Plain http to the installation-token broker (default off). |
 | `CLEARANCE_API_ALLOW_HTTP` | - | serve | - | Plain http to clearance-api, where a Preflight score reads the paths a run touched with the caller's token (default off). Not read by api. |

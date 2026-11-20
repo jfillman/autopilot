@@ -6,6 +6,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +75,29 @@ func NewJWKS(rawURL string, allowHTTP bool) (*JWKS, error) {
 		return nil, err
 	}
 	return &JWKS{URL: rawURL}, nil
+}
+
+// TrustCAFile makes this key set's fetches trust the PEM certificates in the file as well as the system roots
+// (AUTOPILOT_JWKS_CA_FILE: an in-cluster issuer serving a certificate from the cluster's own CA). It adds to the system
+// pool, never replaces it, and only this key set's client is affected. A file with no certificate is an error.
+func (j *JWKS) TrustCAFile(path string) error {
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return errors.New(path + " holds no PEM certificate")
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	c := newJWKSClient()
+	c.Transport = tr
+	j.HTTP = c
+	return nil
 }
 
 // checkJWKSURL: https, or http for a loopback host (local runs and tests), or http for any host only when the operator
