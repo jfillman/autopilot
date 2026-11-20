@@ -269,14 +269,19 @@ func (c *Core) UseLostStore(ctx context.Context, s LostStore) error {
 // ClearLost forgets the lost-outcome marker, in memory and in its store: what a person does once the lost write has been looked at. A store
 // that cannot be written leaves the marker where it is, and says so.
 func (c *Core) ClearLost(ctx context.Context) error {
+	c.storeMu.Lock()
+	defer c.storeMu.Unlock()
 	c.lostMu.Lock()
-	defer c.lostMu.Unlock()
-	if c.lostStore != nil {
-		if err := c.lostStore.Clear(ctx); err != nil {
+	s := c.lostStore
+	c.lostMu.Unlock()
+	if s != nil {
+		if err := s.Clear(ctx); err != nil {
 			return err
 		}
 	}
+	c.lostMu.Lock()
 	c.lostAt = time.Time{}
+	c.lostMu.Unlock()
 	return nil
 }
 
@@ -286,6 +291,10 @@ func (c *Core) ClearLost(ctx context.Context) error {
 // and is logged; the marker then holds until a restart, as before the store existed. When it succeeds, a restart keeps it. Until cleared (or until
 // every run that could have made the outcome is older than it), a score of any run that began before it is refused.
 func (c *Core) noteLost(at time.Time) {
+	// storeMu keeps this memory update and its Mark in the same order as a ClearLost's (see storeMu); lostMu is let go before the
+	// store call, so scores (lostSince) never wait on the database.
+	c.storeMu.Lock()
+	defer c.storeMu.Unlock()
 	c.lostMu.Lock()
 	if at.After(c.lostAt) {
 		c.lostAt = at

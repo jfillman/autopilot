@@ -610,7 +610,7 @@ session.
     it is not held back. The gateway reads the marker back at start, so **a restart no longer forgets it**. The write can itself fail, since the
     failure that loses an outcome may be the database being down: it is logged ("the lost-outcome marker could not be stored") and the marker then
     holds in memory only, until a restart, as before. `Core.ClearLost` removes it (memory and table) once a person has looked at the lost write; there is
-    no endpoint for it yet (delete the row). The table is created by `autopilot-gateway migrate` and by the gateway's own start (`CREATE TABLE IF NOT EXISTS`,
+    no endpoint for it yet: stop the gateway, delete the row, and start it again (deleting the row alone does not reset the running core's in-memory marker, and an in-flight write could recreate the row while the gateway runs). The table is created by `autopilot-gateway migrate` and by the gateway's own start (`CREATE TABLE IF NOT EXISTS`,
     additive, safe to repeat, and migrate adds it to a database that has everything else). The Python gateway has no Preflight outbox guard, so there is no Python twin of it.
   - *Which cases the cut-off covers.* The cut-off for a refused outbox entry is the earliest session of the cases that are being scored, not of
     every case named: a case still running is not read, so an older unfinished case does not widen it.

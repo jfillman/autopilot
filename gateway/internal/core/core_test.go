@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -413,5 +414,73 @@ func TestALostOutcomeIsKeptInMemoryWhenItsStoreIsDown(t *testing.T) {
 	var blocked *core.OutboxBlocked
 	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour)); !errors.As(err, &blocked) || blocked.Rule != core.OutcomeLostRule {
 		t.Fatalf("%v", err)
+	}
+}
+
+// slowMark is a LostStore whose Mark waits to be released, to hold a Mark open while a ClearLost is attempted.
+type slowMark struct {
+	mu      sync.Mutex
+	at      time.Time
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (m *slowMark) Mark(_ context.Context, at time.Time) error {
+	close(m.entered)
+	<-m.release
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if at.After(m.at) {
+		m.at = at
+	}
+	return nil
+}
+func (m *slowMark) Load(context.Context) (time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.at, nil
+}
+func (m *slowMark) Clear(context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.at = time.Time{}
+	return nil
+}
+
+// A ClearLost that comes while a Mark is still being written waits for it, so the Mark cannot land after the clear and bring the marker
+// back on a restart.
+func TestClearLostIsOrderedAfterAMarkInFlight(t *testing.T) {
+	fc := fakecore.New()
+	defer fc.Close()
+	ctx := context.Background()
+	store := &slowMark{entered: make(chan struct{}), release: make(chan struct{})}
+	c := core.New(fc.Client(200*time.Millisecond), failingOutbox{core.NewMemoryOutbox()}, false)
+	if err := c.UseLostStore(ctx, store); err != nil {
+		t.Fatal(err)
+	}
+	fc.Down.Store(true)
+	outcomeDone := make(chan struct{})
+	go func() {
+		c.Outcome(ctx, "d-1", core.OutcomeArgs{Result: "ok", Effect: &client.Effect{Paths: []string{"a.yaml"}}})
+		close(outcomeDone)
+	}()
+	<-store.entered // the Mark is under way
+	cleared := make(chan error, 1)
+	go func() { cleared <- c.ClearLost(ctx) }()
+	select {
+	case <-cleared:
+		t.Fatal("ClearLost did not wait for the Mark in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(store.release)
+	<-outcomeDone
+	if err := <-cleared; err != nil {
+		t.Fatal(err)
+	}
+	if at, _ := store.Load(ctx); !at.IsZero() {
+		t.Fatal("the Mark landed after the clear")
+	}
+	if _, err := c.BeginEffectCheck(ctx, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("still refused after the clear: %v", err)
 	}
 }

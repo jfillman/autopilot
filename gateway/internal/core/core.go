@@ -242,7 +242,10 @@ type Core struct {
 	// OnDecision and OnPosted, when set, see each decision id the core answered and each entry it took with its
 	// record reference. Only the conformance control interface sets them (to report what it was answered).
 	// lostMu guards lostAt, the times an outcome that carries paths could be neither posted nor queued (see noteLost).
-	lostMu     sync.Mutex
+	lostMu sync.Mutex
+	// storeMu orders the lost-outcome store's writes (Mark, Clear) the same way as their memory transitions, so a Mark that is
+	// slow cannot land after a ClearLost that came later. Taken before lostMu, and held across the store call; lostMu never is.
+	storeMu    sync.Mutex
 	lostAt     time.Time
 	lostStore  LostStore // the durable copy of lostAt, when set (UseLostStore)
 	OnDecision func(decisionID string)
