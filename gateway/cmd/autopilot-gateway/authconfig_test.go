@@ -78,3 +78,15 @@ func TestBuiltChainWithoutOIDCRefusesNonWorkloadTokens(t *testing.T) {
 		t.Fatal("accepted")
 	}
 }
+
+func TestAuthConfigJWKSCAFile(t *testing.T) {
+	env := base(map[string]string{"AUTOPILOT_OIDC_ISSUER": "https://dex.example/dex", "AUTOPILOT_OIDC_AUDIENCE": "c", "AUTOPILOT_OIDC_ALLOWED_USERS": "*",
+		"AUTOPILOT_JWKS_CA_FILE": "/nonexistent/ca.crt"})
+	cfg, err := configFromEnv(envOf(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = cfg.auth.build("clearance", nil); err == nil || !strings.Contains(err.Error(), "AUTOPILOT_JWKS_CA_FILE") {
+		t.Fatalf("an unreadable CA file must refuse to start, got %v", err)
+	}
+}

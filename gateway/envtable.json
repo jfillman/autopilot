@@ -673,6 +673,14 @@
    "note": "Plain http to an OIDC or Tower key set (default off)."
   },
   {
+   "name": "AUTOPILOT_JWKS_CA_FILE",
+   "python": "",
+   "go": "serve,api",
+   "class": "new",
+   "example": "/etc/ssl/jwks-ca/ca.crt",
+   "note": "PEM file of extra CA certificates the OIDC and Tower key-set fetches trust, added to the system roots (default none): an in-cluster issuer serving a certificate from the cluster's own CA."
+  },
+  {
    "name": "OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP",
    "python": "",
    "go": "serve,api",
