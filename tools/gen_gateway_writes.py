@@ -760,7 +760,8 @@ def repo_cases():
 
 # -- refusals before any request --------------------------------------------------------------------------------------
 
-SHARED_FILE_REFUSALS = ("a protected path", "CODEOWNERS in any case", "a path that is not normal", "a path with ..", "an absolute path")
+SHARED_FILE_REFUSALS = ("a protected path", "CODEOWNERS in any case", "a path that is not normal", "a path with ..", "an absolute path", "a path with a newline", "a protected directory with a newline in a name",
+                       "a name read as another (colon)", "a name read as another (trailing space)", "a name read as another (short name)")
 
 
 def refusal_cases():
@@ -800,6 +801,10 @@ def refusal_cases():
         ("an absolute path", [{"path": "/etc/x", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
         ("a .git component", [{"path": "x/.git/config", "content": "x"}], {"rule": "GH-FILES", "message": "a path may not hold a .git component", "hint": "Fix the files list."}),
         ("a path named twice", [{"path": "a", "content": "x"}, {"path": "A", "content": "y"}], {"rule": "GH-FILES", "message": "a path is named twice", "hint": "Fix the files list."}),
+        ("a protected directory with a newline in a name", [{"path": ".github/a\nb.yml", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
+        ("a name read as another (colon)", [{"path": "docs/.github::$DATA", "content": "x"}], {"rule": "GH-PATH", "message": "'docs/.github::$DATA' has a name a file system reads as another name", "hint": "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}),
+        ("a name read as another (trailing space)", [{"path": ".github /x", "content": "x"}], {"rule": "GH-PATH", "message": "'.github /x' has a name a file system reads as another name", "hint": "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}),
+        ("a name read as another (short name)", [{"path": "GITHUB~1/x", "content": "x"}], {"rule": "GH-PATH", "message": "'GITHUB~1/x' has a name a file system reads as another name", "hint": "Use plain file names: no trailing space or dot, no `~1` short names, no `:`."}),
         ("a path with a newline", [{"path": "a\nb", "content": "x"}], {"rule": "GH-FILES", "message": "each file needs a normal repository path and text content under 1 MiB", "hint": "Fix the files list."}),
         ("more than 8 MiB in all", [{"path": f"f{i}", "content": "x" * (1 << 20)} for i in range(9)], {"rule": "GH-FILES", "message": "a PR carries at most 8 MiB of files in total", "hint": "Split the change."}),
     ):

@@ -31,6 +31,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -50,6 +51,9 @@ MAX_FILES = 50
 MAX_FILE_BYTES = 1 << 20
 
 
+_SHORT_NAME = re.compile(r"~[0-9]")
+
+
 def check_deny_paths(files: list[dict], deny_paths: Any = None) -> None:
     """Refuse a PR that writes a protected path: the check Go's EnsurePR makes (GH-PATH), before any request. deny_paths is
     the calling agent's definition's list; the baseline always applies, so a caller that has no definition (None) gets it alone."""
@@ -59,10 +63,13 @@ def check_deny_paths(files: list[dict], deny_paths: Any = None) -> None:
         if not isinstance(path, str):
             continue                    # open_pr refuses it as a bad file
         try:
-            if normalize(path) != path:
+            if normalize(path) != path or any(unicodedata.category(c) == "Cc" for c in path):
                 raise BadPath(path)
         except BadPath:
             raise Denied("GH-FILES", "each file needs a normal repository path and text content under 1 MiB", "Fix the files list.") from None
+        if any(seg != seg.strip() or seg.endswith(".") or _SHORT_NAME.search(seg) or ":" in seg for seg in path.split("/")):
+            raise Denied("GH-PATH", f"{path[:100]!r} has a name a file system reads as another name",
+                         "Use plain file names: no trailing space or dot, no `~1` short names, no `:`.")
         if path_protected(path, deny):
             raise Denied("GH-PATH", f"{path[:100]!r} is a protected path",
                          "An agent does not change protected paths (CI, ownership, release files); ask a person.")

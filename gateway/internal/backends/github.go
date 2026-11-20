@@ -733,7 +733,9 @@ func oddName(p string) bool {
 	return false
 }
 
-func hasWildcard(s string) bool { return strings.ContainsAny(s, "*?[") }
+// hasWildcard is the wildcards globBody knows: `*` and `?`. `[` is a literal there, so it is one here (or a path that is the
+// literal directory of `deploy/[prod]/values.yaml` would not be seen as its ancestor).
+func hasWildcard(s string) bool { return strings.ContainsAny(s, "*?") }
 
 // ancestorOfDenied says a path is a proper ancestor of what a deny pattern names by its literal leading directories: a
 // blob written at `deploy` replaces the directory `deploy` and takes `deploy/prod/values.yaml` with it. Patterns that start

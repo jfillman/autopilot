@@ -68,7 +68,7 @@ func globRegexp(g string, strict bool) *regexp.Regexp {
 	if strict {
 		end = `\z`
 	}
-	re, err := regexp.Compile(`\A` + globBody(g) + end)
+	re, err := regexp.Compile(`(?s)\A` + globBody(g) + end)
 	if err != nil {
 		re = regexp.MustCompile(`\A\z.`) // matches nothing
 	}

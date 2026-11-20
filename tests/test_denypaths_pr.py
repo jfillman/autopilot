@@ -113,3 +113,31 @@ def test_the_gateway_hands_apply_and_propose_the_agents_deny_paths():
     from autopilot import gateway
     src = inspect.getsource(gateway.hangar_handlers)
     assert src.count("deny_paths=_deny_paths(definitions, s)") >= 5     # open, open_upper, apply, configure, propose
+
+
+# -- CodeRabbit: `**` crosses a newline, `[` is a literal, odd names are refused outright --------------------------------------------
+def test_a_double_star_deny_matches_a_path_with_a_newline():
+    from autopilot.engine.scope import path_protected
+    assert path_protected("docs/a\nb.md", ["docs/**"])
+    assert path_protected("a\nb/release.yaml", ["**/release.yaml"])
+    assert not path_protected("docs2/a\nb.md", ["docs/**"]), "`*` still stays inside one segment"
+
+
+def test_a_bracket_in_a_deny_glob_is_a_literal_in_the_ancestor_test_too():
+    from autopilot.engine.scope import path_protected
+    deny = ["deploy/[prod]/values.yaml"]
+    assert path_protected("deploy/[prod]/values.yaml", deny)
+    assert path_protected("deploy/[prod]", deny), "a file written there replaces the directory"
+    assert path_protected("deploy", deny)
+    assert not path_protected("deploy/p", deny)
+
+
+@pytest.mark.parametrize("path,rule", [("docs/a\nb.md", "GH-FILES"), ("docs/a\x07b.md", "GH-FILES"), ("docs/a\tb.md", "GH-FILES"),
+                                       ("docs/a:b", "GH-PATH"), ("docs/a ", "GH-PATH"), ("docs/a.", "GH-PATH"), ("docs/A~1/x", "GH-PATH")])
+def test_control_characters_and_odd_names_are_refused_outright_as_go_does(git, hub, path, rule):
+    with pytest.raises(Denied) as e:
+        git.open_pr(APP, "agent/x", "t", [{"path": path, "content": "x"}], deny_paths=("docs/**",))
+    assert e.value.rule == rule
+    if rule == "GH-PATH":
+        assert e.value.message == f"{path!r} has a name a file system reads as another name"
+    no_requests(hub)
